@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Branch protection requires the `test (...)` checks, but GitHub has no
+      # native per-branch conditional required checks — so the gating lives
+      # here. Release-please PRs only touch CHANGELOG/version files; report the
+      # check green without running the suite so the auto-generated release PR
+      # can merge. A job-level `if` would instead report "skipped", which a
+      # required check treats as unsatisfied and blocks the merge.
+      - name: Determine whether to run tests
+        id: gate
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" \
+                && "${{ github.head_ref }}" == release-please--branches--* ]]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Release-please PR — skipping test suite and reporting the gate as passed."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.gate.outputs.run == 'true'
+        with:
+          python-version: "3.11"
+
+      - name: Install bats and parallel (macOS)
+        if: steps.gate.outputs.run == 'true' && runner.os == 'macOS'
+        run: brew install bats-core parallel
+
+      - name: Install bats and parallel (Linux)
+        if: steps.gate.outputs.run == 'true' && runner.os == 'Linux'
+        run: |
+          sudo npm install -g bats
+          sudo apt-get install -y parallel
+          bats --version
+
+      - name: Install pytest, pytest-xdist and rich
+        if: steps.gate.outputs.run == 'true'
+        # rich is a runtime dependency of scripts/unit-test-benchmark-display.py; the
+        # benchmark-display tests import it, so CI needs it to run (not skip) them.
+        run: python3 -m pip install "pytest>=7,<9" pytest-xdist rich
+
+      - name: Run tests
+        if: steps.gate.outputs.run == 'true'
+        run: ./bin/run-tests.sh

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# commit-msg hook — enforces Conventional Commits with required scope
+
+set -euo pipefail
+
+MSG_FILE="$1"
+MSG=$(head -n1 "$MSG_FILE")
+
+# Skip merge, revert, fixup, and squash commits
+case "$MSG" in
+  Merge\ *|Revert\ *|fixup!*|squash!*) exit 0 ;;
+esac
+
+TYPES="feat|fix|perf|refactor|docs|test|chore|ci"
+PATTERN="^($TYPES)\([^)]+\)!?: .+"
+
+if ! printf '%s' "$MSG" | grep -qE "$PATTERN"; then
+  echo "❌ Commit message must follow Conventional Commits with a scope." >&2
+  echo "   Format: type(scope): description" >&2
+  echo "   Types:  feat, fix, perf, refactor, docs, test, chore, ci" >&2
+  echo "   Got:    $MSG" >&2
+  exit 1
+fi

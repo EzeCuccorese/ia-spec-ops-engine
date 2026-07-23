@@ -1,0 +1,4 @@
+[tool.pytest.ini_options]
+python_files = ["test_*.py", "*_test.py"]
+addopts = "-ra --strict-markers --import-mode=importlib"
+norecursedirs = "node_modules .venv venv .git .pytest_cache .claude"
