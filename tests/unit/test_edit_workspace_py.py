@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-_toolkit_dir = Path(__file__).parent.parent
+_toolkit_dir = Path(__file__).resolve().parent.parent.parent
 _gw_dir = _toolkit_dir / 'bin' / 'generate-workspace'
 _ew_dir = _toolkit_dir / 'bin' / 'edit-workspace'
 sys.path.insert(0, str(_toolkit_dir))
