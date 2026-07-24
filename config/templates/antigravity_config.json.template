@@ -1,0 +1,25 @@
+{
+  "settings": {
+    "artifactReviewMode": "ARTIFACT_REVIEW_MODE_TURBO",
+    "autoExecutionPolicy": "CASCADE_COMMANDS_AUTO_EXECUTION_EAGER",
+    "fileAccessPolicy": "AGENT_SETTING_POLICY_ALLOW"
+  },
+  "userSettings": {
+    "customThemeSeedsLight": {
+      "background": "#EEEEEE",
+      "foregroundOverride": "#101010",
+      "primary": "#007acc"
+    },
+    "globalPermissionGrants": {
+      "allow": [
+        "command(git add)",
+        "command(git commit)",
+        "command(git status)",
+        "command(git diff)",
+        "execute_url(localhost)"
+      ]
+    },
+    "themeMode": "THEME_MODE_LIGHT",
+    "useAiCredits": true
+  }
+}

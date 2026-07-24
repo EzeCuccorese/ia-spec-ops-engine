@@ -1,4 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "devscripts"
+version = "0.1.0"
+description = "Herramienta unificada de automatización para desarrollo y orquestación de workspaces de IA"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["devscripts", "utils.py"]
+
 [tool.pytest.ini_options]
 python_files = ["test_*.py", "*_test.py"]
+testpaths = ["tests/unit", "bin", "docker", "scripts"]
 addopts = "-ra --strict-markers --import-mode=importlib"
-norecursedirs = "node_modules .venv venv .git .pytest_cache .claude"
+norecursedirs = ["node_modules", ".venv", "venv", ".git", ".pytest_cache", ".claude"]
