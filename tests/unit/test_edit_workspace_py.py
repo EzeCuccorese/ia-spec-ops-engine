@@ -85,7 +85,7 @@ class TestAddReposManifestPatch(unittest.TestCase):
             patch('configure_workspace_repos.configure_repos', return_value=configs),
             patch('configure_workspace_repos.pre_validate', return_value=[]),
             patch('generate_workspace.setup_repo_worktree', side_effect=setup_side_effect),
-            patch('render_claude_md.render_claude_md', return_value='# CLAUDE.md content'),
+            patch('render_agents_md.render_agents_md', return_value='# CLAUDE.md content'),
             patch('sys.argv', ['add_repos.py', '--workspace-dir', str(self.ws_dir), '--toolkit-dir', str(self.toolkit_dir)]),
         ]
         with __import__('contextlib').ExitStack() as stack:
@@ -186,7 +186,7 @@ class TestAddReposErrorHandling(unittest.TestCase):
              patch('configure_workspace_repos.configure_repos', return_value=configs), \
              patch('configure_workspace_repos.pre_validate', return_value=[]), \
              patch('generate_workspace.setup_repo_worktree', side_effect=worktree_side_effect), \
-             patch('render_claude_md.render_claude_md', return_value=''), \
+             patch('render_agents_md.render_agents_md', return_value=''), \
              patch('sys.argv', ['add_repos.py', '--workspace-dir', str(self.ws_dir), '--toolkit-dir', str(self.toolkit_dir)]):
             add_repos.main()
         data = json.loads(self.manifest_path.read_text())
@@ -195,7 +195,7 @@ class TestAddReposErrorHandling(unittest.TestCase):
         self.assertNotIn('bad-repo', names)
 
     def test_claude_md_regen_failure_does_not_crash(self):
-        """render_claude_md failure should warn but not exit non-zero."""
+        """render_agents_md failure should warn but not exit non-zero."""
         from configure_workspace_repos import RepoConfig
         cfg = RepoConfig(name='new-repo', mode='new', branch='test-ws', parent='main')
         with patch('generate_workspace.load_env', return_value={'AI_REPOSITORIES_DIR': '/fake/repos'}), \
@@ -204,7 +204,7 @@ class TestAddReposErrorHandling(unittest.TestCase):
              patch('configure_workspace_repos.configure_repos', return_value=[cfg]), \
              patch('configure_workspace_repos.pre_validate', return_value=[]), \
              patch('generate_workspace.setup_repo_worktree'), \
-             patch('render_claude_md.render_claude_md', side_effect=KeyError('workspace_name')), \
+             patch('render_agents_md.render_agents_md', side_effect=KeyError('workspace_name')), \
              patch('sys.argv', ['add_repos.py', '--workspace-dir', str(self.ws_dir), '--toolkit-dir', str(self.toolkit_dir)]):
             # Should NOT raise — CLAUDE.md failure is caught and warned
             add_repos.main()

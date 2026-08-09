@@ -3,7 +3,7 @@
 ## Core Working Rules
 
 - **`git commit` and `git push` are freely permitted on feature branches** (any branch other than `main`, `master`, `develop`, `staging`). On protected branches (`main`, `master`), explicit written authorization from the user is required.
-- **FORBIDDEN to mention Artificial Intelligence usage**: Do not include phrases like "Generated with Claude Code", robot emojis such as 🤖, or any reference to AI generation in PR titles, descriptions, commits, or comments.
+- **FORBIDDEN to mention Artificial Intelligence usage**: Do not include phrases like "Generated with AI", robot emojis such as 🤖, or any reference to AI generation in PR titles, descriptions, commits, or comments.
 
 ---
 

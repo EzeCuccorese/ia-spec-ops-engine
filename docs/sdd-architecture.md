@@ -1,21 +1,39 @@
-# Arquitectura SDD & Adaptadores Multi-IA
+# SDD Architecture & Multi-AI Adapters
 
-El motor de **Spec-Driven Development (SDD)** del toolkit opera sobre artefactos Markdown estándar dentro de `.specify/`:
+The **Spec-Driven Development (SDD)** engine in the toolkit operates on standardized Markdown artifacts and state files inside `.specify/`:
 
-- `.specify/constitution/`: Principios de arquitectura y reglas del proyecto.
-- `.specify/specs/`: Especificaciones y planes (`spec.md`, `plan.md`, `tasks.md`).
-- `.specify/memory.md`: Memoria histórica acumulativa para evitar regresiones.
-- `.specify/tech-debt.md`: Inventario de deuda técnica detectada.
+- **`.specify/feature.json`**: Active feature tracking state (`active_feature`, `current_phase`, timestamps).
+- **`.specify/constitution/`**: Project principles, architectural rules, and tech stack standards (`index.md`, `mission.md`, `tech-stack.md`, `architecture.md`).
+- **`.specify/specs/<feature-name>/`**: 8-stage SDD lifecycle artifacts:
+  - `spec.md`: Functional specification with user stories and Gherkin scenarios.
+  - `clarify.md`: Ambiguity resolution & quality gate analysis.
+  - `plan.md`: Technical blueprint with Mermaid sequence diagrams & formal contracts (Zod/DTOs).
+  - `checklist.md`: Quality Gates, Definition of Done (DoD), and post-mutation GET confirmation reads.
+  - `tasks.md`: Executable task breakdown ordered strictly across 4 SDD pillars.
+- **`.specify/memory.md`**: Cumulative historical memory of architectural decisions.
+- **`.specify/tech-debt.md`**: Inventory of identified technical debt.
 
 ---
 
-## Adaptadores Multi-IA (`templates/agents/sdd-bridge.sh`)
+## Step-by-Step Lifecycle (Human Control Checkpoints)
 
-El toolkit es **100% agnóstico al agente o modelo de IA** utilizado. Ejecutando `templates/agents/sdd-bridge.sh` se inyectan automáticamente las instrucciones adaptadas para:
+Feature development progresses sequentially, requiring explicit human review & sign-off at each checkpoint:
 
-- **Google Antigravity 2.0 (AGY)**: `AGENTS.md` (instrucciones en la raíz) + `.agents/skills/` (skills modulares) + `.agents/rules/` (reglas del proyecto).
-- **Claude Code**: `CLAUDE.md` e integración de skills.
-- **GitHub Copilot**: `.github/copilot-instructions.md`.
-- **Cursor**: `.cursorrules` y `.cursor/rules/`.
+```
+sdd specify  -->  sdd clarify  -->  sdd plan  -->  sdd checklist  -->  sdd tasks  -->  sdd analyze  -->  sdd exec  -->  sdd converge
+```
+
+For bug fixes and minor patches, `sdd quick` provides an accelerated, strictly scoped path.
+
+---
+
+## Multi-AI Adapters (`templates/agents/sdd-bridge.sh`)
+
+The toolkit is **100% agnostic to the AI agent or model** used. Running `templates/agents/sdd-bridge.sh` injects step-by-step instructions and `/speckit.*` slash commands for:
+
+- **Google Antigravity 2.0 (AGY)**: `AGENTS.md` (root instructions) + `.agents/skills/` (modular skills) + `.agents/rules/` (project rules).
+- **AI Agent**: `CLAUDE.md` and skill integration.
+- **GitHub Copilot**: `.github/copilot-instructions.md` and `.github/prompts/speckit.*.prompt.md`.
+- **Cursor**: `.cursorrules` and `.cursor/rules/`.
 - **Gemini CLI**: `.gemini/GEMINI.md`.
 - **ChatGPT / Custom GPTs**: `CHATGPT.md`.

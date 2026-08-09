@@ -1,6 +1,6 @@
 # Windows — one-time Figma MCP bridge for claude-yolo / WSL2
 
-`claude-yolo` (and any Claude session running inside WSL2 or Docker) needs
+`claude-yolo` (and any AI Agent session running inside WSL2 or Docker) needs
 to reach the Figma Dev Mode MCP server, which Figma Desktop binds to
 **Windows' `127.0.0.1:3845`**. That loopback isn't reachable from inside
 WSL2 or a Docker container without a one-time `netsh portproxy` rule that

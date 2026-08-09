@@ -6,7 +6,7 @@
 
 ## 🌟 Key Capabilities
 
-- **`sdd` CLI**: Spec-Driven Development CLI for rapid specification generation (`sdd spec`), plan execution (`sdd exec`), technical debt auditing (`sdd audit`), and project documentation (`sdd doc`).
+- **`sdd` CLI**: Spec-Driven Development CLI aligned with GitHub Spec-Kit, featuring an 8-stage step-by-step lifecycle (`specify`, `clarify`, `plan`, `checklist`, `tasks`, `analyze`, `exec`, `converge`), feature state management, and a streamlined bugfix shortcut (`sdd quick`).
 - **Workspace Management**: Multi-repository isolation, workspace creation, editing, and synchronization scripts (`generate-workspace`, `edit-workspace`, `delete-workspaces`, `sync-toolkit`).
 - **Developer Utilities**: Interactive TUIs and CLI tools for local service orchestration (`run-local`), multi-stack compilation (`build-project`), Kubernetes context management (`kube-env`), VPN controls (`toggle-vpn`), and service dashboards (`devscripts-dashboard`).
 - **Agnostic Quality Rules**: Strict standards for Java/Spring Boot, Node.js/TypeScript, Python/FastAPI, React/JSX, databases, security, and git workflows.
@@ -75,25 +75,25 @@
 
 ### 1. Spec-Driven Development (`sdd` CLI)
 
-- **Generate a Full Specification (Triad)**:
+- **Step-by-Step Feature Development Lifecycle**:
   ```bash
-  sdd spec "Add user authentication endpoint with JWT validation"
+  sdd feature jwt-auth      # Set active feature name
+  sdd specify               # Phase 1: Functional spec (spec.md)
+  sdd clarify               # Phase 2: Ambiguity resolution (clarify.md)
+  sdd plan                  # Phase 3: Technical blueprint & contracts (plan.md)
+  sdd checklist             # Phase 4: Quality Gates & DoD (checklist.md)
+  sdd tasks                 # Phase 5: Executable task breakdown (tasks.md)
+  sdd analyze               # Phase 6: Cross-artifact consistency audit
+  sdd exec                  # Phase 7: Task execution with Worker & QA agents
+  sdd converge              # Phase 8: Final validation & Gherkin sign-off
   ```
-- **Generate a Quick Spec**:
+- **Streamlined Bugfix Shortcut**:
   ```bash
   sdd quick "Fix null pointer in order calculator"
   ```
-- **Execute Implementation Plan**:
-  ```bash
-  sdd exec
-  ```
-- **Audit Technical Debt**:
+- **Audit Workspace SDD Compliance**:
   ```bash
   sdd audit
-  ```
-- **Generate / Fix Documentation**:
-  ```bash
-  sdd doc
   ```
 
 ### 2. Multi-Repo Workspaces

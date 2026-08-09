@@ -1,6 +1,6 @@
 # Sidecar Architecture
 
-Claude Yolo runs agents in an isolated container with minimal permissions.
+AI Agent Yolo runs agents in an isolated container with minimal permissions.
 Anything that requires elevated access — Docker, API keys, cloud credentials —
 lives in a dedicated **sidecar container** started alongside claude-yolo.
 
