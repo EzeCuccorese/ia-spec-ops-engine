@@ -3,7 +3,7 @@ import tempfile
 from pathlib import Path
 from devscripts.core.colors import Color, log_info, log_success, log_warning, log_error
 from devscripts.core.file_lock import FileLock
-import utils
+from devscripts.core import utils
 
 def test_colors_and_logging():
     out_buf = io.StringIO()

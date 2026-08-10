@@ -2,7 +2,7 @@ import sys
 import subprocess
 from unittest.mock import patch, MagicMock
 import pytest
-from utils import log_info, log_success, log_warning, log_error, run_command, Color
+from devscripts.core.utils import log_info, log_success, log_warning, log_error, run_command, Color
 
 def test_log_info(capsys):
     log_info("test info")
