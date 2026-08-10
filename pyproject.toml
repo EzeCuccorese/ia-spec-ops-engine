@@ -11,11 +11,12 @@ requires-python = ">=3.9"
 dependencies = []
 
 [tool.hatch.build.targets.wheel]
-packages = ["devscripts", "utils.py"]
+packages = ["devscripts"]
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
 python_files = ["test_*.py", "*_test.py"]
-testpaths = ["tests/unit", "bin", "docker", "scripts"]
+testpaths = ["tests/unit", "tests/integration", "bin", "docker", "scripts"]
 addopts = "-ra --strict-markers --import-mode=importlib"
 norecursedirs = ["node_modules", ".venv", "venv", ".git", ".pytest_cache", ".claude"]
 
@@ -37,3 +38,11 @@ setup-vpn-routing = "devscripts.cli.setup_vpn_routing:main"
 unit-test-benchmark = "devscripts.cli.unit_test_benchmark:main"
 agent-sandbox = "devscripts.cli.agent_sandbox:main"
 anonymize-repo = "devscripts.cli.anonymize_repo:main"
+sdd = "devscripts.cli.sdd:main"
+devscripts-dashboard = "devscripts.cli.dashboard:main"
+kube-env = "devscripts.cli.kube_env:main"
+load-env = "devscripts.cli.load_env:main"
+run-local = "devscripts.cli.run_local:main"
+set-java = "devscripts.cli.set_java:main"
+toggle-vpn = "devscripts.cli.toggle_vpn:main"
+build-project = "devscripts.cli.build_project:main"
