@@ -4,6 +4,16 @@
 
 ---
 
+## Architecture & Design Principles
+
+* **100% Python cross-platform architecture:** Contains 0% `.sh`, 0% `.bat`, 0% `.bats`. Works natively on Windows, macOS, and Linux.
+* **Binary installation and entrypoints:** Registered in `pyproject.toml` `console_scripts` (`install`, `uninstall`, `sdd`, `create-worktree`, `generate-workspace`, `sync-toolkit`, `toolkit-menu`, `update-toolkit`, `run-local`, `kube-env`, etc.).
+* **Dual execution mode:** ALL CLI scripts support Interactive TUI mode and CLI flags with full `--help` documentation.
+* **Spec-Kit aligned 8-phase SDD engine:** Supports `specify`, `clarify`, `plan`, `checklist`, `tasks`, `analyze`, `exec`, `converge`, and `quick`.
+* **Dynamic End-to-End AI Agent adaptation matrix:** Compatible with Antigravity 2.0, Gemini CLI, Claude Code, GitHub Copilot, Cursor, and ChatGPT.
+
+---
+
 ## Model overview
 
 - `main` is the only long-lived branch.
@@ -12,7 +22,7 @@
 - **No permanent release branches.** See [Hotfixes](#hotfixes) for when a temporary one is needed.
 - **No permanent `beta` branch.** Beta is rolling — only the latest `-beta.N` tag is supported.
 
-When a user runs `update-toolkit.sh`, git checks out a tag directly. This puts the repo in **detached HEAD** — `HEAD` points to the tagged commit rather than to a branch. That is expected and correct: the toolkit is consumed, not developed, from that state. The script prints a reminder to that effect.
+When a user runs `update-toolkit`, git checks out a tag directly. This puts the repo in **detached HEAD** — `HEAD` points to the tagged commit rather than to a branch. That is expected and correct: the toolkit is consumed, not developed, from that state. The script prints a reminder to that effect.
 
 ---
 
@@ -94,7 +104,7 @@ git push origin main
 
 Some projects keep a `release/v1.x` branch alive indefinitely so users pinned to that major can receive fixes. This toolkit does not do that because:
 
-- All consumers update to latest stable via `update-toolkit.sh` — no one is intentionally pinned to an old minor.
+- All consumers update to latest stable via `update-toolkit` — no one is intentionally pinned to an old minor.
 - The overhead of maintaining parallel lines (cherry-picks, double release-please configs) is not justified.
 - The risk scenario (new feature on `main` blocks a patch) is handled by the lazy branch approach above, created on demand only when the situation actually arises.
 
@@ -104,7 +114,7 @@ If the toolkit ever gains consumers who deliberately stay on older majors, revis
 
 ## What detached HEAD means and why it is correct here
 
-When `update-toolkit.sh` runs, it executes `git checkout refs/tags/vX.Y.Z`. Because a tag is a fixed label on a commit — it never moves — git has no branch to attach `HEAD` to. The result is **detached HEAD**: `HEAD` points directly to the commit rather than to a branch pointer.
+When `update-toolkit` runs, it executes `git checkout refs/tags/vX.Y.Z`. Because a tag is a fixed label on a commit — it never moves — git has no branch to attach `HEAD` to. The result is **detached HEAD**: `HEAD` points directly to the commit rather than to a branch pointer.
 
 ```
 # Normal (on a branch):

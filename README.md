@@ -6,10 +6,11 @@
 
 ## 🌟 Key Capabilities
 
-- **`sdd` CLI**: Spec-Driven Development CLI aligned with GitHub Spec-Kit, featuring an 8-stage step-by-step lifecycle (`specify`, `clarify`, `plan`, `checklist`, `tasks`, `analyze`, `exec`, `converge`), feature state management, and a streamlined bugfix shortcut (`sdd quick`).
-- **Workspace Management**: Multi-repository isolation, workspace creation, editing, and synchronization scripts (`generate-workspace`, `edit-workspace`, `delete-workspaces`, `sync-toolkit`).
+- **`sdd` CLI**: Spec-Kit aligned 8-phase SDD engine (`specify`, `clarify`, `plan`, `checklist`, `tasks`, `analyze`, `exec`, `converge`), feature state management, and a streamlined bugfix shortcut (`sdd quick`).
+- **Workspace Management**: Multi-repository isolation, workspace creation, editing, and synchronization scripts (`generate-workspace`, `create-worktree`, `sync-toolkit`, `toolkit-menu`, `update-toolkit`).
 - **Developer Utilities**: Interactive TUIs and CLI tools for local service orchestration (`run-local`), multi-stack compilation (`build-project`), Kubernetes context management (`kube-env`), VPN controls (`toggle-vpn`), and service dashboards (`devscripts-dashboard`).
-- **Agnostic Quality Rules**: Strict standards for Java/Spring Boot, Node.js/TypeScript, Python/FastAPI, React/JSX, databases, security, and git workflows.
+- **Cross-Platform Architecture**: 100% Python (0% `.sh`, 0% `.bat`, 0% `.bats`). Works natively on Windows, macOS, and Linux.
+- **Dynamic AI Adaptation**: End-to-End AI Agent adaptation matrix supporting Antigravity 2.0, Gemini CLI, Claude Code, GitHub Copilot, Cursor, and ChatGPT.
 
 ---
 
@@ -17,8 +18,8 @@
 
 ### Prerequisites
 
-- **OS**: macOS or Linux (bash/zsh)
-- **Dependencies**: `python3` (3.10+ recommended), `git`, `curl`
+- **OS**: Windows, macOS, or Linux
+- **Dependencies**: `python3` (3.10+ recommended), `git`
 
 ### Step-by-Step Installation
 
@@ -28,29 +29,25 @@
    cd devscripts
    ```
 
-2. **Run the Modular Installer**:
-   The installer supports three profiles: `--profile both` (default), `--profile only-sdd`, or `--profile only-tools`.
-
+2. **Install via pip / pyproject.toml**:
+   This project uses a 100% Python cross-platform architecture. All CLI scripts are registered as binary entrypoints in `pyproject.toml`.
    ```bash
-   # Install both SDD CLI and core developer tools into /usr/local/bin (or ~/.local/bin)
-   ./install.sh --profile both
+   pip install -e .
    ```
+   This installs all commands (`install`, `uninstall`, `sdd`, `create-worktree`, `generate-workspace`, `sync-toolkit`, `toolkit-menu`, `update-toolkit`, `run-local`, `kube-env`, etc.) directly into your Python environment's PATH.
 
-   *Optional Installer Options:*
-   - `--prefix DIR`: Custom binary installation folder (e.g., `./install.sh --prefix ~/.local/bin`).
-   - `--force`: Overwrite existing binaries without prompting.
-   - `--uninstall`: Remove installed binaries and scripts cleanly.
-
-3. **Verify Shell PATH Configuration**:
-   If installed to `~/.local/bin` (or a custom prefix), ensure it is present in your PATH environment variable (`~/.zshrc` or `~/.bashrc`):
-   ```bash
-   export PATH="$HOME/.local/bin:$PATH"
-   ```
-
-4. **Verify Installation**:
+3. **Verify Installation**:
    ```bash
    sdd --help
    ```
+
+---
+
+## 💻 Dual Execution Mode
+
+ALL CLI scripts support a dual execution mode:
+- **Interactive TUI Mode**: Run the command without arguments for a rich interactive terminal user interface.
+- **CLI Flags**: Run with flags and `--help` for automation and scripting with full documentation.
 
 ---
 

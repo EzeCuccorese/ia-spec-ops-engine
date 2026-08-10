@@ -27,12 +27,12 @@ For bug fixes and minor patches, `sdd quick` provides an accelerated, strictly s
 
 ---
 
-## Multi-AI Adapters (`templates/agents/sdd-bridge.sh`)
+## Dynamic End-to-End AI Agent Adaptation Matrix
 
-The toolkit is **100% agnostic to the AI agent or model** used. Running `templates/agents/sdd-bridge.sh` injects step-by-step instructions and `/speckit.*` slash commands for:
+The toolkit features a dynamic adaptation matrix powered by a 100% Python cross-platform architecture (0% `.sh`, 0% `.bat`, 0% `.bats`). It injects step-by-step instructions and slash commands seamlessly across various AI assistants:
 
 - **Google Antigravity 2.0 (AGY)**: `AGENTS.md` (root instructions) + `.agents/skills/` (modular skills) + `.agents/rules/` (project rules).
-- **AI Agent**: `CLAUDE.md` and skill integration.
+- **Claude Code**: `CLAUDE.md` and skill integration.
 - **GitHub Copilot**: `.github/copilot-instructions.md` and `.github/prompts/speckit.*.prompt.md`.
 - **Cursor**: `.cursorrules` and `.cursor/rules/`.
 - **Gemini CLI**: `.gemini/GEMINI.md`.

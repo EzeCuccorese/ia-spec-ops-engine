@@ -18,3 +18,22 @@ python_files = ["test_*.py", "*_test.py"]
 testpaths = ["tests/unit", "bin", "docker", "scripts"]
 addopts = "-ra --strict-markers --import-mode=importlib"
 norecursedirs = ["node_modules", ".venv", "venv", ".git", ".pytest_cache", ".claude"]
+
+[project.scripts]
+create-worktree = "devscripts.cli.create_worktree:main"
+delete-workspaces = "devscripts.cli.delete_workspaces:main"
+edit-workspace = "devscripts.cli.edit_workspace:main"
+generate-workspace = "devscripts.cli.generate_workspace:main"
+sync-toolkit = "devscripts.cli.sync_toolkit:main"
+toolkit-menu = "devscripts.cli.toolkit_menu:main"
+update-toolkit = "devscripts.cli.update_toolkit:main"
+init-env = "devscripts.cli.init_env:main"
+clean-workspace = "devscripts.cli.clean_workspace:main"
+stop-workspace = "devscripts.cli.stop_workspace:main"
+reset-repos = "devscripts.cli.reset_repos:main"
+install-deps = "devscripts.cli.install_deps:main"
+aws-logout = "devscripts.cli.aws_logout:main"
+setup-vpn-routing = "devscripts.cli.setup_vpn_routing:main"
+unit-test-benchmark = "devscripts.cli.unit_test_benchmark:main"
+agent-sandbox = "devscripts.cli.agent_sandbox:main"
+anonymize-repo = "devscripts.cli.anonymize_repo:main"
