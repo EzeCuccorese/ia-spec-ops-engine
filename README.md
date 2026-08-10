@@ -82,7 +82,9 @@ ALL CLI scripts support a dual execution mode:
   sdd tasks                 # Phase 5: Executable task breakdown (tasks.md)
   sdd analyze               # Phase 6: Cross-artifact consistency audit
   sdd exec                  # Phase 7: Task execution with Worker & QA agents
+  sdd harness run           # Execution Harness: Batch multi-agent orchestration & auto-correction
   sdd converge              # Phase 8: Final validation & Gherkin sign-off
+
   ```
 - **Streamlined Bugfix Shortcut**:
   ```bash
