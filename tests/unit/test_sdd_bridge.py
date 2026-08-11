@@ -1,0 +1,107 @@
+"""
+Unit tests for devscripts.adapters.bridge — Multi-AI Native Adapter Generator.
+"""
+
+import json
+import tempfile
+from pathlib import Path
+import pytest
+
+from devscripts.adapters.bridge import generate_adapters, get_sdd_core_rules
+
+
+def test_get_sdd_core_rules():
+    rules = get_sdd_core_rules()
+    assert "Spec-Driven Development" in rules
+    assert "Conventional Commits" in rules
+    assert "ZERO AI MENTIONS" in rules
+
+
+def test_generate_all_adapters():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        files = generate_adapters(target_dir=tmp_dir, gen_all=True)
+        td = Path(tmp_dir)
+
+        # 1. Claude Code
+        assert "CLAUDE.md" in files
+        assert ".claude/settings.json" in files
+        assert ".claude/agents/worker.json" in files
+        assert ".claude/agents/qa-reviewer.json" in files
+
+        settings_path = td / ".claude" / "settings.json"
+        assert settings_path.exists()
+        with open(settings_path, encoding="utf-8") as f:
+            settings = json.load(f)
+        assert "PreToolUse" in settings["hooks"]
+        assert "PostToolUse" in settings["hooks"]
+        assert "sdd hook pre-tool" in settings["hooks"]["PreToolUse"][0]["command"]
+
+        worker_path = td / ".claude" / "agents" / "worker.json"
+        assert worker_path.exists()
+        with open(worker_path, encoding="utf-8") as f:
+            worker = json.load(f)
+        assert worker["name"] == "worker"
+
+        qa_path = td / ".claude" / "agents" / "qa-reviewer.json"
+        assert qa_path.exists()
+        with open(qa_path, encoding="utf-8") as f:
+            qa = json.load(f)
+        assert qa["name"] == "qa-reviewer"
+
+        # 2. Antigravity 2.0
+        assert "AGENTS.md" in files
+        assert ".agents/rules/sdd-rules.md" in files
+        assert ".agents/skills/sdd-verify/SKILL.md" in files
+        assert ".agents/skills/sdd-harness/SKILL.md" in files
+
+        verify_skill = (td / ".agents" / "skills" / "sdd-verify" / "SKILL.md").read_text(encoding="utf-8")
+        assert "name: sdd-verify" in verify_skill
+
+        harness_skill = (td / ".agents" / "skills" / "sdd-harness" / "SKILL.md").read_text(encoding="utf-8")
+        assert "name: sdd-harness" in harness_skill
+
+        # 3. GitHub Copilot
+        assert ".github/copilot-instructions.md" in files
+        assert ".github/hooks/pre-tool.json" in files
+        assert ".github/hooks/post-tool.json" in files
+
+        pre_hook = json.loads((td / ".github" / "hooks" / "pre-tool.json").read_text(encoding="utf-8"))
+        assert pre_hook["type"] == "pre-tool"
+        assert "sdd hook pre-tool" in pre_hook["command"]
+
+        post_hook = json.loads((td / ".github" / "hooks" / "post-tool.json").read_text(encoding="utf-8"))
+        assert post_hook["type"] == "post-tool"
+
+        # 4. Cursor IDE
+        assert ".cursorrules" in files
+        assert ".cursor/rules/sdd-harness.mdc" in files
+        assert ".cursor/hooks.json" in files
+
+        mdc_content = (td / ".cursor" / "rules" / "sdd-harness.mdc").read_text(encoding="utf-8")
+        assert mdc_content.startswith("---")
+        assert "alwaysApply: true" in mdc_content
+
+        cursor_hooks = json.loads((td / ".cursor" / "hooks.json").read_text(encoding="utf-8"))
+        assert "pre-tool" in cursor_hooks["hooks"]
+
+        # 5. Windsurf
+        assert ".windsurfrules" in files
+        windsurf_content = (td / ".windsurfrules").read_text(encoding="utf-8")
+        assert "Windsurf Cascade Rules" in windsurf_content
+
+
+def test_generate_individual_adapters():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        td = Path(tmp_dir)
+        files = generate_adapters(target_dir=tmp_dir, claude=True)
+        assert ".claude/settings.json" in files
+        assert ".windsurfrules" not in files
+        assert (td / ".claude" / "settings.json").exists()
+        assert not (td / ".windsurfrules").exists()
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        td = Path(tmp_dir)
+        files = generate_adapters(target_dir=tmp_dir, windsurf=True)
+        assert ".windsurfrules" in files
+        assert ".claude/settings.json" not in files
+        assert (td / ".windsurfrules").exists()
