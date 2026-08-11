@@ -31,10 +31,10 @@ When a user runs `update-toolkit`, git checks out a tag directly. This puts the 
 You don't run a release command. The flow is driven by Conventional Commits on `main`:
 
 1. Merge feature PRs into `main` using Conventional Commit prefixes (`feat:`, `fix:`, `feat!:`, etc.).
-2. After each push to `main`, the `release-please` GitHub Actions workflow opens (or updates) a Release PR titled `chore(main): release X.Y.Z`. It contains the proposed version bump and the `CHANGELOG.md` update.
+2. After each push to `main`, the `release-please` GitHub Actions workflow opens (or updates) a Release PR titled `chore(main): release X.Y.Z`. It contains the proposed version bump.
 3. When ready to ship, **merge the Release PR**. `release-please` then creates the `vX.Y.Z` tag and publishes the GitHub Release automatically.
 
-That's the entire flow for a normal release. No manual tagging, no manual changelog editing.
+That's the entire flow for a normal release. No manual tagging.
 
 ### How release-please computes the version
 
@@ -66,8 +66,6 @@ git checkout main && git pull
 git tag -a v1.3.0-beta.1 -m "Beta release v1.3.0-beta.1"
 git push origin v1.3.0-beta.1
 ```
-
-Optionally add a `## [1.3.0-beta.1]` section to `CHANGELOG.md` and commit it on `main` before tagging.
 
 **Beta is rolling.** If a bug is found on `v1.3.0-beta.1`: fix it on `main`, then cut `v1.3.0-beta.2`. Do not patch `beta.1` — no one should be pinned to it.
 
