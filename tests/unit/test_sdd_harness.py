@@ -225,7 +225,14 @@ def test_harness_additional_edge_cases(tmp_path: Path):
 
     # commit_task_completion when no changes staged
     git_env = os.environ.copy()
-    git_env.update({"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"})
+    git_env.update({
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_CONFIG_SYSTEM": "/dev/null",
+        "GIT_AUTHOR_NAME": "Test User",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "Test User",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+    })
     run_command_safe(["git", "init"], cwd=str(tmp_path), env=git_env)
     run_command_safe(["git", "add", "-A"], cwd=str(tmp_path), env=git_env)
     run_command_safe(["git", "-c", "commit.gpgsign=false", "commit", "-m", "init"], cwd=str(tmp_path), env=git_env)
