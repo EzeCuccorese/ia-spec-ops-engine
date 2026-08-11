@@ -26,6 +26,12 @@ El desarrollo de features DEBE avanzar secuencialmente, requiriendo revisión y 
 - **ZERO AI MENTIONS / CERO MENCIONES DE IA**: Nunca incluir frases como "Generado con IA" ni emojis de robots 🤖 en PRs, commits o comentarios.
 - **Seguridad y Privacidad**: Cero secretos hardcodeados. Cero PII guardada en logs.
 
+## 4. Protocolo Híbrido para Habilidades de Agentes (Determinismo + Validación Dinámica de IA)
+Al ejecutar cualquier habilidad (ej. `sdd-init`, `sdd-verify`, `sdd-constitution`, `sdd-plan`), el agente DEBE cumplir 3 fases:
+1. **Fase 1 (Determinística)**: Ejecutar herramientas CLI / scripts estáticos (`python3 -m devscripts.cli.sdd ...`).
+2. **Fase 2 (Auditoría Dinámica de IA)**: Inspeccionar el código fuente del repositorio (manifests, linters, tests, arquitectura y convenciones no escritas).
+3. **Fase 3 (Enriquecimiento Explícito)**: Inyectar las reglas y buenas prácticas descubiertas en `.specify/constitution/constitution.md` y `.specify/memory.md` en la sección `## 🔍 Descubrimientos Dinámicos de IA & Buenas Prácticas del Proyecto`.
+
 ## Antigravity Agent Flow
 - Consult active SDD skills in `.agents/skills/` and `skills/`.
 - Progress step-by-step after user sign-off.

@@ -15,6 +15,7 @@ def test_get_sdd_core_rules():
     assert "Spec-Driven Development" in rules
     assert "Conventional Commits" in rules
     assert "ZERO AI MENTIONS" in rules
+    assert "Protocolo Híbrido" in rules
 
 
 def test_generate_all_adapters():
@@ -51,14 +52,23 @@ def test_generate_all_adapters():
         # 2. Antigravity 2.0
         assert "AGENTS.md" in files
         assert ".agents/rules/sdd-rules.md" in files
+        assert ".agents/skills/sdd-init/SKILL.md" in files
         assert ".agents/skills/sdd-verify/SKILL.md" in files
         assert ".agents/skills/sdd-harness/SKILL.md" in files
 
+        init_skill = (td / ".agents" / "skills" / "sdd-init" / "SKILL.md").read_text(encoding="utf-8")
+        assert "name: sdd-init" in init_skill
+        assert "Protocolo Híbrido" in init_skill
+        assert "Paso 1: Ejecución Determinística CLI" in init_skill
+        assert "Paso 2: Auditoría & Validación Dinámica del Repositorio por IA" in init_skill
+
         verify_skill = (td / ".agents" / "skills" / "sdd-verify" / "SKILL.md").read_text(encoding="utf-8")
         assert "name: sdd-verify" in verify_skill
+        assert "Protocolo Híbrido" in verify_skill
 
         harness_skill = (td / ".agents" / "skills" / "sdd-harness" / "SKILL.md").read_text(encoding="utf-8")
         assert "name: sdd-harness" in harness_skill
+        assert "Protocolo Híbrido" in harness_skill
 
         # 3. GitHub Copilot
         assert ".github/copilot-instructions.md" in files

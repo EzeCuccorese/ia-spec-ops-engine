@@ -150,3 +150,12 @@ def test_sdd_specify_with_name_sets_active_feature(tmp_path):
             assert feature.get_active_feature(repo_root=tmp_path) == "auto-feature"
 
 
+def test_sdd_adapter_alias(tmp_path):
+    from devscripts.cli.sdd import sdd
+    with patch("devscripts.adapters.bridge.generate_adapters") as mock_gen:
+        with patch.object(sys, "argv", ["sdd", "adapter", "--all", "--target-dir", str(tmp_path)]):
+            sdd.main()
+            mock_gen.assert_called_once()
+
+
+
