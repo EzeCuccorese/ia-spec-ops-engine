@@ -181,3 +181,53 @@ def test_harness_auto_git_commit_aider_style():
         code, out, err = run_command_safe(["git", "log", "-n", "1", "--oneline"], cwd=str(tmp_path), env=git_env)
         assert code == 0
         assert "sdd(task): complete task-01 - Implement feature X" in out
+
+
+def test_harness_additional_edge_cases(tmp_path: Path):
+    # parse_tasks / mark_task_completed with missing files or out of range
+    assert harness.parse_tasks(tmp_path / "nonexistent.md") == []
+    assert harness.mark_task_completed(tmp_path / "nonexistent.md", harness.SDDTask("1", "desc", False, 1)) is False
+
+    dummy_md = tmp_path / "dummy.md"
+    dummy_md.write_text("- [ ] task-01: First\n")
+    assert harness.mark_task_completed(dummy_md, harness.SDDTask("1", "desc", False, 999)) is False
+
+    # build_task_context with spec.md, checklist.md, memory.md
+    spec_dir = tmp_path / ".specify" / "specs" / "full-feat"
+    spec_dir.mkdir(parents=True, exist_ok=True)
+    (spec_dir / "spec.md").write_text("Spec header\nLine 2\n")
+    (spec_dir / "checklist.md").write_text("Checklist item 1\n")
+    (tmp_path / ".specify" / "memory.md").write_text("Memory item 1\n")
+    (spec_dir / "tasks.md").write_text("- [ ] task-01: Task 1\n")
+
+    task = harness.SDDTask("task-01", "Task 1", False, 1)
+    ctx = harness.build_task_context(task, feature_name="full-feat", target_dir=str(tmp_path))
+    assert ctx["task_id"] == "task-01"
+    assert "Spec header" in ctx["spec_summary"]
+    assert "Checklist item 1" in ctx["checklist_summary"]
+    assert "Memory item 1" in ctx["memory_summary"]
+
+    # Session reset_steps and run_next
+    sess = harness.HarnessSession(feature_name="full-feat", target_dir=str(tmp_path))
+    sess.increment_steps(5)
+    assert sess.executed_steps == 5
+    sess.reset_steps()
+    assert sess.executed_steps == 0
+
+    dispatch = sess.run_next()
+    assert dispatch["status"] == "TASK_DISPATCHED"
+    assert dispatch["task"].id == "task-01"
+
+    # Mark completed and run_next again
+    harness.mark_task_completed(spec_dir / "tasks.md", task)
+    all_done = sess.run_next()
+    assert all_done["status"] == "ALL_COMPLETED"
+
+    # commit_task_completion when no changes staged
+    git_env = os.environ.copy()
+    git_env.update({"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"})
+    run_command_safe(["git", "init"], cwd=str(tmp_path), env=git_env)
+    run_command_safe(["git", "add", "-A"], cwd=str(tmp_path), env=git_env)
+    run_command_safe(["git", "-c", "commit.gpgsign=false", "commit", "-m", "init"], cwd=str(tmp_path), env=git_env)
+    assert sess.commit_task_completion("task-01", "description") is None
+

@@ -105,3 +105,17 @@ def test_generate_individual_adapters():
         assert ".windsurfrules" in files
         assert ".claude/settings.json" not in files
         assert (td / ".windsurfrules").exists()
+
+
+def test_generate_adapters_from_agents_json():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        td = Path(tmp_dir)
+        spec_dir = td / ".specify"
+        spec_dir.mkdir()
+        (spec_dir / "agents.json").write_text('{"selected_agents": ["claude", "gemini"]}')
+
+        files = generate_adapters(target_dir=tmp_dir)  # No explicit flags
+        assert "CLAUDE.md" in files
+        assert ".gemini/GEMINI.md" in files
+        assert ".windsurfrules" not in files
+

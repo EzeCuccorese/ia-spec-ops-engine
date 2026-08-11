@@ -97,3 +97,22 @@ def test_calculate_scope_drift_penalty_step_excess():
     penalty = calculate_scope_drift_penalty(modified, expected, executed_steps=30, max_steps=25)
     # Exceeds max_steps (30 > 25)
     assert penalty > DEFAULT_DRIFT_PENALTY_THRESHOLD
+
+
+def test_json_serialization_and_empty_expected():
+    config = HarnessConfig(max_steps=10)
+    assert '"max_steps": 10' in config.to_json()
+
+    vp = VerificationPayload(passed=True)
+    assert '"passed": true' in vp.to_json().lower()
+
+    tr = TaskResult(task_id="task-01", status="PASS")
+    assert '"task_id": "task-01"' in tr.to_json()
+
+    # Modified files provided but expected_files empty vs None
+    penalty_empty = calculate_scope_drift_penalty(["a.py"], [], executed_steps=1, max_steps=25)
+    assert penalty_empty == 0.75  # 1.0 * 0.75
+
+    penalty_none = calculate_scope_drift_penalty(["a.py"], None, executed_steps=1, max_steps=25)
+    assert penalty_none == 0.0
+

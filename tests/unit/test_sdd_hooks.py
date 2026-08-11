@@ -123,3 +123,29 @@ def test_handle_post_tool_event():
             )
             assert isinstance(res_payload, VerificationPayload)
             assert res_payload.passed is True
+
+
+def test_extract_command_string_object():
+    class CustomObj:
+        def __str__(self):
+            return "custom command"
+
+    assert extract_command_string(CustomObj()) == "custom command"
+
+
+def test_handle_post_tool_event_failed_payload():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        mock_failed = VerificationPayload(
+            passed=False,
+            linter_status="FAIL",
+            remediation_instructions="Fix syntax error",
+        )
+        with patch("devscripts.sdd.hooks.run_verification", return_value=mock_failed):
+            res_dict = handle_post_tool_event(
+                tool_name="edit",
+                tool_args="app.py",
+                target_dir=tmp_dir,
+            )
+            assert res_dict["passed"] is False
+            assert res_dict["linter_status"] == "FAIL"
+

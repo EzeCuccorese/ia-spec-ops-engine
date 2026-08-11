@@ -1,0 +1,6 @@
+{
+  "name": "sdd-pre-tool-hook",
+  "type": "pre-tool",
+  "command": "python3 -m devscripts.cli.sdd hook pre-tool",
+  "description": "Pre-tool interceptor for security blocking and command verification"
+}
