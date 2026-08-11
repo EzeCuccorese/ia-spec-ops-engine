@@ -229,5 +229,9 @@ def test_harness_additional_edge_cases(tmp_path: Path):
     run_command_safe(["git", "init"], cwd=str(tmp_path), env=git_env)
     run_command_safe(["git", "add", "-A"], cwd=str(tmp_path), env=git_env)
     run_command_safe(["git", "-c", "commit.gpgsign=false", "commit", "-m", "init"], cwd=str(tmp_path), env=git_env)
+    # Re-stage any history files created after init commit
+    run_command_safe(["git", "add", "-A"], cwd=str(tmp_path), env=git_env)
+    if run_command_safe(["git", "status", "--porcelain"], cwd=str(tmp_path), env=git_env)[1].strip():
+        run_command_safe(["git", "-c", "commit.gpgsign=false", "commit", "-m", "sync"], cwd=str(tmp_path), env=git_env)
     assert sess.commit_task_completion("task-01", "description") is None
 
