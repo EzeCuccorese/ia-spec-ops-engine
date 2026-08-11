@@ -119,3 +119,26 @@ def test_generate_adapters_from_agents_json():
         assert ".gemini/GEMINI.md" in files
         assert ".windsurfrules" not in files
 
+
+def test_generate_adapters_saves_agents_json():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        td = Path(tmp_dir)
+        files = generate_adapters(target_dir=tmp_dir, agy=True, claude=True)
+        assert "AGENTS.md" in files
+        assert "CLAUDE.md" in files
+
+        aj_file = td / ".specify" / "agents.json"
+        assert aj_file.exists()
+        agents = json.loads(aj_file.read_text(encoding="utf-8"))["selected_agents"]
+        assert "agy" in agents
+        assert "claude" in agents
+        assert "copilot" not in agents
+
+
+def test_prompt_select_agents(monkeypatch):
+    from devscripts.adapters.bridge import prompt_select_agents
+    monkeypatch.setattr("builtins.input", lambda _: "1, 2")
+    selected = prompt_select_agents()
+    assert selected == ["agy", "claude"]
+
+

@@ -1,9 +1,9 @@
-# Google Antigravity (AGY) — Instrucciones del Sistema para Agentes
+# Google Antigravity (AGY) — Agent System Instructions
 
 # Spec-Driven Development (SDD) — Reglas Centrales y Ciclo de Vida Paso a Paso
 
 ## 1. Ciclo de Vida Estricto (Puntos de Control Humano)
-El desarrollo de funcionalidades DEBE avanzar secuencialmente, requiriendo revisión y aprobación humana antes de iniciar cada fase:
+El desarrollo de features DEBE avanzar secuencialmente, requiriendo revisión y aprobación humana antes de iniciar cada fase:
 1. `/sdd-specify`: Especificación funcional (`spec.md`).
 2. `/sdd-clarify`: Resolución de ambigüedades y análisis de riesgos (`clarify.md`).
 3. `/sdd-plan`: Blueprint técnico y contratos formales de datos (`plan.md`).
@@ -13,7 +13,7 @@ El desarrollo de funcionalidades DEBE avanzar secuencialmente, requiriendo revis
 7. `/sdd-exec`: Ejecución iterativa de tareas con Agente Worker y Agente QA.
 8. `/sdd-converge`: Verificación final de convergencia y criterios de aceptación Gherkin.
 
-*Nota*: Para correcciones rápidas de bugs o parches menores, usar exclusivamente `sdd quick`.
+*Nota*: Para correcciones rápidas de bugs, usar exclusivamente `sdd quick`.
 
 ## 2. Pilares de SDD
 - **Contratos Primero**: Definir interfaces TypeScript, esquemas Zod o DTOs Java antes de implementar la lógica.
@@ -26,6 +26,6 @@ El desarrollo de funcionalidades DEBE avanzar secuencialmente, requiriendo revis
 - **ZERO AI MENTIONS / CERO MENCIONES DE IA**: Nunca incluir frases como "Generado con IA" ni emojis de robots 🤖 en PRs, commits o comentarios.
 - **Seguridad y Privacidad**: Cero secretos hardcodeados. Cero PII guardada en logs.
 
-## Flujo del Agente Antigravity
-- Consultar habilidades SDD activas en `.agents/skills/` y `skills/`.
-- Avanzar paso a paso tras la aprobación del usuario.
+## Antigravity Agent Flow
+- Consult active SDD skills in `.agents/skills/` and `skills/`.
+- Progress step-by-step after user sign-off.
