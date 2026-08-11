@@ -7,15 +7,16 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-_toolkit_dir = Path(__file__).resolve().parent.parent.parent
-_gw_dir = _toolkit_dir / 'bin' / 'generate-workspace'
-_ew_dir = _toolkit_dir / 'bin' / 'edit-workspace'
+_toolkit_dir = Path(__file__).resolve().parents[2]
+_gw_dir = _toolkit_dir / 'devscripts' / 'services' / 'generate_workspace'
+_ew_dir = _toolkit_dir / 'devscripts' / 'services' / 'edit_workspace'
 sys.path.insert(0, str(_toolkit_dir))
 sys.path.insert(0, str(_gw_dir))
 sys.path.insert(0, str(_ew_dir))
 
-from select_repos import load_repos
-import add_repos
+from devscripts.services.generate_workspace.select_repos import load_repos
+from devscripts.services.edit_workspace import add_repos
+
 
 
 class TestLoadReposWorktrees(unittest.TestCase):

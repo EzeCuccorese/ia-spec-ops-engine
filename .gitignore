@@ -16,3 +16,9 @@ docs/plans/
 .pytest_cache/
 .ai-toolkit/
 .idea/
+.coverage
+scratch/*
+!scratch/.gitkeep
+*.tmp
+*.log
+

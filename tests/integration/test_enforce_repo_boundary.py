@@ -3,7 +3,7 @@ Integration tests for repository boundary enforcement and worktree creation logi
 """
 
 from pathlib import Path
-from devscripts.cli.create_worktree import create_worktree
+from devscripts.cli.workspace.create_worktree import create_worktree
 
 def test_create_worktree_existing_dir_fails(tmp_path: Path):
     (tmp_path / ".git").mkdir()

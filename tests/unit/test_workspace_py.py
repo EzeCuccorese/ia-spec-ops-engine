@@ -5,9 +5,10 @@ import tempfile
 from pathlib import Path
 
 _toolkit_dir = Path(__file__).resolve().parent.parent.parent
-_gw_dir = _toolkit_dir / 'bin' / 'generate-workspace'
+_gw_dir = _toolkit_dir / 'devscripts' / 'services' / 'generate_workspace'
 sys.path.insert(0, str(_toolkit_dir))
 sys.path.insert(0, str(_gw_dir))
+
 
 from generate_workspace import (
     load_env,

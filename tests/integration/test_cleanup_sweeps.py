@@ -3,7 +3,7 @@ Integration tests for clean_workspace functionality using temporary file structu
 """
 
 from pathlib import Path
-from devscripts.cli.clean_workspace import clean_workspace
+from devscripts.cli.workspace.clean_workspace import clean_workspace
 
 def test_clean_workspace_removes_cache(tmp_path: Path):
     # Setup mock workspace structure
