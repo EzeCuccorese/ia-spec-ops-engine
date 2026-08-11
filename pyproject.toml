@@ -14,7 +14,7 @@ dependencies = [
 [project.optional-dependencies]
 tui = ["textual>=0.40"]
 monitoring = ["psutil>=5.9"]
-dev = ["pytest>=7.0", "pytest-cov", "ruff>=0.1", "rich", "psutil"]
+dev = ["pytest>=7.0", "pytest-cov", "pytest-asyncio", "ruff>=0.1", "rich", "psutil"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["devscripts"]
@@ -25,6 +25,9 @@ python_files = ["test_*.py", "*_test.py"]
 testpaths = ["tests/unit", "tests/integration", "docker"]
 addopts = "-ra --strict-markers --import-mode=importlib"
 norecursedirs = ["node_modules", ".venv", "venv", ".git", ".pytest_cache", ".claude"]
+markers = [
+    "asyncio: mark test as async/await test",
+]
 
 
 [project.scripts]
