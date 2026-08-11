@@ -1,163 +1,156 @@
-# Devscripts & SDD Toolkit
+# Toolkit Devscripts & Motor SDD
 
-**The Single Source of Truth** for Spec-Driven Development (SDD), multi-repository workspace isolation, developer tooling, and engineering quality guidelines.
-
----
-
-## 🌟 Key Capabilities
-
-- **`sdd` CLI**: Spec-Kit aligned 8-phase SDD engine (`specify`, `clarify`, `plan`, `checklist`, `tasks`, `analyze`, `exec`, `converge`), feature state management, and a streamlined bugfix shortcut (`sdd quick`).
-- **Workspace Management**: Multi-repository isolation, workspace creation, editing, and synchronization scripts (`generate-workspace`, `create-worktree`, `sync-toolkit`, `toolkit-menu`, `update-toolkit`).
-- **Developer Utilities**: Interactive TUIs and CLI tools for local service orchestration (`run-local`), multi-stack compilation (`build-project`), Kubernetes context management (`kube-env`), VPN controls (`toggle-vpn`), and service dashboards (`devscripts-dashboard`).
-- **Cross-Platform Architecture**: 100% Python (0% `.sh`, 0% `.bat`, 0% `.bats`). Works natively on Windows, macOS, and Linux.
-- **Dynamic AI Adaptation**: End-to-End AI Agent adaptation matrix supporting Antigravity 2.0, Gemini CLI, Claude Code, GitHub Copilot, Cursor, and ChatGPT.
+**La Fuente Única de Verdad** para Spec-Driven Development (SDD), aislamiento de workspaces multirrepositorio, herramientas para desarrolladores y directrices de calidad de ingeniería.
 
 ---
 
-## 🚀 Installation & Setup
+## 🌟 Capacidades Principales
 
-### Prerequisites
+- **CLI `sdd`**: Motor de SDD de 8 fases alineado con la especificación de Spec-Kit (`specify`, `clarify`, `plan`, `checklist`, `tasks`, `analyze`, `exec`, `converge`), gestión del estado del feature y acceso directo simplificado para corrección rápida de bugs (`sdd quick`).
+- **Gestión de Workspaces**: Aislamiento multirrepositorio, creación de workspaces, edición y scripts de sincronización (`generate-workspace`, `create-worktree`, `sync-toolkit`, `toolkit-menu`, `update-toolkit`).
+- **Utilidades para Desarrolladores**: TUIs interactivas y herramientas CLI para orquestación de servicios locales (`run-local`), compilación multi-stack (`build-project`), gestión del contexto de Kubernetes (`kube-env`), control de VPN (`toggle-vpn`) y dashboards de servicios (`devscripts-dashboard`).
+- **Arquitectura Multiplataforma**: 100% Python (0% `.sh`, 0% `.bat`, 0% `.bats`). Funciona de forma nativa en Windows, macOS y Linux.
+- **Adaptación Dinámica para IAs**: Matriz de adaptación End-to-End para Agentes de IA compatible con Antigravity 2.0, Gemini CLI, Claude Code, GitHub Copilot, Cursor y ChatGPT.
 
-- **OS**: Windows, macOS, or Linux
-- **Dependencies**: `python3` (3.10+ recommended), `git`
+---
 
-### Step-by-Step Installation
+## 🚀 Instalación y Configuración
 
-1. **Clone the Repository**:
+### Requisitos Previos
+
+- **Sistema Operativo**: Windows, macOS o Linux
+- **Dependencias**: `python3` (3.10+ recomendado), `git`
+
+### Paso a Paso de Instalación
+
+1. **Clonar el Repositorio**:
    ```bash
    git clone https://github.com/Ezuser/devscripts.git
    cd devscripts
    ```
 
-2. **Install via pip / pyproject.toml**:
-   This project uses a 100% Python cross-platform architecture. All CLI scripts are registered as binary entrypoints in `pyproject.toml`.
+2. **Instalar vía pip / pyproject.toml**:
+   Este proyecto utiliza una arquitectura multiplataforma 100% Python. Todos los scripts CLI están registrados como puntos de entrada ejecutable en `pyproject.toml`.
    ```bash
    pip install -e .
    ```
-   This installs all commands (`install`, `uninstall`, `sdd`, `create-worktree`, `generate-workspace`, `sync-toolkit`, `toolkit-menu`, `update-toolkit`, `run-local`, `kube-env`, etc.) directly into your Python environment's PATH.
+   Esto instala todos los comandos (`install`, `uninstall`, `sdd`, `create-worktree`, `generate-workspace`, `sync-toolkit`, `toolkit-menu`, `update-toolkit`, `run-local`, `kube-env`, etc.) directamente en el PATH de tu entorno Python.
 
-3. **Verify Installation**:
+3. **Verificar Instalación**:
    ```bash
    sdd --help
    ```
 
 ---
 
-## 💻 Dual Execution Mode
+## 💻 Modo de Ejecución Dual
 
-ALL CLI scripts support a dual execution mode:
-- **Interactive TUI Mode**: Run the command without arguments for a rich interactive terminal user interface.
-- **CLI Flags**: Run with flags and `--help` for automation and scripting with full documentation.
+TODOS los scripts CLI soportan un modo de ejecución dual:
+- **Modo TUI Interactivo**: Ejecutá el comando sin argumentos para abrir una interfaz de terminal interactiva y enriquecida.
+- **Modo Banderas CLI**: Ejecutá el comando con banderas y `--help` para automatización y scripts de CI/CD.
 
 ---
 
-## ⚙️ Configuration & Project Setup
+## ⚙️ Configuración y Setup del Proyecto
 
-1. **Initialize SDD Structure in a Repository**:
-   Navigate to your target project folder and run:
+1. **Inicializar Estructura SDD en un Repositorio**:
+   Navegá a la carpeta de tu proyecto destino y ejecutá:
    ```bash
    sdd init
    ```
-   This initializes the standardized [`.specify/`](.specify/README.md) directory structure (`.specify/constitution/`, `.specify/specs/`, `.specify/memory.md`, `.specify/tech-debt.md`).
+   Esto inicializa la estructura de directorios estandarizada [`.specify/`](.specify/README.md) (`.specify/constitution/`, `.specify/specs/`, `.specify/memory.md`, `.specify/tech-debt.md`).
 
-2. **Synchronize Toolkit & Agnostic Rules**:
-   To propagate updated skills and rules from `devscripts` to active workspaces:
+2. **Sincronizar Toolkit y Reglas Agnósticas**:
+   Para propagar habilidades y reglas actualizadas desde `devscripts` hacia workspaces activos:
    ```bash
    sync-toolkit
    ```
 
 ---
 
-## 🏃 Quick Start Guide
+## 🏃 Guía de Inicio Rápido
 
-### 1. Spec-Driven Development (`sdd` CLI)
+### 1. Spec-Driven Development (CLI `sdd`)
 
-- **Step-by-Step Feature Development Lifecycle**:
+- **Ciclo de Vida de Desarrollo de Feature Paso a Paso**:
   ```bash
-  sdd feature jwt-auth      # Set active feature name
-  sdd specify               # Phase 1: Functional spec (spec.md)
-  sdd clarify               # Phase 2: Ambiguity resolution (clarify.md)
-  sdd plan                  # Phase 3: Technical blueprint & contracts (plan.md)
-  sdd checklist             # Phase 4: Quality Gates & DoD (checklist.md)
-  sdd tasks                 # Phase 5: Executable task breakdown (tasks.md)
-  sdd analyze               # Phase 6: Cross-artifact consistency audit
-  sdd exec                  # Phase 7: Task execution with Worker & QA agents
-  sdd harness run           # Execution Harness: Batch multi-agent orchestration & auto-correction
-  sdd converge              # Phase 8: Final validation & Gherkin sign-off
+  sdd feature jwt-auth      # Establecer nombre del feature activo
+  sdd specify               # Fase 1: Especificación funcional (spec.md)
+  sdd clarify               # Fase 2: Resolución de ambigüedades (clarify.md)
+  sdd plan                  # Fase 3: Blueprint técnico y contratos (plan.md)
+  sdd checklist             # Fase 4: Quality Gates & DoD (checklist.md)
+  sdd tasks                 # Fase 5: Desglose de tareas ejecutables (tasks.md)
+  sdd analyze               # Fase 6: Auditoría de consistencia entre artefactos
+  sdd exec                  # Fase 7: Ejecución de tareas con Agentes Worker y QA
+  sdd harness run           # Harness de Ejecución: Orquestación batch multi-agente
+  sdd converge              # Fase 8: Validación final y aprobación Gherkin
+  ```
 
-  ```
-- **Streamlined Bugfix Shortcut**:
+- **Shortcut para Corrección Rápida de Bugs**:
   ```bash
-  sdd quick "Fix null pointer in order calculator"
+  sdd quick "Corregir puntero nulo en la calculadora de pedidos"
   ```
-- **Audit Workspace SDD Compliance**:
+
+- **Auditar Cumplimiento de SDD en el Workspace**:
   ```bash
   sdd audit
   ```
 
-### 2. Multi-Repo Workspaces
+### 2. Workspaces Multirrepositorio
 
-- **Create an isolated workspace**:
+- **Crear un workspace aislado**:
   ```bash
   generate-workspace
   ```
-- **Edit repositories in workspace**:
+- **Editar repositorios en el workspace**:
   ```bash
   edit-workspace
   ```
-- **Safely delete workspaces**:
+- **Eliminar workspaces de forma segura**:
   ```bash
   delete-workspaces
   ```
 
-### 3. Core Developer Utilities
+### 3. Utilidades Principales para Desarrolladores
 
-- **Interactive Service Dashboard**: `devscripts-dashboard`
-- **Orchestrate Local Services**: `run-local`
-- **Build Multi-Stack Projects**: `build-project`
-- **Kubernetes Context TUI**: `kube-env`
-- **Toggle VPN Connection**: `toggle-vpn`
-
----
-
-## 📜 Development Rules & Quality Standards ([`rules/`](rules/README.md))
-
-Central index for quality guidelines, engineering standards, and security policies:
-
-- **[Development Rules Index](rules/README.md)** — Architectural overview and rule directory.
-- **[Interaction & Working Style](rules/interaction.md)** — Chat formatting, bounded code edits, and mandatory pre-completion verification.
-- **[Git Workflow & Commits](rules/git_workflow.md)** — Conventional Commits format, pre-push testing, and branch protection.
-- **[Coding Practices](rules/coding_practices.md)** — Java/Spring Boot, Node.js/TypeScript, Python/FastAPI, React/JSX, and TDD standards.
-- **[Databases & Storage](rules/databases.md)** — PostgreSQL & MongoDB access policies, mandatory JSON pre-write backup, and "OK WRITE" authorization.
-- **[Data Migrations](rules/migrations.md)** — Parametric data migrations with Mongock `@ChangeUnit`, idempotency, and rollbacks.
-- **[Observability](rules/observability.md)** — Structured logging levels, MDC context fields, and correlation headers (`X-Request-Id`, `X-Trace-Id`).
-- **[Security & OWASP](rules/security.md)** — Secret leak prevention, system edge input validation, and OWASP dependency checks.
-- **[Global Rules Index](config/rules-global/README.md)** — Global rule specifications applied across all managed repositories.
+- **Dashboard Interactivo de Servicios**: `devscripts-dashboard`
+- **Orquestar Servicios Locales**: `run-local`
+- **Compilar Proyectos Multi-Stack**: `build-project`
+- **TUI del Contexto de Kubernetes**: `kube-env`
+- **Alternar Conexión VPN**: `toggle-vpn`
 
 ---
 
-## 📚 Technical Documentation ([`docs/`](docs/))
+## 📜 Reglas de Desarrollo y Estándares de Calidad ([AGENTS.md](AGENTS.md))
 
-Detailed guides on architecture, sidecar containers, database specifications, and platform orchestration:
+Índice central de directrices de calidad, estándares de ingeniería y políticas de seguridad:
 
-- **[Specification Structure](.specify/README.md)** — Overview of `.specify/` directory structure and SDD workflow.
-- **[Database Documentation Catalog](docs/database/README.md)** — Database schemas, entity relationships, and migration guides.
-- **[SDD Architecture](docs/sdd-architecture.md)** — Technical design of Spec-Driven Development CLI and agents.
-- **[Workspace Lifecycle](docs/run-workspace.md)** — Multi-repo creation, update, and synchronization lifecycle.
-- **[Container Sandbox Execution](docs/agent-sandbox-startup-flow.md)** — Containerized isolation startup flow.
-- **[Sidecar Container Architecture](docs/sidecar-architecture.md)** — Architecture of isolated container sidecars.
-- **[Installer Sidecar Flow](docs/installer-sidecar-flow.md)** — Automatic dependency installation container workflow.
-- **[Test Runner Sidecar Flow](docs/test-runner-sidecar-flow.md)** — Isolated test runner environment execution.
-- **[Kubernetes Environment TUI](docs/kube-env.md)** — Guide for managing Kubernetes cluster environments.
-- **[Dependency Caching](docs/dependency-caching.md)** — Volume caching strategy for build tools.
-- **[Versioning & Releases](docs/versioning.md)** — Automated versioning with Release Please.
-- **[Windows & Figma Setup](docs/windows-figma-setup.md)** — Setup instructions for Windows and design tooling.
+- **[Instrucciones del Sistema para Agentes](AGENTS.md)** — Descripción general de la arquitectura y directrices.
+- **[Reglas Globales del Proyecto](config/rules-global/README.md)** — Especificaciones de reglas globales aplicadas en todos los repositorios gestionados.
 
 ---
 
-## 🧪 Testing & Quality Assurance
+## 📚 Documentación Técnica ([`docs/`](docs/README.md))
 
-Run the full pytest suite to verify toolkit integrity:
+Guías detalladas sobre arquitectura, contenedores sidecar, especificaciones de base de datos u orquestación de plataformas:
+
+- **[Estructura de Especificación](.specify/README.md)** — Visión general de la estructura de `.specify/` y el flujo de trabajo SDD.
+- **[Arquitectura SDD](docs/sdd-architecture.md)** — Diseño técnico del CLI y agentes de Spec-Driven Development.
+- **[Ciclo de Vida de Workspaces](docs/run-workspace.md)** — Creación, actualización y sincronización multirrepositorio.
+- **[Ejecución en Sandbox Contenerizado](docs/agent-sandbox-startup-flow.md)** — Flujo de arranque de aislamiento contenerizado.
+- **[Arquitectura de Contenedores Sidecar](docs/sidecar-architecture.md)** — Arquitectura de contenedores aislados.
+- **[Flujo del Sidecar Instalador](docs/installer-sidecar-flow.md)** — Flujo contenerizado de instalación de dependencias.
+- **[Flujo del Sidecar de Pruebas](docs/test-runner-sidecar-flow.md)** — Ejecución aislada de entornos de pruebas unitarias.
+- **[TUI de Entornos Kubernetes](docs/kube-env.md)** — Guía para gestionar entornos de clústeres Kubernetes.
+- **[Caché de Dependencias](docs/dependency-caching.md)** — Estrategia de caché de volúmenes para herramientas de build.
+- **[Versionado y Releases](docs/versioning.md)** — Versionado automatizado con Release Please.
+- **[Configuración de Windows y Figma](docs/windows-figma-setup.md)** — Instrucciones de configuración para Windows y diseño.
+
+---
+
+## 🧪 Pruebas y Aseguramiento de Calidad
+
+Ejecutá la suite completa de pytest para verificar la integridad del toolkit:
 
 ```bash
 pytest
