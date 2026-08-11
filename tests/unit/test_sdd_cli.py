@@ -1,4 +1,5 @@
 import json
+import sys
 import pytest
 from pathlib import Path
 from unittest.mock import patch
@@ -38,3 +39,99 @@ def test_get_status_with_artifacts(tmp_path, capsys):
         feature.status()
         captured = capsys.readouterr()
         assert "user-api" in captured.out
+
+
+def test_sdd_verify_table(capsys):
+    from devscripts.cli import sdd
+    from devscripts.sdd.invariants import VerificationPayload
+
+    mock_payload = VerificationPayload(
+        passed=True,
+        linter_status="PASS",
+        test_status="PASS",
+        confirmation_read_status="PASS",
+        security_status="PASS",
+        remediation_instructions="",
+        details={"target_dir": "/tmp/test", "stack": "python"},
+    )
+    with patch("devscripts.sdd.verify.run_verification", return_value=mock_payload):
+        with patch.object(sys, "argv", ["sdd", "verify", "--dir", "/tmp/test"]):
+            sdd.main()
+            captured = capsys.readouterr()
+            assert "SDD Automated Verification Result" in captured.out
+            assert "PASS" in captured.out
+            assert "python" in captured.out
+
+
+def test_sdd_verify_json(capsys):
+    from devscripts.cli import sdd
+    from devscripts.sdd.invariants import VerificationPayload
+
+    mock_payload = VerificationPayload(
+        passed=True,
+        linter_status="PASS",
+        test_status="PASS",
+        confirmation_read_status="PASS",
+        security_status="PASS",
+        remediation_instructions="",
+        details={"target_dir": "/tmp/test", "stack": "python"},
+    )
+    with patch("devscripts.sdd.verify.run_verification", return_value=mock_payload):
+        with patch.object(sys, "argv", ["sdd", "verify", "--dir", "/tmp/test", "--json"]):
+            sdd.main()
+            captured = capsys.readouterr()
+            data = json.loads(captured.out.strip())
+            assert data["passed"] is True
+            assert data["linter_status"] == "PASS"
+
+
+def test_sdd_hook_pre_tool_approved(capsys):
+    from devscripts.cli import sdd
+
+    with patch.object(sys, "argv", ["sdd", "hook", "pre-tool", "--tool-name", "write_to_file", "--tool-args", '{"TargetFile": "foo.py"}']):
+        sdd.main()
+        captured = capsys.readouterr()
+        output = captured.out
+        json_start = output.find("{")
+        assert json_start != -1
+        data = json.loads(output[json_start:])
+        assert data["approved"] is True
+        assert data["reason"] == "Approved"
+
+
+def test_sdd_hook_pre_tool_blocked(capsys):
+    from devscripts.cli import sdd
+
+    with patch.object(sys, "argv", ["sdd", "hook", "pre-tool", "--tool-name", "run_command", "--tool-args", "rm -rf /"]):
+        sdd.main()
+        captured = capsys.readouterr()
+        output = captured.out
+        json_start = output.find("{")
+        assert json_start != -1
+        data = json.loads(output[json_start:])
+        assert data["approved"] is False
+        assert "Blocked" in data["reason"]
+
+
+def test_sdd_hook_post_tool(capsys):
+    from devscripts.cli import sdd
+    from devscripts.sdd.invariants import VerificationPayload
+
+    mock_payload = VerificationPayload(
+        passed=True,
+        linter_status="PASS",
+        test_status="PASS",
+        confirmation_read_status="PASS",
+        security_status="PASS",
+    )
+    with patch("devscripts.sdd.hooks.run_verification", return_value=mock_payload):
+        with patch.object(sys, "argv", ["sdd", "hook", "post-tool", "--tool-name", "write_to_file", "--tool-args", '{"TargetFile": "app.py"}']):
+            sdd.main()
+            captured = capsys.readouterr()
+            output = captured.out
+            json_start = output.find("{")
+            assert json_start != -1
+            data = json.loads(output[json_start:])
+            assert data["passed"] is True
+            assert data["linter_status"] == "PASS"
+
