@@ -1,31 +1,31 @@
-# Google Antigravity (AGY) — Agent System Instructions
+# Google Antigravity (AGY) — Instrucciones del Sistema para Agentes
 
-# Spec-Driven Development (SDD) — Core Rules & Step-by-Step Lifecycle
+# Spec-Driven Development (SDD) — Reglas Centrales y Ciclo de Vida Paso a Paso
 
-## 1. Strict Step-by-Step Lifecycle (Human Control Checkpoints)
-Feature development MUST progress sequentially, requiring human review & sign-off before starting each phase:
-1. `/sdd-specify`: Functional specification (`spec.md`).
-2. `/sdd-clarify`: Ambiguity resolution & risk analysis (`clarify.md`).
-3. `/sdd-plan`: Technical blueprint & formal data contracts (`plan.md`).
-4. `/sdd-checklist`: Quality gates & Definition of Done (`checklist.md`).
-5. `/sdd-tasks`: Executable task breakdown (`tasks.md`).
-6. `/sdd-analyze`: Static cross-artifact consistency audit.
-7. `/sdd-exec`: Iterative task execution with Worker Agent and QA Reviewer Agent.
-8. `/sdd-converge`: Final convergence verification & Gherkin acceptance criteria check.
+## 1. Ciclo de Vida Estricto (Puntos de Control Humano)
+El desarrollo de funcionalidades DEBE avanzar secuencialmente, requiriendo revisión y aprobación humana antes de iniciar cada fase:
+1. `/sdd-specify`: Especificación funcional (`spec.md`).
+2. `/sdd-clarify`: Resolución de ambigüedades y análisis de riesgos (`clarify.md`).
+3. `/sdd-plan`: Blueprint técnico y contratos formales de datos (`plan.md`).
+4. `/sdd-checklist`: Quality gates y Definition of Done (`checklist.md`).
+5. `/sdd-tasks`: Desglose atomizado de tareas ejecutables (`tasks.md`).
+6. `/sdd-analyze`: Auditoría estática cruzada entre artefactos.
+7. `/sdd-exec`: Ejecución iterativa de tareas con Agente Worker y Agente QA.
+8. `/sdd-converge`: Verificación final de convergencia y criterios de aceptación Gherkin.
 
-*Note*: For bug fixes or minor patches, use `/sdd-quick` exclusively.
+*Nota*: Para correcciones rápidas de bugs o parches menores, usar exclusivamente `sdd quick`.
 
-## 2. SDD Pillars
-- **Contracts First**: Define TypeScript interfaces, Zod schemas, or Java DTOs before implementing logic.
-- **Test Harness (Test-First)**: Write unit/integration test (Red) before business logic.
-- **Minimal Implementation**: Write minimal code necessary to satisfy contract and pass test (Green).
-- **Early Detection**: Run linters and verify post-mutation confirmation reads (GET verification query).
+## 2. Pilares de SDD
+- **Contratos Primero**: Definir interfaces TypeScript, esquemas Zod o DTOs Java antes de implementar la lógica.
+- **Harnés de Pruebas (Test-First)**: Escribir pruebas unitarias/integración (Rojo) antes de la lógica de negocio.
+- **Implementación Mínima**: Escribir el código estrictamente necesario para cumplir el contrato y pasar la prueba (Verde).
+- **Detección Temprana**: Ejecutar linters y verificar lecturas de confirmación tras mutaciones.
 
-## 3. Git & Security Rules
-- **Conventional Commits**: Write commit messages in English (`type(scope): description`) in lowercase, imperative mode.
-- **ZERO AI MENTIONS**: Never include phrases like "Generated with AI" or robot emojis 🤖 in PRs, commits, or code comments.
-- **Security & Privacy**: Zero hardcoded secrets. Zero PII logged.
+## 3. Reglas de Git y Seguridad
+- **Conventional Commits**: Escribir mensajes de commit en inglés (`type(scope): description`) en minúsculas e imperativo.
+- **ZERO AI MENTIONS / CERO MENCIONES DE IA**: Nunca incluir frases como "Generado con IA" ni emojis de robots 🤖 en PRs, commits o comentarios.
+- **Seguridad y Privacidad**: Cero secretos hardcodeados. Cero PII guardada en logs.
 
-## Antigravity Agent Flow
-- Consult active SDD skills in `.agents/skills/` and `skills/`.
-- Progress step-by-step after user sign-off.
+## Flujo del Agente Antigravity
+- Consultar habilidades SDD activas en `.agents/skills/` y `skills/`.
+- Avanzar paso a paso tras la aprobación del usuario.
