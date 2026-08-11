@@ -32,6 +32,32 @@ Al ejecutar cualquier habilidad (ej. `sdd-init`, `sdd-verify`, `sdd-constitution
 2. **Fase 2 (Auditoría Dinámica de IA)**: Inspeccionar el código fuente del repositorio (manifests, linters, tests, arquitectura y convenciones no escritas).
 3. **Fase 3 (Enriquecimiento Explícito)**: Inyectar las reglas y buenas prácticas descubiertas en `.specify/constitution/constitution.md` y `.specify/memory.md` en la sección `## 🔍 Descubrimientos Dinámicos de IA & Buenas Prácticas del Proyecto`.
 
+---
+
+# Constitución del Proyecto — devscripts
+
+## 1. Descripción & Propósito
+Herramienta unificada de automatización para desarrollo y orquestación de workspaces de IA
+
+## 2. Stack Tecnológico Principal
+Python 3, Pytest, Rich CLI
+
+## 3. Reglas Arquitectónicas & Estándares de Código
+- Contratos primero: Definir interfaces TypeScript, esquemas Zod, DTOs Java o modelos Pydantic antes de implementar lógica.
+- Harnés de pruebas (Test-First): Escribir suite de pruebas unitarias/integración (RED) antes del código de negocio (GREEN).
+- Implementación mínima: Escribir únicamente el código necesario para satisfacer el contrato y pasar los tests (YAGNI).
+- Detección temprana: Correr linters estáticos y realizar lecturas de confirmación post-mutación.
+- Cero secretos hardcodeados y cero datos personales (PII) guardados en logs.
+
+## 4. Principios SDD (Single Source of Truth)
+- Todo desarrollo de características avanzará secuencialmente: `/sdd-specify` -> `/sdd-clarify` -> `/sdd-plan` -> `/sdd-checklist` -> `/sdd-tasks` -> `/sdd-analyze` -> `/sdd-exec` -> `/sdd-converge`.
+- Las decisiones registradas en `.specify/constitution/` prevalecen sobre cualquier preferencia de agente o configuración por defecto.
+- Conventional Commits en inglés imperativo (`type(scope): description`) sin ninguna alusión a Inteligencia Artificial ni emojis.
+
+## 5. 🔍 Descubrimientos Dinámicos de IA & Buenas Prácticas del Proyecto
+- *(Sección reservada para que el agente de IA documente reglas detectadas dinámicamente: patrones de arquitectura, políticas de logging, seguridad, convenciones de tests y casos borde del proyecto)*
+
+
 ## Antigravity Agent Flow
 - Consult active SDD skills in `.agents/skills/` and `skills/`.
 - Progress step-by-step after user sign-off.
