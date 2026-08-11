@@ -21,4 +21,4 @@ scratch/*
 !scratch/.gitkeep
 *.tmp
 *.log
-
+.specify-backup-*
