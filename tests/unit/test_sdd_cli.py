@@ -58,7 +58,7 @@ def test_sdd_verify_table(capsys):
         with patch.object(sys, "argv", ["sdd", "verify", "--dir", "/tmp/test"]):
             sdd.main()
             captured = capsys.readouterr()
-            assert "SDD Automated Verification Result" in captured.out
+            assert "Resultado de Verificación Automatizada SDD" in captured.out
             assert "PASS" in captured.out
             assert "python" in captured.out
 
@@ -134,4 +134,19 @@ def test_sdd_hook_post_tool(capsys):
             data = json.loads(output[json_start:])
             assert data["passed"] is True
             assert data["linter_status"] == "PASS"
+
+
+def test_set_feature_empty_raises_error(tmp_path):
+    with patch("devscripts.sdd.feature.get_repo_root", return_value=tmp_path):
+        with pytest.raises(SystemExit):
+            feature.set_feature("")
+
+
+def test_sdd_specify_with_name_sets_active_feature(tmp_path):
+    from devscripts.cli.sdd import sdd
+    with patch("devscripts.sdd.feature.get_repo_root", return_value=tmp_path):
+        with patch.object(sys, "argv", ["sdd", "specify", "auto-feature"]):
+            sdd.main()
+            assert feature.get_active_feature(repo_root=tmp_path) == "auto-feature"
+
 

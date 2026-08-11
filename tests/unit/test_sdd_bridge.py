@@ -142,3 +142,26 @@ def test_prompt_select_agents(monkeypatch):
     assert selected == ["agy", "claude"]
 
 
+def test_generate_adapters_cleans_unselected_agents():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        td = Path(tmp_dir)
+        # First generate all
+        generate_adapters(target_dir=tmp_dir, gen_all=True)
+        assert (td / "CLAUDE.md").exists()
+        assert (td / "AGENTS.md").exists()
+        assert (td / ".gemini/GEMINI.md").exists()
+
+        # Now re-generate with ONLY gemini
+        files = generate_adapters(target_dir=tmp_dir, gemini=True)
+        assert ".gemini/GEMINI.md" in files
+        assert (td / ".gemini/GEMINI.md").exists()
+
+        # Check that unselected adapters were cleaned up!
+        assert not (td / "CLAUDE.md").exists()
+        assert not (td / ".claude").exists()
+        assert not (td / "AGENTS.md").exists()
+        assert not (td / ".agents").exists()
+        assert not (td / ".cursorrules").exists()
+
+
+
