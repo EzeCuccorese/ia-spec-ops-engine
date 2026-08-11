@@ -174,4 +174,27 @@ def test_generate_adapters_cleans_unselected_agents():
         assert not (td / ".cursorrules").exists()
 
 
+def test_detect_existing_agents():
+    from devscripts.adapters.bridge import detect_existing_agents
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        td = Path(tmp_dir)
+        # Empty repo defaults to agy
+        assert detect_existing_agents(target_dir=tmp_dir) == ["agy"]
+
+        # Creating CLAUDE.md detects claude
+        (td / "CLAUDE.md").write_text("# Claude Code")
+        assert set(detect_existing_agents(target_dir=tmp_dir)) == {"claude"}
+
+
+def test_non_interactive_adapter_generation_defaults_to_detected_agents():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        td = Path(tmp_dir)
+        # Non-interactive generation without flags or agents.json should NOT generate all 7 agents
+        files = generate_adapters(target_dir=tmp_dir)
+        assert "AGENTS.md" in files
+        assert "CLAUDE.md" not in files
+        assert ".windsurfrules" not in files
+        assert "CHATGPT.md" not in files
+
+
 
