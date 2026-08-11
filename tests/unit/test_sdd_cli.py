@@ -42,7 +42,7 @@ def test_get_status_with_artifacts(tmp_path, capsys):
 
 
 def test_sdd_verify_table(capsys):
-    from devscripts.cli import sdd
+    from devscripts.cli.sdd import sdd
     from devscripts.sdd.invariants import VerificationPayload
 
     mock_payload = VerificationPayload(
@@ -64,7 +64,7 @@ def test_sdd_verify_table(capsys):
 
 
 def test_sdd_verify_json(capsys):
-    from devscripts.cli import sdd
+    from devscripts.cli.sdd import sdd
     from devscripts.sdd.invariants import VerificationPayload
 
     mock_payload = VerificationPayload(
@@ -86,7 +86,7 @@ def test_sdd_verify_json(capsys):
 
 
 def test_sdd_hook_pre_tool_approved(capsys):
-    from devscripts.cli import sdd
+    from devscripts.cli.sdd import sdd
 
     with patch.object(sys, "argv", ["sdd", "hook", "pre-tool", "--tool-name", "write_to_file", "--tool-args", '{"TargetFile": "foo.py"}']):
         sdd.main()
@@ -100,7 +100,7 @@ def test_sdd_hook_pre_tool_approved(capsys):
 
 
 def test_sdd_hook_pre_tool_blocked(capsys):
-    from devscripts.cli import sdd
+    from devscripts.cli.sdd import sdd
 
     with patch.object(sys, "argv", ["sdd", "hook", "pre-tool", "--tool-name", "run_command", "--tool-args", "rm -rf /"]):
         sdd.main()
@@ -114,7 +114,7 @@ def test_sdd_hook_pre_tool_blocked(capsys):
 
 
 def test_sdd_hook_post_tool(capsys):
-    from devscripts.cli import sdd
+    from devscripts.cli.sdd import sdd
     from devscripts.sdd.invariants import VerificationPayload
 
     mock_payload = VerificationPayload(

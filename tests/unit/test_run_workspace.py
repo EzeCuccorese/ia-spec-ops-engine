@@ -15,7 +15,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from devscripts.cli import run_local as run_workspace
+from devscripts.cli.environment import run_local as run_workspace
 
 
 class TestAssignPort(unittest.TestCase):

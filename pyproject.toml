@@ -7,8 +7,12 @@ name = "devscripts"
 version = "0.1.0"
 description = "Herramienta unificada de automatización para desarrollo y orquestación de workspaces de IA"
 readme = "README.md"
-requires-python = ">=3.9"
 dependencies = []
+
+[project.optional-dependencies]
+tui = ["textual>=0.40"]
+monitoring = ["psutil>=5.9"]
+dev = ["pytest>=7.0", "ruff>=0.1"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["devscripts"]
