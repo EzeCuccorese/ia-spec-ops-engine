@@ -1,6 +1,0 @@
-{
-  "name": "sdd-post-tool-hook",
-  "type": "post-tool",
-  "command": "python3 -m devscripts.cli.sdd hook post-tool",
-  "description": "Post-tool interceptor for automated code verification"
-}
