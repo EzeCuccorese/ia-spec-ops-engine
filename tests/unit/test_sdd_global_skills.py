@@ -19,6 +19,14 @@ def test_get_canonical_skills_dir():
     assert (skills_dir / "sdd-init" / "SKILL.md").exists()
     assert (skills_dir / "sdd-verify" / "SKILL.md").exists()
 
+    skill_folders = [d for d in skills_dir.iterdir() if d.is_dir() and (d / "SKILL.md").exists()]
+    assert len(skill_folders) >= 16
+
+    for folder in skill_folders:
+        content = (folder / "SKILL.md").read_text(encoding="utf-8")
+        assert f"name: {folder.name}" in content, f"Skill {folder.name} missing frontmatter name"
+        assert "Validar Parámetros" in content or "Paso 0" in content, f"Skill {folder.name} missing parameter validation"
+
 
 def test_install_global_skills_custom_source():
     with tempfile.TemporaryDirectory() as tmp_src, tempfile.TemporaryDirectory() as tmp_home:

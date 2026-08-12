@@ -55,6 +55,10 @@ def test_generate_all_adapters():
         assert ".agents/skills/sdd-init/SKILL.md" in files
         assert ".agents/skills/sdd-verify/SKILL.md" in files
         assert ".agents/skills/sdd-harness/SKILL.md" in files
+        assert ".agents/skills/sdd-specify/SKILL.md" in files
+
+        agent_skills = [f for f in files if f.startswith(".agents/skills/") and f.endswith("/SKILL.md")]
+        assert len(agent_skills) >= 16
 
         init_skill = (td / ".agents" / "skills" / "sdd-init" / "SKILL.md").read_text(encoding="utf-8")
         assert "name: sdd-init" in init_skill

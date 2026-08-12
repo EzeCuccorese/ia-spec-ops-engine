@@ -1,156 +1,97 @@
-# Toolkit Devscripts & Motor SDD
+# Toolkit Devscripts & Motor SDD (Spec-Driven Development)
 
-**La Fuente Única de Verdad** para Spec-Driven Development (SDD), aislamiento de workspaces multirrepositorio, herramientas para desarrolladores y directrices de calidad de ingeniería.
+**La Fuente Única de Verdad** para Spec-Driven Development (SDD), orquestación de habilidades de Inteligencia Artificial para Antigravity / Gemini / Claude, aislamiento de workspaces multirrepositorio y directrices de calidad de ingeniería.
 
 ---
 
 ## 🌟 Capacidades Principales
 
-- **CLI `sdd`**: Motor de SDD de 8 fases alineado con la especificación de Spec-Kit (`specify`, `clarify`, `plan`, `checklist`, `tasks`, `analyze`, `exec`, `converge`), gestión del estado del feature y acceso directo simplificado para corrección rápida de bugs (`sdd quick`).
-- **Gestión de Workspaces**: Aislamiento multirrepositorio, creación de workspaces, edición y scripts de sincronización (`generate-workspace`, `create-worktree`, `sync-toolkit`, `toolkit-menu`, `update-toolkit`).
-- **Utilidades para Desarrolladores**: TUIs interactivas y herramientas CLI para orquestación de servicios locales (`run-local`), compilación multi-stack (`build-project`), gestión del contexto de Kubernetes (`kube-env`), control de VPN (`toggle-vpn`) y dashboards de servicios (`devscripts-dashboard`).
-- **Arquitectura Multiplataforma**: 100% Python (0% `.sh`, 0% `.bat`, 0% `.bats`). Funciona de forma nativa en Windows, macOS y Linux.
-- **Adaptación Dinámica para IAs**: Matriz de adaptación End-to-End para Agentes de IA compatible con Antigravity 2.0, Gemini CLI, Claude Code, GitHub Copilot, Cursor y ChatGPT.
+- **CLI `sdd` & Motor de 8 Fases**: Alineado con la especificación Spec-Kit (`specify`, `clarify`, `plan`, `checklist`, `tasks`, `analyze`, `exec`, `converge`).
+- **Catálogo de 16 Habilidades SDD Nativas**: Comandos Slash `/sdd-*` compatibles con Google Antigravity IDE, `agy` CLI, Gemini CLI y Claude Code.
+- **Validación Estricta de Parámetros**: Precondiciones obligatorias en todas las habilidades (Paso 0) para evitar ejecuciones con nombres de característica en blanco o caídas en `"default"`.
+- **Sincronizador Global Multi-IA (`sdd sync`)**: Propagación atómica de habilidades y reglas hacia `~/.gemini/config/skills/`, `~/.agents/skills/` y adaptadores locales (`.agents/`, `.claude/`, `.github/`).
+- **Gestión de Workspaces Multirrepositorio**: Creación, actualización y sincronización de entorno (`generate-workspace`, `create-worktree`, `sync-toolkit`, `toolkit-menu`, `update-toolkit`).
+- **Arquitectura Multiplataforma**: 100% Python nativo sin scripts shell obsoletos. Funciona de forma transparente en Windows, macOS y Linux.
 
 ---
 
-## 🚀 Instalación y Configuración
+## 🛠️ Catálogo Completo de las 16 Habilidades SDD (Comandos Slash)
+
+| Comando Slash | Fase / Función | Descripción |
+| :--- | :--- | :--- |
+| `/sdd-specify` | **Fase 1** | Genera la especificación funcional inicial (`spec.md`) con historias de usuario y Gherkin. |
+| `/sdd-clarify` | **Fase 2** | Audita y resuelve ambigüedades, supuestos y vacíos de requerimientos (`clarify.md`). |
+| `/sdd-plan` | **Fase 3** | Blueprint técnico, contratos de datos (Zod/DTOs) y diagramas Mermaid (`plan.md`). |
+| `/sdd-checklist` | **Fase 4** | Establece las Quality Gates y Definition of Done (`checklist.md`). |
+| `/sdd-tasks` | **Fase 5** | Desglose atómico de tareas ejecutables (`tasks.md`). |
+| `/sdd-analyze` | **Fase 6** | Auditoría estática cruzada de consistencia entre todos los artefactos. |
+| `/sdd-exec` | **Fase 7** | Orquestación iterativa de tareas con roles de Agente Worker y Agente QA Reviewer. |
+| `/sdd-converge` | **Fase 8** | Verificación de convergencia verde (suite de tests, checklist y escenarios Gherkin). |
+| `/sdd-init` | **Soporte** | Inicialización del espacio SDD con protocolo híbrido (CLI + Inspección Dinámica IA). |
+| `/sdd-verify` | **Soporte** | Suite de verificaciones automáticas (linters, unit tests, lecturas GET post-mutación, PII). |
+| `/sdd-harness` | **Soporte** | Control de presupuesto de pasos y evaluación de deriva de alcance (*Scope Drift*). |
+| `/sdd-quick` | **Hotfix** | Ruta acelerada para parches menores, bugs o refactorizaciones pequeñas. |
+| `/sdd-constitution` | **Arquitectura** | Establece o actualiza la fuente de verdad arquitectónica en `.specify/constitution/`. |
+| `/sdd-audit` | **Deuda Técnica** | Audita repositorios para catalogar deuda técnica en `.specify/tech-debt.md`. |
+| `/sdd-doc` | **Documentación** | Motor autónomo de documentación recursiva, purga de PII y READMEs. |
+| `/sdd-remove` | **Mantenimiento** | Respaldado automático `.specify-backup-*` y remoción limpia de adaptadores SDD. |
+
+> Consulte el **[Manual Funcional de Habilidades SDD](docs/sdd-skills.md)** para conocer parámetros, flags y ejemplos detallados.
+
+---
+
+## 🚀 Instalación y Sincronización Global
 
 ### Requisitos Previos
 
-- **Sistema Operativo**: Windows, macOS o Linux
-- **Dependencias**: `python3` (3.10+ recomendado), `git`
+- **Sistema Operativo**: macOS, Linux o Windows
+- **Python**: 3.10 o superior
+- **Git**: 2.30+
 
-### Paso a Paso de Instalación
+### Paso a Paso
 
-1. **Clonar el Repositorio**:
+1. **Clonar e Instalar en Modo Editable**:
    ```bash
    git clone https://github.com/Ezuser/devscripts.git
    cd devscripts
-   ```
-
-2. **Instalar vía pip / pyproject.toml**:
-   Este proyecto utiliza una arquitectura multiplataforma 100% Python. Todos los scripts CLI están registrados como puntos de entrada ejecutable en `pyproject.toml`.
-   ```bash
    pip install -e .
    ```
-   Esto instala todos los comandos (`install`, `uninstall`, `sdd`, `create-worktree`, `generate-workspace`, `sync-toolkit`, `toolkit-menu`, `update-toolkit`, `run-local`, `kube-env`, etc.) directamente en el PATH de tu entorno Python.
 
-3. **Verificar Instalación**:
+2. **Sincronizar Habilidades Globales y Adaptadores Multi-IA**:
+   Ejecutá `sdd sync` para re-instalar el paquete globalmente y sincronizar todas las 16 habilidades en `~/.gemini/config/skills/`, `~/.agents/skills/` y en el workspace actual:
    ```bash
-   sdd --help
+   python3 -m devscripts.cli.sdd.sdd sync
+   ```
+
+3. **Inicializar SDD en un Proyecto**:
+   ```bash
+   python3 -m devscripts.cli.sdd.sdd init
    ```
 
 ---
 
-## 💻 Modo de Ejecución Dual
+## ⚙️ Regla de Validación de Parámetros (Paso 0)
 
-TODOS los scripts CLI soportan un modo de ejecución dual:
-- **Modo TUI Interactivo**: Ejecutá el comando sin argumentos para abrir una interfaz de terminal interactiva y enriquecida.
-- **Modo Banderas CLI**: Ejecutá el comando con banderas y `--help` para automatización y scripts de CI/CD.
-
----
-
-## ⚙️ Configuración y Setup del Proyecto
-
-1. **Inicializar Estructura SDD en un Repositorio**:
-   Navegá a la carpeta de tu proyecto destino y ejecutá:
-   ```bash
-   sdd init
-   ```
-   Esto inicializa la estructura de directorios estandarizada [`.specify/`](.specify/README.md) (`.specify/constitution/`, `.specify/specs/`, `.specify/memory.md`, `.specify/tech-debt.md`).
-
-2. **Sincronizar Toolkit y Reglas Agnósticas**:
-   Para propagar habilidades y reglas actualizadas desde `devscripts` hacia workspaces activos:
-   ```bash
-   sync-toolkit
-   ```
+Todas las habilidades SDD incorporan una validación de precondiciones en tiempo de ejecución:
+- **Prioridad 1**: Utiliza el argumento posicional provisto en la llamada Slash (ej. `/sdd-specify mi-feature`).
+- **Prioridad 2**: Si no hay argumento, lee el feature activo en `.specify/feature.json` mediante `sdd feature get`.
+- **Modo Estricto**: Si **no se provee argumento** ni **existe feature activo**, la habilidad detiene la ejecución y solicita interactivamente el nombre mediante `AskUserQuestion`, rechazando explícitamente nombres en blanco o valores por defecto "default".
 
 ---
 
-## 🏃 Guía de Inicio Rápido
+## 📚 Documentación Técnica Detallada ([`docs/`](docs/))
 
-### 1. Spec-Driven Development (CLI `sdd`)
-
-- **Ciclo de Vida de Desarrollo de Feature Paso a Paso**:
-  ```bash
-  sdd feature jwt-auth      # Establecer nombre del feature activo
-  sdd specify               # Fase 1: Especificación funcional (spec.md)
-  sdd clarify               # Fase 2: Resolución de ambigüedades (clarify.md)
-  sdd plan                  # Fase 3: Blueprint técnico y contratos (plan.md)
-  sdd checklist             # Fase 4: Quality Gates & DoD (checklist.md)
-  sdd tasks                 # Fase 5: Desglose de tareas ejecutables (tasks.md)
-  sdd analyze               # Fase 6: Auditoría de consistencia entre artefactos
-  sdd exec                  # Fase 7: Ejecución de tareas con Agentes Worker y QA
-  sdd harness run           # Harness de Ejecución: Orquestación batch multi-agente
-  sdd converge              # Fase 8: Validación final y aprobación Gherkin
-  ```
-
-- **Shortcut para Corrección Rápida de Bugs**:
-  ```bash
-  sdd quick "Corregir puntero nulo en la calculadora de pedidos"
-  ```
-
-- **Auditar Cumplimiento de SDD en el Workspace**:
-  ```bash
-  sdd audit
-  ```
-
-### 2. Workspaces Multirrepositorio
-
-- **Crear un workspace aislado**:
-  ```bash
-  generate-workspace
-  ```
-- **Editar repositorios en el workspace**:
-  ```bash
-  edit-workspace
-  ```
-- **Eliminar workspaces de forma segura**:
-  ```bash
-  delete-workspaces
-  ```
-
-### 3. Utilidades Principales para Desarrolladores
-
-- **Dashboard Interactivo de Servicios**: `devscripts-dashboard`
-- **Orquestar Servicios Locales**: `run-local`
-- **Compilar Proyectos Multi-Stack**: `build-project`
-- **TUI del Contexto de Kubernetes**: `kube-env`
-- **Alternar Conexión VPN**: `toggle-vpn`
-
----
-
-## 📜 Reglas de Desarrollo y Estándares de Calidad ([AGENTS.md](AGENTS.md))
-
-Índice central de directrices de calidad, estándares de ingeniería y políticas de seguridad:
-
-- **[Instrucciones del Sistema para Agentes](AGENTS.md)** — Descripción general de la arquitectura y directrices.
-- **[Reglas Globales del Proyecto](config/rules-global/README.md)** — Especificaciones de reglas globales aplicadas en todos los repositorios gestionados.
-
----
-
-## 📚 Documentación Técnica ([`docs/`](docs/README.md))
-
-Guías detalladas sobre arquitectura, contenedores sidecar, especificaciones de base de datos u orquestación de plataformas:
-
-- **[Estructura de Especificación](.specify/README.md)** — Visión general de la estructura de `.specify/` y el flujo de trabajo SDD.
-- **[Arquitectura SDD](docs/sdd-architecture.md)** — Diseño técnico del CLI y agentes de Spec-Driven Development.
-- **[Ciclo de Vida de Workspaces](docs/run-workspace.md)** — Creación, actualización y sincronización multirrepositorio.
-- **[Ejecución en Sandbox Contenerizado](docs/agent-sandbox-startup-flow.md)** — Flujo de arranque de aislamiento contenerizado.
-- **[Arquitectura de Contenedores Sidecar](docs/sidecar-architecture.md)** — Arquitectura de contenedores aislados.
-- **[Flujo del Sidecar Instalador](docs/installer-sidecar-flow.md)** — Flujo contenerizado de instalación de dependencias.
-- **[Flujo del Sidecar de Pruebas](docs/test-runner-sidecar-flow.md)** — Ejecución aislada de entornos de pruebas unitarias.
-- **[TUI de Entornos Kubernetes](docs/kube-env.md)** — Guía para gestionar entornos de clústeres Kubernetes.
-- **[Caché de Dependencias](docs/dependency-caching.md)** — Estrategia de caché de volúmenes para herramientas de build.
+- **[Arquitectura SDD y Adaptadores Multi-IA](docs/sdd-architecture.md)** — Justificación de diseño (Por qué), mecanismo (Cómo) y diagramas Mermaid.
+- **[Manual Funcional de Habilidades SDD](docs/sdd-skills.md)** — Catálogo completo de las 16 habilidades, entradas, artefactos y ejemplos.
+- **[Estructura de Especificación](.specify/README.md)** — Visión general de los artefactos `.specify/`.
+- **[Ciclo de Vida de Workspaces](docs/run-workspace.md)** — Creación, actualización y aislamiento multirrepositorio.
 - **[Versionado y Releases](docs/versioning.md)** — Versionado automatizado con Release Please.
-- **[Configuración de Windows y Figma](docs/windows-figma-setup.md)** — Instrucciones de configuración para Windows y diseño.
 
 ---
 
 ## 🧪 Pruebas y Aseguramiento de Calidad
 
-Ejecutá la suite completa de pytest para verificar la integridad del toolkit:
+Ejecutá la suite completa de `pytest` para verificar la integridad del toolkit:
 
 ```bash
 pytest
