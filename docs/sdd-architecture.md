@@ -1,92 +1,88 @@
-# Arquitectura del Sistema Spec-Driven Development (SDD) y Adaptadores Multi-IA
+# Arquitectura del Sistema Spec-Driven Development (SDD) y Células Multi-Agente Especializadas
 
-Este documento define formalmente la **arquitectura técnica, patrones de diseño y decisiones de ingeniería** del motor de Spec-Driven Development (SDD) integrado en `devscripts`.
+Este documento define la **arquitectura técnica, patrones de diseño y modelo de orquestación multi-agente** del motor de Spec-Driven Development (SDD) en `devscripts`, alineado con la especificación de **GitHub Spec-Kit**.
 
 ---
 
 ## 🏛️ 1. Visión General y Principios de Diseño (El "Por Qué")
 
-### ¿Por qué Spec-Driven Development (SDD)?
-El desarrollo asistido por modelos de lenguaje (LLMs / Agentes de IA) tradicionalmente sufre de **alucinaciones de requerimientos, deriva de alcance (*Scope Drift*) y degradación del contexto de memoria** en proyectos complejos. SDD resuelve estos problemas estructurando el proceso de desarrollo en torno a una **Especificación Formal Ejecutable como Fuente Única de Verdad**.
+### ¿Por qué Células Multi-Agente Especializadas?
+Los desarrollos con un único agente generalista sufren de **pérdida de foco, degradación de contexto y falta de rigor de auditoría**. Siguiendo la filosofía de GitHub Spec-Kit, SDD desacopla la ejecución en **Células Multi-Agente Especializadas por Fase**, donde ningún agente trabaja sin supervisión adversarial de un Validador QA.
 
 ```mermaid
 graph TD
-    subgraph "Capas de Arquitectura SDD"
+    subgraph "Capas de la Arquitectura SDD & Multi-Agente"
         CLI["1. CLI & Interface Layer (devscripts.cli.sdd)"]
-        CORE["2. Core Engine Layer (devscripts.sdd.*)"]
-        ADAPTERS["3. Multi-AI Adapter Engine (devscripts.adapters.bridge)"]
-        SKILLS["4. Global Skills & Customization System (~/.gemini, ~/.agents, ~/.claude)"]
-        ISOLATION["5. Execution & Worktree Isolation Layer"]
+        LEADER["2. Leader Orchestrator Agent (Context & Flow Controller)"]
+        SPECIALIST["3. Specialized Domain Subagent (Product Owner / Architect / Worker)"]
+        VALIDATOR["4. QA Reviewer & Security Auditor Agent"]
+        ADAPTERS["5. Multi-AI Adapter Engine (devscripts.adapters.bridge)"]
+        SKILLS["6. Global Skills System (~/.gemini, ~/.agents, ~/.claude)"]
     end
 
-    CLI --> CORE
-    CORE --> ADAPTERS
+    CLI --> LEADER
+    LEADER -->|invoke_subagent| SPECIALIST
+    SPECIALIST -->|Entregable / Artefacto| VALIDATOR
+    VALIDATOR -->|Aprobado / Auto-corrección (Max 3)| LEADER
+    LEADER --> ADAPTERS
     ADAPTERS --> SKILLS
-    CORE --> ISOLATION
 ```
 
 ---
 
-## 🎯 2. Pilares de Ingeniería de SDD
+## ⚙️ 2. Separación de Responsabilidades: CLI Determinístico vs. Agentes de IA
 
-1. **Contratos Primero (Contracts-First)**:
-   - *Por qué*: Las interfaces TypeScript, esquemas Zod o DTOs Java se definen antes de cualquier lógica de negocio. Esto elimina la ambigüedad en los bordes del sistema y proporciona validación estática inmediata.
-2. **Harnés de Pruebas Primero (Test Harness First)**:
-   - *Por qué*: Se escriben pruebas unitarias e integrales que fallan (RED) antes de implementar el código. Garantiza que la especificación sea ejecutable.
-3. **Implementación Mínima (YAGNI / Minimal Scope)**:
-   - *Por qué*: Los agentes de IA tienden a agregar abstracciones no solicitadas. SDD restringe las mutaciones al código estrictamente necesario para pasar los tests y cumplir el contrato.
-4. **Protocolo Híbrido (Determinismo CLI + Inspección Dinámica de IA)**:
-   - *Por qué*: Combina la velocidad e idempotencia de scripts ejecutable Python para la estructura base, con la capacidad razonadora de la IA para descubrir linters, convención de commits y patrones de diseño no documentados.
+Una de las decisiones clave de la arquitectura es la estricta división entre el CLI estático y las habilidades inteligentes de IA:
+
+1. **CLI en Consola (`devscripts.cli.sdd`) — Orquestador de Estado Determinístico**:
+   - *Rol*: Garantiza la idempotencia del estado (`.specify/feature.json`), crea la estructura de carpetas físicas en disco, registra timestamps, ejecuta tests de forma síncrona y valida precondiciones.
+   - *Propiedad*: 100% Python nativo, rápido, sin alucinaciones.
+
+2. **Agente de IA / Habilidades (`/sdd-*`) — Inteligencia Razonadora**:
+   - *Rol*: Analiza el dominio del proyecto, redacta las historias de usuario y escenarios Gherkin en `spec.md`, diseña los contratos Zod/DTOs en `plan.md`, implementa el código minimalista en `sdd-exec` y realiza auditorías adversariales.
+   - *Interacción*: La habilidad de IA invoca al CLI determinístico para asegurar el registro estático y luego llama a los subagentes especialistas vía `invoke_subagent`.
 
 ---
 
-## 🔄 3. Diagrama de Secuencia del Ciclo de Vida (8 Fases)
+## 👥 3. Células de Subagentes Especialistas por Fase SDD
 
-El desarrollo avanza secuencialmente. Cada fase exige un punto de control humano (*Human Gate Checkpoint*) antes de proceder:
+Cada fase operativa del SDD instancia una tríada de agentes:
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor Usuario
-    participant IA as Agente IA (Antigravity / agy)
+    participant Orquestador as 👑 Agente Líder Orquestador
+    participant Especialista as 🛠️ Agente Especialista de Fase
+    participant QA as 🔍 Agente Validador QA
     participant CLI as Devscripts SDD CLI
-    participant FS as Repositorio & .specify/
 
-    Usuario->>IA: /sdd-specify <feature-name>
-    IA->>CLI: sdd feature set <feature-name>
-    CLI->>FS: Actualiza .specify/feature.json
-    IA->>FS: Genera .specify/specs/<feature>/spec.md
-    IA->>Usuario: Presenta spec.md (Punto de Control 1)
-    
-    Usuario->>IA: /sdd-clarify
-    IA->>FS: Revisa spec.md & genera clarify.md
-    IA->>Usuario: Presenta clarify.md (Punto de Control 2)
-    
-    Usuario->>IA: /sdd-plan
-    IA->>FS: Diseña contratos & plan.md
-    IA->>Usuario: Presenta plan.md (Punto de Control 3)
-    
-    Usuario->>IA: /sdd-tasks
-    IA->>FS: Desglosa tareas en tasks.md
-    
-    Usuario->>IA: /sdd-exec
-    IA->>CLI: sdd harness next
-    CLI->>FS: Ejecuta Worker & QA Reviewer loop
-    
-    Usuario->>IA: /sdd-converge
-    IA->>CLI: sdd verify & test suite
-    CLI-->>Usuario: Convergencia Verde ✅ (Listo para Commit/PR)
+    Usuario->>Orquestador: /sdd-specify <feature>
+    Orquestador->>CLI: sdd feature set <feature>
+    CLI-->>Orquestador: Estado actualizado
+    Orquestador->>Especialista: invoke_subagent(Product Owner Agent)
+    Especialista->>Especialista: Redacta spec.md con historias & Gherkin
+    Especialista-->>Orquestador: Entregable spec.md
+    Orquestador->>QA: invoke_subagent(QA Business Auditor)
+    QA->>QA: Audita NFR, Gherkin y contratos
+    alt Rechazado (FAIL)
+        QA-->>Orquestador: Reporte de fallas (Max 3 retries)
+        Orquestador->>Especialista: Reintento con retroalimentación sintética
+    else Aprobado (PASS)
+        QA-->>Orquestador: Aprobación ✅
+        Orquestador->>Usuario: Presenta spec.md (Punto de Control Humano)
+    end
 ```
 
 ---
 
-## 🔀 4. Flujo de Sincronización Multi-IA y Gestión Global de Habilidades (`sdd sync`)
+## 🔀 4. Sincronización Global y Local de Adaptadores (`sdd sync`)
 
-El comando `sdd sync` garantiza que todas las habilidades y reglas del proyecto se distribuyan homogéneamente en el entorno del usuario:
+El comando `sdd sync` propaga las 16 habilidades nativas con la arquitectura de subagentes hacia todos los entornos de desarrollo:
 
 ```mermaid
 flowchart TD
-    A[sdd sync CLI Command] --> B[Step 1: Editable CLI Package Re-install]
+    A[sdd sync CLI Command] --> B[Step 1: PIP Editable Re-install]
     A --> C[Step 2: Global Skills Installer devscripts.sdd.global_skills]
     A --> D[Step 3: Multi-AI Bridge Export devscripts.adapters.bridge]
 
@@ -103,8 +99,8 @@ flowchart TD
 
 ## 📁 5. Estructura Persistente de Artefactos `.specify/`
 
-* **`.specify/feature.json`**: Rastreo de estado activo (`active_feature`, `current_phase`, timestamps).
-* **`.specify/constitution/`**: Fuente de verdad de la arquitectura del proyecto (`constitution.md`, `memory.md`).
-* **`.specify/specs/<feature-name>/`**: Artefactos del ciclo de 8 fases (`spec.md`, `clarify.md`, `plan.md`, `checklist.md`, `tasks.md`).
+* **`.specify/feature.json`**: Registro de seguimiento (`active_feature`, `current_phase`, timestamps).
+* **`.specify/constitution/`**: Fuente de verdad de la arquitectura (`constitution.md`, `memory.md`).
+* **`.specify/specs/<feature-name>/`**: Artefactos del ciclo (`spec.md`, `clarify.md`, `plan.md`, `checklist.md`, `tasks.md`).
 * **`.specify/history/`**: Registros de auditoría de agentes Worker y QA Reviewer.
-* **`.specify/agents.json`**: Registro de adaptadores IA configurados en el proyecto.
+* **`.specify/tech-debt.md`**: Catálogo de deuda técnica con bloques de remediación copy-paste.
