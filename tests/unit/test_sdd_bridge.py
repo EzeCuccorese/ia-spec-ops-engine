@@ -152,26 +152,21 @@ def test_prompt_select_agents(monkeypatch):
     assert selected == ["agy", "claude"]
 
 
-def test_generate_adapters_cleans_unselected_agents():
+def test_generate_adapters_preserves_pre_existing_files():
     with tempfile.TemporaryDirectory() as tmp_dir:
         td = Path(tmp_dir)
-        # First generate all
-        generate_adapters(target_dir=tmp_dir, gen_all=True)
-        assert (td / "CLAUDE.md").exists()
+        # Pre-existing custom .cursorrules file created by user
+        cursorrules = td / ".cursorrules"
+        cursorrules.write_text("# Custom Cursor Rules by User")
+
+        # Re-generate adapters specifying only agy
+        files = generate_adapters(target_dir=tmp_dir, agy=True)
+        assert "AGENTS.md" in files
         assert (td / "AGENTS.md").exists()
-        assert (td / ".gemini/GEMINI.md").exists()
 
-        # Now re-generate with ONLY gemini
-        files = generate_adapters(target_dir=tmp_dir, gemini=True)
-        assert ".gemini/GEMINI.md" in files
-        assert (td / ".gemini/GEMINI.md").exists()
-
-        # Check that unselected adapters were cleaned up!
-        assert not (td / "CLAUDE.md").exists()
-        assert not (td / ".claude").exists()
-        assert not (td / "AGENTS.md").exists()
-        assert not (td / ".agents").exists()
-        assert not (td / ".cursorrules").exists()
+        # Check that user's .cursorrules was PRESERVED intact and not deleted!
+        assert cursorrules.exists()
+        assert cursorrules.read_text() == "# Custom Cursor Rules by User"
 
 
 def test_detect_existing_agents():
