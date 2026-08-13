@@ -196,4 +196,28 @@ def test_non_interactive_adapter_generation_defaults_to_detected_agents():
         assert "CHATGPT.md" not in files
 
 
+def test_clean_agents_directory():
+    from devscripts.adapters.bridge import clean_agents_directory
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        agents_dir = Path(tmp_dir) / ".agents"
+        skills_dir = agents_dir / "skills"
+        rules_dir = agents_dir / "rules"
+        legacy_dir1 = agents_dir / "auditor_m1"
+        legacy_dir2 = agents_dir / "worker_m2"
+
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        rules_dir.mkdir(parents=True, exist_ok=True)
+        legacy_dir1.mkdir(parents=True, exist_ok=True)
+        legacy_dir2.mkdir(parents=True, exist_ok=True)
+
+        purged = clean_agents_directory(agents_dir)
+        assert "auditor_m1" in purged
+        assert "worker_m2" in purged
+        assert not legacy_dir1.exists()
+        assert not legacy_dir2.exists()
+        assert skills_dir.exists()
+        assert rules_dir.exists()
+
+
+
 

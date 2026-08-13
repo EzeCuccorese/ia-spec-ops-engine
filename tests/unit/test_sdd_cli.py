@@ -158,16 +158,37 @@ def test_set_feature_creates_worktree_on_protected_branch(tmp_path, monkeypatch)
             return (0, "", "")
 
         called_worktree = []
-        def mock_create_worktree(branch, start_dir=None):
-            called_worktree.append(branch)
+        def mock_create_worktree(branch, from_branch=None, start_dir=None):
+            called_worktree.append((branch, from_branch))
             return 0
 
         monkeypatch.setattr("devscripts.sdd.feature.get_repo_root", lambda: tmp_path)
         monkeypatch.setattr("devscripts.cli.workspace.create_worktree.create_worktree", mock_create_worktree)
         monkeypatch.setattr("devscripts.core.process.run_command_safe", mock_run_command_safe)
 
-        feature.set_feature("feat-isolated")
-        assert called_worktree == ["feature/feat-isolated"]
+        feature.set_feature("feat-isolated", from_branch="develop")
+        assert called_worktree == [("feature/feat-isolated", "develop")]
+
+
+def test_list_features(tmp_path, capsys):
+    with patch("devscripts.sdd.feature.get_repo_root", return_value=tmp_path):
+        spec_dir = tmp_path / ".specify" / "specs" / "feat-sales"
+        spec_dir.mkdir(parents=True, exist_ok=True)
+        (spec_dir / "spec.md").write_text("# Spec Sales")
+        (spec_dir / "plan.md").write_text("# Plan Sales")
+
+        feature.set_feature("feat-sales", no_worktree=True)
+        feats = feature.list_features(repo_root=tmp_path)
+        
+        assert len(feats) == 1
+        assert feats[0]["name"] == "feat-sales"
+        assert feats[0]["phase"] == "plan"
+        assert feats[0]["is_active"] is True
+        
+        captured = capsys.readouterr()
+        assert "Catálogo de Características SDD" in captured.out
+        assert "feat-sales" in captured.out
+
 
 
 
