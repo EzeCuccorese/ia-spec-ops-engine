@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: Run Pytest Suite
+    name: Run Pytest Suite & Lint
     runs-on: ubuntu-latest
 
     steps:
@@ -20,15 +20,23 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Dependencies
+      - name: Set up Git config
         run: |
-          python -m pip install --upgrade pip
-          pip install -e .[dev,tui,monitoring]
+          git config --global user.name "CI Test User"
+          git config --global user.email "ci@devscripts.org"
+
+      - name: Install uv & Dependencies
+        run: |
+          python -m pip install --upgrade pip uv
+          uv pip install --system -e ".[dev]"
+          uv pip install --system -e "packages/common[dev]"
+          uv pip install --system -e "packages/workspace[dev]"
+          uv pip install --system -e "packages/sdd[dev]"
 
       - name: Run Ruff Lint
         run: |
-          ruff check .
+          ruff check packages/ rules/
 
-      - name: Run Pytest Suite
+      - name: Run Pytest Suite with Coverage
         run: |
-          pytest tests/ -v --cov=devscripts --cov-report=term-missing
+          pytest -v --cov=devscripts_common --cov=workspace_engine --cov=sdd_engine --cov-report=term-missing
