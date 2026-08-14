@@ -23,6 +23,13 @@ dev = [
     "ruff>=0.1",
 ]
 
+[tool.hatch.build.targets.wheel]
+packages = [
+    "packages/common/src/devscripts_common",
+    "packages/workspace/src/workspace_engine",
+    "packages/sdd/src/sdd_engine",
+]
+
 [tool.pytest.ini_options]
 pythonpath = ["packages/common/src", "packages/workspace/src", "packages/sdd/src", "."]
 python_files = ["test_*.py", "*_test.py"]
