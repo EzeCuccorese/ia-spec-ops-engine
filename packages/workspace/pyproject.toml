@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "devscripts-workspace"
-version = "0.1.0"
+version = "0.2.0"
 description = "Gestor determinista de workspaces, repositorios Git, entornos locales, builds y Kubernetes."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "rich",
+    "rich>=13.0.0",
     "psutil>=5.9",
 ]
 
@@ -25,23 +25,9 @@ dev = [
 packages = ["src/workspace_engine"]
 
 [project.scripts]
-create-worktree = "workspace_engine.cli.create_worktree:main"
-generate-workspace = "workspace_engine.cli.generate_workspace:main"
-edit-workspace = "workspace_engine.cli.edit_workspace:main"
-clean-workspace = "workspace_engine.cli.clean_workspace:main"
-stop-workspace = "workspace_engine.cli.stop_workspace:main"
-reset-repos = "workspace_engine.cli.reset_repos:main"
-delete-workspaces = "workspace_engine.cli.delete_workspaces:main"
-kube-env = "workspace_engine.cli.kube_env:main"
-build-project = "workspace_engine.cli.build_project:main"
-install-deps = "workspace_engine.cli.install_deps:main"
-set-java = "workspace_engine.cli.set_java:main"
-load-env = "workspace_engine.cli.load_env:main"
-init-env = "workspace_engine.cli.init_env:main"
-unit-test-benchmark = "workspace_engine.cli.unit_test_benchmark:main"
-run-local = "workspace_engine.run_local.main:main"
+ws = "workspace_engine.cli.main:main"
 
 [tool.pytest.ini_options]
-pythonpath = ["src", "."]
+pythonpath = ["src", "../common/src", "."]
 python_files = ["test_*.py", "*_test.py"]
 testpaths = ["tests"]

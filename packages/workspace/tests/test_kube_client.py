@@ -1,0 +1,99 @@
+"""
+Tests para el cliente modular y exportador seguro de Kubernetes (workspace_engine.cli.kube).
+"""
+
+import os
+import stat
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+from workspace_engine.cli.kube.client import (
+    is_kubectl_available,
+    get_contexts,
+    get_namespaces,
+    find_pod,
+    get_pod_env,
+)
+from workspace_engine.cli.kube.export import (
+    write_secret_file,
+    export_dotenv,
+    export_set_env_sh,
+)
+
+
+def test_write_secret_file_permissions():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        target = Path(tmpdir) / ".env.secret"
+        write_secret_file(target, "DB_PASS=supersecret\n")
+        
+        assert target.exists()
+        assert target.read_text() == "DB_PASS=supersecret\n"
+        
+        # Verificar permisos 0o600
+        mode = os.stat(target).st_mode & 0o777
+        assert mode == 0o600
+
+
+def test_export_dotenv_and_set_env_sh():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dotenv_path = Path(tmpdir) / ".env"
+        sh_path = Path(tmpdir) / "set-env.sh"
+        
+        env_vars = {"PORT": "8080", "DB_HOST": "localhost", "API_KEY": 'abc"123'}
+        export_dotenv(dotenv_path, env_vars)
+        export_set_env_sh(sh_path, env_vars)
+        
+        assert dotenv_path.exists()
+        assert "PORT=8080" in dotenv_path.read_text()
+        
+        sh_content = sh_path.read_text()
+        assert "#!/usr/bin/env bash" in sh_content
+        assert 'export PORT="8080"' in sh_content
+        assert 'export API_KEY="abc\\"123"' in sh_content
+
+
+@patch("shutil.which")
+def test_is_kubectl_available(mock_which):
+    mock_which.return_value = "/usr/local/bin/kubectl"
+    assert is_kubectl_available() is True
+    
+    mock_which.return_value = None
+    assert is_kubectl_available() is False
+
+
+@patch("workspace_engine.cli.kube.client.run_command_safe")
+def test_get_contexts_mock(mock_run):
+    mock_run.side_effect = [
+        (0, "ctx-dev\nctx-prod\n", ""),     # get-contexts
+        (0, "ctx-dev\n", ""),               # current-context
+    ]
+    
+    with patch("workspace_engine.cli.kube.client.is_kubectl_available", return_value=True):
+        contexts = get_contexts()
+        assert len(contexts) == 2
+        assert contexts[0]["name"] == "ctx-dev"
+        assert contexts[0]["is_current"] is True
+        assert contexts[1]["name"] == "ctx-prod"
+        assert contexts[1]["is_current"] is False
+
+
+@patch("workspace_engine.cli.kube.client.run_command_safe")
+def test_find_pod_mock(mock_run):
+    mock_run.return_value = (0, "auth-service-78bfd84c-xyz payment-service-5f899d-abc", "")
+    
+    pod = find_pod("auth-service")
+    assert pod == "auth-service-78bfd84c-xyz"
+    
+    pod_missing = find_pod("users-service")
+    assert pod_missing is None
+
+
+@patch("workspace_engine.cli.kube.client.run_command_safe")
+def test_get_pod_env_mock(mock_run):
+    mock_run.return_value = (0, "SPRING_PROFILES_ACTIVE=dev\nSERVER_PORT=8081\n", "")
+    
+    env_vars = get_pod_env("auth-service-pod")
+    assert env_vars["SPRING_PROFILES_ACTIVE"] == "dev"
+    assert env_vars["SERVER_PORT"] == "8081"

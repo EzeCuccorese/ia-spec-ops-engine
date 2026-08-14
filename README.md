@@ -1,30 +1,29 @@
 # Devscripts — Monorepo de Automatización y Orquestación
 
-Monorepo desacoplado y estructurado según principios de **Clean Architecture**, **SOLID**, **DDD**, **DRY** y **YAGNI**, dividido en dos subproyectos autónomos y un catálogo global de reglas agnósticas de desarrollo:
+Monorepo desacoplado y estructurado según principios de **Clean Architecture**, **SOLID**, **DDD**, **DRY** y **YAGNI**, dividido en tres subproyectos autónomos y un catálogo global de reglas agnósticas de desarrollo:
 
 ```
 devscripts/
-├── rules/                  # Catálogo de 5 Reglas Globales Agnósticas de Desarrollo
-│   ├── 01-buenas-practicas-codigo.md
-│   ├── 02-git-workflow-commits.md
-│   ├── 03-seguridad-privacidad.md
-│   ├── 04-bases-de-datos-migraciones.md
-│   └── 05-observabilidad-errores.md
+├── rules/                  # Catálogo de Reglas Modulares de Desarrollo (Globales y Scoped)
+│   ├── global/             # Reglas universales inyectadas siempre (anti-looping, commits, seguridad, SDD)
+│   └── scoped/             # Reglas por stack técnico (Java, Python, TypeScript, React, Go, Rust, DevOps, etc.)
 ├── packages/
-│   ├── workspace/          # Subproyecto 1: Gestor Determinista de Workspaces (Cero IA)
+│   ├── common/             # Subproyecto 0: Base compartida, tipado, subprocess determinista y parsers
+│   │   ├── src/devscripts_common/
+│   │   └── tests/
+│   ├── workspace/          # Subproyecto 1: Gestor Determinista de Workspaces (CLI unificado `ws`, Cero IA)
 │   │   ├── src/workspace_engine/
 │   │   ├── tests/
 │   │   ├── templates/
-│   │   ├── pyproject.toml
-│   │   └── README.md
-│   └── sdd/                # Subproyecto 2: Motor Full IA & Gobernanza SDD
+│   │   └── pyproject.toml
+│   └── sdd/                # Subproyecto 2: Motor Full IA & Gobernanza SDD (CLI `sdd`)
 │       ├── src/sdd_engine/
 │       ├── tests/
 │       ├── templates/
 │       ├── skills/
-│       ├── pyproject.toml
-│       └── README.md
-├── install.py              # Instalador interactivo multi-agente y setup de paquetes
+│       └── pyproject.toml
+├── install.py              # Instalador interactivo multi-agente y setup de paquetes (soporte uv / pip)
+├── uninstall.py            # Desinstalador dinámico quirúrgico y limpiador de agentes
 ├── pyproject.toml          # Orquestador del monorepo
 └── README.md               # Documentación maestra en español
 ```
@@ -33,14 +32,30 @@ devscripts/
 
 ## 📦 1. Subproyectos del Monorepo
 
-### 🛠️ `packages/workspace/` — Gestor Determinista (Python Puro, Cero IA)
-Herramienta de precisión para gestión de repositorios, entornos y ejecución local sin alucinaciones:
-- **Workspaces & Git Worktrees**: `generate-workspace`, `edit-workspace`, `create-worktree`, `clean-workspace`, `reset-repos`, `stop-workspace`, `delete-workspaces`.
-- **Entorno y Build**: `build-project`, `install-deps`, `set-java`, `init-env`, `load-env`, `unit-test-benchmark`.
-- **Orquestador Local**: `run-local` (descubrimiento de microservicios, mapeo de puertos 8000-8999, reescritura de URLs de clientes, extracción de credenciales de BD y monitor TUI).
-- **Kubernetes**: `kube-env` (extracción de variables `.env`, logs y shells interactivos).
+### 🧩 `packages/common/` — Base Compartida (`devscripts_common`)
+- Utilidades unificadas de consola (Rich / ANSI).
+- Parser determinista de variables de entorno `.env` y `set-env.sh`.
+- Parser centralizado de YAML frontmatter para reglas y especificaciones.
+- Wrappers seguros de subprocess con timeouts obligatorios para prevenir bloqueos de red.
+- Detección de proyectos (Spring Boot, Node, Go, Rust, Gradle, Maven, Python).
 
-### 🤖 `packages/sdd/` — Motor Full IA y Gobernanza SDD
+### 🛠️ `packages/workspace/` — Gestor Determinista (CLI `ws`)
+Herramienta de precisión para gestión de repositorios, entornos y ejecución local sin alucinaciones:
+- **CLI Unificado `ws`**:
+  - `ws generate`: Crea un workspace con Git worktrees aislados.
+  - `ws edit`: Agrega o modifica repositorios dentro de un workspace.
+  - `ws worktree`: Genera un worktree git atómico.
+  - `ws clean`: Limpia artefactos de compilación y caches.
+  - `ws stop`: Detiene todos los procesos del workspace.
+  - `ws reset`: Resetea repositorios al estado de upstream.
+  - `ws delete`: Elimina workspaces y limpia los worktrees asociados.
+  - `ws build` / `ws deps` / `ws java`: Compila e instala dependencias detectando el runtime.
+  - `ws env-init` / `ws env-load`: Inicializa y carga variables de entorno.
+  - `ws run-local`: Orquestador local con monitor TUI interactivo.
+  - `ws kube`: Gestor de Kubernetes para extracción de entornos con permisos `chmod 600`.
+  - `ws doctor`: Diagnóstico de herramientas instaladas en el sistema.
+
+### 🤖 `packages/sdd/` — Motor Full IA y Gobernanza SDD (CLI `sdd`)
 Arnés de orquestación y gobernanza para agentes de IA (Worker + QA Reviewer):
 - **Ciclo de Vida Estricto (8 Fases)**: `/sdd-specify` ➔ `/sdd-clarify` ➔ `/sdd-plan` ➔ `/sdd-checklist` ➔ `/sdd-tasks` ➔ `/sdd-analyze` ➔ `/sdd-exec` ➔ `/sdd-converge` (o `sdd quick` para fixes rápidos).
 - **Intercepción de Seguridad**: Hooks de pre-herramienta (`sdd hook pre-tool`) para bloqueo de comandos destructivos y post-herramienta (`sdd hook post-tool`) para validación inmediata.
@@ -49,14 +64,11 @@ Arnés de orquestación y gobernanza para agentes de IA (Worker + QA Reviewer):
 
 ---
 
-## 📋 2. Catálogo de Reglas Globales Agnósticas (`rules/`)
+## 📋 2. Catálogo de Reglas Modulares (`rules/`)
 
 Catálogo de estándares aplicable a cualquier agente y proyecto:
-1. `01-buenas-practicas-codigo.md`: Principios SOLID, límites de tamaño, inmutabilidad y estándares de calidad.
-2. `02-git-workflow-commits.md`: Conventional Commits obligatorios en inglés imperativo y **CERO menciones de IA** ni emojis de robot.
-3. `03-seguridad-privacidad.md`: Cero secretos hardcodeados y cero PII en logs.
-4. `04-bases-de-datos-migraciones.md`: Protocolo estricto de backup previo ("OK WRITE"), migraciones idempotentes (Mongock/Flyway).
-5. `05-observabilidad-errores.md`: Logs estructurados, correlación (`X-Trace-Id`) y manejo robusto de excepciones.
+- **Globales**: Guardrails anti-looping, Conventional Commits en inglés imperativo (**CERO menciones de IA**), cero secretos y ciclo de vida SDD.
+- **Scoped**: Reglas especializadas activadas por `globs` para Java/Spring, Python Async/FastAPI, Node.js Backend, React Moderno, Go, Rust, DevOps/Containers, Migraciones de BD, Contratos API, Observabilidad y Caching/Brokers.
 
 ---
 
@@ -68,9 +80,13 @@ Ejecutá el instalador interactivo por consola:
 python3 install.py
 ```
 
-El instalador te permitirá:
-1. Seleccionar interactivamente para qué agentes de IA desplegar las reglas globales (`AGENTS.md`, `.gemini/GEMINI.md`, `CLAUDE.md`, `.cursorrules`, `.windsurfrules`).
-2. Instalar ambos paquetes (`workspace-engine` y `sdd-engine`) en modo editable (`pip install -e`).
+El instalador detecta si `uv` está disponible para una instalación ultrarrápida (con fallback a `pip`) y despliega las reglas en los agentes seleccionados.
+
+Para desinstalar y limpiar el entorno:
+
+```bash
+python3 uninstall.py
+```
 
 ---
 
@@ -79,4 +95,3 @@ El instalador te permitirá:
 ```bash
 pytest
 ```
-Ambos paquetes cuentan con una suite de pruebas unitarias al 100% de pasaje.

@@ -1,9 +1,9 @@
 """
 sdd_engine — Motor de Inteligencia Artificial y Gobernanza para Spec-Driven Development (SDD).
 
-Estructurado en capas de Clean Architecture:
+Estructurado en capas de Clean Architecture con carga diferida (Lazy Loading):
 - sdd_engine.core: Dominio, invariantes, parser, excepciones y utilidades base.
-- sdd_engine.lifecycle: Gestión del ciclo de vida de las 8 fases (.specify/feature.json, finish, constitution).
+- sdd_engine.lifecycle: Gestión del ciclo de vida de las 8 fases.
 - sdd_engine.harness: Motor de gobernanza, arnés de ejecución (tasks.md), calidad y hooks.
 - sdd_engine.adapters: Compilador Multi-IA (bridge), gestor de skills globales, reset y sync.
 - sdd_engine.cli: Puntos de entrada CLI y dashboard TUI.
@@ -11,66 +11,66 @@ Estructurado en capas de Clean Architecture:
 
 from __future__ import annotations
 
-import sys
+import importlib
+from typing import Any
 
-# Subpaquetes
-from sdd_engine import adapters, cli, core, harness, lifecycle
+__version__ = "0.2.0"
 
-# Re-export de módulos para compatibilidad total
-from sdd_engine.core import exceptions, invariants, memory, parser, utils
-from sdd_engine.lifecycle import constitution, feature, finish
-from sdd_engine.harness import analyzer, harness as harness_mod, hooks, quality_gate, runner, verify
-from sdd_engine.adapters import bridge, global_skills, reset, revoke, sync
-from sdd_engine.cli import cli as cli_mod, sdd_tui
+_SUBMODULE_MAP = {
+    # Core
+    "exceptions": "sdd_engine.core.exceptions",
+    "invariants": "sdd_engine.core.invariants",
+    "memory": "sdd_engine.core.memory",
+    "parser": "sdd_engine.core.parser",
+    "utils": "sdd_engine.core.utils",
+    # Lifecycle
+    "constitution": "sdd_engine.lifecycle.constitution",
+    "feature": "sdd_engine.lifecycle.feature",
+    "finish": "sdd_engine.lifecycle.finish",
+    # Harness
+    "analyzer": "sdd_engine.harness.analyzer",
+    "harness": "sdd_engine.harness.harness",
+    "harness_mod": "sdd_engine.harness.harness",
+    "hooks": "sdd_engine.harness.hooks",
+    "quality_gate": "sdd_engine.harness.quality_gate",
+    "runner": "sdd_engine.harness.runner",
+    "verify": "sdd_engine.harness.verify",
+    # Adapters
+    "bridge": "sdd_engine.adapters.bridge",
+    "global_skills": "sdd_engine.adapters.global_skills",
+    "reset": "sdd_engine.adapters.reset",
+    "revoke": "sdd_engine.adapters.revoke",
+    "sync": "sdd_engine.adapters.sync",
+    # Packages
+    "core": "sdd_engine.core",
+    "lifecycle": "sdd_engine.lifecycle",
+    "harness_pkg": "sdd_engine.harness",
+    "adapters": "sdd_engine.adapters",
+    "cli": "sdd_engine.cli",
+    "sdd_tui": "sdd_engine.cli.sdd_tui",
+}
 
-# Alias de compatibilidad en sys.modules para imports directos antiguos
-sys.modules["sdd_engine.exceptions"] = exceptions
-sys.modules["sdd_engine.invariants"] = invariants
-sys.modules["sdd_engine.memory"] = memory
-sys.modules["sdd_engine.parser"] = parser
-sys.modules["sdd_engine.utils"] = utils
-sys.modules["sdd_engine.constitution"] = constitution
-sys.modules["sdd_engine.feature"] = feature
-sys.modules["sdd_engine.finish"] = finish
-sys.modules["sdd_engine.analyzer"] = analyzer
-sys.modules["sdd_engine.harness"] = harness_mod
-sys.modules["sdd_engine.hooks"] = hooks
-sys.modules["sdd_engine.quality_gate"] = quality_gate
-sys.modules["sdd_engine.runner"] = runner
-sys.modules["sdd_engine.verify"] = verify
-sys.modules["sdd_engine.bridge"] = bridge
-sys.modules["sdd_engine.global_skills"] = global_skills
-sys.modules["sdd_engine.reset"] = reset
-sys.modules["sdd_engine.revoke"] = revoke
-sys.modules["sdd_engine.sync"] = sync
-sys.modules["sdd_engine.sdd_tui"] = sdd_tui
 
-main = cli_mod.main
+def __getattr__(name: str) -> Any:
+    """Implementa lazy loading transparente para módulos sin costo de importación inicial."""
+    if name == "main":
+        from sdd_engine.cli.cli import main
+        return main
+    if name in _SUBMODULE_MAP:
+        return importlib.import_module(_SUBMODULE_MAP[name])
+    raise AttributeError(f"module 'sdd_engine' has no attribute '{name}'")
+
+
+def main() -> None:
+    from sdd_engine.cli.cli import main as _cli_main
+    _cli_main()
+
 
 __all__ = [
+    "main",
     "core",
     "lifecycle",
     "harness",
     "adapters",
     "cli",
-    "main",
-    "analyzer",
-    "bridge",
-    "constitution",
-    "exceptions",
-    "feature",
-    "finish",
-    "global_skills",
-    "harness_mod",
-    "hooks",
-    "invariants",
-    "memory",
-    "parser",
-    "quality_gate",
-    "reset",
-    "revoke",
-    "runner",
-    "sync",
-    "utils",
-    "verify",
 ]

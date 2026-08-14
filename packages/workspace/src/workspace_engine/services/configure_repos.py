@@ -603,10 +603,13 @@ def configure_repos(
     prefetch_cache: dict = {}
 
     def _prefetch(rname: str) -> None:
-        rp = repo_paths[rname]
-        fh = rp / '.git' / 'FETCH_HEAD'
-        skip = fh.exists() and (time.time() - fh.stat().st_mtime) < (fetch_cache_minutes * 60)
-        prefetch_cache[rname] = fetch_branches(rp, skip_fetch=skip)
+        try:
+            rp = repo_paths[rname]
+            fh = rp / '.git' / 'FETCH_HEAD'
+            skip = fh.exists() and (time.time() - fh.stat().st_mtime) < (fetch_cache_minutes * 60)
+            prefetch_cache[rname] = fetch_branches(rp, skip_fetch=skip)
+        except Exception:
+            prefetch_cache[rname] = ([], [])
 
     prefetch_threads: dict = {}
     for rname in repo_names:

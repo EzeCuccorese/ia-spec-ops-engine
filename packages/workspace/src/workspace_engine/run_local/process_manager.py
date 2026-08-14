@@ -459,6 +459,31 @@ def load_state() -> Tuple[list, list]:
     return results, launch_configs
 
 
+def graceful_kill_pid(pid: int, timeout: float = 2.5) -> None:
+    """Intenta terminar el proceso con SIGTERM y escala a SIGKILL si persiste."""
+    # 1. Enviar SIGTERM
+    for target in (-pid, pid):
+        try:
+            os.kill(target, 15)  # SIGTERM
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    # 2. Esperar confirmación de salida
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        if not _pid_alive(pid):
+            return
+        time.sleep(0.2)
+
+    # 3. Escalar a SIGKILL si aún sigue vivo
+    if _pid_alive(pid):
+        for target in (-pid, pid):
+            try:
+                os.kill(target, 9)  # SIGKILL
+            except (ProcessLookupError, PermissionError):
+                pass
+
+
 def stop_all():
     pid_files = list(constants.PIDS_DIR.glob('*.pid'))
     if not pid_files:
@@ -471,12 +496,9 @@ def stop_all():
         except Exception:
             pid_file.unlink(missing_ok=True)
             continue
-        for target in (-pid, pid):
-            try:
-                os.kill(target, 15)
-            except ProcessLookupError:
-                pass
+        graceful_kill_pid(pid)
         pid_file.unlink(missing_ok=True)
         print(f'  {RED}●{RESET} {name} (PID {pid}) detenido')
     constants.STATE_FILE.unlink(missing_ok=True)
     print()
+
