@@ -8,8 +8,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 from workspace_engine.services.configure_repos import configure_repos, pre_validate
 from workspace_engine.services.render_agents import render_agents_md
@@ -18,7 +20,6 @@ from workspace_engine.utils import Color, log_error, log_success, log_warning, p
 
 
 def _git(repo_path: Path, *args) -> subprocess.CompletedProcess:
-    import subprocess
     return subprocess.run(
         ['git', '-C', str(repo_path)] + list(args),
         capture_output=True, text=True,
