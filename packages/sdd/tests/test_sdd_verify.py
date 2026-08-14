@@ -144,7 +144,7 @@ def test_detect_stack_secondary_heuristics(tmp_path: Path):
     assert detect_stack(java_dir) == "java"
 
 
-def test_run_linter_check_node(tmp_path: Path):
+def test_run_linter_check_node(tmp_path: Path, monkeypatch):
     # Node without package.json or eslint
     res = run_linter_check(tmp_path, stack="node")
     assert res["status"] in ("PASS", "FAIL", "SKIPPED")
@@ -152,6 +152,12 @@ def test_run_linter_check_node(tmp_path: Path):
     # Node with package.json lint script
     pkg_json = tmp_path / "package.json"
     pkg_json.write_text('{"scripts": {"lint": "echo ok"}}')
+    
+    # Mocking run_command_safe para que no dependa de npm instalado en el entorno
+    monkeypatch.setattr(
+        "sdd_engine.harness.verify.run_command_safe",
+        lambda cmd, cwd=None: (0, "ok", "")
+    )
     res_script = run_linter_check(tmp_path, stack="node")
     assert res_script["status"] == "PASS"
     assert res_script["command"] == "npm run lint"
@@ -167,7 +173,7 @@ def test_run_linter_check_java_and_go(tmp_path: Path):
     assert res_go["status"] in ("PASS", "FAIL", "SKIPPED")
 
 
-def test_run_test_check_all_stacks(tmp_path: Path):
+def test_run_test_check_all_stacks(tmp_path: Path, monkeypatch):
     res_py = run_test_check(tmp_path, stack="python")
     assert "status" in res_py
 
@@ -176,6 +182,12 @@ def test_run_test_check_all_stacks(tmp_path: Path):
 
     pkg_json = tmp_path / "package.json"
     pkg_json.write_text('{"scripts": {"test": "echo test_ok"}}')
+    
+    # Mock run_command_safe para asegurar determinismo
+    monkeypatch.setattr(
+        "sdd_engine.harness.verify.run_command_safe",
+        lambda cmd, cwd=None: (0, "test_ok", "")
+    )
     res_node_script = run_test_check(tmp_path, stack="node")
     assert res_node_script["status"] == "PASS"
 
