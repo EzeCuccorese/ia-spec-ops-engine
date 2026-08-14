@@ -30,6 +30,14 @@ packages = [
     "packages/sdd/src/sdd_engine",
 ]
 
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]
+ignore = ["E402", "F401", "F841", "E501", "E722", "I001"]
+
 [tool.pytest.ini_options]
 pythonpath = ["packages/common/src", "packages/workspace/src", "packages/sdd/src", "."]
 python_files = ["test_*.py", "*_test.py"]
