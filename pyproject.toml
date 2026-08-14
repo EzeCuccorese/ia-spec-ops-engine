@@ -24,10 +24,13 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["packages/common/src", "packages/workspace/src", "packages/sdd/src"]
+pythonpath = ["packages/common/src", "packages/workspace/src", "packages/sdd/src", "."]
 python_files = ["test_*.py", "*_test.py"]
-testpaths = ["packages/common/tests", "packages/workspace/tests", "packages/sdd/tests"]
+testpaths = ["packages/common/tests", "packages/workspace/tests", "packages/sdd/tests", "tests"]
 addopts = "-ra --strict-markers"
+markers = [
+    "integration: end-to-end integration tests",
+]
 norecursedirs = ["node_modules", ".venv", "venv", ".git", ".pytest_cache", ".claude"]
 
 [project.scripts]
