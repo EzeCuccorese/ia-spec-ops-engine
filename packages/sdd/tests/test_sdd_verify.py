@@ -6,7 +6,7 @@ import json
 import pytest
 from pathlib import Path
 
-from sdd_engine.verify import (
+from sdd_engine.harness.verify import (
     detect_stack,
     run_linter_check,
     run_test_check,
@@ -14,7 +14,7 @@ from sdd_engine.verify import (
     run_security_pii_audit,
     run_verification,
 )
-from sdd_engine.invariants import VerificationPayload
+from sdd_engine.core.invariants import VerificationPayload
 
 
 def test_detect_stack_python(tmp_path: Path):

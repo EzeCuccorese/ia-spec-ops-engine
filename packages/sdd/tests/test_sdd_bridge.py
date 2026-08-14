@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 import pytest
 
-from sdd_engine.bridge import generate_adapters, get_sdd_core_rules
+from sdd_engine.adapters.bridge import generate_adapters, get_sdd_core_rules
 
 
 def test_get_sdd_core_rules():
@@ -153,7 +153,7 @@ def test_generate_adapters_saves_agents_json():
 
 
 def test_prompt_select_agents(monkeypatch):
-    from sdd_engine.bridge import prompt_select_agents
+    from sdd_engine.adapters.bridge import prompt_select_agents
     monkeypatch.setattr("builtins.input", lambda _: "1, 2")
     selected = prompt_select_agents()
     assert selected == ["agy", "claude"]
@@ -177,7 +177,7 @@ def test_generate_adapters_preserves_pre_existing_files():
 
 
 def test_detect_existing_agents():
-    from sdd_engine.bridge import detect_existing_agents
+    from sdd_engine.adapters.bridge import detect_existing_agents
     with tempfile.TemporaryDirectory() as tmp_dir:
         td = Path(tmp_dir)
         # Empty repo defaults to agy
@@ -200,7 +200,7 @@ def test_non_interactive_adapter_generation_defaults_to_detected_agents():
 
 
 def test_clean_agents_directory():
-    from sdd_engine.bridge import clean_agents_directory
+    from sdd_engine.adapters.bridge import clean_agents_directory
     with tempfile.TemporaryDirectory() as tmp_dir:
         agents_dir = Path(tmp_dir) / ".agents"
         skills_dir = agents_dir / "skills"
@@ -223,7 +223,7 @@ def test_clean_agents_directory():
 
 
 def test_load_rules_catalog_and_mdc_generation():
-    from sdd_engine.bridge import load_rules_catalog, generate_adapters
+    from sdd_engine.adapters.bridge import load_rules_catalog, generate_adapters
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         td = Path(tmp_dir)

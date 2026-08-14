@@ -7,13 +7,13 @@ from pathlib import Path
 from unittest.mock import patch
 import pytest
 
-from sdd_engine.hooks import (
+from sdd_engine.harness.hooks import (
     handle_pre_tool_event,
     handle_post_tool_event,
     extract_command_string,
     extract_modified_files,
 )
-from sdd_engine.invariants import VerificationPayload
+from sdd_engine.core.invariants import VerificationPayload
 
 
 def test_extract_command_string():

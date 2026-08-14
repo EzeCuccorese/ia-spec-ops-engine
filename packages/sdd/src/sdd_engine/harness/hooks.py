@@ -12,9 +12,9 @@ import re
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple, Union, Set
 
-from sdd_engine.utils import log_info, log_success, log_warning, log_error
-from sdd_engine.verify import run_verification
-from sdd_engine.invariants import VerificationPayload
+from sdd_engine.core.utils import log_info, log_success, log_warning, log_error
+from sdd_engine.harness.verify import run_verification
+from sdd_engine.core.invariants import VerificationPayload
 
 
 # Set of edit tool names that represent file modification actions

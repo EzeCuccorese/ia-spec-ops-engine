@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import pytest
 
-from sdd_engine.quality_gate import (
+from sdd_engine.harness.quality_gate import (
     BaselineSnapshot,
     TestDelta,
     EntryPointCheck,

@@ -14,18 +14,20 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-from sdd_engine.utils import log_info, log_success, log_warning
+from sdd_engine.core.utils import log_info, log_success, log_warning
 
 
 def get_canonical_skills_dir() -> Path:
     """
     Retorna la ruta absoluta al directorio canónico de skills en packages/sdd/skills/.
     """
-    pkg_skills = Path(__file__).resolve().parent.parent.parent / "skills"
+    # Intentar desde la raíz del paquete packages/sdd/skills
+    pkg_root = Path(__file__).resolve().parent.parent.parent.parent
+    pkg_skills = pkg_root / "skills"
     if pkg_skills.exists() and pkg_skills.is_dir():
         return pkg_skills
 
-    base = Path(__file__).resolve().parent.parent.parent.parent
+    base = pkg_root.parent.parent  # devscripts root
     for candidate in [
         base / "packages" / "sdd" / "skills",
         base / ".agents" / "skills",
@@ -34,6 +36,7 @@ def get_canonical_skills_dir() -> Path:
         if candidate.exists() and candidate.is_dir():
             return candidate
     return pkg_skills
+
 
 
 

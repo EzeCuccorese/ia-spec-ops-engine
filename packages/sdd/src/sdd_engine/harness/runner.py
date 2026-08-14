@@ -10,7 +10,7 @@ import subprocess
 import sys
 from typing import List, Optional, Union
 
-from sdd_engine.exceptions import RunnerError
+from sdd_engine.core.exceptions import RunnerError
 
 
 

@@ -18,8 +18,8 @@ import urllib.error
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Union, Tuple
 
-from sdd_engine.utils import detect_project_type, ProjectType, run_command_safe
-from sdd_engine.invariants import VerificationPayload
+from sdd_engine.core.utils import detect_project_type, ProjectType, run_command_safe
+from sdd_engine.core.invariants import VerificationPayload
 
 
 

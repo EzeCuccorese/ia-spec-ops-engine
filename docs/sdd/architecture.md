@@ -9,25 +9,31 @@ Este documento describe los principios arquitectónicos, modelos de invariantes 
 En lugar de un único agente generalista con amnesia o pérdida de foco, SDD implementa células especializadas donde ningún agente trabaja sin supervisión adversarial:
 
 ```mermaid
-graph TD
-    subgraph "Célula Multi-Agente SDD"
-        LEADER["👑 Agente Líder Orquestador<br/>(Control de Flujo & Contexto)"]
-        WORKER["🛠️ Agente Especialista Worker<br/>(Test-First & Implementación Mínima)"]
-        QA["🔍 Agente Validador QA Reviewer<br/>(Auditoría Adversarial & Quality Gate)"]
+flowchart LR
+    subgraph CELL ["Célula Multi-Agente SDD"]
+        LEADER["👑 Agente Líder Orquestador"]
+        WORKER["🛠️ Agente Worker (Test-First)"]
+        QA["🔍 Agente QA Reviewer"]
     end
+    GIT[("📦 Git Worktree")]
 
-    LEADER -->|Asigna Tarea Aislada| WORKER
-    WORKER -->|Código & Tests Unitarios| QA
-    QA -->|Rechaza (Max 3 Reintentos)| WORKER
-    QA -->|Aprueba PASS| LEADER
-    LEADER -->|Commit Automático Aider| GIT["Git Worktree"]
+    LEADER -->|"Asigna Tarea"| WORKER
+    WORKER -->|"Entrega Código & Tests"| QA
+    QA -->|"Rechaza (Max 3 Intentos)"| WORKER
+    QA -->|"Aprueba PASS"| LEADER
+    LEADER -->|"Auto-Commit Aider"| GIT
+
+    classDef cellBox fill:#1e293b,stroke:#3b82f6,stroke-width:1.5px,color:#f8fafc;
+    classDef gitBox fill:#0f172a,stroke:#10b981,stroke-width:1.5px,color:#f8fafc;
+    class LEADER,WORKER,QA cellBox;
+    class GIT gitBox;
 ```
 
 ---
 
 ## ⚙️ 2. División Estricta: Determinismo vs. Inteligencia Artificial
 
-1. **Herramientas Deterministas en Python (`workspace_engine` & `sdd_engine.verify`)**:
+1. **Herramientas Deterministas en Python (`workspace_engine` & `sdd_engine.harness.verify`)**:
    - Compilación nativa (`build-project`), setup de JDK (`set-java`), instalación de dependencias (`install-deps`), verificación de linters y ejecución de tests.
    - Cero alucinaciones, ejecución síncrona en milisegundos y ahorro masivo de tokens.
 2. **Agentes Inteligentes de IA (`packages/sdd/skills/`)**:

@@ -15,7 +15,7 @@ import sys
 import tomllib
 from typing import Dict, List, Any, Optional, Tuple, Union
 
-from sdd_engine.utils import run_command_safe
+from sdd_engine.core.utils import run_command_safe
 
 
 

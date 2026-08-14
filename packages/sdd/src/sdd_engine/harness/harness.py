@@ -9,9 +9,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Iterable, Union
 
-from sdd_engine.utils import run_command_safe
-from sdd_engine import memory, feature, verify
-from sdd_engine.invariants import (
+from sdd_engine.core.utils import run_command_safe
+from sdd_engine.core import memory
+from sdd_engine.lifecycle import feature
+from sdd_engine.harness import verify
+from sdd_engine.core.invariants import (
     HarnessConfig,
     TaskResult,
     VerificationPayload,

@@ -6,8 +6,8 @@ from pathlib import Path
 import tempfile
 import pytest
 
-from sdd_engine import constitution
-from sdd_engine.bridge import get_sdd_core_rules
+from sdd_engine.lifecycle import constitution
+from sdd_engine.adapters.bridge import get_sdd_core_rules
 
 
 def test_write_and_read_constitution(tmp_path):

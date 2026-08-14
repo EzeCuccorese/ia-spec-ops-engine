@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 import pytest
 
-from sdd_engine.global_skills import (
+from sdd_engine.adapters.global_skills import (
     get_canonical_skills_dir,
     get_global_agent_skill_dirs,
     install_global_skills,
@@ -47,7 +47,7 @@ def test_install_global_skills_custom_source():
         }
 
         # Override get_global_agent_skill_dirs for test
-        import sdd_engine.global_skills as gs
+        import sdd_engine.adapters.global_skills as gs
         orig_func = gs.get_global_agent_skill_dirs
         gs.get_global_agent_skill_dirs = lambda: monkeypatch_targets
 

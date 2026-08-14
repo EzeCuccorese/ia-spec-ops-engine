@@ -13,8 +13,8 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from sdd_engine.constitution import read_constitution
-from sdd_engine.utils import Color, log_info, log_success, log_warning
+from sdd_engine.lifecycle.constitution import read_constitution
+from sdd_engine.core.utils import Color, log_info, log_success, log_warning
 
 
 @dataclass
@@ -367,7 +367,7 @@ def generate_adapters(
             (ar / f"{r.name}.md").write_text(f"# {r.description}\n\n{r.content}\n", encoding="utf-8")
             generated_files.append(f".agents/rules/{r.name}.md")
 
-        from sdd_engine.global_skills import get_canonical_skills_dir
+        from sdd_engine.adapters.global_skills import get_canonical_skills_dir
         src_skills = get_canonical_skills_dir()
         if src_skills.exists() and src_skills.is_dir():
             for s_dir in sorted(src_skills.iterdir()):

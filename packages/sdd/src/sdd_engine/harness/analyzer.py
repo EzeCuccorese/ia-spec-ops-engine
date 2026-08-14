@@ -7,8 +7,8 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from sdd_engine.utils import find_project_root as get_repo_root
-from sdd_engine.exceptions import AnalysisError, FeatureNotFoundError
+from sdd_engine.core.utils import find_project_root as get_repo_root
+from sdd_engine.core.exceptions import AnalysisError, FeatureNotFoundError
 
 
 

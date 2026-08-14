@@ -19,7 +19,7 @@ except ImportError:
     except ImportError:
         tomllib = None  # type: ignore
 
-from sdd_engine.utils import find_project_root
+from sdd_engine.core.utils import find_project_root
 
 
 

@@ -3,9 +3,13 @@ import tempfile
 from pathlib import Path
 import pytest
 
-from sdd_engine.utils import run_command_safe
-from sdd_engine import harness, memory
-from sdd_engine.invariants import VerificationPayload
+import sdd_engine.harness.harness as harness
+from sdd_engine.core.invariants import VerificationPayload
+from sdd_engine.core.utils import run_command_safe
+
+
+
+
 
 def test_parse_tasks():
     with tempfile.NamedTemporaryFile("w+", suffix=".md", delete=False) as tmp:

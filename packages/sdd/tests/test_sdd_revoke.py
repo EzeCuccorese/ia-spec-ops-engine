@@ -7,8 +7,10 @@ from pathlib import Path
 import tempfile
 import pytest
 
-from sdd_engine.bridge import generate_adapters
-from sdd_engine import memory, revoke
+from sdd_engine.adapters.bridge import generate_adapters
+from sdd_engine.adapters import revoke
+from sdd_engine.core import memory
+
 
 
 def test_backup_specify_dir(tmp_path):

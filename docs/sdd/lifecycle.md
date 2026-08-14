@@ -6,36 +6,27 @@ El desarrollo guiado por especificaciones (**Spec-Driven Development o SDD**) es
 
 ## 🔄 El Ciclo de Vida Estricto de 8 Fases
 
-Todo desarrollo de características DEBE avanzar de forma estrictamente secuencial, requiriendo revisión y aprobación humana antes de pasar a la siguiente fase:
+Todo desarrollo de características avanza de forma estrictamente secuencial a través de 3 bloques metodológicos:
 
 ```mermaid
-flowchart TD
-    subgraph "Fase de Especificación & Diseño"
-        F1["1. /sdd-specify<br/>(spec.md)"] --> CP1{Aprobación Humana}
-        CP1 -->|Aprobado| F2["2. /sdd-clarify<br/>(clarify.md)"]
-        F2 --> CP2{Aprobación Humana}
-        CP2 -->|Aprobado| F3["3. /sdd-plan<br/>(plan.md)"]
-        F3 --> CP3{Aprobación Humana}
+flowchart LR
+    subgraph S1 ["1. Especificación & Diseño"]
+        F1["1. /sdd-specify<br/>(spec.md)"] --> F2["2. /sdd-clarify<br/>(clarify.md)"] --> F3["3. /sdd-plan<br/>(plan.md)"]
     end
 
-    subgraph "Fase de Gobernanza & Desglose"
-        CP3 -->|Aprobado| F4["4. /sdd-checklist<br/>(checklist.md)"]
-        F4 --> CP4{Aprobación Humana}
-        CP4 -->|Aprobado| F5["5. /sdd-tasks<br/>(tasks.md)"]
-        F5 --> CP5{Aprobación Humana}
-        CP5 -->|Aprobado| F6["6. /sdd-analyze<br/>(Auditoría Cruzada)"]
+    subgraph S2 ["2. Gobernanza & Desglose"]
+        F4["4. /sdd-checklist<br/>(checklist.md)"] --> F5["5. /sdd-tasks<br/>(tasks.md)"] --> F6["6. /sdd-analyze<br/>(Auditoría Estática)"]
     end
 
-    subgraph "Fase de Ejecución & Convergencia"
-        F6 --> F7["7. /sdd-exec<br/>(Worker + QA Loop)"]
-        F7 --> F8["8. /sdd-converge<br/>(Criterios Gherkin)"]
-        F8 --> FIN["Feature Completada & PR Creado"]
+    subgraph S3 ["3. Ejecución & Convergencia"]
+        F7["7. /sdd-exec<br/>(Worker + QA)"] --> F8["8. /sdd-converge<br/>(Gherkin & PR)"]
     end
 
-    classDef phase fill:#2d3748,stroke:#4a5568,stroke-width:2px,color:#fff;
-    classDef gate fill:#d69e2e,stroke:#b7791f,stroke-width:2px,color:#fff;
-    class F1,F2,F3,F4,F5,F6,F7,F8 phase;
-    class CP1,CP2,CP3,CP4,CP5 gate;
+    S1 -->|"Aprobación Humana"| S2
+    S2 -->|"Auditoría Exitosa"| S3
+
+    classDef stageBox fill:#1e293b,stroke:#3b82f6,stroke-width:1.5px,color:#f8fafc;
+    class F1,F2,F3,F4,F5,F6,F7,F8 stageBox;
 ```
 
 ---

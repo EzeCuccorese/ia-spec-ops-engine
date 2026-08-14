@@ -6,7 +6,7 @@ from pathlib import Path
 import tempfile
 import pytest
 
-from sdd_engine import sync
+from sdd_engine.adapters import sync
 
 
 def test_sync_sdd_uninitialized_with_opt_in(tmp_path, monkeypatch):

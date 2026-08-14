@@ -9,8 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from sdd_engine.utils import find_project_root as get_repo_root, run_command_safe
-from sdd_engine.exceptions import FeatureNotFoundError
+from sdd_engine.core.utils import find_project_root as get_repo_root, run_command_safe
+from sdd_engine.core.exceptions import FeatureNotFoundError
 
 
 def get_feature_file() -> Path:

@@ -8,8 +8,8 @@ from pathlib import Path
 import re
 from typing import Optional, Union
 
-from sdd_engine.utils import find_project_root
-from sdd_engine.exceptions import SDDMemoryError
+from sdd_engine.core.utils import find_project_root
+from sdd_engine.core.exceptions import SDDMemoryError
 
 
 

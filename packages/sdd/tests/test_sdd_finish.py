@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 import pytest
 
-from sdd_engine.finish import finish_feature, get_current_branch
+from sdd_engine.lifecycle.finish import finish_feature, get_current_branch
 
 
 def test_finish_feature_no_active_feature():

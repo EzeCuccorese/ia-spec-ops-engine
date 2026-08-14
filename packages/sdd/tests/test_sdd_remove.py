@@ -6,8 +6,8 @@ import tempfile
 from pathlib import Path
 import pytest
 
-from sdd_engine.revoke import revoke_sdd_configuration, backup_specify_dir
-from sdd_engine.sync import get_active_repo_worktrees
+from sdd_engine.adapters.revoke import revoke_sdd_configuration, backup_specify_dir
+from sdd_engine.adapters.sync import get_active_repo_worktrees
 
 
 def test_revoke_sdd_configuration_creates_backup_and_cleans():

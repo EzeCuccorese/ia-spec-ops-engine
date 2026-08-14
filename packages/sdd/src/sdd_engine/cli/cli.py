@@ -3,25 +3,12 @@ import json
 import sys
 from pathlib import Path
 
-from sdd_engine import (
-    feature,
-    memory,
-    parser,
-    runner,
-    reset,
-    analyzer,
-    harness,
-    verify,
-    hooks,
-    quality_gate,
-    revoke,
-    sync,
-    constitution,
-    global_skills,
-    finish,
-    bridge,
-)
-from sdd_engine.exceptions import SDDError
+from sdd_engine.core import memory, parser, exceptions
+from sdd_engine.core.exceptions import SDDError
+from sdd_engine.lifecycle import feature, constitution, finish
+from sdd_engine.harness import analyzer, harness, hooks, quality_gate, runner, verify
+from sdd_engine.adapters import bridge, global_skills, reset, revoke, sync
+
 
 
 

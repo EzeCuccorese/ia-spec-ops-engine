@@ -9,10 +9,12 @@ from pathlib import Path
 import sys
 from typing import List, Optional, Tuple, Union
 
-from sdd_engine import bridge
-from sdd_engine.utils import find_project_root, run_command_safe
+from sdd_engine.adapters import bridge
+from sdd_engine.core.utils import find_project_root, run_command_safe
 import subprocess
-from sdd_engine import memory, global_skills
+from sdd_engine.core import memory
+from sdd_engine.adapters import global_skills
+
 
 
 

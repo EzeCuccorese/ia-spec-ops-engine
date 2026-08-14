@@ -9,8 +9,8 @@ import tempfile
 from pathlib import Path
 import pytest
 
-from sdd_engine.harness import HarnessSession
-from sdd_engine.invariants import (
+from sdd_engine.harness.harness import HarnessSession
+from sdd_engine.core.invariants import (
     HarnessConfig,
     TaskResult,
     VerificationPayload,

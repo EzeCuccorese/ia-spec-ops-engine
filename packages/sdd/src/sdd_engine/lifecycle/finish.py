@@ -11,8 +11,8 @@ import sys
 from pathlib import Path
 from typing import Optional, Tuple, Union
 
-from sdd_engine.utils import find_project_root, log_error, log_info, log_success, log_warning, run_command_safe
-from sdd_engine import feature
+from sdd_engine.core.utils import find_project_root, log_error, log_info, log_success, log_warning, run_command_safe
+from sdd_engine.lifecycle import feature
 
 
 

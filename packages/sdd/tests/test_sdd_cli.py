@@ -3,7 +3,7 @@ import sys
 import pytest
 from pathlib import Path
 from unittest.mock import patch
-from sdd_engine import feature
+from sdd_engine.lifecycle import feature
 
 def test_set_active_feature(tmp_path):
     with patch("sdd_engine.feature.get_repo_root", return_value=tmp_path):
@@ -43,7 +43,7 @@ def test_get_status_with_artifacts(tmp_path, capsys):
 
 def test_sdd_verify_table(capsys):
     import sdd_engine.cli as sdd
-    from sdd_engine.invariants import VerificationPayload
+    from sdd_engine.core.invariants import VerificationPayload
 
     mock_payload = VerificationPayload(
         passed=True,
@@ -65,7 +65,7 @@ def test_sdd_verify_table(capsys):
 
 def test_sdd_verify_json(capsys):
     import sdd_engine.cli as sdd
-    from sdd_engine.invariants import VerificationPayload
+    from sdd_engine.core.invariants import VerificationPayload
 
     mock_payload = VerificationPayload(
         passed=True,
@@ -115,7 +115,7 @@ def test_sdd_hook_pre_tool_blocked(capsys):
 
 def test_sdd_hook_post_tool(capsys):
     import sdd_engine.cli as sdd
-    from sdd_engine.invariants import VerificationPayload
+    from sdd_engine.core.invariants import VerificationPayload
 
     mock_payload = VerificationPayload(
         passed=True,
@@ -224,10 +224,12 @@ def test_sdd_feature_get_and_status(tmp_path, capsys):
 
 
 def test_analyzer_raises_exceptions(tmp_path):
-    from sdd_engine import analyzer
-    from sdd_engine.exceptions import AnalysisError, FeatureNotFoundError
+    import sdd_engine.harness.analyzer as analyzer
+    from sdd_engine.core.exceptions import AnalysisError, FeatureNotFoundError
 
-    with patch("sdd_engine.analyzer.get_repo_root", return_value=tmp_path):
+
+    with patch("sdd_engine.harness.analyzer.get_repo_root", return_value=tmp_path):
+
         # No feature set -> FeatureNotFoundError
         with pytest.raises(FeatureNotFoundError):
             analyzer.analyze()

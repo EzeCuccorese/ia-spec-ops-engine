@@ -1,6 +1,6 @@
 import pytest
 from pathlib import Path
-from sdd_engine.invariants import (
+from sdd_engine.core.invariants import (
     HarnessConfig,
     VerificationPayload,
     TaskResult,
