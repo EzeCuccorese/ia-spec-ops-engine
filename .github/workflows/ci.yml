@@ -25,6 +25,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .[dev,tui,monitoring]
 
+      - name: Run Ruff Lint
+        run: |
+          ruff check .
+
       - name: Run Pytest Suite
         run: |
-          pytest tests/ -v
+          pytest tests/ -v --cov=devscripts --cov-report=term-missing

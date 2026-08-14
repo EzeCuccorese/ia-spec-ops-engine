@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sdd-engine"
+version = "0.1.0"
+description = "Motor de IA y Gobernanza para Spec-Driven Development (SDD)"
+authors = [
+    { name = "Devscripts Team", email = "team@devscripts.org" }
+]
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "rich>=13.0.0",
+    "pydantic>=2.0.0",
+]
+
+[project.scripts]
+sdd = "sdd_engine.cli:main"
+sdd-engine = "sdd_engine.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sdd_engine"]

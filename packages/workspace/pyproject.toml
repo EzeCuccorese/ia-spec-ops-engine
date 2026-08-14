@@ -3,15 +3,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "devscripts-monorepo"
-version = "0.2.0"
-description = "Monorepo de automatización y orquestación de desarrollo: workspace_engine y sdd_engine"
+name = "devscripts-workspace"
+version = "0.1.0"
+description = "Gestor determinista de workspaces, repositorios Git, entornos locales, builds y Kubernetes."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
-    "rich>=13.0.0",
-    "pydantic>=2.0.0",
-    "ruamel.yaml>=0.17.0",
+    "rich",
+    "psutil>=5.9",
 ]
 
 [project.optional-dependencies]
@@ -22,31 +21,27 @@ dev = [
     "ruff>=0.1",
 ]
 
-[tool.pytest.ini_options]
-pythonpath = ["packages/workspace/src", "packages/sdd/src"]
-python_files = ["test_*.py", "*_test.py"]
-testpaths = ["packages/workspace/tests", "packages/sdd/tests"]
-addopts = "-ra --strict-markers"
-norecursedirs = ["node_modules", ".venv", "venv", ".git", ".pytest_cache", ".claude"]
+[tool.hatch.build.targets.wheel]
+packages = ["src/workspace_engine"]
 
 [project.scripts]
-# SDD Engine (Full IA & Gobernanza)
-sdd = "sdd_engine.cli:main"
-sdd-engine = "sdd_engine.cli:main"
-
-# Workspace Engine (100% Determinista, cero IA)
+create-worktree = "workspace_engine.cli.create_worktree:main"
 generate-workspace = "workspace_engine.cli.generate_workspace:main"
 edit-workspace = "workspace_engine.cli.edit_workspace:main"
-create-worktree = "workspace_engine.cli.create_worktree:main"
 clean-workspace = "workspace_engine.cli.clean_workspace:main"
 stop-workspace = "workspace_engine.cli.stop_workspace:main"
 reset-repos = "workspace_engine.cli.reset_repos:main"
 delete-workspaces = "workspace_engine.cli.delete_workspaces:main"
+kube-env = "workspace_engine.cli.kube_env:main"
 build-project = "workspace_engine.cli.build_project:main"
 install-deps = "workspace_engine.cli.install_deps:main"
 set-java = "workspace_engine.cli.set_java:main"
-init-env = "workspace_engine.cli.init_env:main"
 load-env = "workspace_engine.cli.load_env:main"
+init-env = "workspace_engine.cli.init_env:main"
 unit-test-benchmark = "workspace_engine.cli.unit_test_benchmark:main"
-run-local = "workspace_engine.run_local:main"
-kube-env = "workspace_engine.cli.kube_env:main"
+run-local = "workspace_engine.run_local.main:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+python_files = ["test_*.py", "*_test.py"]
+testpaths = ["tests"]
