@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from workspace_engine.services.tui_utils import _read_key, _resolve_cursor
-from workspace_engine.utils import Color
+from workspace_engine.utils import Color, run_git
 
 
 @dataclass
@@ -27,7 +27,11 @@ class RepoConfig:
     name: str
     mode: str            # "new" o "existing"
     branch: str
-    parent: Optional[str]  # None para modo existing
+    parent: Optional[str] = None
+    is_remote_only: bool = False
+    from_date: Optional[str] = None
+    from_commit: Optional[str] = None
+    reset_to_parent: bool = False
 
     @property
     def is_remote_only(self) -> bool:
@@ -73,10 +77,7 @@ def fetch_branches(repo_path: Path, skip_fetch: bool = False) -> List[str]:
 
 
 def _git(repo_path: Path, *args) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ['git', '-C', str(repo_path)] + list(args),
-        capture_output=True, text=True,
-    )
+    return run_git(repo_path, *args)
 
 
 def _parse_worktrees(porcelain: str) -> List[Tuple[Path, str]]:

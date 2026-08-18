@@ -16,14 +16,11 @@ from typing import Optional
 from workspace_engine.services.configure_repos import configure_repos, pre_validate
 from workspace_engine.services.render_agents import render_agents_md
 from workspace_engine.services.select_repos import select_repos
-from workspace_engine.utils import Color, log_error, log_success, log_warning, parse_dotenv
+from workspace_engine.utils import Color, log_error, log_success, log_warning, parse_dotenv, run_git
 
 
 def _git(repo_path: Path, *args) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ['git', '-C', str(repo_path)] + list(args),
-        capture_output=True, text=True,
-    )
+    return run_git(repo_path, *args)
 
 
 def setup_repo_worktree(repo_path: Path, target_path: Path, config) -> None:
