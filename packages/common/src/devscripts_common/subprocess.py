@@ -37,6 +37,9 @@ def run_command(
 
     merged_env = os.environ.copy()
     if isolated_git:
+        for k in list(merged_env.keys()):
+            if k.startswith("GIT_") and k not in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
+                del merged_env[k]
         merged_env["GIT_CONFIG_GLOBAL"] = "/dev/null"
         merged_env["GIT_CONFIG_SYSTEM"] = "/dev/null"
     if env:
@@ -98,6 +101,9 @@ def run_command_safe(
     target_cmd = shlex.split(cmd) if isinstance(cmd, str) else cmd
     merged_env = os.environ.copy()
     if isolated_git:
+        for k in list(merged_env.keys()):
+            if k.startswith("GIT_") and k not in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
+                del merged_env[k]
         merged_env["GIT_CONFIG_GLOBAL"] = "/dev/null"
         merged_env["GIT_CONFIG_SYSTEM"] = "/dev/null"
     if env:
