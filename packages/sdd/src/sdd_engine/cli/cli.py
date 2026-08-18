@@ -175,6 +175,17 @@ Ciclo de Vida Estricto de 8 Fases:
     pg.add_argument("--phase", default="pre-task", choices=["pre-task", "post-task", "convergence"], help="Fase de comprobación de gate")
     pg.add_argument("--json", action="store_true", help="Salida en formato JSON")
 
+    # MCP Server
+    pmcp = sub.add_parser("mcp", help="Inicia el servidor Model Context Protocol (MCP) nativo sobre stdio")
+    pmcp.add_argument("dir", nargs="?", default=".", help="Directorio raíz del proyecto")
+
+    # Match Rules (Dynamic Context Budgeting)
+    pmr = sub.add_parser("match-rules", help="Filtra dinámicamente las reglas aplicables para optimizar el presupuesto de tokens")
+    pmr.add_argument("files", nargs="*", help="Archivos modificados o rutas de interés")
+    pmr.add_argument("--dir", default=".", help="Directorio del proyecto")
+    pmr.add_argument("--json", action="store_true", help="Salida en formato JSON")
+    pmr.add_argument("--render", action="store_true", help="Renderizar texto Markdown completo")
+
     # Sync
     psy = sub.add_parser("sync", help="Sincronizar instalación global de CLI e importar/actualizar adaptadores del proyecto")
     psy.add_argument("dir", nargs="?", default=".", help="Directorio destino")
@@ -450,6 +461,27 @@ Ciclo de Vida Estricto de 8 Fases:
 
     elif args.command == "sync":
         sync.sync_sdd(target_dir=args.dir, quiet=args.quiet)
+
+    elif args.command == "mcp":
+        from sdd_engine.mcp.server import run_mcp_server
+        run_mcp_server(project_root=args.dir)
+
+    elif args.command == "match-rules":
+        from sdd_engine.core.rule_matcher import match_rules_for_files
+        res = match_rules_for_files(target_files=args.files, target_dir=args.dir)
+        if args.json:
+            print(json.dumps(res.to_dict(), indent=2, ensure_ascii=False))
+        elif args.render:
+            print(res.render_context())
+        else:
+            print("==> SDD Dynamic Rule Matching & Context Budgeting")
+            print(f"    Archivos objetivo:        {len(res.matched_files)} ({', '.join(res.matched_files) or 'todos'})")
+            print(f"    Reglas globales:          {len(res.global_rules)}")
+            print(f"    Reglas scoped activadas:  {len(res.matched_scoped_rules)} ({', '.join([r.name for r in res.matched_scoped_rules])})")
+            print(f"    Reglas scoped omitidas:   {len(res.unmatched_scoped_rules)}")
+            print(f"    Presupuesto total catal.: ~{res.total_catalog_tokens} tokens")
+            print(f"    Presupuesto inyectado:    ~{res.injected_tokens} tokens")
+            print(f"    Ahorro estimado tokens:   ~{res.saved_tokens} tokens ({res.savings_percentage:.1f}%)")
 
     else:
         argp.print_help()

@@ -26,6 +26,7 @@ def run_command(
     env: Optional[Dict[str, str]] = None,
     cwd: Optional[Union[str, Path]] = None,
     timeout: Optional[int] = DEFAULT_COMMAND_TIMEOUT,
+    isolated_git: bool = False,
 ) -> Optional[str]:
     """
     Ejecuta un comando de sistema de forma determinista con timeout configurable y captura limpia.
@@ -35,6 +36,9 @@ def run_command(
         print(f"{Color.CYAN}🚀 Ejecutando: {cmd_str}{Color.RESET}")
 
     merged_env = os.environ.copy()
+    if isolated_git:
+        merged_env["GIT_CONFIG_GLOBAL"] = "/dev/null"
+        merged_env["GIT_CONFIG_SYSTEM"] = "/dev/null"
     if env:
         merged_env.update(env)
 
@@ -86,16 +90,24 @@ def run_command_safe(
     cwd: Optional[Union[str, Path]] = None,
     env: Optional[Dict[str, str]] = None,
     timeout: Optional[int] = DEFAULT_COMMAND_TIMEOUT,
+    isolated_git: bool = False,
 ) -> Tuple[int, str, str]:
     """
     Wrapper seguro que retorna (returncode, stdout, stderr) sin lanzar excepciones no controladas.
     """
     target_cmd = shlex.split(cmd) if isinstance(cmd, str) else cmd
+    merged_env = os.environ.copy()
+    if isolated_git:
+        merged_env["GIT_CONFIG_GLOBAL"] = "/dev/null"
+        merged_env["GIT_CONFIG_SYSTEM"] = "/dev/null"
+    if env:
+        merged_env.update(env)
+
     try:
         res = subprocess.run(
             target_cmd,
             cwd=str(cwd) if cwd else None,
-            env=env,
+            env=merged_env,
             capture_output=True,
             text=True,
             timeout=timeout,

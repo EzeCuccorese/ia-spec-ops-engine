@@ -265,8 +265,18 @@ def run_get_check(
         result["status"] = "PASS"
         return result
 
-    errors = []
+    # Expand any directory paths into individual files
+    expanded_files: List[Path] = []
     for fp in files_to_check:
+        if fp.is_dir():
+            for sub_fp in fp.rglob("*"):
+                if sub_fp.is_file() and not any(p.startswith(".") or p in ("__pycache__", "node_modules", "venv", ".venv") for p in sub_fp.parts):
+                    expanded_files.append(sub_fp)
+        else:
+            expanded_files.append(fp)
+
+    errors = []
+    for fp in expanded_files:
         if not fp.exists():
             errors.append(f"File missing post-mutation: {fp}")
             continue
