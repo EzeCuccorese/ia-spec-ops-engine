@@ -6,6 +6,7 @@ Re-exporta y extiende utilidades de devscripts_common para mantener compatibilid
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 from typing import Dict, Optional, Union
 

@@ -28,7 +28,6 @@ class RepoConfig:
     mode: str            # "new" o "existing"
     branch: str
     parent: Optional[str] = None
-    is_remote_only: bool = False
     from_date: Optional[str] = None
     from_commit: Optional[str] = None
     reset_to_parent: bool = False
