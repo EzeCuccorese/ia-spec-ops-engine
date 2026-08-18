@@ -27,7 +27,15 @@ from sdd_engine.adapters import bridge
 def _init_git_repo(repo_path: Path) -> None:
     """Inicializa un repositorio git local con un commit inicial."""
     repo_path.mkdir(parents=True, exist_ok=True)
-    git_env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
+    git_env = {
+        **os.environ,
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_CONFIG_SYSTEM": "/dev/null",
+        "GIT_AUTHOR_NAME": "Test User",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "Test User",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+    }
     subprocess.run(["git", "-C", str(repo_path), "init", "-b", "main"], capture_output=True, check=True, env=git_env)
     subprocess.run(["git", "-C", str(repo_path), "config", "user.name", "Test User"], capture_output=True, check=True, env=git_env)
     subprocess.run(["git", "-C", str(repo_path), "config", "user.email", "test@example.com"], capture_output=True, check=True, env=git_env)
