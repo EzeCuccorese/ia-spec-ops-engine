@@ -134,6 +134,13 @@ def main() -> None:
     p_kube = subparsers.add_parser("kube", help="Gestor de Kubernetes para extracción de entornos y shells")
     p_kube.add_argument("action", nargs="?", choices=["env", "logs", "shell"], help="Acción a ejecutar")
 
+    # ws hooks
+    p_hooks = subparsers.add_parser("hooks", help="Gestor de Git Hooks y Quality Gates Multi-Stack")
+    p_hooks.add_argument("action", nargs="?", choices=["install", "status", "uninstall"], help="Acción a realizar")
+    p_hooks.add_argument("--global", "-g", dest="is_global", action="store_true", help="Operar globalmente en ~/.githooks")
+    p_hooks.add_argument("--dir", "-d", help="Directorio raíz del repositorio")
+    p_hooks.add_argument("--force", "-f", action="store_true", default=True, help="Sobreescribir hooks existentes")
+
     # ws doctor
     subparsers.add_parser("doctor", help="Verificar estado y herramientas disponibles en el sistema")
 
@@ -146,6 +153,9 @@ def main() -> None:
     # Delegar a los submódulos correspondientes
     if args.command == "doctor":
         doctor_check()
+    elif args.command == "hooks":
+        from workspace_engine.cli.manage_hooks import main as hooks_main
+        hooks_main()
     elif args.command == "generate":
         from workspace_engine.cli.generate_workspace import main as gen_main
         gen_main()
