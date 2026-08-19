@@ -26,7 +26,7 @@ fi
 
 DIFF_CONTENT=$(git diff HEAD~1..HEAD 2>/dev/null || git diff --cached 2>/dev/null || true)
 if [ -n "$DIFF_CONTENT" ]; then
-    LEAK_PATTERNS='(BEGIN (RSA|EC|OPENSSH|PRIVATE) KEY|AKIA[0-9A-Z]{16}|ghp_[a-zA-Z0-9]{36}|sk-[a-zA-Z0-9]{20,}|AIza[0-9A-Za-z-_]{35})'
+    LEAK_PATTERNS='(BEGIN (RSA|EC|OPENSSH|PRIVATE) KEY|AKIA[0-9A-Z]{16}|ghp_[a-zA-Z0-9]{36}|sk-[a-zA-Z0-9]{20,}|AIza[0-9A-Za-z_-]{35})'
     DETECTED_LEAKS=$(echo "$DIFF_CONTENT" | grep -E "^\+[^+]" | grep -E "$LEAK_PATTERNS" || true)
     if [ -n "$DETECTED_LEAKS" ]; then
         echo -e "${RED}❌ ERROR DE SEGURIDAD: Se detectaron posibles secretos/tokens en el diff:${NC}"
