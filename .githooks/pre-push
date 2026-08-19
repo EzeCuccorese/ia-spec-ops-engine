@@ -16,7 +16,7 @@ cd "$REPO_ROOT"
 
 # 1. SEGURIDAD: Escaneo de secretos, tokens y archivos prohibidos
 echo -e "${CYAN}🔒 [1/4] Verificando seguridad y escaneo de secretos...${NC}"
-FORBIDDEN_FILES=$(git ls-files | grep -E '(\.env(\..+)?$|\.pem$|\.key$|id_rsa$|id_ed25519$|credentials\.json$|\.DS_Store$)' | grep -v '\.env\.example' || true)
+FORBIDDEN_FILES=$(git ls-files | grep -E '(\.env(\..+)?$|\.pem$|\.key$|id_rsa$|id_ed25519$|credentials\.json$|\.DS_Store$)' | grep -vE '\.(example|template)$' || true)
 if [ -n "$FORBIDDEN_FILES" ]; then
     echo -e "${RED}❌ ERROR DE SEGURIDAD: Se detectaron archivos sensibles trackeados en Git:${NC}"
     echo "$FORBIDDEN_FILES"
