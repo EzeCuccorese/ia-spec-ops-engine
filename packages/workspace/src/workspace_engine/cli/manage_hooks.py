@@ -60,6 +60,11 @@ def render_hooks_status(target_dir: Path | None = None) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+        if argv and argv[0] == "hooks":
+            argv = argv[1:]
+
     parser = argparse.ArgumentParser(
         prog="ws hooks",
         description="Gestor de Git Hooks y Quality Gates Multi-Stack para Workspace Engine",
