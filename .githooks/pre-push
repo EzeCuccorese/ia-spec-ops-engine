@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -e
+
+# Colored logging
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+echo -e "${BLUE}[Devscripts Pre-Push Hook] Ejecutando Quality Gate local...${NC}"
+
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+cd "$REPO_ROOT"
+
+# 1. Linter Check con Ruff
+echo -e "${BLUE}1. Ejecutando linter (Ruff)...${NC}"
+if command -v ruff >/dev/null 2>&1; then
+    ruff check packages/ rules/ < /dev/null || { echo -e "${RED}❌ Falló la verificación de linter con ruff.${NC}"; exit 1; }
+elif command -v uv >/dev/null 2>&1; then
+    uv run --with ruff ruff check packages/ rules/ < /dev/null || { echo -e "${RED}❌ Falló la verificación de linter con ruff (uv).${NC}"; exit 1; }
+fi
+echo -e "${GREEN}✔ Linter Ruff: PASS${NC}"
+
+# 2. Test Suite con Pytest
+echo -e "${BLUE}2. Ejecutando suite de tests (Pytest)...${NC}"
+pytest < /dev/null || { echo -e "${RED}❌ Falló la suite de tests unitarios/integración.${NC}"; exit 1; }
+echo -e "${GREEN}✔ Suite Pytest: PASS${NC}"
+
+echo -e "${GREEN}✅ Quality Gate local superado con éxito. Procediendo con git push...${NC}"
+exit 0
