@@ -22,3 +22,14 @@ scratch/*
 *.tmp
 *.log
 .specify-backup-*
+
+# Agent deployed runtimes & configurations
+.agents/
+.gemini/
+.claude/
+.cursor/
+.specify/
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+
