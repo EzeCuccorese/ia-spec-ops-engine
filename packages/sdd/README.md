@@ -20,7 +20,11 @@ Subproyecto autónomo de orquestación, gobernanza, harness multi-agente y verif
 - **Contratos Primero**: Definir interfaces formales antes de la lógica de negocio.
 - **Harnés de Pruebas (Test-First)**: Pruebas unitarias e integración previas al código productivo.
 - **Implementación Mínima**: Código estrictamente necesario para cumplir el contrato (YAGNI).
-- **Detección Temprana & Intercepción de Seguridad**:
+- **Dynamic Context Budgeting & Rule Indexing (`sdd match-rules`)**: Motor dinámico que inyecta únicamente las reglas scoped relevantes para los archivos modificados, ahorrando entre 40% y 75% de tokens en los prompts.
+- **Auditoría Formal de Contratos AST**: `sdd analyze` valida que los tipos, interfaces y DTOs declarados en `plan.md` existan en el árbol de sintaxis abstracta (AST) del código fuente.
+- **Multi-Agente Self-Healing Harness**: Parser inteligente de trazas de fallo (Pytest, JUnit, NPM) y generación automática de prompts focalizados de corrección con límite de reintentos.
+- **Servidor MCP Nativo (`sdd mcp`)**: Servidor Model Context Protocol JSON-RPC 2.0 sobre `stdio` que expone herramientas (`ws_clean`, `sdd_verify`, `sdd_get_rules`, `sdd_feature_status`) y recursos (`sdd://constitution`, `sdd://active-feature`) para Claude Code, Cursor, Antigravity, VS Code y Windsurf.
+- **Intercepción de Seguridad**:
   - `sdd hook pre-tool`: Bloqueo de comandos destructivos, ejecución remota no autorizada (`curl|sh`), borrado de raíz o mutaciones directas de BD sin autorización.
   - `sdd hook post-tool`: Verificación automática instantánea (linter, tests, escaneo de secretos/PII, confirmación GET).
 - **Adaptadores Multi-IA**: Despliegue nativo de prompts, skills y configuraciones para Claude Code, Antigravity 2.0 (AGY), GitHub Copilot, Cursor IDE, Windsurf, Gemini CLI y ChatGPT.
@@ -36,13 +40,15 @@ pip install -e .
 
 | Comando | Descripción |
 |---|---|
+| `sdd mcp` | Inicia el servidor nativo Model Context Protocol (MCP) en `stdio` |
+| `sdd match-rules` | Filtra y renderiza reglas dinámicamente según archivos modificados |
 | `sdd init` | Inicializa el espacio de trabajo SDD y adaptadores de IA |
 | `sdd feature set <name>` | Establece o cambia la feature activa con aislamiento de worktree |
 | `sdd feature status` | Muestra el estado y fase de la feature activa |
 | `sdd specify` / `sdd plan` | Asiste en las fases del ciclo de vida SDD |
-| `sdd verify` | Ejecuta verificación de linter, tests, secretos y confirmaciones |
-| `sdd analyze` | Audita consistencia estática cruzada de artefactos |
-| `sdd harness run` | Orquesta ejecución de tareas con Worker y QA Reviewer |
+| `sdd verify` | Ejecuta Quality Gate de linter, tests, secretos y confirmaciones |
+| `sdd analyze` | Audita consistencia estática cruzada de artefactos y contratos AST |
+| `sdd harness run` | Orquesta ejecución con Self-Healing, Worker y QA Reviewer |
 | `sdd finish` | Finaliza feature, sube rama y crea PR |
 | `sdd sync` | Sincroniza adaptadores de IA y skills en el repositorio |
 | `sdd revoke` | Revoca y limpia configuraciones de SDD en el proyecto |
