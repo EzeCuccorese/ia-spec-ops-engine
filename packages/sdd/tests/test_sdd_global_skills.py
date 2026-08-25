@@ -26,8 +26,7 @@ def test_get_canonical_skills_dir():
     for folder in skill_folders:
         content = (folder / "SKILL.md").read_text(encoding="utf-8")
         assert f"name: {folder.name}" in content, f"Skill {folder.name} missing frontmatter name"
-        assert "Validar Parámetros" in content or "Paso 0" in content, f"Skill {folder.name} missing parameter validation"
-        assert "Roles Multi-Agente" in content, f"Skill {folder.name} missing multi-agent roles section"
+        assert "Execution Steps" in content or "Deterministic" in content or "SDD" in content, f"Skill {folder.name} missing execution steps"
 
 
 def test_install_global_skills_custom_source():

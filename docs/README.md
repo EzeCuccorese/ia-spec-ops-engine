@@ -1,35 +1,36 @@
-# Documentación de Devscripts
+# Cucco SpecOps Engine Documentation
 
-Bienvenido a la documentación central de **Devscripts**. 
+Welcome to the central documentation hub for **Cucco SpecOps Engine**.
 
-Este espacio sigue el principio de **Fuente Única de Verdad (DRY)**: los manuales operativos y guías de comandos residen directamente en sus respectivos subproyectos y catálogos para evitar duplicaciones.
-
----
-
-## 🧭 Índice de Navegación
-
-### 📦 1. Subproyectos Autónomos
-- [**Workspace Engine (`packages/workspace/`)**](file://~/projects/devscripts/packages/workspace/README.md): Gestor determinista en Python puro (cero IA) para repositorios, Git worktrees, compilación multi-stack, gestión de JDKs, orquestador de microservicios (`run-local`) y Kubernetes (`kube-env`).
-  - [**Gestor de Git Hooks & Quality Gate Multi-Stack (`docs/workspace/git-hooks.md`)**](file://~/projects/devscripts/docs/workspace/git-hooks.md): Quality Gate de 4 etapas (Seguridad, Reglas Git/No IA, Linters y Tests) con comando `ws hooks`.
-- [**SDD Engine (`packages/sdd/`)**](file://~/projects/devscripts/packages/sdd/README.md): Motor Full IA y arnés de gobernanza para agentes de IA (Worker + QA Reviewer), servidor nativo MCP (`sdd mcp`), Dynamic Context Budgeting (`sdd match-rules`), ciclo de vida de 8 fases, hooks de seguridad y adaptadores Multi-IA.
+This documentation adheres to the **Single Source of Truth (DRY)** principle: detailed CLI references reside directly within their respective packages to prevent stale duplication.
 
 ---
 
-### 📋 2. Catálogo de Reglas de Ingeniería
-- [**Catálogo de Reglas Modulares (`rules/`)**](file://~/projects/devscripts/rules/README.md):
-  - **Reglas Globales (`rules/global/`)**: Interacción y anti-looping, Conventional Commits y Cero IA mentions, seguridad/privacidad y ciclo SDD.
-  - **Reglas Scoped (`rules/scoped/`)**: Java/Spring, Python, TypeScript/Frontend, React Moderno, Go, Rust, DevOps/K8s, Testing, Bases de Datos, APIs y Observabilidad.
+## 🧭 Navigation Index
+
+### 📦 1. Autonomous Packages
+- [**cucco-common (`packages/common/`)**](../packages/common/README.md): Shared base utilities, typing, safe subprocess wrappers, frontmatter parsers, and project stack detection.
+- [**cucco-workspace (`packages/workspace/`)**](../packages/workspace/README.md): Pure Python deterministic workspace manager (`ws`), Git worktrees, builds, JDK manager, local microservices orchestrator (`run-local`), Kubernetes TUI (`kube`), and Git quality gates (`ws hooks`).
+  - [**Git Hooks & Quality Gate Guide (`docs/workspace/git-hooks.md`)**](workspace/git-hooks.md): 4-stage quality gate (Secrets, Zero AI mentions, Linters, Tests) with `ws hooks`.
+- [**cucco-sdd (`packages/sdd/`)**](../packages/sdd/README.md): AI governance engine (`sdd`), 8-phase lifecycle, FastMCP server (`sdd mcp`), Dynamic context matcher (`sdd match-rules`), AST contract auditor, and self-healing test harness.
 
 ---
 
-### 🏛️ 3. Arquitectura y Metodología
-- [**Ciclo de Vida SDD Paso a Paso**](file://~/projects/devscripts/docs/sdd/lifecycle.md): Detalle metodológico de las 8 fases canónicas con diagramas Mermaid.
-- [**Referencia de Habilidades SDD**](file://~/projects/devscripts/docs/sdd/skills-reference.md): Catálogo de las 14 skills canónicas y roles multi-agente.
-- [**Arquitectura Multi-Agente SDD**](file://~/projects/devscripts/docs/sdd/architecture.md): Células especializadas, invariantes de ejecución y Spec-Kit.
-- [**Arquitectura del Monorepo**](file://~/projects/devscripts/docs/architecture/monorepo.md): Principios SOLID, DDD, DRY, YAGNI y desacoplamiento de paquetes.
+### 📋 2. Engineering Rules Catalog
+- [**Modular Rules Catalog (`rules/`)**](../rules/README.md):
+  - **Global Rules (`rules/global/`)**: Agent interaction, Conventional Commits, Zero AI mentions, security/privacy, and SDD lifecycle.
+  - **Scoped Rules (`rules/scoped/`)**: Java/Spring, Python, TypeScript, React, Go, Rust, DevOps/K8s, Testing, Database Migrations, APIs, and Observability.
 
 ---
 
-## ⚡ Instalación y Desinstalación Rápida
-- **Instalación**: [`python3 install.py`](file://~/projects/devscripts/install.py) (Menú interactivo de selección de agentes y setup pip en modo editable).
-- **Desinstalación**: [`python3 uninstall.py`](file://~/projects/devscripts/uninstall.py) (Limpieza quirúrgica y desinstalación determinista).
+### 🏛️ 3. Architecture & Methodology
+- [**Monorepo Architecture**](architecture/monorepo.md): Clean Architecture, SOLID, DDD, DRY, and package decoupling.
+- [**SDD Lifecycle Step-by-Step**](sdd/lifecycle.md): Detailed 8-phase lifecycle guide with Mermaid workflow diagrams.
+- [**SDD Multi-Agent Architecture**](sdd/architecture.md): Specialized agent cells, execution invariants, MCP, and Self-Healing harness.
+- [**SDD Skills Catalog & Agent Matrix**](sdd/skills-reference.md): Catalog of 14 canonical skills and specialized subagent pairings.
+
+---
+
+## ⚡ Quick Setup
+- **Interactive Multi-Agent Setup**: [`python3 install.py`](../install.py)
+- **Deterministic Uninstallation**: [`python3 uninstall.py`](../uninstall.py)

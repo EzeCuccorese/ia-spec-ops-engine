@@ -13,11 +13,23 @@ from sdd_engine.adapters import bridge, global_skills, reset, revoke, sync
 
 
 
-class SpanishArgumentParser(argparse.ArgumentParser):
-    """Custom ArgumentParser providing Spanish error formatting and helpful usage prompts."""
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from sdd_engine.core import memory, parser, exceptions
+from sdd_engine.core.exceptions import SDDError
+from sdd_engine.lifecycle import feature, constitution, finish
+from sdd_engine.harness import analyzer, harness, hooks, quality_gate, runner, verify
+from sdd_engine.adapters import bridge, global_skills, reset, revoke, sync
+
+
+class CustomArgumentParser(argparse.ArgumentParser):
+    """Custom ArgumentParser providing clean error formatting and helpful usage prompts."""
 
     def error(self, message: str):
-        sys.stderr.write(f"\n❌ Error de parámetros: {message}\n\n")
+        sys.stderr.write(f"\n❌ Argument Error: {message}\n\n")
         self.print_help(sys.stderr)
         sys.exit(2)
 
@@ -31,42 +43,42 @@ def main():
 
 
 def _run_cli():
-    argp = SpanishArgumentParser(
-        description="""Specification-Driven Development (SDD) Manager CLI — Gestor de Desarrollo Guiado por Especificaciones
+    argp = CustomArgumentParser(
+        description="""Cucco SpecOps Engine — Spec-Driven Development (SDD) AI Governance & CLI Orchestrator
 
-Ciclo de Vida Estricto de 8 Fases:
-  1. sdd specify   ➜ Fase 1: Especificación funcional (spec.md)
-  2. sdd clarify   ➜ Fase 2: Resolución de ambigüedades y auditoría (clarify.md)
-  3. sdd plan      ➜ Fase 3: Blueprint técnico y contratos (plan.md)
-  4. sdd checklist ➜ Fase 4: Quality Gates y Definition of Done (checklist.md)
-  5. sdd tasks     ➜ Fase 5: Desglose atomizado de tareas ejecutables (tasks.md)
-  6. sdd analyze   ➜ Fase 6: Auditoría estática de consistencia cruzada
-  7. sdd exec      ➜ Fase 7: Ejecución iterativa multi-agente (Worker + QA)
-  8. sdd converge  ➜ Fase 8: Verificación final de convergencia y Gherkin
+Strict 8-Phase Lifecycle:
+  1. sdd specify   ➜ Phase 1: Functional specification (spec.md)
+  2. sdd clarify   ➜ Phase 2: Ambiguity resolution and risk audit (clarify.md)
+  3. sdd plan      ➜ Phase 3: Technical blueprint and contracts (plan.md)
+  4. sdd checklist ➜ Phase 4: Quality Gates and Definition of Done (checklist.md)
+  5. sdd tasks     ➜ Phase 5: Atomic executable task breakdown (tasks.md)
+  6. sdd analyze   ➜ Phase 6: Static cross-artifact consistency & AST contract audit
+  7. sdd exec      ➜ Phase 7: Iterative multi-agent execution (Worker + QA Reviewer)
+  8. sdd converge  ➜ Phase 8: Final convergence verification and Gherkin check
 
-* Para correcciones rápidas de bugs o hotfixes, usa: `sdd quick`
-* Para configurar adaptadores de IA (Antigravity, Claude, Copilot, Cursor, etc.), usa: `sdd adapter` o `sdd bridge`
+* For fast-path bug fixes and minor patches, use: `sdd quick`
+* To configure AI adapters (Claude, Cursor, Antigravity, Copilot, etc.), use: `sdd adapter` or `sdd bridge`
 """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    sub = argp.add_subparsers(dest="command", help="Comandos disponibles de SDD")
+    sub = argp.add_subparsers(dest="command", help="Available SDD commands")
 
     # Harness
-    ph = sub.add_parser("harness", help="Orquestador del arnés de ejecución multi-agente SDD")
+    ph = sub.add_parser("harness", help="Multi-agent SDD execution harness orchestrator")
     ph.add_argument("subcmd", choices=["run", "status", "next", "log-worker", "log-qa"])
-    ph.add_argument("--feature", help="Nombre de la característica destino")
-    ph.add_argument("--max-retries", type=int, default=3, help="Límite de reintentos automáticos")
-    ph.add_argument("--task-id", help="ID de tarea para registro")
-    ph.add_argument("--summary", help="Resumen para registro de rol")
-    ph.add_argument("--details", default="", help="Texto o diff detallado")
-    ph.add_argument("--passed", action="store_true", help="Bandera de aprobación QA")
+    ph.add_argument("--feature", help="Target feature name")
+    ph.add_argument("--max-retries", type=int, default=3, help="Maximum automatic retry limit")
+    ph.add_argument("--task-id", help="Task ID for logging")
+    ph.add_argument("--summary", help="Summary for role logging")
+    ph.add_argument("--details", default="", help="Detailed text or diff")
+    ph.add_argument("--passed", action="store_true", help="QA approval flag")
 
     # Init
-    pi = sub.add_parser("init", help="Inicializar espacio de trabajo SDD en el proyecto (con Constitución)")
-    pi.add_argument("dir", nargs="?", default=".", help="Directorio destino del proyecto")
-    pi.add_argument("--interactive", "-i", action="store_true", help="Seleccionar agentes de IA de forma interactiva")
-    pi.add_argument("--all", action="store_true", help="Configurar adaptadores para todos los agentes de IA")
-    pi.add_argument("--restore-backup", action="store_true", help="Restaurar especificaciones e historial desde el respaldo previo .specify-backup-*")
+    pi = sub.add_parser("init", help="Initialize SDD workspace in project with Constitution")
+    pi.add_argument("dir", nargs="?", default=".", help="Target project directory")
+    pi.add_argument("--interactive", "-i", action="store_true", help="Interactively select AI assistants")
+    pi.add_argument("--all", action="store_true", help="Configure adapters for all AI agents")
+    pi.add_argument("--restore-backup", action="store_true", help="Restore specifications and history from previous backup .specify-backup-*")
     pi.add_argument("--claude", action="store_true")
     pi.add_argument("--copilot", action="store_true")
     pi.add_argument("--cursor", action="store_true")
@@ -76,43 +88,43 @@ Ciclo de Vida Estricto de 8 Fases:
     pi.add_argument("--windsurf", action="store_true")
 
     # Feature
-    pf = sub.add_parser("feature", help="Establecer, listar o consultar las características (features) del repositorio")
-    pf.add_argument("subcmd", nargs="?", help="Subcomando para gestión de feature o nombre de feature a activar")
-    pf.add_argument("--from-branch", "-b", help="Rama base de la cual partir el nuevo Worktree (ej: main, develop)")
-    pf.add_argument("args", nargs="*", help="Argumentos para el subcomando")
+    pf = sub.add_parser("feature", help="Set, list, or inspect active repository features")
+    pf.add_argument("subcmd", nargs="?", help="Subcommand for feature management or feature name to activate")
+    pf.add_argument("--from-branch", "-b", help="Base branch from which to branch the new worktree (e.g. main, develop)")
+    pf.add_argument("args", nargs="*", help="Subcommand arguments")
 
     # Lifecycle Phases
     phase_help = {
-        "specify": "Fase 1: Define la especificación funcional (spec.md) con requerimientos, historias y Gherkin",
-        "clarify": "Fase 2: Audita y resuelve ambigüedades, supuestos y casos borde en spec.md (clarify.md)",
-        "plan": "Fase 3: Diseña la solución técnica, contratos de datos (Zod/DTOs) y diagramas Mermaid (plan.md)",
-        "checklist": "Fase 4: Establece las Quality Gates, Definition of Done y pruebas requeridas (checklist.md)",
-        "tasks": "Fase 5: Desglosa el plan técnico en tareas ejecutables ordenadas en 4 pilares (tasks.md)",
-        "analyze": "Fase 6: Realiza auditoría estática de consistencia cruzada entre spec.md, plan.md, checklist.md y tasks.md",
-        "exec": "Fase 7: Inicia la ejecución iterativa de tareas con el arnés multi-agente Worker y QA Reviewer",
-        "converge": "Fase 8: Valida la convergencia final, ejecutando suite de pruebas, checklist y criterios Gherkin",
-        "quick": "Ruta acelerada acotada para correcciones de bugs, parches menores o hotfixes (spec-quick.md)",
+        "specify": "Phase 1: Defines functional specification (spec.md) with requirements, stories, and Gherkin",
+        "clarify": "Phase 2: Audits and resolves ambiguities, assumptions, and edge cases in spec.md (clarify.md)",
+        "plan": "Phase 3: Designs technical blueprint, data contracts (Zod/DTOs), and Mermaid diagrams (plan.md)",
+        "checklist": "Phase 4: Establishes Quality Gates, Definition of Done, and required test assertions (checklist.md)",
+        "tasks": "Phase 5: Atomizes technical plan into executable tasks ordered across 4 pillars (tasks.md)",
+        "analyze": "Phase 6: Performs static cross-artifact consistency audit and AST contract validation",
+        "exec": "Phase 7: Initiates iterative multi-agent task execution with Worker and QA Reviewer",
+        "converge": "Phase 8: Validates final convergence, running test suite, checklist, and Gherkin criteria",
+        "quick": "Fast-path workflow for bug fixes, minor patches, or hotfixes (spec-quick.md)",
     }
 
     for cmd, htext in phase_help.items():
         sp = sub.add_parser(cmd, help=htext)
-        sp.add_argument("--from-branch", "-b", help="Rama base de la cual partir el nuevo Worktree (ej: main, develop)")
-        sp.add_argument("args", nargs="*", help="Argumentos opcionales de la fase (ej: nombre de la feature)")
+        sp.add_argument("--from-branch", "-b", help="Base branch for new worktree (e.g. main, develop)")
+        sp.add_argument("args", nargs="*", help="Optional phase arguments (e.g. feature name)")
 
     # Utils
-    pa = sub.add_parser("audit", help="Auditar cumplimiento de SDD en el repositorio")
+    pa = sub.add_parser("audit", help="Audits codebase compliance and technical debt")
     pa.add_argument("args", nargs="*")
 
-    pr = sub.add_parser("reset", help="Reinicio global de entorno y worktrees")
+    pr = sub.add_parser("reset", help="Global reset of environment and worktrees")
     pr.add_argument("--force", "-f", action="store_true")
     pr.add_argument("--dry-run", action="store_true")
     pr.add_argument("--target", default="all", choices=["all", "cache", "worktrees", "repos"])
 
     # Bridge / Adapter
     for bcmd in ["bridge", "adapter"]:
-        pb = sub.add_parser(bcmd, help="Generar y configurar adaptadores Multi-IA nativos (Antigravity, Claude, Copilot, Cursor, etc.)")
-        pb.add_argument("--interactive", "-i", action="store_true", help="Seleccionar agentes interactivamente")
-        pb.add_argument("--all", action="store_true", help="Configurar adaptadores para todos los agentes de IA")
+        pb = sub.add_parser(bcmd, help="Generates and configures native Multi-AI adapters (Antigravity, Claude, Copilot, Cursor, etc.)")
+        pb.add_argument("--interactive", "-i", action="store_true", help="Interactively select AI assistants")
+        pb.add_argument("--all", action="store_true", help="Configure adapters for all AI agents")
         pb.add_argument("--claude", action="store_true")
         pb.add_argument("--copilot", action="store_true")
         pb.add_argument("--cursor", action="store_true")
@@ -124,72 +136,73 @@ Ciclo de Vida Estricto de 8 Fases:
 
     # Remove / Revoke
     for rcmd in ["remove", "revoke"]:
-        prv = sub.add_parser(rcmd, help="Revocar y remover la configuración de SDD y adaptadores IA del proyecto con respaldo automático")
-        prv.add_argument("dir", nargs="?", default=".", help="Directorio del proyecto")
-        prv.add_argument("--force", "-f", action="store_true", help="Forzar remoción sin confirmación interactiva")
-        prv.add_argument("--no-backup", action="store_true", help="Omitir la creación del directorio de respaldo .specify-backup-*")
+        prv = sub.add_parser(rcmd, help="Revokes and removes SDD and AI configurations from project with automatic backup")
+        prv.add_argument("dir", nargs="?", default=".", help="Project directory")
+        prv.add_argument("--force", "-f", action="store_true", help="Force removal without interactive confirmation")
+        prv.add_argument("--no-backup", action="store_true", help="Skip creating backup directory .specify-backup-*")
 
     # Finish / PR
-    pfsh = sub.add_parser("finish", help="Finalizar ciclo SDD: push, PR con gh CLI, borrado de worktree y pull a main")
-    pfsh.add_argument("--no-pr", action="store_true", help="Omitir la creación del PR en GitHub")
-    pfsh.add_argument("--title", help="Título del Pull Request")
+    pfsh = sub.add_parser("finish", help="Finalizes SDD cycle: push, PR with gh CLI, worktree cleanup, and pull to main")
+    pfsh.add_argument("--no-pr", action="store_true", help="Skip GitHub PR creation")
+    pfsh.add_argument("--title", help="Pull Request title")
 
     # Global Skills Setup
-    psg = sub.add_parser("setup-global", help="Instalar habilidades SDD globales para agentes de IA (~/.gemini/config/skills, ~/.agents/skills)")
-    psg.add_argument("--force", "-f", action="store_true", default=True, help="Sobrescribir habilidades globales existentes")
+    psg = sub.add_parser("setup-global", help="Installs global SDD skills for AI assistants (~/.gemini/config/skills, ~/.agents/skills)")
+    psg.add_argument("--force", "-f", action="store_true", default=True, help="Overwrite existing global skills")
 
     # Memory
-    pm = sub.add_parser("memory", help="Herramientas de memoria del proyecto")
+    pm = sub.add_parser("memory", help="Project memory tools")
     pm.add_argument("subcmd", choices=["init", "log", "read", "consolidate"])
     pm.add_argument("args", nargs="*")
 
     # Parser
-    pp = sub.add_parser("parse", help="Parsear especificación funcional")
+    pp = sub.add_parser("parse", help="Parses functional specification")
     pp.add_argument("input")
     pp.add_argument("-o", "--output")
 
     # Runner
-    prn = sub.add_parser("run", help="Ejecutar comando aislado en Git Worktree")
+    prn = sub.add_parser("run", help="Executes isolated command in Git Worktree")
     prn.add_argument("--repo")
     prn.add_argument("--branch")
     prn.add_argument("--cleanup", action="store_true")
     prn.add_argument("cmd", nargs=argparse.REMAINDER)
 
     # Verify
-    pv = sub.add_parser("verify", help="Ejecutar suite de verificación automatizada SDD")
-    pv.add_argument("--dir", default=".", help="Directorio destino a verificar")
-    pv.add_argument("--json", action="store_true", help="Salida en formato JSON")
+    pv = sub.add_parser("verify", help="Executes automated SDD verification quality gate")
+    pv.add_argument("--dir", default=".", help="Target directory to verify")
+    pv.add_argument("--json", action="store_true", help="Output in JSON format")
 
     # Hook
-    phk = sub.add_parser("hook", help="Ejecutar hooks de seguridad y verificación post-herramienta")
-    phk.add_argument("event", choices=["pre-tool", "post-tool"], help="Tipo de evento de hook")
-    phk.add_argument("--tool-name", default="", help="Nombre de la herramienta ejecutada")
-    phk.add_argument("--tool-args", default=None, help="Argumentos de la herramienta")
-    phk.add_argument("--dir", default=".", help="Directorio destino")
+    phk = sub.add_parser("hook", help="Executes security and post-tool verification hooks")
+    phk.add_argument("event", choices=["pre-tool", "post-tool"], help="Hook event type")
+    phk.add_argument("--tool-name", default="", help="Executed tool name")
+    phk.add_argument("--tool-args", default=None, help="Tool arguments")
+    phk.add_argument("--dir", default=".", help="Target directory")
 
     # Quality Gate
-    pg = sub.add_parser("gate", help="Arnés de Calidad: Captura de baseline y verificación de regresiones")
-    pg.add_argument("subcmd", choices=["snapshot", "check"], help="Subcomando de gate")
-    pg.add_argument("--output", "-o", help="Ruta JSON para guardar baseline snapshot")
-    pg.add_argument("--baseline", "-b", help="Ruta JSON del baseline para verificación")
-    pg.add_argument("--phase", default="pre-task", choices=["pre-task", "post-task", "convergence"], help="Fase de comprobación de gate")
-    pg.add_argument("--json", action="store_true", help="Salida en formato JSON")
+    pg = sub.add_parser("gate", help="Quality Gate: Baseline capture and regression detection")
+    pg.add_argument("subcmd", choices=["snapshot", "check"], help="Gate subcommand")
+    pg.add_argument("--output", "-o", help="JSON path to save baseline snapshot")
+    pg.add_argument("--baseline", "-b", help="JSON path of baseline for check")
+    pg.add_argument("--phase", default="pre-task", choices=["pre-task", "post-task", "convergence"], help="Gate check phase")
+    pg.add_argument("--json", action="store_true", help="Output in JSON format")
 
     # MCP Server
-    pmcp = sub.add_parser("mcp", help="Inicia el servidor Model Context Protocol (MCP) nativo sobre stdio")
-    pmcp.add_argument("dir", nargs="?", default=".", help="Directorio raíz del proyecto")
+    pmcp = sub.add_parser("mcp", help="Launches native Model Context Protocol (MCP) server over stdio")
+    pmcp.add_argument("dir", nargs="?", default=".", help="Project root directory")
 
     # Match Rules (Dynamic Context Budgeting)
-    pmr = sub.add_parser("match-rules", help="Filtra dinámicamente las reglas aplicables para optimizar el presupuesto de tokens")
-    pmr.add_argument("files", nargs="*", help="Archivos modificados o rutas de interés")
-    pmr.add_argument("--dir", default=".", help="Directorio del proyecto")
-    pmr.add_argument("--json", action="store_true", help="Salida en formato JSON")
-    pmr.add_argument("--render", action="store_true", help="Renderizar texto Markdown completo")
+    pmr = sub.add_parser("match-rules", help="Dynamically filters applicable rules to optimize token budgets")
+    pmr.add_argument("files", nargs="*", help="Modified files or paths of interest")
+    pmr.add_argument("--files", "-f", dest="files_flag", nargs="*", help="Optional flag for modified files")
+    pmr.add_argument("--dir", default=".", help="Project directory")
+    pmr.add_argument("--json", action="store_true", help="Output in JSON format")
+    pmr.add_argument("--render", action="store_true", help="Render full Markdown context")
 
     # Sync
-    psy = sub.add_parser("sync", help="Sincronizar instalación global de CLI e importar/actualizar adaptadores del proyecto")
-    psy.add_argument("dir", nargs="?", default=".", help="Directorio destino")
-    psy.add_argument("--quiet", "-q", action="store_true", help="Suprimir mensajes detallados")
+    psy = sub.add_parser("sync", help="Synchronizes global CLI installation and updates project AI adapters")
+    psy.add_argument("dir", nargs="?", default=".", help="Target directory")
+    psy.add_argument("--quiet", "-q", action="store_true", help="Suppress detailed output")
 
     args = argp.parse_args()
 
@@ -234,7 +247,7 @@ Ciclo de Vida Estricto de 8 Fases:
             do_restore = args.restore_backup
             if not do_restore and sys.stdin and sys.stdin.isatty() and not args.all:
                 try:
-                    ans = input(f"📦 Se detectó un backup previo ('{latest_b.name}').\n¿Deseas restaurar las especificaciones e historial anteriores? [y/N]: ").strip().lower()
+                    ans = input(f"📦 Detected previous backup ('{latest_b.name}').\nDo you want to restore previous specifications and history? [y/N]: ").strip().lower()
                     if ans == "y":
                         do_restore = True
                 except (EOFError, KeyboardInterrupt):
@@ -243,11 +256,11 @@ Ciclo de Vida Estricto de 8 Fases:
             if do_restore:
                 restored = revoke.restore_backup_specs(latest_b, target_dir=args.dir)
                 if restored:
-                    print(f"✅ Especificaciones e historial restaurados exitosamente desde {latest_b.name}")
+                    print(f"✅ Specifications and history successfully restored from {latest_b.name}")
 
         memory.init(args.dir)
 
-        # Constitución del Proyecto (Spec-Kit Aligned)
+        # Project Constitution (Spec-Kit Aligned)
         cfile = constitution.get_constitution_file(args.dir)
         if args.interactive or (sys.stdin and sys.stdin.isatty() and not cfile.exists()):
             constitution.prompt_create_constitution(target_dir=args.dir)
@@ -273,10 +286,10 @@ Ciclo de Vida Estricto de 8 Fases:
         )
         global_skills.install_global_skills()
 
-        # Propagar inicialización SDD a todos los worktrees activos del repositorio
+        # Propagate SDD initialization to all active worktrees
         active_wts = sync.get_active_repo_worktrees(args.dir)
         if active_wts:
-            print(f"🔄 Se detectaron {len(active_wts)} worktree(s) activo(s) en el repositorio. Sincronizando SDD...")
+            print(f"🔄 Detected {len(active_wts)} active worktree(s) in repository. Synchronizing SDD...")
             for wt in active_wts:
                 memory.init(wt)
                 constitution.write_constitution(target_dir=wt)
@@ -292,7 +305,7 @@ Ciclo de Vida Estricto de 8 Fases:
                     windsurf=args.windsurf,
                     interactive=False,
                 )
-                print(f"  ✅ SDD e IA inicializados en worktree: {wt.name}")
+                print(f"  ✅ SDD and AI adapters initialized in worktree: {wt.name}")
 
     elif args.command in ["remove", "revoke"]:
         success, bpath, removed = revoke.revoke_sdd_configuration(
@@ -302,8 +315,8 @@ Ciclo de Vida Estricto de 8 Fases:
         )
         if success:
             if bpath:
-                print(f"📦 Respaldo automático creado en: {bpath.name}")
-            print(f"✅ Se removieron {len(removed)} elementos de configuración SDD e IA en {args.dir}")
+                print(f"📦 Automatic backup created at: {bpath.name}")
+            print(f"✅ Successfully removed {len(removed)} SDD and AI configuration items in {args.dir}")
 
     elif args.command == "setup-global":
         global_skills.install_global_skills(force=args.force)
@@ -340,18 +353,18 @@ Ciclo de Vida Estricto de 8 Fases:
         else:
             active = feature.get_active_feature()
             if not active and args.command != "specify":
-                print(f"\n❌ Error: No hay ninguna característica (feature) activa.", file=sys.stderr)
-                print(f"   Ejecuta `sdd specify <nombre-feature>` para definir e iniciar una nueva característica.\n", file=sys.stderr)
+                print(f"\n❌ Error: No active feature found.", file=sys.stderr)
+                print(f"   Run `sdd specify <feature-name>` to define and start a new feature.\n", file=sys.stderr)
                 sys.exit(1)
             feature.update_phase(args.command)
-        print(f"==> Fase activa ({args.command})")
-        print(f"Ejecuta en tu agente de IA la habilidad: /sdd-{args.command}")
+        print(f"==> Active Phase: ({args.command})")
+        print(f"Execute in your AI assistant the skill: /sdd-{args.command}")
 
     elif args.command == "finish":
         finish.finish_feature(create_pr=not args.no_pr, title=args.title)
 
     elif args.command == "quick":
-        print(f"==> Ejecutando tarea rápida de corrección SDD: {' '.join(args.args)}")
+        print(f"==> Executing SDD quick fix task: {' '.join(args.args)}")
 
     elif args.command == "reset":
         reset.reset(target=args.target, force=args.force, dry_run=args.dry_run)
@@ -388,18 +401,18 @@ Ciclo de Vida Estricto de 8 Fases:
         if args.json:
             print(payload.to_json())
         else:
-            print("==> Resultado de Verificación Automatizada SDD")
-            print(f"    Estado:              {'PASS' if payload.passed else 'FAIL'}")
+            print("==> SDD Automated Verification Result")
+            print(f"    Status:              {'PASS' if payload.passed else 'FAIL'}")
             details = payload.details or {}
-            print(f"    Directorio Destino:  {details.get('target_dir', args.dir)}")
-            print(f"    Stack Tecnológico:   {details.get('stack', 'desconocido')}")
+            print(f"    Target Directory:    {details.get('target_dir', args.dir)}")
+            print(f"    Technology Stack:    {details.get('stack', 'unknown')}")
             print("    --------------------------------------------------")
-            print(f"    Estado Linter:       {payload.linter_status}")
-            print(f"    Estado Pruebas:      {payload.test_status}")
-            print(f"    Lectura Confirmación:{payload.confirmation_read_status}")
-            print(f"    Auditoría Seguridad: {payload.security_status}")
+            print(f"    Linter Status:       {payload.linter_status}")
+            print(f"    Test Suite Status:   {payload.test_status}")
+            print(f"    Confirmation Read:   {payload.confirmation_read_status}")
+            print(f"    Security Audit:      {payload.security_status}")
             if payload.remediation_instructions:
-                print(f"    Instrucciones Fix:   {payload.remediation_instructions}")
+                print(f"    Remediation Fix:     {payload.remediation_instructions}")
 
     elif args.command == "hook":
         tool_args_parsed = args.tool_args
@@ -433,11 +446,11 @@ Ciclo de Vida Estricto de 8 Fases:
             if args.json:
                 print(snapshot.to_json())
             else:
-                print("==> SDD Quality Gate: Snapshot Capturado")
-                print(f"    Marca de tiempo: {snapshot.timestamp}")
-                print(f"    Pruebas totales: {snapshot.total_tests} ({snapshot.passed_tests} aprobadas, {snapshot.skipped_tests} omitidas)")
+                print("==> SDD Quality Gate: Baseline Snapshot Captured")
+                print(f"    Timestamp:       {snapshot.timestamp}")
+                print(f"    Total Tests:     {snapshot.total_tests} ({snapshot.passed_tests} passed, {snapshot.skipped_tests} skipped)")
                 print(f"    Entry Points:    {len(snapshot.entry_points)}")
-                print(f"    Módulos Públicos:{len(snapshot.public_contracts)}")
+                print(f"    Public Contracts:{len(snapshot.public_contracts)}")
         elif args.subcmd == "check":
             b_path = Path(args.baseline) if args.baseline else None
             gate_res = quality_gate.run_gate_check(baseline_path=b_path, phase=args.phase)
@@ -446,17 +459,17 @@ Ciclo de Vida Estricto de 8 Fases:
                 print(gate_res.to_json())
             else:
                 print(f"==> SDD Quality Gate: Check ({args.phase})")
-                print(f"    Aprobado:        {'✅ PASS' if gate_res.passed else '❌ FAIL'}")
-                print(f"    Estado Pruebas:  {gate_res.test_result.status} (Aprobadas: {gate_res.test_result.current_passed}/{gate_res.test_result.baseline_passed})")
-                print(f"    Entry Points:    {'✅ OK' if gate_res.entry_point_result.passed else f'❌ FAIL ({len(gate_res.entry_point_result.failed)} fallidos)'}")
-                print(f"    Contratos Pub:   {'✅ OK' if gate_res.contract_result.passed else f'❌ FAIL ({len(gate_res.contract_result.missing_symbols)} módulos con símbolos faltantes)'}")
+                print(f"    Result:          {'✅ PASS' if gate_res.passed else '❌ FAIL'}")
+                print(f"    Test Status:     {gate_res.test_result.status} (Passed: {gate_res.test_result.current_passed}/{gate_res.test_result.baseline_passed})")
+                print(f"    Entry Points:    {'✅ OK' if gate_res.entry_point_result.passed else f'❌ FAIL ({len(gate_res.entry_point_result.failed)} failed)'}")
+                print(f"    Public Contracts:{'✅ OK' if gate_res.contract_result.passed else f'❌ FAIL ({len(gate_res.contract_result.missing_symbols)} modules with missing symbols)'}")
                 if not gate_res.passed:
                     if gate_res.test_result.regressions:
-                        print(f"    Regresiones:     {gate_res.test_result.regressions}")
+                        print(f"    Regressions:     {gate_res.test_result.regressions}")
                     if gate_res.entry_point_result.failed:
-                        print(f"    Entry Points Rotos: {gate_res.entry_point_result.failed}")
+                        print(f"    Broken Entry Points: {gate_res.entry_point_result.failed}")
                     if gate_res.contract_result.missing_symbols:
-                        print(f"    Símbolos Faltantes: {gate_res.contract_result.missing_symbols}")
+                        print(f"    Missing Symbols: {gate_res.contract_result.missing_symbols}")
                     sys.exit(1)
 
     elif args.command == "sync":
@@ -468,20 +481,21 @@ Ciclo de Vida Estricto de 8 Fases:
 
     elif args.command == "match-rules":
         from sdd_engine.core.rule_matcher import match_rules_for_files
-        res = match_rules_for_files(target_files=args.files, target_dir=args.dir)
+        target_f = (args.files or []) + (getattr(args, "files_flag", None) or [])
+        res = match_rules_for_files(target_files=target_f, target_dir=args.dir)
         if args.json:
             print(json.dumps(res.to_dict(), indent=2, ensure_ascii=False))
         elif args.render:
             print(res.render_context())
         else:
             print("==> SDD Dynamic Rule Matching & Context Budgeting")
-            print(f"    Archivos objetivo:        {len(res.matched_files)} ({', '.join(res.matched_files) or 'todos'})")
-            print(f"    Reglas globales:          {len(res.global_rules)}")
-            print(f"    Reglas scoped activadas:  {len(res.matched_scoped_rules)} ({', '.join([r.name for r in res.matched_scoped_rules])})")
-            print(f"    Reglas scoped omitidas:   {len(res.unmatched_scoped_rules)}")
-            print(f"    Presupuesto total catal.: ~{res.total_catalog_tokens} tokens")
-            print(f"    Presupuesto inyectado:    ~{res.injected_tokens} tokens")
-            print(f"    Ahorro estimado tokens:   ~{res.saved_tokens} tokens ({res.savings_percentage:.1f}%)")
+            print(f"    Target Files:             {len(res.matched_files)} ({', '.join(res.matched_files) or 'all'})")
+            print(f"    Global Rules:             {len(res.global_rules)}")
+            print(f"    Active Scoped Rules:      {len(res.matched_scoped_rules)} ({', '.join([r.name for r in res.matched_scoped_rules])})")
+            print(f"    Unmatched Scoped Rules:   {len(res.unmatched_scoped_rules)}")
+            print(f"    Total Catalog Budget:     ~{res.total_catalog_tokens} tokens")
+            print(f"    Injected Prompt Budget:   ~{res.injected_tokens} tokens")
+            print(f"    Estimated Token Savings:  ~{res.saved_tokens} tokens ({res.savings_percentage:.1f}%)")
 
     else:
         argp.print_help()

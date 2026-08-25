@@ -1,36 +1,28 @@
-# 📋 Plan de Actualización de Documentación: {{scope_name}}
+# Documentation Update Plan (`doc-plan.md`)
 
-**Fecha**: {{date}}  
-**Alcance**: {{scope}}  
-**Estado**: 🟡 PENDIENTE DE APROBACIÓN HUMANA  
-
----
-
-## 🎯 Objetivo de la Actualización
-{{doc_objective}}
+**Date**: {date}  
+**Scope**: {scope}  
+**Status**: 🟡 AWAITING USER APPROVAL / 🟢 APPROVED
 
 ---
 
-## 🏛️ Adherencia al Principio DRY (Fuente Única de Verdad)
-- [x] Las referencias de comandos residen exclusivamente en el README de su subpaquete correspondiente.
-- [x] Se utilizan enlaces relativos de Markdown evitando la duplicación de tablas y bloques de código.
+## 📑 1. Affected Documentation Files
+| File Path | Action | Description of Changes |
+| :--- | :--- | :--- |
+| `{path_1}` | MODIFY / NEW | {description_1} |
+| `{path_2}` | MODIFY / NEW | {description_2} |
 
 ---
 
-## 📑 Archivos a Modificar / Crear
-
-### 1. `{{file_path_1}}`
-- **Tipo de Cambio**: MODIFICAR / CREAR
-- **Secciones Afectadas**: `{{sections_1}}`
-- **Propósito**: {{purpose_1}}
-
-### 2. `{{file_path_2}}`
-- **Tipo de Cambio**: MODIFICAR / CREAR
-- **Secciones Afectadas**: `{{sections_2}}`
-- **Propósito**: {{purpose_2}}
+## 🎯 2. Summary of Documentation Changes
+- **Updated Topics**:
+  - {topic_1}
+  - {topic_2}
+- **Removed Deprecations**:
+  - {removed_1}
 
 ---
 
-## 🛑 Punto de Control: Confirmación del Usuario
-> [!IMPORTANT]
-> El Agente de Documentación se detendrá aquí hasta recibir la aprobación explícita del usuario antes de aplicar las modificaciones a los archivos de documentación.
+## 🔗 3. Relative Link Integrity Verification
+- [ ] All markdown links point to valid existing files.
+- [ ] No duplicate CLI tables (DRY adherence).

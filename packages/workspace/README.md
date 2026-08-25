@@ -1,65 +1,62 @@
-# workspace_engine — Gestor Determinista de Workspaces y Microservicios
+# cucco-workspace — Deterministic Workspace & Microservices Engine
 
-Subproyecto autónomo de automatización y gestión de entornos de desarrollo, Git worktrees, dependencias, compilación y orquestación local para microservicios.
+Autonomous subproject for managing development workspaces, Git worktrees, dependencies, multi-stack builds, JDK configuration, local microservices orchestration (`run-local`), Kubernetes debugging (`kube`), and Git quality gates (`ws hooks`).
 
-## 🚀 Características Principales
+---
 
-1. **Gestión de Workspaces y Worktrees**:
-   - `ws generate`: Creación determinista de workspaces multi-repositorio a partir de Git worktrees.
-   - `ws edit`: Adición y remoción interactiva de repositorios en un workspace activo.
-   - `ws worktree`: Creación rápida de worktrees aislados para ramas de desarrollo.
-   - `ws clean`: Limpieza profunda de artefactos de compilación (`node_modules`, `.gradle`, `build/`, `dist/`).
-   - `ws reset`: Reseteo de repositorios al commit base o HEAD limpio.
-   - `ws stop`: Detención segura de procesos y servicios levantados en background.
-   - `ws delete`: Eliminación de workspaces y desregistro de worktrees.
+## 🚀 Key Features
 
-2. **Gestión de Git Hooks & Quality Gate (`ws hooks`)**:
-   - `ws hooks status`: Diagnóstico visual del estado de hooks locales y globales.
-   - `ws hooks install [--global]`: Instalación y configuración de Quality Gate de 4 etapas (Seguridad de secretos, Políticas Git/Cero IA, Linters multi-stack y Tests).
-   - `ws hooks uninstall [--global]`: Desinstalación y desvinculación limpia de hooks.
-   - *Ver guía detallada en [docs/workspace/git-hooks.md](../../docs/workspace/git-hooks.md)*.
+1. **Workspace & Worktree Management**:
+   - `ws generate`: Deterministic creation of multi-repo workspaces with Git worktrees.
+   - `ws edit`: Interactive addition and modification of repositories within an active workspace.
+   - `ws worktree`: Atomic Git worktree generation for isolated branch development.
+   - `ws clean`: Deep cleaning of build artifacts (`node_modules`, `.gradle`, `build/`, `dist/`, `.venv`).
+   - `ws reset`: Reset repositories to upstream HEAD or base commit.
+   - `ws stop`: Safe termination of running background services.
+   - `ws delete`: Deletion of workspaces and unregistration of worktrees.
 
-3. **Entorno de Ejecución y Herramientas**:
-   - `ws build`: Compilación multi-stack (Gradle, Maven, Node, Go, Python).
-   - `ws deps`: Instalación determinista de dependencias de host.
-   - `ws java`: Detección automática de versión requerida de JDK y configuración vía SDKMAN.
-   - `ws env-init` / `ws env-load`: Sincronización de archivos `.env` interactiva a partir de plantillas `.env.example`.
-   - `ws benchmark`: Ejecución paralela de suites de tests unitarios y reporte visual de métricas.
+2. **Git Hooks & Quality Gate Manager (`ws hooks`)**:
+   - `ws hooks status`: Visual diagnosis of local and global Git hooks.
+   - `ws hooks install [--global]`: Installation of 4-stage Quality Gate (Secret scan, Zero AI mentions, Linters, Tests).
+   - `ws hooks uninstall [--global]`: Clean uninstallation and unbinding of hooks.
 
-4. **Orquestador Local (`ws run-local`)**:
-   - Descubrimiento automático de servicios y asignación determinista de puertos locales (rango 8000–8999).
-   - Re-escritura automática de URLs remotas a puertos locales (`wire_urls`).
-   - Extracción y mapeo de credenciales de bases de datos (MongoDB, PostgreSQL).
-   - Monitor interactivo TUI con soporte para logs en tiempo real, reinicio en cascada y apertura de navegadores/Swagger.
+3. **Runtime & Build Tools**:
+   - `ws build`: Multi-stack compilation (Maven, Gradle, Node, Go, Python).
+   - `ws deps`: Deterministic host dependency installation.
+   - `ws java`: Automatic JDK version detection and configuration via SDKMAN.
+   - `ws env-init` / `ws env-load`: Interactive `.env` synchronization from `.env.example`.
+   - `ws benchmark`: Parallel test suite benchmark execution with visual reporting.
+   - `ws doctor`: Development environment diagnostic tool.
 
-5. **Gestión de Kubernetes (`ws kube`)**:
-   - TUI interactiva para extracción de variables de pods Kubernetes (`.env`, `set-env.sh`), streaming de logs (con soporte Stern/Tmux) y apertura de shells.
+4. **Local Microservices Orchestrator (`ws run-local`)**:
+   - Automatic service discovery and deterministic local port allocation (8000–8999).
+   - URL re-writing (`wire_urls`) from remote endpoints to local ports.
+   - Interactive TUI monitor with live log streaming, cascade restarts, and Swagger links.
 
-## 📦 Instalación
+5. **Kubernetes Environment Manager (`ws kube`)**:
+   - Interactive TUI for pod environment extraction (`.env`, `set-env.sh`) with `chmod 600` permissions.
+   - Stern/Tmux live log streaming and interactive shell access.
 
-```bash
-cd packages/workspace
-pip install -e .
-```
+---
 
-## 🛠️ Comandos CLI Disponibles (`ws`)
+## 🛠️ CLI Reference Table (`ws`)
 
-| Comando | Descripción |
+| Command | Description |
 |---|---|
-| `ws hooks` | Gestor de Git Hooks y Quality Gates (`install`, `status`, `uninstall`) |
-| `ws generate` | Genera un nuevo workspace multi-repo |
-| `ws edit` | Edita repositorios en el workspace actual |
-| `ws worktree` | Crea un worktree para una rama |
-| `ws clean` | Limpia caches y artefactos de compilación |
-| `ws stop` | Detiene servicios corriendo en el workspace |
-| `ws reset` | Resetea repositorios al commit origen |
-| `ws delete` | Elimina workspaces y limpia worktrees |
-| `ws build` | Compila proyectos Maven/Gradle/Node/Go |
-| `ws deps` | Instala dependencias locales de repositorios |
-| `ws java` | Configura el entorno Java JDK adecuado |
-| `ws env-init` | Inicializa variables `.env` interactivamente |
-| `ws env-load` | Carga e inspecciona variables de entorno |
-| `ws benchmark` | Ejecuta benchmark de tests con reporte visual |
-| `ws run-local` | Orquesta y levanta microservicios localmente |
-| `ws kube` | TUI de gestión e inspección de pods Kubernetes |
-| `ws doctor` | Diagnóstico del entorno de desarrollo y herramientas |
+| `ws doctor` | Diagnoses installed tools, compilers, and development runtimes |
+| `ws hooks` | Git Hooks & Quality Gate manager (`install`, `status`, `uninstall`) |
+| `ws generate` | Generates a new multi-repo workspace from Git worktrees |
+| `ws edit` | Edits active workspace repositories |
+| `ws worktree` | Creates an atomic worktree for a branch |
+| `ws clean` | Cleans caches and build artifacts across workspace |
+| `ws stop` | Stops running services in the workspace |
+| `ws reset` | Resets repositories to upstream clean state |
+| `ws delete` | Deletes workspace and cleans worktrees |
+| `ws build` | Builds projects (Maven, Gradle, Node, Go, Python) |
+| `ws deps` | Installs local repository dependencies |
+| `ws java` | Configures matching JDK version via SDKMAN |
+| `ws env-init` | Interactively initializes `.env` files |
+| `ws env-load` | Loads and inspects environment variables |
+| `ws benchmark`| Executes test benchmarks with visual reports |
+| `ws run-local`| Orchestrates and launches microservices locally |
+| `ws kube` | Interactive TUI for Kubernetes pod inspection |

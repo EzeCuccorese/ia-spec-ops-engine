@@ -1,52 +1,54 @@
-# Technical Plan & Architecture Blueprint: {Feature Title}
+# Technical Blueprint & Data Contracts (`plan.md`)
 
-**Feature ID**: `{feature-name}`  
-**Spec Reference**: [spec.md](./spec.md) | **Clarification**: [clarify.md](./clarify.md)  
-**Status**: 🟡 PROPOSED  
+**Feature**: {feature_name}  
+**Author**: Software Architect Agent  
+**Date**: {date}
 
 ---
 
-## 1. Architectural Strategy & Layer Impact
-{Detailed summary of modules, packages, and layers affected (API Controller, Service, Domain, Persistence).}
-
-## 2. Sequence Diagram & Data Flow (Mermaid)
+## 🏛️ 1. Architecture Overview & Component Diagram
 
 ```mermaid
-sequenceDiagram
-    autonumber
-    actor Client as Client / Caller
-    participant Controller as API Controller
-    participant Service as Business Service
-    participant Repo as Data Repository / State
+flowchart TD
+    API["🌐 API Layer (Controller / Router)"]
+    SERVICE["⚙️ Domain Service Layer"]
+    REPO["💾 Repository / Persistence Layer"]
+    EXT["📡 External Services / Brokers"]
 
-    Client->>Controller: HTTP POST /api/v1/{resource}
-    Note over Controller: Edge Validation (Zod / DTO)
-    Controller->>Service: executeCommand(dto)
-    Service->>Repo: Query / Mutation
-    Repo-->>Service: Result / Entity
-    Service-->>Controller: Domain Response
-    Controller-->>Client: 201 Created + Response Body
+    API -->|"Validated DTO"| SERVICE
+    SERVICE -->|"Entity / Query"| REPO
+    SERVICE -->|"Events"| EXT
 ```
 
-## 3. Data Contracts & Formal Interfaces (Contracts First - SDD Pillar 1)
-Define schemas and interfaces prior to implementation:
+---
 
+## 📋 2. Formal Data Contracts & Interface Schemas
+
+### TypeScript / Zod Schema:
 ```typescript
-// Contract definition (TypeScript / Zod / DTO)
-export const FeatureSchema = z.object({
+import { z } from "zod";
+
+export const ExampleRequestSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1).max(100),
+  enabled: z.boolean().default(true),
 });
 
-export type FeatureDTO = z.infer<typeof FeatureSchema>;
+export type ExampleRequest = z.infer<typeof ExampleRequestSchema>;
 ```
 
-## 4. Database Migrations & Persistence Strategy
-- **ORM / Driver**: {Spring Data, Mongoose, Prisma, Flyway, etc.}
-- **Backup Rule Compliance**: Export pre-mutation JSON backup prior to schema mutation if modifying MongoDB.
+### Java Record / DTO:
+```java
+public record ExampleRequestDto(
+    @NotBlank String name,
+    @NotNull Boolean enabled
+) {}
+```
 
-## 5. Risk & Impact Matrix
-| Layer | Change Description | Risk Level | Mitigation Strategy |
-|-------|--------------------|------------|---------------------|
-| API | New endpoint | Low | API Versioning |
-| DB | New table / collection | Medium | Automated migration & backup |
+---
+
+## 📡 3. Endpoints & API Specifications
+| Method | Route | Request Body | Response Body | Status Codes |
+| :--- | :--- | :--- | :--- | :--- |
+| `POST` | `/api/v1/example` | `ExampleRequestDto` | `ExampleResponseDto` | `201`, `400`, `409` |
+| `GET` | `/api/v1/example/{id}` | None | `ExampleResponseDto` | `200`, `404` |

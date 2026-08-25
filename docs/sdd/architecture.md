@@ -1,27 +1,27 @@
-# Arquitectura de Spec-Driven Development (SDD) & Células Multi-Agente
+# Spec-Driven Development (SDD) Architecture & Multi-Agent Cells
 
-Este documento describe los principios arquitectónicos, modelos de invariantes e integración multi-agente del motor de SDD en `devscripts`.
+This document details the multi-agent cell architecture, execution invariants, MCP integration, and self-healing test harness of the **Cucco SpecOps Engine**.
 
 ---
 
-## 🏛️ 1. Células Multi-Agente Especializadas por Fase
+## 🏛️ 1. Specialized Multi-Agent Cell
 
-En lugar de un único agente generalista con amnesia o pérdida de foco, SDD implementa células especializadas donde ningún agente trabaja sin supervisión adversarial:
+Rather than relying on a single generalist agent prone to context drift and hallucination, SDD organizes work into specialized adversarial cells:
 
 ```mermaid
 flowchart LR
-    subgraph CELL ["Célula Multi-Agente SDD"]
-        LEADER["👑 Agente Líder Orquestador"]
-        WORKER["🛠️ Agente Worker (Test-First)"]
-        QA["🔍 Agente QA Reviewer"]
+    subgraph CELL ["SDD Multi-Agent Cell"]
+        LEADER["👑 Lead Orchestrator Agent"]
+        WORKER["🛠️ Worker Agent (Test-First)"]
+        QA["🔍 QA Reviewer Agent (Auditor)"]
     end
     GIT[("📦 Git Worktree")]
 
-    LEADER -->|"Asigna Tarea"| WORKER
-    WORKER -->|"Entrega Código & Tests"| QA
-    QA -->|"Rechaza (Max 3 Intentos)"| WORKER
-    QA -->|"Aprueba PASS"| LEADER
-    LEADER -->|"Auto-Commit Aider"| GIT
+    LEADER -->|"Assigns Task"| WORKER
+    WORKER -->|"Delivers Code & Tests"| QA
+    QA -->|"Rejects (Max 3 Retries)"| WORKER
+    QA -->|"Approves PASS"| LEADER
+    LEADER -->|"Auto-Commit"| GIT
 
     classDef cellBox fill:#1e293b,stroke:#3b82f6,stroke-width:1.5px,color:#f8fafc;
     classDef gitBox fill:#0f172a,stroke:#10b981,stroke-width:1.5px,color:#f8fafc;
@@ -31,17 +31,17 @@ flowchart LR
 
 ---
 
-## ⚙️ 2. División Estricta: Determinismo vs. Inteligencia Artificial
+## ⚙️ 2. Determinism vs. AI Intelligence
 
-1. **Herramientas Deterministas en Python (`workspace_engine` & `sdd_engine.harness.verify`)**:
-   - Compilación nativa (`build-project`), setup de JDK (`set-java`), instalación de dependencias (`install-deps`), verificación de linters y ejecución de tests.
-   - Cero alucinaciones, ejecución síncrona en milisegundos y ahorro masivo de tokens.
-2. **Agentes Inteligentes de IA (`packages/sdd/skills/`)**:
-   - Razonan sobre el dominio, diseñan contratos, redactan especificaciones y resuelven la lógica de negocio apoyándose en las herramientas deterministas.
+1. **Deterministic Tools (`workspace_engine` & `sdd_engine.harness.verify`)**:
+   - Native builds (`ws build`), JDK management (`ws java`), dependency installation, linter validation, and test execution.
+   - Millisecond execution, zero hallucination, massive token savings.
+2. **Intelligent AI Agents (`packages/sdd/skills/`)**:
+   - Domain reasoning, formal schema design, Gherkin drafting, and business logic implementation backed by deterministic tools.
 
 ---
 
-## 🛡️ 3. Intercepción y Hooks de Seguridad
+## 🔌 3. FastMCP Server & Dynamic Context Matcher
 
-- **Pre-Tool Hooks (`sdd hook pre-tool`)**: Bloquea la ejecución de comandos destructivos (`rm -rf /`), piping remoto (`curl ... | sh`), fork bombs y mutaciones de BD no autorizadas.
-- **Post-Tool Hooks (`sdd hook post-tool`)**: Ejecuta verificaciones estáticas inmediatas (linters, escaneo de secretos y lecturas GET post-mutación) tras cada edición de archivo.
+- **FastMCP Server (`sdd mcp`)**: Exposes deterministic tools (`sdd_verify`, `ws_clean`, `sdd_get_rules`, `sdd_feature_status`) over JSON-RPC 2.0 stdio for Claude Code, Cursor, and VS Code.
+- **Dynamic Context Matcher (`sdd match-rules`)**: Analyzes git diffs and injects only relevant scoped rules, reducing token consumption by 40% to 75%.

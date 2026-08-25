@@ -58,7 +58,7 @@ def test_sdd_verify_table(capsys):
         with patch.object(sys, "argv", ["sdd", "verify", "--dir", "/tmp/test"]):
             sdd.main()
             captured = capsys.readouterr()
-            assert "Resultado de Verificación Automatizada SDD" in captured.out
+            assert "SDD Automated Verification Result" in captured.out
             assert "PASS" in captured.out
             assert "python" in captured.out
 

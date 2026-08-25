@@ -304,8 +304,8 @@ toml = [
 ]
 
 [[package]]
-name = "devscripts-monorepo"
-version = "0.2.0"
+name = "cucco-specops-engine"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "psutil" },

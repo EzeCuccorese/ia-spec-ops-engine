@@ -1,21 +1,33 @@
-# Feature Clarification & Quality Gate: {Feature Title}
+# Ambiguity Resolution & Risk Audit (`clarify.md`)
 
-**Feature ID**: `{feature-name}`  
-**Spec Reference**: [spec.md](./spec.md)  
-**Status**: 🟢 RESOLVED  
+**Feature**: {feature_name}  
+**Date**: {date}  
+**Status**: 🟢 RESOLVED / 🟡 PENDING CLARIFICATION
 
 ---
 
-## 1. Ambiguities & Edge Case Analysis
-- **Q-01**: {Question or ambiguous requirement identified in spec.md}
-  - **Resolution / Decision**: {Explicit decision agreed upon by human/architect}
-- **Q-02**: {Boundary condition or error handling question}
-  - **Resolution / Decision**: {Explicit decision}
+## 🎯 1. Scope Clarifications & Boundary Definitions
+- **In Scope**:
+  - {item_1}
+  - {item_2}
+- **Out of Scope (Explicit Exclusions)**:
+  - {out_item_1}
+  - {out_item_2}
 
-## 2. Technical Assumptions & Constraints
-- **Constraint 01**: {Assumed database constraint, API contract, or library limitation}
-- **Constraint 02**: {Environment or infrastructure assumption}
+---
 
-## 3. Human Approval & Sign-Off
-- **Status**: Approved for Technical Planning (`sdd-plan`)
-- **Reviewer**: Human Developer / Tech Lead
+## ❓ 2. Clarification Questions & Decisions Log
+
+### `[Q-001]` {Question title}
+- **Ambiguity**: {Description of underspecified requirement}
+- **Proposed Solution**: {Recommended architectural choice}
+- **User Decision**: {User approved decision}
+- **Impact**: {Effects on spec.md or plan.md}
+
+---
+
+## ⚠️ 3. Risk Assessment & Mitigations
+| Risk Description | Probability | Impact | Mitigation Strategy |
+| :--- | :--- | :--- | :--- |
+| {risk_1} | Low / Med / High | Low / Med / High | {mitigation_1} |
+| {risk_2} | Low / Med / High | Low / Med / High | {mitigation_2} |

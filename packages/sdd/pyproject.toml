@@ -3,11 +3,11 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "sdd-engine"
+name = "cucco-sdd"
 version = "0.1.0"
-description = "Motor de IA y Gobernanza para Spec-Driven Development (SDD)"
+description = "Spec-Driven Development (SDD) AI Governance Engine, FastMCP Server, and Multi-Agent Harness"
 authors = [
-    { name = "Devscripts Team", email = "team@devscripts.org" }
+    { name = "Cucco SpecOps Team", email = "team@cucco-specops.org" }
 ]
 readme = "README.md"
 requires-python = ">=3.9"

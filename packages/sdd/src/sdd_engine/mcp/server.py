@@ -70,12 +70,12 @@ class MCPServer:
         # 1. sdd_verify
         self.register_tool(
             name="sdd_verify",
-            description="Ejecuta la suite de verificación automatizada SDD (linters, tests, post-mutation GET reads, escaneo de secretos y PII).",
+            description="Executes automated SDD verification quality gate (linters, tests, post-mutation GET reads, secret and PII scanning).",
             input_schema={
                 "type": "object",
                 "properties": {
-                    "target_dir": {"type": "string", "description": "Directorio a verificar (opcional, default '.')"},
-                    "modified_files": {"type": "array", "items": {"type": "string"}, "description": "Lista de archivos modificados para verificación acotada"},
+                    "target_dir": {"type": "string", "description": "Directory to verify (optional, default '.')"},
+                    "modified_files": {"type": "array", "items": {"type": "string"}, "description": "List of modified files for scoped verification"},
                     "run_tests": {"type": "boolean", "default": True},
                     "run_linter": {"type": "boolean", "default": True},
                     "run_security": {"type": "boolean", "default": True},
@@ -87,11 +87,11 @@ class MCPServer:
         # 2. sdd_get_rules
         self.register_tool(
             name="sdd_get_rules",
-            description="Obtiene el catálogo de reglas globales y específicas (scoped) aplicables al proyecto.",
+            description="Retrieves global and scoped rules catalog applicable to project files.",
             input_schema={
                 "type": "object",
                 "properties": {
-                    "target_dir": {"type": "string", "description": "Directorio del proyecto"},
+                    "target_dir": {"type": "string", "description": "Project directory"},
                 },
             },
             handler=self._handle_sdd_get_rules,
@@ -100,11 +100,11 @@ class MCPServer:
         # 3. sdd_feature_status
         self.register_tool(
             name="sdd_feature_status",
-            description="Consulta el estado de la feature activa en SDD y sus artefactos generados.",
+            description="Queries active SDD feature status, phase, and generated artifacts.",
             input_schema={
                 "type": "object",
                 "properties": {
-                    "target_dir": {"type": "string", "description": "Directorio del proyecto"},
+                    "target_dir": {"type": "string", "description": "Project directory"},
                 },
             },
             handler=self._handle_sdd_feature_status,
@@ -113,11 +113,11 @@ class MCPServer:
         # 4. ws_clean
         self.register_tool(
             name="ws_clean",
-            description="Limpia artefactos de compilación (.venv, node_modules, build/, target/, .pytest_cache) en el workspace de forma determinista.",
+            description="Cleans build artifacts (.venv, node_modules, build/, target/, .pytest_cache) in workspace deterministically.",
             input_schema={
                 "type": "object",
                 "properties": {
-                    "workspace_dir": {"type": "string", "description": "Ruta del workspace a limpiar"},
+                    "workspace_dir": {"type": "string", "description": "Workspace path to clean"},
                 },
             },
             handler=self._handle_ws_clean,
@@ -126,14 +126,14 @@ class MCPServer:
     def _register_default_resources(self) -> None:
         self.register_resource(
             uri="sdd://constitution",
-            name="Constitución SDD del Proyecto",
-            description="Reglas arquitectónicas, estándares de código y directrices fundamentales.",
+            name="Project SDD Constitution",
+            description="Architectural invariants, engineering standards, and quality guardrails.",
             mime_type="text/markdown",
         )
         self.register_resource(
             uri="sdd://active-feature",
-            name="Estado de Feature Activa",
-            description="Metadatos en JSON de la feature activa en .specify/feature.json",
+            name="Active Feature Status",
+            description="JSON metadata of active feature in .specify/feature.json",
             mime_type="application/json",
         )
 

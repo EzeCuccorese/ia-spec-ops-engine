@@ -1,26 +1,30 @@
-# Arquitectura del Monorepo Devscripts
+# Cucco SpecOps Engine Monorepo Architecture
 
-Este documento describe la estructura arquitectónica del monorepo `devscripts`, aplicando principios de **Clean Architecture**, **SOLID**, **Domain-Driven Design (DDD)**, **DRY** y **YAGNI**.
+This document describes the architectural design of the **Cucco SpecOps Engine** monorepo, applying principles of **Clean Architecture**, **SOLID**, **Domain-Driven Design (DDD)**, **DRY**, and **YAGNI**.
 
 ---
 
-## 🏛️ 1. Desacoplamiento y Cero Dependencias Cruzadas
+## 🏛️ 1. Decoupled Autonomous Packages
 
-El monorepo está estrictamente dividido en dos subproyectos autónomos y un catálogo de reglas globales:
+The monorepo is structured into 3 autonomous packages and a centralized modular rules catalog:
 
 ```
-devscripts/
-├── rules/                  # Catálogo de Reglas Modulares de Ingeniería (Globales y Scoped)
+cucco-specops-engine/
+├── rules/                  # Modular Engineering Rules Catalog (Global & Scoped)
 ├── packages/
-│   ├── workspace/          # Subproyecto 1: Gestor Determinista de Workspaces (Python Puro, Cero IA)
-│   └── sdd/                # Subproyecto 2: Motor Full IA & Gobernanza SDD
-├── docs/                   # Documentación transversal con enlaces directos (DRY)
-├── install.py              # Instalador interactivo
-├── uninstall.py            # Desinstalador interactivo determinista
-└── pyproject.toml          # Orquestador del monorepo
+│   ├── common/             # Subproject 0: Shared base utilities, typing, subprocess, parsers (cucco-common)
+│   ├── workspace/          # Subproject 1: Deterministic workspace manager & CLI `ws` (cucco-workspace)
+│   └── sdd/                # Subproject 2: AI Governance engine & CLI `sdd` (cucco-sdd)
+├── docs/                   # Cross-cutting architectural documentation (DRY links)
+├── install.py              # Interactive multi-agent installer
+├── uninstall.py            # Deterministic uninstaller
+└── pyproject.toml          # Monorepo root build configuration
 ```
 
-### Principios Fundamentales:
-1. **Aislamiento**: Cada paquete contiene sus propias utilidades privadas (`utils.py`) sin depender de un paquete "core" compartido para evitar el acoplamiento implícito.
-2. **Sinergia Determinista**: `packages/sdd/` conoce e invoca las utilidades deterministas de `packages/workspace/` (ej: compilación y testing) de forma segura mediante fallbacks limpios.
-3. **Fuente Única de Verdad (DRY)**: Las reglas de desarrollo residen exclusivamente en `rules/` y se compilan a los formatos nativos de cada agente (`.mdc`, `CLAUDE.md`, `AGENTS.md`, `.gemini/GEMINI.md`).
+---
+
+## ⚙️ 2. Core Architectural Invariants
+
+1. **Clean Layering**: `packages/common` provides foundation utilities. `packages/workspace` handles local deterministic operations. `packages/sdd` orchestrates AI governance and invokes workspace capabilities with clean fallbacks.
+2. **Deterministic Quality & Zero AI Hallucination**: Heavy build, test, and container operations execute via pure Python CLI wrappers (`ws build`, `ws hooks`, `sdd verify`) in milliseconds.
+3. **Single Source of Truth (DRY)**: Engineering standards reside exclusively in `rules/` and compile automatically into native agent formats (.mdc, CLAUDE.md, AGENTS.md).

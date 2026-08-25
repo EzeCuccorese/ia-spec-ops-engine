@@ -1,100 +1,230 @@
-# Devscripts — Monorepo de Automatización y Orquestación
+# Cucco SpecOps Engine — Multi-Agent AI Governance & Deterministic Workspace Monorepo
 
-Monorepo desacoplado y estructurado según principios de **Clean Architecture**, **SOLID**, **DDD**, **DRY** y **YAGNI**, dividido en tres subproyectos autónomos y un catálogo global de reglas agnósticas de desarrollo:
+**Cucco SpecOps Engine** is a high-precision, decoupled monorepo built according to **Clean Architecture**, **SOLID**, **Domain-Driven Design (DDD)**, **DRY**, and **YAGNI** principles. It combines a deterministic, zero-hallucination workspace manager (`ws`) with an autonomous AI governance harness (`sdd`), a native FastMCP server, and a modular engineering rules catalog.
 
 ```
-devscripts/
-├── rules/                  # Catálogo de Reglas Modulares de Desarrollo (Globales y Scoped)
-│   ├── global/             # Reglas universales inyectadas siempre (anti-looping, commits, seguridad, SDD)
-│   └── scoped/             # Reglas por stack técnico (Java, Python, TypeScript, React, Go, Rust, DevOps, etc.)
+cucco-specops-engine/
+├── rules/                  # Modular Engineering Rules Catalog (Global & Scoped)
+│   ├── global/             # Non-negotiable universal rules (anti-looping, commits, security, SDD)
+│   └── scoped/             # Stack-specific standards (Java, Python, TypeScript, React, Go, Rust, DevOps)
 ├── packages/
-│   ├── common/             # Subproyecto 0: Base compartida, tipado, subprocess determinista y parsers
+│   ├── common/             # Subproject 0: Shared base, typing, safe subprocess & project parsers (cucco-common)
 │   │   ├── src/devscripts_common/
 │   │   └── tests/
-│   ├── workspace/          # Subproyecto 1: Gestor Determinista de Workspaces (CLI unificado `ws`, Cero IA)
+│   ├── workspace/          # Subproject 1: Deterministic Workspace Engine & CLI `ws` (cucco-workspace)
 │   │   ├── src/workspace_engine/
-│   │   ├── tests/
-│   │   ├── templates/
-│   │   └── pyproject.toml
-│   └── sdd/                # Subproyecto 2: Motor Full IA & Gobernanza SDD (CLI `sdd`)
+│   │   └── tests/
+│   └── sdd/                # Subproject 2: Full AI Governance Engine & CLI `sdd` (cucco-sdd)
 │       ├── src/sdd_engine/
-│       ├── tests/
-│       ├── templates/
-│       ├── skills/
-│       └── pyproject.toml
-├── install.py              # Instalador interactivo multi-agente y setup de paquetes (soporte uv / pip)
-├── uninstall.py            # Desinstalador dinámico quirúrgico y limpiador de agentes
-├── pyproject.toml          # Orquestador del monorepo
-└── README.md               # Documentación maestra en español
+│       ├── skills/         # 14 Canonical SDD Agent Skills
+│       ├── templates/      # Formal specification templates
+│       └── tests/
+├── docs/                   # Cross-cutting architectural documentation
+├── install.py              # Interactive multi-agent installer & package setup
+├── uninstall.py            # Deterministic uninstaller & agent cleaner
+├── pyproject.toml          # Monorepo build orchestrator
+└── README.md               # Master documentation
 ```
 
 ---
 
-## 📦 1. Subproyectos del Monorepo
+## ⚡ 1. Complete Step-by-Step Installation Guide
 
-### 🧩 `packages/common/` — Base Compartida (`devscripts_common`)
-- Utilidades unificadas de consola (Rich / ANSI).
-- Parser determinista de variables de entorno `.env` y `set-env.sh`.
-- Parser centralizado de YAML frontmatter para reglas y especificaciones.
-- Wrappers seguros de subprocess con timeouts obligatorios para prevenir bloqueos de red.
-- Detección de proyectos (Spring Boot, Node, Go, Rust, Gradle, Maven, Python).
-
-### 🛠️ `packages/workspace/` — Gestor Determinista (CLI `ws`)
-Herramienta de precisión para gestión de repositorios, entornos y ejecución local sin alucinaciones:
-- **CLI Unificado `ws`**:
-  - `ws hooks`: Gestor de Git Hooks & Quality Gate de 4 etapas (`install`, `status`, `uninstall`) local y global.
-  - `ws generate`: Crea un workspace con Git worktrees aislados.
-  - `ws edit`: Agrega o modifica repositorios dentro de un workspace.
-  - `ws worktree`: Genera un worktree git atómico.
-  - `ws clean`: Limpia artefactos de compilación y caches.
-  - `ws stop`: Detiene todos los procesos del workspace.
-  - `ws reset`: Resetea repositorios al estado de upstream.
-  - `ws delete`: Elimina workspaces y limpia los worktrees asociados.
-  - `ws build` / `ws deps` / `ws java`: Compila e instala dependencias detectando el runtime.
-  - `ws env-init` / `ws env-load`: Inicializa y carga variables de entorno.
-  - `ws run-local`: Orquestador local con monitor TUI interactivo.
-  - `ws kube`: Gestor de Kubernetes para extracción de entornos con permisos `chmod 600`.
-  - `ws doctor`: Diagnóstico de herramientas instaladas en el sistema.
-
-### 🤖 `packages/sdd/` — Motor Full IA y Gobernanza SDD (CLI `sdd`)
-Arnés de orquestación y gobernanza para agentes de IA (Worker + QA Reviewer):
-- **Ciclo de Vida Estricto (8 Fases)**: `/sdd-specify` ➔ `/sdd-clarify` ➔ `/sdd-plan` ➔ `/sdd-checklist` ➔ `/sdd-tasks` ➔ `/sdd-analyze` ➔ `/sdd-exec` ➔ `/sdd-converge` (o `sdd quick` para fixes rápidos).
-- **Servidor MCP Nativo (`sdd mcp`)**: Exposición de herramientas deterministas y recursos de especificación a través del estándar Model Context Protocol (FastMCP/JSON-RPC 2.0).
-- **Dynamic Context Budgeting (`sdd match-rules`)**: Motor de indexación dinámica de reglas que reduce entre 40% y 75% el consumo de tokens.
-- **Auditoría AST y Self-Healing Harness**: Verificación formal de contratos en código fuente y ciclo autónomo de auto-reparación ante fallos de pruebas.
-- **Intercepción de Seguridad**: Hooks de pre-herramienta (`sdd hook pre-tool`) para bloqueo de comandos destructivos y post-herramienta (`sdd hook post-tool`) para validación inmediata.
-- **Adaptadores Multi-IA**: Configuración nativa para Google Antigravity (AGY), Claude Code, Cursor IDE, Windsurf, GitHub Copilot, Gemini CLI y ChatGPT.
+### Prerequisites
+- **Python**: `>= 3.10` (Python 3.11 or 3.12 recommended).
+- **Git**: `>= 2.30` (with worktree support).
+- **Package Manager**: [`uv`](https://github.com/astral-sh/uv) (recommended for millisecond installs) or standard `pip`.
 
 ---
 
-## 📋 2. Catálogo de Reglas Modulares (`rules/`)
+### Step 1: Clone the Repository
+```bash
+git clone https://github.com/Ezuser/cucco-specops-engine.git
+cd cucco-specops-engine
+```
 
-Catálogo de estándares aplicable a cualquier agente y proyecto:
-- **Globales**: Guardrails anti-looping, Conventional Commits en inglés imperativo (**CERO menciones de IA**), cero secretos y ciclo de vida SDD.
-- **Scoped**: Reglas especializadas activadas por `globs` para Java/Spring, Python Async/FastAPI, Node.js Backend, React Moderno, Go, Rust, DevOps/Containers, Migraciones de BD, Contratos API, Observabilidad y Caching/Brokers.
+### Step 2: Create & Activate Virtual Environment
+```bash
+# Using uv (fastest):
+uv venv .venv
+source .venv/bin/activate
 
----
+# Or using standard python:
+python3 -m venv .venv
+source .venv/bin/activate
+```
 
-## ⚡ 3. Instalación Rápida
-
-Ejecutá el instalador interactivo por consola:
-
+### Step 3: Run the Interactive Multi-Agent Installer
 ```bash
 python3 install.py
 ```
+The installer will:
+1. Display an interactive terminal checkbox menu to select your active AI coding assistants (Claude Code, Cursor IDE, Google Antigravity, Windsurf, Copilot, etc.).
+2. Automatically deploy the modular rules catalog into the selected agent directories.
+3. Install `cucco-common`, `cucco-workspace`, and `cucco-sdd` in editable mode (`-e`), making the CLI binaries `ws` and `sdd` immediately available in your PATH.
 
-El instalador detecta si `uv` está disponible para una instalación ultrarrápida (con fallback a `pip`) y despliega las reglas en los agentes seleccionados.
-
-Para desinstalar y limpiar el entorno:
-
+### Step 4: Verify the Installation
 ```bash
-python3 uninstall.py
+ws doctor
+sdd --help
+```
+
+### Step 5: (Optional) Install the Pre-Push Quality Gate Globally
+Protect all repositories on your system with automated secret scanning, linting, and zero-AI-mention policy enforcement before any `git push`:
+```bash
+ws hooks install --global
 ```
 
 ---
 
-## 🧪 4. Ejecución de Tests
+## 🚀 2. Simple & Practical Usage Examples
+
+### 🛠️ Workspace Engine Examples (`ws`)
+
+#### 1. Diagnose Your Development Environment
+```bash
+ws doctor
+```
+*Scans your system and reports the availability of Git, uv, JDK, Maven, Gradle, Node.js, npm, Docker, and Kubernetes.*
+
+#### 2. Create an Atomic Git Worktree
+```bash
+ws worktree feature/user-auth
+```
+*Creates an isolated Git worktree in `../workspace-feature-user-auth` for branch development without dirtying your main tree.*
+
+#### 3. Compile & Install Multi-Stack Dependencies
+```bash
+ws build
+ws deps
+```
+*Automatically detects whether the project is Maven, Gradle, npm, Go, or Python and runs the correct build command.*
+
+#### 4. Launch Local Microservices with Interactive TUI
+```bash
+ws run-local
+```
+*Discovers local services, allocates dedicated ports (8000–8999), rewrites URLs, and opens a live log streaming TUI.*
+
+---
+
+### 🤖 SDD & AI Governance Engine Examples (`sdd`)
+
+#### 1. Initialize SDD in Any Repository
+```bash
+cd /path/to/my-project
+sdd init
+```
+*Auto-detects the repository technology stack, generates the technical constitution (`.specify/constitution/constitution.md`), and configures Multi-AI adapters.*
+
+#### 2. Run the 8-Phase Spec-Driven Development Workflow
+```bash
+# Phase 1: Functional Specification (spec.md)
+sdd specify "User Authentication with JWT"
+
+# Phase 2: Ambiguity & Risk Audit (clarify.md)
+sdd clarify
+
+# Phase 3: Technical Blueprint & Zod/DTO Contracts (plan.md)
+sdd plan
+
+# Phase 4: Quality Gates & Definition of Done (checklist.md)
+sdd checklist
+
+# Phase 5: Atomic Task Breakdown (tasks.md)
+sdd tasks
+
+# Phase 6: Static Cross-Artifact & AST Audit
+sdd analyze
+
+# Phase 7: Multi-Agent Execution (Worker + QA Reviewer)
+sdd harness run
+
+# Phase 8: Final Acceptance & Pull Request Creation
+sdd converge
+sdd finish
+```
+
+#### 3. Save 40%–75% Tokens with Dynamic Rule Matching
+```bash
+sdd match-rules --files src/controllers/user.ts src/models/user.ts
+```
+*Analyzes the target files and renders only the relevant global and scoped rules for inclusion in the AI context window.*
+
+#### 4. Fast-Path Hotfix Workflow (`sdd quick`)
+```bash
+sdd quick "Fix null pointer in payment webhook handler"
+```
+*Creates an atomic micro-spec, executes the fix, and runs verification in a single focused step.*
+
+#### 5. Launch FastMCP Server for Claude Code / Cursor
+```bash
+sdd mcp
+```
+*Starts the JSON-RPC 2.0 stdio Model Context Protocol server exposing `sdd_verify`, `ws_clean`, and SDD resources to external AI clients.*
+
+---
+
+## 📋 3. CLI Command Reference Tables
+
+### `ws` — Workspace Engine Commands
+| Command | Description |
+|---|---|
+| `ws doctor` | Diagnoses installed compilers, runtimes, and system tools |
+| `ws hooks` | Git Hooks manager (`install`, `status`, `uninstall`) |
+| `ws generate` | Generates a new multi-repo worktree workspace |
+| `ws edit` | Adds/removes repositories in active workspace |
+| `ws worktree` | Creates an atomic worktree for a branch |
+| `ws clean` | Deep cleans caches and build artifacts |
+| `ws stop` | Stops background services in the workspace |
+| `ws reset` | Resets repositories to upstream clean state |
+| `ws delete` | Deletes workspace and cleans worktrees |
+| `ws build` | Multi-stack build (Maven, Gradle, npm, Go, Python) |
+| `ws deps` | Installs dependencies across workspace repos |
+| `ws java` | Configures matching JDK version via SDKMAN |
+| `ws env-init` | Interactively initializes `.env` files from templates |
+| `ws env-load` | Loads and inspects environment variables |
+| `ws benchmark`| Runs parallel test suite benchmark with metrics |
+| `ws run-local`| Orchestrates local microservices with live TUI |
+| `ws kube` | Interactive Kubernetes pod inspector and log streamer |
+
+### `sdd` — SDD AI Governance Commands
+| Command | Description |
+|---|---|
+| `sdd init` | Initializes SDD workspace and generates AI adapters |
+| `sdd feature <name>` | Sets or inspects active feature with worktree isolation |
+| `sdd specify` / `sdd plan` | Assists in authoring lifecycle phase specifications |
+| `sdd analyze` | Statically audits cross-artifact consistency and AST contracts |
+| `sdd verify` | Runs automated quality gate (linters, tests, secrets) |
+| `sdd harness run` | Multi-agent execution orchestrator (Worker + QA) |
+| `sdd match-rules` | Dynamically filters rules by active files to save tokens |
+| `sdd mcp` | Launches FastMCP JSON-RPC 2.0 stdio server |
+| `sdd quick <desc>` | Fast-path atomic workflow for bug fixes and patches |
+| `sdd audit [--deep]` | Comprehensive codebase debt audit in `.specify/tech-debt.md` |
+| `sdd gate` | Quality gate baseline capture and regression verification |
+| `sdd hook` | Pre-tool and post-tool security/verification hooks |
+| `sdd finish` | Finalizes feature cycle, creates PR, and cleans worktree |
+| `sdd sync` | Reinstalls CLI and synchronizes project AI adapters |
+| `sdd revoke` | Revokes SDD setup with automated safety backup |
+
+---
+
+## 🧪 4. Running Tests
+
+Execute the complete deterministic test suite:
 
 ```bash
-pytest
+uv run pytest
 ```
+
+---
+
+## 📚 5. Documentation Hub
+
+For in-depth guides, visit the [`docs/`](docs/README.md) directory:
+- [**Monorepo Architecture**](docs/architecture/monorepo.md)
+- [**Git Hooks & Quality Gate Guide**](docs/workspace/git-hooks.md)
+- [**SDD Lifecycle Step-by-Step**](docs/sdd/lifecycle.md)
+- [**SDD Multi-Agent Architecture**](docs/sdd/architecture.md)
+- [**SDD Skills Catalog & Agent Matrix**](docs/sdd/skills-reference.md)
+- [**Modular Rules Catalog**](rules/README.md)

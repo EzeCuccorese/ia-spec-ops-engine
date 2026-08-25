@@ -1,5 +1,5 @@
 """
-workspace_engine.cli.manage_hooks — CLI para gestión e instalación de Git Hooks multi-stack.
+workspace_engine.cli.manage_hooks — CLI for multi-stack Git Hooks and Quality Gate management.
 """
 
 from __future__ import annotations
@@ -22,36 +22,36 @@ console = Console()
 
 
 def render_hooks_status(target_dir: Path | None = None) -> None:
-    """Muestra una tabla con el estado actual de los hooks locales y globales."""
+    """Displays a status table for local and global Git hooks."""
     status = get_hooks_status(target_dir)
 
-    table = Table(title="🛡️ Estado de Git Hooks & Quality Gate", border_style="cyan")
-    table.add_column("Ámbito", style="bold magenta", justify="center")
-    table.add_column("Ubicación del Hook", style="dim")
+    table = Table(title="🛡️ Git Hooks & Quality Gate Status", border_style="cyan")
+    table.add_column("Scope", style="bold magenta", justify="center")
+    table.add_column("Hook Location", style="dim")
     table.add_column("core.hooksPath", style="bold")
-    table.add_column("Permisos", justify="center")
-    table.add_column("Estado Activo", justify="center")
+    table.add_column("Permissions", justify="center")
+    table.add_column("Active Status", justify="center")
 
-    # Fila Local
+    # Local Row
     loc = status["local"]
-    loc_perm = "[green]✓ Ejecutable[/green]" if loc["is_executable"] else ("[yellow]Sin exec[/yellow]" if loc["hook_exists"] else "[red]No instalado[/red]")
-    loc_act = "[green]✓ ACTIVO[/green]" if loc["is_active"] else "[dim]Inactivo[/dim]"
+    loc_perm = "[green]✓ Executable[/green]" if loc["is_executable"] else ("[yellow]No exec[/yellow]" if loc["hook_exists"] else "[red]Not installed[/red]")
+    loc_act = "[green]✓ ACTIVE[/green]" if loc["is_active"] else "[dim]Inactive[/dim]"
     table.add_row(
         "Local (Repo)",
         loc["hook_path"],
-        loc["configured_hooks_path"] or "[dim]No configurado[/dim]",
+        loc["configured_hooks_path"] or "[dim]Not configured[/dim]",
         loc_perm,
         loc_act,
     )
 
-    # Fila Global
+    # Global Row
     glo = status["global"]
-    glo_perm = "[green]✓ Ejecutable[/green]" if glo["is_executable"] else ("[yellow]Sin exec[/yellow]" if glo["hook_exists"] else "[red]No instalado[/red]")
-    glo_act = "[green]✓ ACTIVO[/green]" if glo["is_active"] else "[dim]Inactivo[/dim]"
+    glo_perm = "[green]✓ Executable[/green]" if glo["is_executable"] else ("[yellow]No exec[/yellow]" if glo["hook_exists"] else "[red]Not installed[/red]")
+    glo_act = "[green]✓ ACTIVE[/green]" if glo["is_active"] else "[dim]Inactive[/dim]"
     table.add_row(
-        "Global (Sistema)",
+        "Global (System)",
         glo["hook_path"],
-        glo["configured_hooks_path"] or "[dim]No configurado[/dim]",
+        glo["configured_hooks_path"] or "[dim]Not configured[/dim]",
         glo_perm,
         glo_act,
     )
@@ -67,24 +67,24 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(
         prog="ws hooks",
-        description="Gestor de Git Hooks y Quality Gates Multi-Stack para Workspace Engine",
+        description="Multi-stack Git Hooks & Quality Gate Manager for Workspace Engine",
     )
-    sub = parser.add_subparsers(dest="action", help="Acción a realizar")
+    sub = parser.add_subparsers(dest="action", help="Action to perform")
 
     # install
-    p_inst = sub.add_parser("install", help="Instalar hook pre-push multi-stack")
-    p_inst.add_argument("--global", "-g", dest="is_global", action="store_true", help="Instalar globalmente en ~/.githooks")
-    p_inst.add_argument("--dir", "-d", help="Directorio raíz del repositorio (por defecto cwd)")
-    p_inst.add_argument("--force", "-f", action="store_true", default=True, help="Sobreescribir hooks existentes")
+    p_inst = sub.add_parser("install", help="Install multi-stack pre-push hook")
+    p_inst.add_argument("--global", "-g", dest="is_global", action="store_true", help="Install globally in ~/.githooks")
+    p_inst.add_argument("--dir", "-d", help="Repository root directory (defaults to cwd)")
+    p_inst.add_argument("--force", "-f", action="store_true", default=True, help="Overwrite existing hooks")
 
     # status
-    p_stat = sub.add_parser("status", help="Consultar estado de los hooks locales y globales")
-    p_stat.add_argument("--dir", "-d", help="Directorio raíz del repositorio")
+    p_stat = sub.add_parser("status", help="Query local and global hook status")
+    p_stat.add_argument("--dir", "-d", help="Repository root directory")
 
     # uninstall
-    p_uninst = sub.add_parser("uninstall", help="Desinstalar hook pre-push")
-    p_uninst.add_argument("--global", "-g", dest="is_global", action="store_true", help="Desinstalar hook global")
-    p_uninst.add_argument("--dir", "-d", help="Directorio raíz del repositorio")
+    p_uninst = sub.add_parser("uninstall", help="Uninstall pre-push hook")
+    p_uninst.add_argument("--global", "-g", dest="is_global", action="store_true", help="Uninstall global hook")
+    p_uninst.add_argument("--dir", "-d", help="Repository root directory")
 
     args = parser.parse_args(argv)
 
@@ -98,18 +98,20 @@ def main(argv: list[str] | None = None) -> int:
     if args.action == "install":
         res = install_git_hooks(target_dir=target, is_global=args.is_global, force=args.force)
         if res["success"]:
-            log_success(res["message"])
-            render_hooks_status(target)
+            log_success(f"Git hook successfully installed at: {res['hook_path']}")
             return 0
         else:
-            log_warning(res["message"])
+            log_error(f"Error installing Git hook: {res.get('error')}")
             return 1
 
-    if args.action == "uninstall":
+    elif args.action == "uninstall":
         res = uninstall_git_hooks(target_dir=target, is_global=args.is_global)
-        log_info(res["message"])
-        render_hooks_status(target)
-        return 0
+        if res["success"]:
+            log_success("Git hook successfully uninstalled.")
+            return 0
+        else:
+            log_error(f"Error uninstalling Git hook: {res.get('error')}")
+            return 1
 
     return 0
 

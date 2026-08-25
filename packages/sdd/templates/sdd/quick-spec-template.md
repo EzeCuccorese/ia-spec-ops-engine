@@ -1,30 +1,24 @@
-# ⚡ Especificación Rápida (Quick Spec): {{bugfix_title}}
+# Quick Spec & Hotfix Plan (`spec-quick.md`)
 
-**ID**: `quick-{{timestamp}}`  
-**Tipo**: CORRECCIÓN DE BUG / HOTFIX ACELERADO  
-**Fecha**: {{date}}  
-
----
-
-## 🎯 1. Descripción del Problema
-{{problem_description}}
+**Issue / Task**: {title}  
+**Date**: {date}  
+**Status**: 🟡 IN PROGRESS / 🟢 VERIFIED
 
 ---
 
-## 🔍 2. Causa Raíz Identificada
-- **Archivo Afectado**: [`{{file_path}}`](file://{{absolute_path}})
-- **Detalle Técnico**: {{root_cause}}
+## 🎯 1. Root Cause & Problem Description
+{problem_description}
 
 ---
 
-## 🛠️ 3. Plan de Solución Mínimo (Minimal Implementation)
-1. **Contrato / Firma**: {{contract_changes}}
-2. **Prueba Unitaria (Red)**: {{test_description}}
-3. **Lógica de Remediación (Green)**: {{implementation_steps}}
+## 🛠️ 2. Minimal Remediation Plan
+1. **Contract / Test**: {test_description}
+2. **Implementation**: {code_fix_description}
+3. **Verification**: {verification_command}
 
 ---
 
-## ✅ 4. Criterios de Aceptación y Verificación
-- [ ] La prueba unitaria reproduce el caso de fallo y ahora pasa en verde.
-- [ ] No se introducen efectos secundarios ni regresiones en la suite de pruebas.
-- [ ] Linter estático verificado sin advertencias.
+## 🧪 3. Verification & Regression Tests
+- [ ] Unit test reproduces bug (Red).
+- [ ] Code patch resolves issue (Green).
+- [ ] Full test suite passes without regressions.

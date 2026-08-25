@@ -1,54 +1,54 @@
-# sdd_engine — Motor de IA y Gobernanza para Spec-Driven Development (SDD)
+# cucco-sdd — AI Governance Engine & Spec-Driven Development (SDD)
 
-Subproyecto autónomo de orquestación, gobernanza, harness multi-agente y verificación automática para desarrollo guiado por especificaciones (Spec-Driven Development).
+Autonomous AI governance harness, FastMCP server, and multi-agent execution orchestrator for **Spec-Driven Development (SDD)**.
 
-## 🚀 Ciclo de Vida Estricto de 8 Fases
+---
 
-1. `sdd specify`: Fase 1 — Especificación funcional (`spec.md`).
-2. `sdd clarify`: Fase 2 — Resolución de ambigüedades y quality gates (`clarify.md`).
-3. `sdd plan`: Fase 3 — Blueprint técnico y contratos formales de datos (`plan.md`).
-4. `sdd checklist`: Fase 4 — Quality gates y Definition of Done (`checklist.md`).
-5. `sdd tasks`: Fase 5 — Desglose atomizado de tareas ejecutables (`tasks.md`).
-6. `sdd analyze`: Fase 6 — Auditoría estática cruzada entre artefactos.
-7. `sdd exec`: Fase 7 — Ejecución iterativa de tareas con Agente Worker y Agente QA Reviewer.
-8. `sdd converge`: Fase 8 — Verificación final de convergencia y criterios de aceptación Gherkin.
+## 🚀 Strict 8-Phase Lifecycle
 
-*Para correcciones rápidas de bugs o parches pequeños, usar `sdd quick`.*
+1. `sdd specify`: Phase 1 — Functional specification (`spec.md`).
+2. `sdd clarify`: Phase 2 — Ambiguity resolution and risk audit (`clarify.md`).
+3. `sdd plan`: Phase 3 — Technical blueprint and formal data contracts (`plan.md`).
+4. `sdd checklist`: Phase 4 — Quality gates and Definition of Done (`checklist.md`).
+5. `sdd tasks`: Phase 5 — Executable atomic tasks breakdown (`tasks.md`).
+6. `sdd analyze`: Phase 6 — Static cross-artifact consistency audit and AST contract validation.
+7. `sdd exec`: Phase 7 — Iterative task execution with Worker Agent and QA Reviewer Agent.
+8. `sdd converge`: Phase 8 — Final acceptance criteria validation (Gherkin) and PR readiness.
 
-## 🛡️ Pilares y Gobernanza
+*For accelerated bug fixes and minor patches, use `sdd quick`.*
 
-- **Contratos Primero**: Definir interfaces formales antes de la lógica de negocio.
-- **Harnés de Pruebas (Test-First)**: Pruebas unitarias e integración previas al código productivo.
-- **Implementación Mínima**: Código estrictamente necesario para cumplir el contrato (YAGNI).
-- **Dynamic Context Budgeting & Rule Indexing (`sdd match-rules`)**: Motor dinámico que inyecta únicamente las reglas scoped relevantes para los archivos modificados, ahorrando entre 40% y 75% de tokens en los prompts.
-- **Auditoría Formal de Contratos AST**: `sdd analyze` valida que los tipos, interfaces y DTOs declarados en `plan.md` existan en el árbol de sintaxis abstracta (AST) del código fuente.
-- **Multi-Agente Self-Healing Harness**: Parser inteligente de trazas de fallo (Pytest, JUnit, NPM) y generación automática de prompts focalizados de corrección con límite de reintentos.
-- **Servidor MCP Nativo (`sdd mcp`)**: Servidor Model Context Protocol JSON-RPC 2.0 sobre `stdio` que expone herramientas (`ws_clean`, `sdd_verify`, `sdd_get_rules`, `sdd_feature_status`) y recursos (`sdd://constitution`, `sdd://active-feature`) para Claude Code, Cursor, Antigravity, VS Code y Windsurf.
-- **Intercepción de Seguridad**:
-  - `sdd hook pre-tool`: Bloqueo de comandos destructivos, ejecución remota no autorizada (`curl|sh`), borrado de raíz o mutaciones directas de BD sin autorización.
-  - `sdd hook post-tool`: Verificación automática instantánea (linter, tests, escaneo de secretos/PII, confirmación GET).
-- **Adaptadores Multi-IA**: Despliegue nativo de prompts, skills y configuraciones para Claude Code, Antigravity 2.0 (AGY), GitHub Copilot, Cursor IDE, Windsurf, Gemini CLI y ChatGPT.
+---
 
-## 📦 Instalación
+## 🛡️ Core Features & Capabilities
 
-```bash
-cd packages/sdd
-pip install -e .
-```
+- **Contracts First**: Formally define schemas (Zod, Java Records, Pydantic) before implementing logic.
+- **Dynamic Context Budgeting (`sdd match-rules`)**: Ingests active diffs and injects only relevant scoped rules, saving 40% to 75% of context tokens.
+- **AST Contract Auditor**: `sdd analyze` validates that DTOs and interfaces declared in `plan.md` exist in the AST of the source code.
+- **Self-Healing Test Harness**: Multi-agent error parser for Pytest, JUnit, and NPM test traces with automated corrective re-prompting.
+- **Native FastMCP Server (`sdd mcp`)**: JSON-RPC 2.0 Model Context Protocol server over `stdio` exposing tools (`sdd_verify`, `ws_clean`, `sdd_get_rules`, `sdd_feature_status`) and resources (`sdd://constitution`, `sdd://active-feature`) for Claude Code, Cursor, Antigravity, and VS Code.
+- **Security Hooks**:
+  - `sdd hook pre-tool`: Intercepts and blocks destructive commands (`rm -rf /`, piping `curl|sh`, unverified DB drops).
+  - `sdd hook post-tool`: Instant verification (linters, test suites, secret scanning, post-mutation GET reads).
+- **Multi-AI Adapters**: Automatic compilation for Claude Code, Cursor IDE (.mdc), Google Antigravity (AGY), GitHub Copilot, Windsurf, Gemini CLI, and ChatGPT.
 
-## 🛠️ Comandos CLI Disponibles
+---
 
-| Comando | Descripción |
+## 🛠️ CLI Reference Table (`sdd`)
+
+| Command | Description |
 |---|---|
-| `sdd mcp` | Inicia el servidor nativo Model Context Protocol (MCP) en `stdio` |
-| `sdd match-rules` | Filtra y renderiza reglas dinámicamente según archivos modificados |
-| `sdd init` | Inicializa el espacio de trabajo SDD y adaptadores de IA |
-| `sdd feature set <name>` | Establece o cambia la feature activa con aislamiento de worktree |
-| `sdd feature status` | Muestra el estado y fase de la feature activa |
-| `sdd specify` / `sdd plan` | Asiste en las fases del ciclo de vida SDD |
-| `sdd verify` | Ejecuta Quality Gate de linter, tests, secretos y confirmaciones |
-| `sdd analyze` | Audita consistencia estática cruzada de artefactos y contratos AST |
-| `sdd harness run` | Orquesta ejecución con Self-Healing, Worker y QA Reviewer |
-| `sdd finish` | Finaliza feature, sube rama y crea PR |
-| `sdd sync` | Sincroniza adaptadores de IA y skills en el repositorio |
-| `sdd revoke` | Revoca y limpia configuraciones de SDD en el proyecto |
+| `sdd mcp` | Launches the native Model Context Protocol (MCP) server over `stdio` |
+| `sdd match-rules` | Dynamically filters rules by active files to optimize token budgets |
+| `sdd init` | Initializes SDD workspace, detects stack, and deploys AI adapters |
+| `sdd feature <name>` | Sets or inspects the active feature with worktree isolation |
+| `sdd specify` / `sdd plan` | Assists in authoring lifecycle phase specifications |
+| `sdd verify` | Runs automated quality gate (linters, tests, secrets, confirmation reads) |
+| `sdd analyze` | Performs cross-artifact consistency audit and AST contract validation |
+| `sdd harness run` | Orchestrates multi-agent execution with Worker and QA Reviewer |
+| `sdd gate` | Captures quality gate baselines and detects test/coverage regressions |
+| `sdd hook` | Executes pre-tool and post-tool security/verification hooks |
+| `sdd finish` | Finalizes feature cycle, pushes branch, creates PR, and cleans worktree |
+| `sdd sync` | Reinstalls CLI and synchronizes project AI adapters across worktrees |
+| `sdd quick <desc>` | Fast-path atomic workflow for bug fixes and patches |
+| `sdd audit [--deep]` | Comprehensive codebase debt audit cataloged in `.specify/tech-debt.md` |
+| `sdd revoke` | Revokes and cleans SDD configurations with automatic backup |
