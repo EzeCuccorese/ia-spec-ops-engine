@@ -10,7 +10,8 @@ Este espacio sigue el principio de **Fuente Única de Verdad (DRY)**: los manual
 
 ### 📦 1. Subproyectos Autónomos
 - [**Workspace Engine (`packages/workspace/`)**](file://~/projects/devscripts/packages/workspace/README.md): Gestor determinista en Python puro (cero IA) para repositorios, Git worktrees, compilación multi-stack, gestión de JDKs, orquestador de microservicios (`run-local`) y Kubernetes (`kube-env`).
-- [**SDD Engine (`packages/sdd/`)**](file://~/projects/devscripts/packages/sdd/README.md): Motor Full IA y arnés de gobernanza para agentes de IA (Worker + QA Reviewer), ciclo de vida estricto de 8 fases, hooks de seguridad y adaptadores Multi-IA.
+  - [**Gestor de Git Hooks & Quality Gate Multi-Stack (`docs/workspace/git-hooks.md`)**](file://~/projects/devscripts/docs/workspace/git-hooks.md): Quality Gate de 4 etapas (Seguridad, Reglas Git/No IA, Linters y Tests) con comando `ws hooks`.
+- [**SDD Engine (`packages/sdd/`)**](file://~/projects/devscripts/packages/sdd/README.md): Motor Full IA y arnés de gobernanza para agentes de IA (Worker + QA Reviewer), servidor nativo MCP (`sdd mcp`), Dynamic Context Budgeting (`sdd match-rules`), ciclo de vida de 8 fases, hooks de seguridad y adaptadores Multi-IA.
 
 ---
 

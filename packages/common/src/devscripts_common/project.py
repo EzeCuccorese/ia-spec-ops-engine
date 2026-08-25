@@ -14,8 +14,10 @@ class ProjectType(str, Enum):
     SPRING_BOOT = "spring_boot"
     MAVEN = "maven"
     GRADLE = "gradle"
+    KOTLIN = "kotlin"
     GO = "go"
     NODE = "node"
+    BUN = "bun"
     PYTHON = "python"
     RUST = "rust"
     UNKNOWN = "unknown"
@@ -45,7 +47,7 @@ def read_package_json(repo_path: Union[Path, str]) -> Optional[Dict[str, Any]]:
 
 
 def is_spring_boot_app(repo_path: Union[Path, str]) -> bool:
-    """Determina si un repositorio es un microservicio Spring Boot Java."""
+    """Determina si un repositorio es un microservicio Spring Boot Java/Kotlin."""
     p = Path(repo_path)
     res_dir = p / "src" / "main" / "resources"
     if (res_dir / "application.properties").is_file():
@@ -57,22 +59,48 @@ def is_spring_boot_app(repo_path: Union[Path, str]) -> bool:
     return False
 
 
+def is_kotlin_service(repo_path: Union[Path, str]) -> bool:
+    """Determina si un repositorio es un proyecto o servicio en Kotlin."""
+    p = Path(repo_path)
+    if (p / "build.gradle.kts").is_file() or (p / "settings.gradle.kts").is_file():
+        return True
+    if list(p.glob("src/main/kotlin/**/*.kt")):
+        return True
+    return False
+
+
 def is_go_service(repo_path: Union[Path, str]) -> bool:
     """Determina si un repositorio es un servicio en Go."""
     return (Path(repo_path) / "go.mod").is_file()
 
 
 def is_rust_service(repo_path: Union[Path, str]) -> bool:
-    """Determina si un repositorio es un proyecto Rust."""
+    """Determina si un repositorio es un proyecto o workspace Rust."""
     return (Path(repo_path) / "Cargo.toml").is_file()
 
 
+def is_bun_project(repo_path: Union[Path, str]) -> bool:
+    """Determina si un proyecto utiliza el runtime Bun."""
+    p = Path(repo_path)
+    return (p / "bun.lockb").is_file() or (p / "bun.lock").is_file() or (p / "bunfig.toml").is_file()
+
+
 def detect_fe_framework(repo_path: Union[Path, str]) -> Optional[str]:
-    """Detecta el framework frontend (React, Next.js, Vue, Angular, Vite)."""
+    """Detecta el framework frontend (React, Next.js, Vue, Angular, Svelte, Astro, Vite)."""
     pkg = read_package_json(repo_path)
+    p = Path(repo_path)
+    if (p / "astro.config.mjs").is_file() or (p / "astro.config.ts").is_file():
+        return "astro"
+    if (p / "svelte.config.js").is_file():
+        return "svelte"
+
     if not pkg:
         return None
     deps = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
+    if "astro" in deps:
+        return "astro"
+    if "svelte" in deps or "@sveltejs/kit" in deps:
+        return "svelte"
     if "next" in deps:
         return "next"
     if "react" in deps or "react-dom" in deps:
@@ -91,6 +119,8 @@ def detect_project_type(repo_path: Union[Path, str]) -> ProjectType:
     p = Path(repo_path)
     if is_spring_boot_app(p):
         return ProjectType.SPRING_BOOT
+    if is_kotlin_service(p):
+        return ProjectType.KOTLIN
     if (p / "gradlew").is_file() or (p / "build.gradle").is_file() or (p / "build.gradle.kts").is_file():
         return ProjectType.GRADLE
     if (p / "pom.xml").is_file():
@@ -99,6 +129,8 @@ def detect_project_type(repo_path: Union[Path, str]) -> ProjectType:
         return ProjectType.GO
     if is_rust_service(p):
         return ProjectType.RUST
+    if is_bun_project(p):
+        return ProjectType.BUN
     if (p / "package.json").is_file():
         return ProjectType.NODE
     if (p / "pyproject.toml").is_file() or (p / "requirements.txt").is_file() or (p / "setup.py").is_file():

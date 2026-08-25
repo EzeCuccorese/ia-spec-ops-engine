@@ -42,6 +42,7 @@ devscripts/
 ### 🛠️ `packages/workspace/` — Gestor Determinista (CLI `ws`)
 Herramienta de precisión para gestión de repositorios, entornos y ejecución local sin alucinaciones:
 - **CLI Unificado `ws`**:
+  - `ws hooks`: Gestor de Git Hooks & Quality Gate de 4 etapas (`install`, `status`, `uninstall`) local y global.
   - `ws generate`: Crea un workspace con Git worktrees aislados.
   - `ws edit`: Agrega o modifica repositorios dentro de un workspace.
   - `ws worktree`: Genera un worktree git atómico.
@@ -58,8 +59,10 @@ Herramienta de precisión para gestión de repositorios, entornos y ejecución l
 ### 🤖 `packages/sdd/` — Motor Full IA y Gobernanza SDD (CLI `sdd`)
 Arnés de orquestación y gobernanza para agentes de IA (Worker + QA Reviewer):
 - **Ciclo de Vida Estricto (8 Fases)**: `/sdd-specify` ➔ `/sdd-clarify` ➔ `/sdd-plan` ➔ `/sdd-checklist` ➔ `/sdd-tasks` ➔ `/sdd-analyze` ➔ `/sdd-exec` ➔ `/sdd-converge` (o `sdd quick` para fixes rápidos).
+- **Servidor MCP Nativo (`sdd mcp`)**: Exposición de herramientas deterministas y recursos de especificación a través del estándar Model Context Protocol (FastMCP/JSON-RPC 2.0).
+- **Dynamic Context Budgeting (`sdd match-rules`)**: Motor de indexación dinámica de reglas que reduce entre 40% y 75% el consumo de tokens.
+- **Auditoría AST y Self-Healing Harness**: Verificación formal de contratos en código fuente y ciclo autónomo de auto-reparación ante fallos de pruebas.
 - **Intercepción de Seguridad**: Hooks de pre-herramienta (`sdd hook pre-tool`) para bloqueo de comandos destructivos y post-herramienta (`sdd hook post-tool`) para validación inmediata.
-- **Sinergia Determinista**: SDD conoce e invoca las herramientas deterministas de `workspace_engine` para compilar, probar y verificar con certeza técnica y ahorro masivo de tokens.
 - **Adaptadores Multi-IA**: Configuración nativa para Google Antigravity (AGY), Claude Code, Cursor IDE, Windsurf, GitHub Copilot, Gemini CLI y ChatGPT.
 
 ---

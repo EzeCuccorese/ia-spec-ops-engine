@@ -27,13 +27,23 @@ from sdd_engine.adapters import bridge
 def _init_git_repo(repo_path: Path) -> None:
     """Inicializa un repositorio git local con un commit inicial."""
     repo_path.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "-C", str(repo_path), "init", "-b", "main"], capture_output=True, check=True)
-    subprocess.run(["git", "-C", str(repo_path), "config", "user.name", "Test User"], capture_output=True, check=True)
-    subprocess.run(["git", "-C", str(repo_path), "config", "user.email", "test@example.com"], capture_output=True, check=True)
+    clean_env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    git_env = {
+        **clean_env,
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_CONFIG_SYSTEM": "/dev/null",
+        "GIT_AUTHOR_NAME": "Test User",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "Test User",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+    }
+    subprocess.run(["git", "-C", str(repo_path), "init", "-b", "main"], capture_output=True, check=True, env=git_env)
+    subprocess.run(["git", "-C", str(repo_path), "config", "user.name", "Test User"], capture_output=True, check=True, env=git_env)
+    subprocess.run(["git", "-C", str(repo_path), "config", "user.email", "test@example.com"], capture_output=True, check=True, env=git_env)
     (repo_path / "README.md").write_text("# Test Repo\n")
     (repo_path / "pyproject.toml").write_text("[project]\nname = 'test'\nversion = '0.1.0'\n")
-    subprocess.run(["git", "-C", str(repo_path), "add", "."], capture_output=True, check=True)
-    subprocess.run(["git", "-C", str(repo_path), "commit", "-m", "chore(init): initial commit"], capture_output=True, check=True)
+    subprocess.run(["git", "-C", str(repo_path), "add", "."], capture_output=True, check=True, env=git_env)
+    subprocess.run(["git", "-C", str(repo_path), "commit", "-m", "chore(init): initial commit"], capture_output=True, check=True, env=git_env)
 
 
 @pytest.mark.integration

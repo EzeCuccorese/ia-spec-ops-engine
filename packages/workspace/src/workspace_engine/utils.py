@@ -6,6 +6,7 @@ Re-exporta y extiende utilidades de devscripts_common para mantener compatibilid
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 from typing import Dict, Optional, Union
 
@@ -71,6 +72,23 @@ class FileLock:
                     pass
             self._fd.close()
             self._fd = None
+
+
+def run_git(repo_path: Union[str, Path], *args: str) -> subprocess.CompletedProcess:
+    """Ejecuta comandos git de forma hermética, aislando variables ambientales de subshells."""
+    clean_env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    clean_env["GIT_CONFIG_GLOBAL"] = "/dev/null"
+    clean_env["GIT_CONFIG_SYSTEM"] = "/dev/null"
+    clean_env.setdefault("GIT_AUTHOR_NAME", "Workspace User")
+    clean_env.setdefault("GIT_AUTHOR_EMAIL", "workspace@example.com")
+    clean_env.setdefault("GIT_COMMITTER_NAME", "Workspace User")
+    clean_env.setdefault("GIT_COMMITTER_EMAIL", "workspace@example.com")
+    return subprocess.run(
+        ['git', '-C', str(repo_path)] + list(args),
+        capture_output=True,
+        text=True,
+        env=clean_env,
+    )
 
 
 def resolve_local_env(repo_path: Union[Path, str], repo_name: str) -> Optional[Path]:

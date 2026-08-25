@@ -24,23 +24,18 @@ def get_active_repo_worktrees(target_dir: Union[str, Path] = ".") -> List[Path]:
     excluding the primary/current worktree itself.
     """
     td = Path(target_dir).resolve()
-    try:
-        res = subprocess.run(
-            ["git", "-C", str(td), "worktree", "list", "--porcelain"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        lines = res.stdout.splitlines()
-        worktrees: List[Path] = []
-        for line in lines:
-            if line.startswith("worktree "):
-                wt_path = Path(line.split("worktree ", 1)[1]).resolve()
-                if wt_path != td and wt_path.exists():
-                    worktrees.append(wt_path)
-        return worktrees
-    except Exception:
+    code, stdout, _ = run_command_safe(["git", "-C", str(td), "worktree", "list", "--porcelain"], isolated_git=True)
+    if code != 0 or not stdout.strip():
         return []
+
+    lines = stdout.splitlines()
+    worktrees: List[Path] = []
+    for line in lines:
+        if line.startswith("worktree "):
+            wt_path = Path(line.split("worktree ", 1)[1]).resolve()
+            if wt_path != td and wt_path.exists():
+                worktrees.append(wt_path)
+    return worktrees
 
 
 def sync_sdd(

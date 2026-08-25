@@ -12,14 +12,11 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from workspace_engine.utils import Color, find_project_root, log_error, log_info, log_success, log_warning
+from workspace_engine.utils import Color, find_project_root, log_error, log_info, log_success, log_warning, run_git
 
 
 def _git(repo_path: Path, *args) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ['git', '-C', str(repo_path)] + list(args),
-        capture_output=True, text=True,
-    )
+    return run_git(repo_path, *args)
 
 
 def _parent_branch(workspace_dir: Path, repo_name: str) -> Optional[str]:
