@@ -1,37 +1,79 @@
-# Cucco
+# SpecOps Engine
 
-Cucco is being rebuilt as a personal AI-governance and Spec-Driven Development tool.
+**SpecOps Engine** is a decoupled monorepo containing two independent, modular tools:
 
-## Active implementation
+1. **`spec` (`packages/spec/`)**: AI Governance, Spec-Driven Development (SDD), and deterministic verification engine for coding agents.
+2. **`workspace` (`packages/workspace/`)**: Workspace tools, Git worktree helpers, and local DevOps utilities (`ws`).
 
-The clean-room v2 is under [`next/`](next/). It is the only implementation on the active roadmap
-and currently provides:
-
-- one `cucco` CLI;
-- repository-local governance policy;
-- Spec → Plan → Tasks → Work → Verify → Finish lifecycle;
-- strict verification with immutable evidence;
-- safe paths, atomic writes, and explicit generated-file ownership;
-- a reversible Codex `AGENTS.md` adapter;
-- isolated unit and end-to-end tests.
-
-Run it without installing anything:
-
-```bash
-PYTHONPATH=next/src python -m cucco --help
-PYTHONPATH=next/src python -m pytest next/tests -q
+```
+cucco-specops-engine/
+├── packages/
+│   ├── spec/                  # AI Governance & Spec-Driven Development (CLI `spec`)
+│   │   ├── src/spec/
+│   │   ├── tests/
+│   │   ├── docs/
+│   │   └── pyproject.toml
+│   │
+│   └── workspace/             # DevOps & Workspace Management Tools (CLI `ws`)
+│       ├── src/workspace_engine/
+│       ├── tests/
+│       ├── docs/
+│       └── pyproject.toml
+│
+├── pyproject.toml             # Root monorepo orchestrator
+└── README.md
 ```
 
-See the [v2 README](next/README.md), [product north](next/docs/NORTH.md), and
-[cutover plan](next/docs/CUTOVER.md).
+---
 
-## Legacy boundaries
+## ⚡ Quick Start
 
-- `packages/sdd/`, `packages/common/`, `rules/`, and the root installer are legacy reference
-  material. They are not evidence of v2 behavior and are not used by the v2 runtime.
-- Kubernetes, workspace provisioning, worktrees, builds, and local-service tooling are frozen in
-  [`cucco-devops/`](cucco-devops/). They are outside the v2 product and no longer exposed by root
-  packaging or scripts.
+### 1. AI Governance & SDD Engine (`spec`)
 
-Do not delete the legacy governance engine until the real-work soak gate in the cutover plan is
-complete.
+Run `spec` directly or install it:
+
+```bash
+# Direct run without installation
+PYTHONPATH=packages/spec/src python3 -m spec --help
+
+# Workflow lifecycle against any project
+export SPEC="PYTHONPATH=$PWD/packages/spec/src python3 -m spec"
+$SPEC doctor
+$SPEC init --root /path/to/project
+$SPEC agent install --root /path/to/project
+$SPEC spec new "User Authentication" --root /path/to/project
+$SPEC plan --root /path/to/project
+$SPEC tasks --root /path/to/project
+$SPEC work --root /path/to/project
+$SPEC verify --root /path/to/project
+$SPEC finish --root /path/to/project
+```
+
+For in-depth documentation, visit [`packages/spec/README.md`](packages/spec/README.md) and [`packages/spec/docs/`](packages/spec/docs/).
+
+---
+
+### 2. Workspace & DevOps Engine (`ws`)
+
+Run `ws` for local development utilities:
+
+```bash
+# Direct run without installation
+PYTHONPATH=packages/workspace/src python3 -m workspace_engine.cli.main --help
+
+# Workspace doctor & tools
+PYTHONPATH=packages/workspace/src python3 -m workspace_engine.cli.main doctor
+```
+
+For details, visit [`packages/workspace/README.md`](packages/workspace/README.md).
+
+---
+
+## 🧪 Testing
+
+Execute all test suites hermetically across packages:
+
+```bash
+python3 -m pytest
+```
+

@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+"""
+workspace_engine.cli.set_java — Detección automática y configuración de versión de Java JDK (Maven, Gradle, SDKMAN).
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+from pathlib import Path
+from typing import Dict, Optional
+
+from workspace_engine.utils import log_error, log_info, log_success, log_warning, run_command
+
+
+def detect_required_java_version(project_dir: Optional[Path] = None) -> Optional[str]:
+    """Detecta la versión de Java requerida a partir de los archivos de build."""
+    cwd = project_dir or Path.cwd()
+    pom = cwd / "pom.xml"
+    gradle = cwd / "build.gradle"
+    gradle_kts = cwd / "build.gradle.kts"
+
+    if pom.is_file():
+        content = pom.read_text(encoding="utf-8", errors="ignore")
+        match = re.search(r'<maven\.compiler\.target>([^<]+)</maven\.compiler\.target>', content)
+        if not match:
+            match = re.search(r'<java\.version>([^<]+)</java\.version>', content)
+        if match:
+            return match.group(1).strip()
+
+    if gradle.is_file() or gradle_kts.is_file():
+        content = (gradle if gradle.is_file() else gradle_kts).read_text(encoding="utf-8", errors="ignore")
+        match = re.search(r'JavaLanguageVersion\.of\((\d+)\)', content)
+        if not match:
+            match = re.search(r'sourceCompatibility\s*=\s*[\'"]?([\d.]+)', content)
+        if match:
+            return match.group(1).strip()
+
+    return None
+
+
+def get_java_env(version_tag: str) -> Optional[Dict[str, str]]:
+    """Obtiene variables de entorno para una versión de Java vía SDKMAN."""
+    sdkman_init = os.path.expanduser("~/.sdkman/bin/sdkman-init.sh")
+    if not os.path.isfile(sdkman_init):
+        return None
+
+    safe_version = shlex.quote(version_tag)
+    safe_sdkman = shlex.quote(sdkman_init)
+    cmd = f'source {safe_sdkman} && sdk use java {safe_version} > /dev/null && echo "JAVA_HOME=$JAVA_HOME" && echo "PATH=$PATH"'
+    output = run_command(cmd, shell=True, capture_output=True)
+
+    env: Dict[str, str] = {}
+    if output:
+        for line in output.splitlines():
+            if '=' in line:
+                k, v = line.split('=', 1)
+                env[k] = v
+    return env if "JAVA_HOME" in env else None
+
+
+def get_current_java_version() -> Optional[str]:
+    """Obtiene la versión de Java activa actualmente en el sistema."""
+    try:
+        process = subprocess.run(["java", "-version"], capture_output=True, text=True)
+        output = process.stderr or process.stdout
+        match = re.search(r'version "([^"]+)"', output)
+        if match:
+            return match.group(1)
+    except Exception:
+        pass
+    return None
+
+
+def find_best_java_match(required_version: str) -> Optional[str]:
+    """Encuentra la mejor versión coincidente de Java en SDKMAN."""
+    sdkman_init = os.path.expanduser("~/.sdkman/bin/sdkman-init.sh")
+    if not os.path.isfile(sdkman_init):
+        return None
+
+    cmd = f'source "{sdkman_init}" && sdk list java'
+    java_list = run_command(cmd, shell=True, capture_output=True)
+    if not java_list:
+        return None
+
+    available_versions = []
+    for line in java_list.splitlines():
+        if required_version in line and any(k in line.lower() for k in ("installed", "tem", "corretto", "open", "librc")):
+            parts = line.split('|')
+            if len(parts) > 5:
+                ver = parts[5].strip()
+                if ver:
+                    available_versions.append(ver)
+
+    if not available_versions:
+        matches = re.findall(r'\b\d+\.[\d\.]+\-\w+\b', java_list)
+        available_versions = [m for m in matches if required_version in m]
+
+    if not available_versions:
+        return None
+
+    installed = [v for v in available_versions if "installed" in java_list.lower() and v in java_list]
+    return installed[0] if installed else available_versions[0]
+
+
+def setups_java(project_dir: Optional[Path] = None) -> Optional[Dict[str, str]]:
+    """Detecta y configura el entorno Java requerido."""
+    required = detect_required_java_version(project_dir)
+    if not required:
+        return None
+
+    current = get_current_java_version()
+    if current and current.startswith(required):
+        log_success(f"Java {current} ya está en uso.")
+        return os.environ.copy()
+
+    best_match = find_best_java_match(required)
+    if not best_match:
+        log_warning(f"No se encontró Java {required} en SDKMAN.")
+        return None
+
+    log_info(f"Cambiando a Java {best_match}...")
+    env = get_java_env(best_match)
+    if env and "JAVA_HOME" in env:
+        log_success(f"Entorno Java configurado para {best_match}")
+        return env
+
+    return None
+
+
+def main():
+    env = setups_java()
+    if env:
+        if len(sys.argv) > 1 and sys.argv[1] == "--json":
+            print(json.dumps(env))
+        else:
+            print(f"export JAVA_HOME='{env.get('JAVA_HOME')}'")
+            print(f"export PATH='{env.get('PATH')}'")
+    else:
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
