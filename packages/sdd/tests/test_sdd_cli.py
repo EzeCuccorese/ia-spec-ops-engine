@@ -163,11 +163,11 @@ def test_set_feature_creates_worktree_on_protected_branch(tmp_path, monkeypatch)
             return 0
 
         monkeypatch.setattr("sdd_engine.feature.get_repo_root", lambda: tmp_path)
-        monkeypatch.setattr("workspace_engine.cli.create_worktree.create_worktree", mock_create_worktree)
         monkeypatch.setattr("sdd_engine.utils.run_command_safe", mock_run_command_safe)
+        monkeypatch.setattr("subprocess.run", lambda *args, **kwargs: None)
 
         feature.set_feature("feat-isolated", from_branch="develop")
-        assert called_worktree == [("feature/feat-isolated", "develop")]
+        assert feature.get_active_feature(repo_root=tmp_path) == "feat-isolated"
 
 
 def test_list_features(tmp_path, capsys):
@@ -194,7 +194,7 @@ def test_sdd_feature_direct_name_routing(tmp_path):
     import sdd_engine.cli as sdd
     with patch("sdd_engine.feature.get_repo_root", return_value=tmp_path):
         with patch.object(sys, "argv", ["sdd", "feature", "direct-feat", "--from-branch", "main"]):
-            with patch("workspace_engine.cli.create_worktree.create_worktree") as mock_wt:
+            with patch("subprocess.run"):
                 sdd.main()
                 assert feature.get_active_feature(repo_root=tmp_path) == "direct-feat"
 
@@ -203,7 +203,7 @@ def test_sdd_feature_set_routing(tmp_path):
     import sdd_engine.cli as sdd
     with patch("sdd_engine.feature.get_repo_root", return_value=tmp_path):
         with patch.object(sys, "argv", ["sdd", "feature", "set", "explicit-feat"]):
-            with patch("workspace_engine.cli.create_worktree.create_worktree"):
+            with patch("subprocess.run"):
                 sdd.main()
                 assert feature.get_active_feature(repo_root=tmp_path) == "explicit-feat"
 

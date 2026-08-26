@@ -1,5 +1,8 @@
 # cucco-sdd — AI Governance Engine & Spec-Driven Development (SDD)
 
+> **Legacy reference:** this package is not used by Cucco v2. Do not treat the capability claims
+> below as evidence of current v2 behavior. See [`next/`](../../next/).
+
 Autonomous AI governance harness, FastMCP server, and multi-agent execution orchestrator for **Spec-Driven Development (SDD)**.
 
 ---

@@ -26,7 +26,6 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = [
     "packages/common/src/devscripts_common",
-    "packages/workspace/src/workspace_engine",
     "packages/sdd/src/sdd_engine",
 ]
 
@@ -39,9 +38,9 @@ select = ["E9", "F63", "F7", "F82"]
 ignore = ["E402", "F401", "F841", "E501", "E722", "I001"]
 
 [tool.pytest.ini_options]
-pythonpath = ["packages/common/src", "packages/workspace/src", "packages/sdd/src", "."]
+pythonpath = ["packages/common/src", "packages/sdd/src", "."]
 python_files = ["test_*.py", "*_test.py"]
-testpaths = ["packages/common/tests", "packages/workspace/tests", "packages/sdd/tests", "tests"]
+testpaths = ["packages/common/tests", "packages/sdd/tests", "tests"]
 addopts = "-ra --strict-markers"
 markers = [
     "integration: end-to-end integration tests",
@@ -52,6 +51,3 @@ norecursedirs = ["node_modules", ".venv", "venv", ".git", ".pytest_cache", ".cla
 # SDD Engine (Full IA & Gobernanza)
 sdd = "sdd_engine.cli:main"
 sdd-engine = "sdd_engine.cli:main"
-
-# Workspace Engine (100% Determinista, cero IA — CLI Unificado)
-ws = "workspace_engine.cli.main:main"

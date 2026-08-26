@@ -1,5 +1,8 @@
 # Cucco SpecOps Engine Documentation
 
+> **Legacy documentation:** these pages describe the pre-v2 engine and may contain unverified
+> capability claims. Current behavior is documented under [`next/docs/`](../next/docs/).
+
 Welcome to the central documentation hub for **Cucco SpecOps Engine**.
 
 This documentation adheres to the **Single Source of Truth (DRY)** principle: detailed CLI references reside directly within their respective packages to prevent stale duplication.
@@ -10,8 +13,7 @@ This documentation adheres to the **Single Source of Truth (DRY)** principle: de
 
 ### 📦 1. Autonomous Packages
 - [**cucco-common (`packages/common/`)**](../packages/common/README.md): Shared base utilities, typing, safe subprocess wrappers, frontmatter parsers, and project stack detection.
-- [**cucco-workspace (`packages/workspace/`)**](../packages/workspace/README.md): Pure Python deterministic workspace manager (`ws`), Git worktrees, builds, JDK manager, local microservices orchestrator (`run-local`), Kubernetes TUI (`kube`), and Git quality gates (`ws hooks`).
-  - [**Git Hooks & Quality Gate Guide (`docs/workspace/git-hooks.md`)**](workspace/git-hooks.md): 4-stage quality gate (Secrets, Zero AI mentions, Linters, Tests) with `ws hooks`.
+- [**Frozen DevOps archive (`cucco-devops/`)**](../cucco-devops/README.md): Legacy workspace, Kubernetes, worktree, build, and local-service tooling. It is outside the AI-governance and SDD roadmap.
 - [**cucco-sdd (`packages/sdd/`)**](../packages/sdd/README.md): AI governance engine (`sdd`), 8-phase lifecycle, FastMCP server (`sdd mcp`), Dynamic context matcher (`sdd match-rules`), AST contract auditor, and self-healing test harness.
 
 ---
