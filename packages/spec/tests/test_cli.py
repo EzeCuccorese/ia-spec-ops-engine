@@ -48,3 +48,23 @@ def test_verify_executes_config_and_records_workflow_evidence(
     assert snapshot is not None
     assert snapshot.stage is Stage.VERIFY
     assert snapshot.verification_status is CheckStatus.PASS
+
+
+def test_cli_new_command_creates_specification(tmp_path: Path) -> None:
+    from spec.cli import main
+    import pytest
+
+    with pytest.raises(SystemExit) as exc:
+        main(["new", "Direct Feature", "--root", str(tmp_path)])
+    assert exc.value.code == 0
+    assert (tmp_path / ".spec/specs/direct-feature/spec.md").exists()
+
+
+def test_cli_spec_new_command_creates_specification(tmp_path: Path) -> None:
+    from spec.cli import main
+    import pytest
+
+    with pytest.raises(SystemExit) as exc:
+        main(["spec", "new", "Nested Feature", "--root", str(tmp_path)])
+    assert exc.value.code == 0
+    assert (tmp_path / ".spec/specs/nested-feature/spec.md").exists()
