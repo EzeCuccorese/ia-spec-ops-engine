@@ -5,7 +5,6 @@ import pytest
 
 from spec.adapters.codex import CodexAdapter
 from spec.core.ownership import FileChangedError, OwnershipManifest
-from spec.core.write import TargetExistsError
 from spec.governance.project import ProjectGovernance
 
 
@@ -36,47 +35,56 @@ def test_project_init_is_idempotent_and_preserves_configured_checks(tmp_path: Pa
     assert verification.read_text() == configured
 
 
-def test_codex_adapter_creates_real_discovered_agents_file(tmp_path: Path) -> None:
+def test_codex_adapter_creates_governance_and_injects_agents_file(tmp_path: Path) -> None:
     ProjectGovernance(tmp_path).initialize()
 
     result = CodexAdapter(tmp_path).install()
 
     agents = tmp_path / "AGENTS.md"
-    assert result.path == "AGENTS.md"
+    assert result.path == ".spec/governance.md"
     assert result.created is True
-    assert "spec verify" in agents.read_text()
-    assert OwnershipManifest(tmp_path).get("AGENTS.md") is not None
+    assert (tmp_path / ".spec/governance.md").exists()
+    assert "<!-- spec:governance -->" in agents.read_text()
+    assert "@.spec/governance.md" in agents.read_text()
+    assert OwnershipManifest(tmp_path).get(".spec/governance.md") is not None
 
 
-def test_codex_adapter_refuses_to_replace_existing_agents_file(tmp_path: Path) -> None:
+def test_codex_adapter_preserves_existing_user_agents_file(tmp_path: Path) -> None:
     agents = tmp_path / "AGENTS.md"
-    agents.write_text("user rules\n")
+    user_note = "# Custom Project Prompt\n\nUser instructions."
+    agents.write_text(user_note)
 
-    with pytest.raises(TargetExistsError, match="unowned"):
-        CodexAdapter(tmp_path).install()
+    CodexAdapter(tmp_path).install()
 
-    assert agents.read_text() == "user rules\n"
+    content = agents.read_text()
+    assert content.startswith(user_note)
+    assert "<!-- spec:governance -->" in content
+    assert "@.spec/governance.md" in content
 
 
-def test_codex_adapter_uninstall_is_dry_run_first_and_ownership_safe(tmp_path: Path) -> None:
+def test_codex_adapter_uninstall_removes_block_preserving_user_notes(tmp_path: Path) -> None:
     adapter = CodexAdapter(tmp_path)
     adapter.install()
 
-    preview = adapter.uninstall(dry_run=True)
-    assert preview.would_delete is True
-    assert (tmp_path / "AGENTS.md").exists()
+    agents = tmp_path / "AGENTS.md"
+    user_note = "# Custom Project Prompt\n\nUser instructions."
+    agents.write_text(f"{user_note}\n\n{agents.read_text()}")
 
-    removed = adapter.uninstall(dry_run=False)
-    assert removed.deleted is True
-    assert not (tmp_path / "AGENTS.md").exists()
+    adapter.uninstall(dry_run=False)
+
+    assert not (tmp_path / ".spec/governance.md").exists()
+    assert agents.exists()
+    content = agents.read_text()
+    assert "<!-- spec:governance -->" not in content
+    assert user_note in content
 
 
-def test_codex_adapter_will_not_remove_user_modified_generated_file(tmp_path: Path) -> None:
+def test_codex_adapter_refuses_to_delete_modified_governance_file(tmp_path: Path) -> None:
     adapter = CodexAdapter(tmp_path)
     adapter.install()
-    (tmp_path / "AGENTS.md").write_text("user changed this\n")
+    (tmp_path / ".spec/governance.md").write_text("user changed this\n")
 
     with pytest.raises(FileChangedError):
         adapter.uninstall(dry_run=False)
 
-    assert (tmp_path / "AGENTS.md").exists()
+    assert (tmp_path / ".spec/governance.md").exists()

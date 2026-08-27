@@ -36,5 +36,5 @@ jobs:
 
       - name: Run Pytest Suite with Coverage
         run: |
-          pytest -v --cov=spec --cov=workspace_engine --cov-report=term-missing
+          pytest -v --cov=rules --cov=spec --cov=workspace_engine --cov-report=term-missing
 

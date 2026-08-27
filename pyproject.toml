@@ -23,11 +23,13 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = [
+    "packages/rules/src/rules",
     "packages/spec/src/spec",
     "packages/workspace/src/workspace_engine",
 ]
 
 [project.scripts]
+rules = "rules.cli:main"
 spec = "spec.cli:main"
 ws = "workspace_engine.cli.main:main"
 
@@ -39,11 +41,11 @@ target-version = "py311"
 select = ["E", "F", "I", "B", "UP", "SIM"]
 
 [tool.pytest.ini_options]
-pythonpath = ["packages/spec/src", "packages/workspace/src", "."]
+pythonpath = ["packages/rules/src", "packages/spec/src", "packages/workspace/src", "."]
 python_files = ["test_*.py", "*_test.py"]
-testpaths = ["packages/spec/tests", "packages/workspace/tests"]
+testpaths = ["packages/rules/tests", "packages/spec/tests", "packages/workspace/tests"]
 addopts = "-ra --strict-markers"
 markers = [
     "integration: end-to-end integration tests",
 ]
-norecursedirs = ["node_modules", ".venv", "venv", ".git", ".pytest_cache", ".claude", ".spec"]
+norecursedirs = ["node_modules", ".venv", "venv", ".git", ".pytest_cache", ".claude", ".spec", ".specops"]

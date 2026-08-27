@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "specops-rules"
+version = "0.1.0"
+description = "Autonomous Software Engineering Standards Catalog & Multi-Agent Reversible Injector."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov",
+    "ruff>=0.9",
+]
+
+[project.scripts]
+rules = "rules.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rules"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"

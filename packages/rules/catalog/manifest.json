@@ -1,0 +1,369 @@
+{
+  "schema_version": 1,
+  "total_rules": 28,
+  "rules": [
+    {
+      "id": "01-clean-code-solid",
+      "category": "1-core",
+      "file": "1-core/01-clean-code-solid.md",
+      "description": "Universal clean code and SOLID design principles",
+      "triggers": {
+        "globs": [
+          "**/*"
+        ]
+      }
+    },
+    {
+      "id": "02-clean-architecture-hexagonal",
+      "category": "1-core",
+      "file": "1-core/02-clean-architecture-hexagonal.md",
+      "description": "Clean Architecture and Hexagonal Ports & Adapters rules",
+      "triggers": {
+        "globs": [
+          "src/**",
+          "app/**",
+          "domain/**"
+        ]
+      }
+    },
+    {
+      "id": "03-ddd-domain-modeling",
+      "category": "1-core",
+      "file": "1-core/03-ddd-domain-modeling.md",
+      "description": "Domain-Driven Design modeling, aggregates, and entities",
+      "triggers": {
+        "globs": [
+          "**/domain/**",
+          "**/model/**",
+          "**/entities/**"
+        ]
+      }
+    },
+    {
+      "id": "04-testing-patterns",
+      "category": "1-core",
+      "file": "1-core/04-testing-patterns.md",
+      "description": "Testing standards, AAA structure, TDD, and Testcontainers",
+      "triggers": {
+        "globs": [
+          "**/tests/**",
+          "**/test/**",
+          "**/*_test.*",
+          "**/*Test.*"
+        ]
+      }
+    },
+    {
+      "id": "05-git-commits",
+      "category": "1-core",
+      "file": "1-core/05-git-commits.md",
+      "description": "Git commit formatting, Conventional Commits, and zero AI attribution",
+      "triggers": {
+        "globs": [
+          ".git/**",
+          ".github/**"
+        ]
+      }
+    },
+    {
+      "id": "06-security-privacy",
+      "category": "1-core",
+      "file": "1-core/06-security-privacy.md",
+      "description": "OWASP security guidelines, secret safety, and zero PII logging",
+      "triggers": {
+        "globs": [
+          "**/*"
+        ]
+      }
+    },
+    {
+      "id": "07-event-driven-architecture",
+      "category": "1-core",
+      "file": "1-core/07-event-driven-architecture.md",
+      "description": "Event-Driven Architecture, Transactional Outbox, and Idempotent Consumers",
+      "triggers": {
+        "globs": [
+          "**/events/**",
+          "**/kafka/**",
+          "**/rabbit/**",
+          "**/messaging/**"
+        ]
+      }
+    },
+    {
+      "id": "08-resilience-fault-tolerance",
+      "category": "1-core",
+      "file": "1-core/08-resilience-fault-tolerance.md",
+      "description": "Resilience patterns, Circuit Breakers, Retry with Jitter, and Timeouts",
+      "triggers": {
+        "globs": [
+          "**/clients/**",
+          "**/http/**",
+          "**/services/**"
+        ]
+      }
+    },
+    {
+      "id": "09-concurrency-locking",
+      "category": "1-core",
+      "file": "1-core/09-concurrency-locking.md",
+      "description": "Concurrency control, optimistic/pessimistic locking, and distributed caching",
+      "triggers": {
+        "globs": [
+          "**/services/**",
+          "**/cache/**",
+          "**/concurrency/**"
+        ]
+      }
+    },
+    {
+      "id": "10-refactoring-strangler",
+      "category": "1-core",
+      "file": "1-core/10-refactoring-strangler.md",
+      "description": "Refactoring rules, Strangler Fig pattern, and Anti-Corruption Layers",
+      "triggers": {
+        "globs": [
+          "**/*"
+        ]
+      }
+    },
+    {
+      "id": "java-spring",
+      "category": "2-stacks",
+      "file": "2-stacks/java-spring.md",
+      "description": "Java 21+, Spring Boot, Lombok, and Testcontainers rules",
+      "triggers": {
+        "globs": [
+          "**/*.java",
+          "pom.xml",
+          "build.gradle",
+          "build.gradle.kts"
+        ]
+      }
+    },
+    {
+      "id": "csharp-dotnet",
+      "category": "2-stacks",
+      "file": "2-stacks/csharp-dotnet.md",
+      "description": "C#, .NET 8/9, ASP.NET Core, and Entity Framework Core rules",
+      "triggers": {
+        "globs": [
+          "**/*.cs",
+          "**/*.csproj",
+          "**/*.sln"
+        ]
+      }
+    },
+    {
+      "id": "typescript-nodejs",
+      "category": "2-stacks",
+      "file": "2-stacks/typescript-nodejs.md",
+      "description": "TypeScript, Node.js, and Zod border validation rules",
+      "triggers": {
+        "globs": [
+          "**/*.ts",
+          "**/*.js",
+          "tsconfig.json",
+          "package.json"
+        ]
+      }
+    },
+    {
+      "id": "react-frontend",
+      "category": "2-stacks",
+      "file": "2-stacks/react-frontend.md",
+      "description": "React, TypeScript frontend, Core Web Vitals, and A11y accessibility",
+      "triggers": {
+        "globs": [
+          "**/*.tsx",
+          "**/*.jsx",
+          "src/components/**",
+          "src/pages/**"
+        ]
+      }
+    },
+    {
+      "id": "python-async",
+      "category": "2-stacks",
+      "file": "2-stacks/python-async.md",
+      "description": "Python 3.11+, Pydantic v2, Asyncio, and Pytest standards",
+      "triggers": {
+        "globs": [
+          "**/*.py",
+          "pyproject.toml",
+          "requirements.txt"
+        ]
+      }
+    },
+    {
+      "id": "go-idiomatic",
+      "category": "2-stacks",
+      "file": "2-stacks/go-idiomatic.md",
+      "description": "Idiomatic Go, interface segregation, error wrapping, and context rules",
+      "triggers": {
+        "globs": [
+          "**/*.go",
+          "go.mod",
+          "go.sum"
+        ]
+      }
+    },
+    {
+      "id": "rust-safety",
+      "category": "2-stacks",
+      "file": "2-stacks/rust-safety.md",
+      "description": "Rust safety, ownership, Result/Option, and trait boundaries",
+      "triggers": {
+        "globs": [
+          "**/*.rs",
+          "Cargo.toml",
+          "Cargo.lock"
+        ]
+      }
+    },
+    {
+      "id": "kotlin",
+      "category": "2-stacks",
+      "file": "2-stacks/kotlin.md",
+      "description": "Kotlin, Coroutines, Flow, and null-safety standards",
+      "triggers": {
+        "globs": [
+          "**/*.kt",
+          "**/*.kts"
+        ]
+      }
+    },
+    {
+      "id": "php-modern",
+      "category": "2-stacks",
+      "file": "2-stacks/php-modern.md",
+      "description": "Modern PHP 8.2+, strict types, readonly classes, and Pest testing",
+      "triggers": {
+        "globs": [
+          "**/*.php",
+          "composer.json"
+        ]
+      }
+    },
+    {
+      "id": "flutter-dart",
+      "category": "2-stacks",
+      "file": "2-stacks/flutter-dart.md",
+      "description": "Flutter, Dart, widget lifecycle, and state management",
+      "triggers": {
+        "globs": [
+          "**/*.dart",
+          "pubspec.yaml"
+        ]
+      }
+    },
+    {
+      "id": "database-migrations",
+      "category": "3-infrastructure",
+      "file": "3-infrastructure/database-migrations.md",
+      "description": "Database migrations, schema versioning, and mandatory backup rules",
+      "triggers": {
+        "globs": [
+          "**/migrations/**",
+          "**/db/**",
+          "**/resources/db/**"
+        ]
+      }
+    },
+    {
+      "id": "sql-database-modeling",
+      "category": "3-infrastructure",
+      "file": "3-infrastructure/sql-database-modeling.md",
+      "description": "SQL relational modeling, indexing, and N+1 query prevention",
+      "triggers": {
+        "globs": [
+          "**/*.sql",
+          "**/queries/**",
+          "**/repositories/**"
+        ]
+      }
+    },
+    {
+      "id": "api-design",
+      "category": "3-infrastructure",
+      "file": "3-infrastructure/api-design.md",
+      "description": "REST API standards, RFC 7807 problem details, and idempotency",
+      "triggers": {
+        "globs": [
+          "**/api/**",
+          "**/controllers/**",
+          "**/routes/**",
+          "**/*.openapi.*",
+          "**/*.swagger.*"
+        ]
+      }
+    },
+    {
+      "id": "observability",
+      "category": "3-infrastructure",
+      "file": "3-infrastructure/observability.md",
+      "description": "OpenTelemetry, structured JSON logging, and RED metrics",
+      "triggers": {
+        "globs": [
+          "**/observability/**",
+          "**/telemetry/**",
+          "**/monitoring/**"
+        ]
+      }
+    },
+    {
+      "id": "docker-containers",
+      "category": "3-infrastructure",
+      "file": "3-infrastructure/docker-containers.md",
+      "description": "Docker container security, multi-stage builds, and non-root execution",
+      "triggers": {
+        "globs": [
+          "Dockerfile*",
+          "docker-compose*.yml",
+          ".dockerignore"
+        ]
+      }
+    },
+    {
+      "id": "kubernetes-cloudnative",
+      "category": "3-infrastructure",
+      "file": "3-infrastructure/kubernetes-cloudnative.md",
+      "description": "Kubernetes pod lifecycle, graceful shutdown, probes, and resource limits",
+      "triggers": {
+        "globs": [
+          "**/k8s/**",
+          "**/helm/**",
+          "**/*.yaml",
+          "**/*.yml"
+        ]
+      }
+    },
+    {
+      "id": "cicd-supply-chain",
+      "category": "3-infrastructure",
+      "file": "3-infrastructure/cicd-supply-chain.md",
+      "description": "CI/CD pipeline quality gates, dependency scanning, and immutable tags",
+      "triggers": {
+        "globs": [
+          ".github/workflows/**",
+          ".gitlab-ci.yml",
+          "Jenkinsfile"
+        ]
+      }
+    },
+    {
+      "id": "diagrams-and-docs",
+      "category": "4-docs",
+      "file": "4-docs/diagrams-and-docs.md",
+      "description": "Diagrams as Code, Mermaid, C4 Architecture Model, and ADRs",
+      "triggers": {
+        "globs": [
+          "docs/**",
+          "**/*.md",
+          "**/*.mmd",
+          "**/*.puml"
+        ]
+      }
+    }
+  ]
+}
