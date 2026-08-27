@@ -116,16 +116,27 @@ def main(argv: list[str] | None = None) -> None:
             print(f"Governance initialized ({len(result.created)} created, {len(result.existing)} existing)")
             raise SystemExit(0)
         if args.command == "agent" and args.agent_command == "install":
-            result = CodexAdapter(args.root).install()
-            action = "created" if result.created else "updated"
-            print(f"Codex adapter {action}: {result.path}")
+            from spec.adapters import SPEC_ADAPTERS
+            from spec.core.tui import select_multiple
+            options = [(k, label) for k, (label, _) in SPEC_ADAPTERS.items()]
+            selected_keys = select_multiple(
+                "Select AI coding agents to configure with Spec governance:",
+                options,
+                default_checked=[k for k, _ in options],
+            )
+            for k in selected_keys:
+                label, cls = SPEC_ADAPTERS[k]
+                res = cls(args.root).install()
+                print(f"Configured {label}: {res.path}")
             raise SystemExit(0)
         if args.command == "agent" and args.agent_command == "uninstall":
-            result = CodexAdapter(args.root).uninstall(dry_run=not args.apply)
-            if result.would_delete:
-                print(f"Would delete owned adapter: {result.path}")
-            else:
-                print(f"Deleted owned adapter: {result.path}")
+            from spec.adapters import SPEC_ADAPTERS
+            for k, (label, cls) in SPEC_ADAPTERS.items():
+                res = cls(args.root).uninstall(dry_run=not args.apply)
+                if not args.apply and res.would_delete:
+                    print(f"Would delete owned adapter for {label}: {res.path}")
+                elif args.apply:
+                    print(f"Cleaned adapter for {label}")
             raise SystemExit(0)
         if args.command == "new":
             snapshot = Workflow(args.root).create_spec(args.name, args.description)

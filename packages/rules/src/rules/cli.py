@@ -6,10 +6,10 @@ from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.prompt import Prompt
 
 from .core.catalog import RuleCatalog, RuleDefinition
 from .core.storage import RuleStorage
+from .core.tui import select_one, select_multiple
 from .adapters import ALL_ADAPTERS
 
 console = Console()
@@ -44,72 +44,76 @@ def list_catalog(catalog: RuleCatalog) -> None:
 def run_interactive_installer(catalog: RuleCatalog, root: Path) -> None:
     show_banner()
 
-    console.print("\n[bold yellow]? Select target installation scope:[/bold yellow]")
-    console.print("  [1] 🌐 [bold]Global[/bold] (Machine-wide in ~/.specops/rules/ for all projects)")
-    console.print("  [2] 📁 [bold]Local[/bold] (Project-local in .specops/rules/)")
-    scope_choice = Prompt.ask("Enter choice", choices=["1", "2"], default="1")
-    is_global = (scope_choice == "1")
-
+    # 1. Scope selection
+    scope_idx = select_one(
+        "Select target installation scope:",
+        [
+            "🌐 Global (Machine-wide in ~/.specops/rules/ for all projects)",
+            "📁 Local (Project-local in .specops/rules/)",
+        ],
+        default_index=0,
+    )
+    is_global = (scope_idx == 0)
     storage = RuleStorage.global_storage() if is_global else RuleStorage.local_storage(root)
 
-    console.print("\n[bold yellow]? Select AI agents to configure:[/bold yellow]")
-    console.print("  [0] ✨ [bold green]All Detected Agents[/bold green] (Claude, Cursor, Codex, Windsurf, Gemini)")
-    for idx, (aid, adapter) in enumerate(ALL_ADAPTERS.items(), start=1):
-        console.print(f"  [{idx}] {adapter.display_name}")
+    # 2. Agent selection
+    agent_options = [(aid, adapter.display_name) for aid, adapter in ALL_ADAPTERS.items()]
+    selected_agent_ids = select_multiple(
+        "Select AI coding agents to configure:",
+        agent_options,
+        default_checked=[aid for aid, _ in agent_options],
+    )
+    selected_adapters = [ALL_ADAPTERS[aid] for aid in selected_agent_ids if aid in ALL_ADAPTERS]
 
-    agent_choice = Prompt.ask("Enter agent numbers separated by commas, or 0 for All", default="0")
-    if agent_choice.strip() == "0":
-        selected_adapters = list(ALL_ADAPTERS.values())
-    else:
-        indices = [int(x.strip()) for x in agent_choice.split(",") if x.strip().isdigit()]
-        selected_adapters = [list(ALL_ADAPTERS.values())[i - 1] for i in indices if 1 <= i <= len(ALL_ADAPTERS)]
-        if not selected_adapters:
-            selected_adapters = list(ALL_ADAPTERS.values())
-
-    console.print("\n[bold yellow]? Select Rules & Stacks to install:[/bold yellow]")
-    console.print("  [A] ✨ [bold green]Select ALL 28 Rules[/bold green] (Full Enterprise Suite)")
-    console.print("  [1] 🏛️  All Core Rules (Clean Code, SOLID, DDD, Architecture, Testing, Security)")
-    console.print("  [2] 💻 All Language Stacks (Java, C#, TS, React, Python, Go, Rust, Kotlin, PHP, Dart)")
-    console.print("  [3] ☁️  All Infrastructure & DB Rules (Migrations, SQL, Docker, K8s, CI/CD, APIs)")
-    console.print("  [4] 📐 All Documentation & Diagrams Rules (C4 Model, Mermaid, ADRs)")
-
-    rule_choice = Prompt.ask("Enter choice (A/1/2/3/4 or comma-separated)", default="A").upper()
+    # 3. Rule category / stacks selection
+    category_options = [
+        ("all", "✨ Select ALL 28 Rules (Full Enterprise Suite)"),
+        ("1-core", "🏛️  Core Rules (Clean Code, SOLID, DDD, Clean Architecture, Testing, Security, EDA)"),
+        ("2-stacks", "💻 Language Stacks (Python, React, Java, C#, Go, Rust, Kotlin, PHP, Dart)"),
+        ("3-infrastructure", "☁️  Infrastructure & DB (Migrations, SQL, Docker, K8s, CI/CD, APIs, Observability)"),
+        ("4-docs", "📐 Documentation & Diagrams (C4 Architecture Model, Mermaid, ADRs)"),
+    ]
+    selected_cats = select_multiple(
+        "Select Rule Categories to install:",
+        category_options,
+        default_checked=["all"],
+    )
 
     chosen_rules: list[RuleDefinition] = []
     by_cat = catalog.by_category()
 
-    if "A" in rule_choice:
+    if "all" in selected_cats:
         chosen_rules = catalog.rules
     else:
-        if "1" in rule_choice:
-            chosen_rules.extend(by_cat.get("1-core", []))
-        if "2" in rule_choice:
-            chosen_rules.extend(by_cat.get("2-stacks", []))
-        if "3" in rule_choice:
-            chosen_rules.extend(by_cat.get("3-infrastructure", []))
-        if "4" in rule_choice:
-            chosen_rules.extend(by_cat.get("4-docs", []))
+        for cat_id in selected_cats:
+            chosen_rules.extend(by_cat.get(cat_id, []))
 
     if not chosen_rules:
         chosen_rules = catalog.rules
 
+    # Save to storage
     saved_path = storage.save_rules(chosen_rules)
-    console.print(f"\n[bold green]✔[/bold green] Saved [bold]{len(chosen_rules)} rules[/bold] to [cyan]{saved_path}[/cyan]")
+    console.print(f"[bold green]✔[/bold green] Saved [bold]{len(chosen_rules)} rules[/bold] to [cyan]{saved_path}[/cyan]")
 
+    # Install into selected adapters
     for adapter in selected_adapters:
         target = adapter.install(chosen_rules, saved_path, root, is_global)
         console.print(f"[bold green]✔[/bold green] Configured {adapter.display_name}: [cyan]{target}[/cyan]")
 
-    console.print("\n[bold green]🎉 Rules installation completed successfully![/bold green]")
+    console.print("\n[bold green]🎉 Rules installation completed successfully![/bold green]\n")
 
 
 def run_uninstaller(root: Path) -> None:
     show_banner()
-    console.print("\n[bold yellow]? Select scope to uninstall:[/bold yellow]")
-    console.print("  [1] 🌐 [bold]Global[/bold] (~/)")
-    console.print("  [2] 📁 [bold]Local[/bold] (Current Project)")
-    scope_choice = Prompt.ask("Enter choice", choices=["1", "2"], default="1")
-    is_global = (scope_choice == "1")
+    scope_idx = select_one(
+        "Select scope to uninstall:",
+        [
+            "🌐 Global (~/)",
+            "📁 Local (Current Project)",
+        ],
+        default_index=0,
+    )
+    is_global = (scope_idx == 0)
 
     storage = RuleStorage.global_storage() if is_global else RuleStorage.local_storage(root)
     storage.delete_all()
@@ -119,7 +123,7 @@ def run_uninstaller(root: Path) -> None:
         if res:
             console.print(f"[bold green]✔[/bold green] Cleaned {adapter.display_name}: [cyan]{res}[/cyan]")
 
-    console.print("\n[bold green]✨ All rules successfully uninstalled and user files preserved.[/bold green]")
+    console.print("\n[bold green]✨ All rules successfully uninstalled and user files preserved.[/bold green]\n")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -158,16 +162,21 @@ def main(argv: list[str] | None = None) -> None:
         run_interactive_installer(catalog, args.root)
         return
 
+    # Default interactive menu
     show_banner()
-    console.print("\n[bold yellow]? What would you like to do?[/bold yellow]")
-    console.print("  [1] 📥 [bold]Install / Update Rules[/bold]")
-    console.print("  [2] 🗑️  [bold]Uninstall Rules[/bold]")
-    console.print("  [3] 📚 [bold]List Rule Catalog[/bold]")
-    action_choice = Prompt.ask("Enter choice", choices=["1", "2", "3"], default="1")
+    action_idx = select_one(
+        "What would you like to do?",
+        [
+            "📥 Install / Update Rules",
+            "🗑️  Uninstall Rules",
+            "📚 List Rule Catalog",
+        ],
+        default_index=0,
+    )
 
-    if action_choice == "1":
+    if action_idx == 0:
         run_interactive_installer(catalog, args.root)
-    elif action_choice == "2":
+    elif action_idx == 1:
         run_uninstaller(args.root)
     else:
         list_catalog(catalog)

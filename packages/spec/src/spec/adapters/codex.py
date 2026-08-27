@@ -27,14 +27,12 @@ class CodexAdapter:
 
     def install(self) -> WriteResult:
         manifest = OwnershipManifest(self.root)
-        # 1. Write the isolated governance.md file owned by Spec
         writer_res = SafeWriter(self.root, manifest).write(
             self.governance_file,
             self.render(),
             mode=0o644,
         )
 
-        # 2. Inject or update the delimited block in AGENTS.md
         agents_path = self.boundary.resolve(self.target)
         content = agents_path.read_text(encoding="utf-8") if agents_path.exists() else ""
         block = f"{START_MARKER}\n@.spec/governance.md\n{END_MARKER}\n"
@@ -50,10 +48,11 @@ class CodexAdapter:
 
     def uninstall(self, *, dry_run: bool = True) -> DeleteResult:
         manifest = OwnershipManifest(self.root)
-        # 1. Delete owned governance.md
-        del_res = manifest.delete_owned(self.governance_file, dry_run=dry_run)
+        if manifest.get(self.governance_file) is not None:
+            del_res = manifest.delete_owned(self.governance_file, dry_run=dry_run)
+        else:
+            del_res = DeleteResult(path=self.governance_file, deleted=False, would_delete=False)
 
-        # 2. Remove delimited block from AGENTS.md
         agents_path = self.boundary.resolve(self.target)
         if agents_path.exists() and not dry_run:
             content = agents_path.read_text(encoding="utf-8")

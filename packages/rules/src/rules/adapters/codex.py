@@ -11,7 +11,7 @@ class CodexAdapter(BaseAgentAdapter):
 
     @property
     def display_name(self) -> str:
-        return "Universal / OpenAI Codex / Copilot (AGENTS.md)"
+        return "Google Antigravity & Universal Codex (AGENTS.md)"
 
     def get_target_file(self, root: Path, is_global: bool) -> Path:
         if is_global:
