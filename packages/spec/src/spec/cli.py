@@ -40,14 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--apply", action="store_true", help="Delete after ownership validation; default is dry-run"
     )
 
-    spec = subparsers.add_parser("spec", help="Create and inspect specification work")
-    spec_sub = spec.add_subparsers(dest="spec_command")
-    spec_new = spec_sub.add_parser("new", help="Create a new active specification")
-    spec_new.add_argument("name")
-    spec_new.add_argument("--description", default="")
-    spec_new.add_argument("--root", type=Path, default=Path.cwd())
-
-    new = subparsers.add_parser("new", help="Create a new active specification (alias for spec new)")
+    new = subparsers.add_parser("new", help="Create a new active specification")
     new.add_argument("name")
     new.add_argument("--description", default="")
     new.add_argument("--root", type=Path, default=Path.cwd())
@@ -134,7 +127,7 @@ def main(argv: list[str] | None = None) -> None:
             else:
                 print(f"Deleted owned adapter: {result.path}")
             raise SystemExit(0)
-        if (args.command == "spec" and getattr(args, "spec_command", None) == "new") or args.command == "new":
+        if args.command == "new":
             snapshot = Workflow(args.root).create_spec(args.name, args.description)
             print(f"Created spec {snapshot.feature} (stage={snapshot.stage.value})")
             raise SystemExit(0)

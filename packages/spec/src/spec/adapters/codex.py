@@ -27,26 +27,19 @@ class CodexAdapter:
 
     @staticmethod
     def render() -> str:
-        return """# Spec governance for coding agents
+        return """# Spec Governance for Coding Agents
 
-## Product boundary
+## Required Workflow
+1. Read `.spec/state.json` and active artifacts under `.spec/specs/` before changing code.
+2. Keep implementation strictly inside the active spec, plan, and task scope.
+3. Follow Test-First methodology: write/update unit and integration tests before or alongside logic.
+4. Execute verification using explicit commands from `.spec/verification.json` (e.g. `spec verify`).
+5. `SKIPPED`, `INCOMPLETE`, and `ERROR` are never considered `PASS`.
+6. Run `spec finish` only after recorded verification status is `PASS`.
 
-- This repository uses Spec for AI governance and Spec-Driven Development only.
-- Do not introduce Kubernetes, workspace provisioning, local-service orchestration, or
-  general DevOps behavior into the Spec core.
-
-## Required workflow
-
-1. Read `.spec/state.json` and the active artifacts under `.spec/specs/` before changing code.
-2. Keep implementation inside the active spec, plan, and task scope.
-3. Preserve unrelated user changes and never mutate global agent configuration.
-4. Use explicit argv commands from `.spec/verification.json`; never reinterpret them as shell.
-5. Run `spec verify` and report its exact status. `SKIPPED`, `INCOMPLETE`, and `ERROR` are not PASS.
-6. Run `spec finish` only after recorded verification is PASS.
-
-## Evidence and state
-
+## Safety & Invariants
 - Treat `.spec/evidence/` as immutable execution evidence.
 - Do not edit `.spec/state.json` or `.spec/ownership.json` by hand.
-- Do not claim tests, review, implementation, or cleanup happened without observable evidence.
+- Do not add AI attribution, robot emojis, or AI-generated mentions to commit messages or PRs.
+- Never modify files outside the agreed specification scope without user confirmation.
 """

@@ -19,7 +19,6 @@ def test_personal_governance_sdd_flow_end_to_end(tmp_path: Path, capsys) -> None
     assert invoke("init", "--root", root) == 0
     assert invoke("agent", "install", "--root", root) == 0
     assert invoke(
-        "spec",
         "new",
         "Safe change",
         "--description",
