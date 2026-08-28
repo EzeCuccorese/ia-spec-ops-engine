@@ -1,12 +1,12 @@
 ---
 name: spec-finish
-description: "Seals and completes the active specification after verified PASS status."
+description: "Seals and completes the active specification strictly upon verified PASS status and explicit human sign-off."
 ---
 
-# Spec Finish Assistant Skill
+# Spec Finish Assistant Skill (Final Gate)
 
 ## Workflow
-When all tasks are complete and `spec verify` recorded `PASS`:
-1. Execute `spec finish`.
-2. Verify that the feature transition to `complete` succeeded.
-3. Summarize the completed feature, files modified, and verified test results for the user.
+1. Verify that the recorded verification status is strictly `PASS`. If status is `FAIL` or missing, STOP immediately.
+2. Request explicit human sign-off: *"Verificación 100% exitosa con evidencia inmutable. ¿Confirmas el cierre del feature?"*.
+3. Upon confirmation, execute `spec finish`.
+4. Summarize the completed feature, files modified, and evidence path.

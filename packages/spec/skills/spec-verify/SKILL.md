@@ -1,17 +1,14 @@
 ---
 name: spec-verify
-description: "Executes deterministic verification checks configured in .spec/verification.json and analyzes execution evidence."
+description: "Executes deterministic verification checks, audits evidence, and reports results to the human before any closure."
 ---
 
-# Spec Verify Assistant Skill
+# Spec Verify Assistant Skill (Mandatory Evidence Audit)
 
 ## Workflow
-When the user or agent finishes writing code/tests and needs to verify (e.g. `/spec-verify`):
 1. Execute `spec verify` using the command runner.
-2. Read the execution report and evidence path.
-3. If status is `FAIL` or `INCOMPLETE`:
-   - Inspect stdout/stderr and traceback in the evidence JSON file.
-   - Fix the failing code or tests.
-   - Re-run `spec verify` until status is `PASS`.
-4. If status is `PASS`:
-   - Report the passed checks and summary to the user.
+2. Read the execution report and JSON evidence under `.spec/evidence/<feature-slug>/`.
+3. **Analyze and Report**:
+   - If status is `FAIL`: Present the exact failed assertion, stderr traceback, and affected file. Propose the minimal fix and ask the user for guidance.
+   - If status is `PASS`: Present the passed checks (linter, unit tests, coverage).
+4. **STOP**: Never call `spec finish` automatically. Always present the verified evidence and ask the user for authorization to seal the feature.

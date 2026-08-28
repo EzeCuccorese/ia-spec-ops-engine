@@ -75,7 +75,12 @@ class CodexAdapter:
 3. Follow Test-First methodology: write/update unit and integration tests before or alongside logic.
 4. Execute verification using explicit commands from `.spec/verification.json` (e.g. `spec verify`).
 5. `SKIPPED`, `INCOMPLETE`, and `ERROR` are never considered `PASS`.
-6. Run `spec finish` only after recorded verification status is `PASS`.
+6. Run `spec finish` only after recorded verification status is `PASS` and user authorizes.
+
+## Mandatory Human Gates & Inquiry
+- Spec Phase: Conduct an incisive requirements interview covering edge cases, failure modes, and data contracts. Never assume defaults or advance to planning without explicit user approval.
+- Plan Phase: Detail architecture, affected files, and test-first strategy. Never start coding without explicit user sign-off.
+- Verify & Finish: Never seal features without recorded PASS status and user authorization.
 
 ## Safety & Invariants
 - Treat `.spec/evidence/` as immutable execution evidence.
