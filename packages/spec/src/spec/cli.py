@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 
 from spec import __version__
-from spec.adapters.codex import CodexAdapter
 from spec.core.ownership import OwnershipError
 from spec.core.result import CheckStatus
 from spec.core.write import SafeWriteError
@@ -113,11 +112,14 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(run_doctor(as_json=args.json))
         if args.command == "init":
             result = ProjectGovernance(args.root).initialize()
-            print(f"Governance initialized ({len(result.created)} created, {len(result.existing)} existing)")
+            print(
+                f"Governance initialized ({len(result.created)} created, {len(result.existing)} existing)"
+            )
             raise SystemExit(0)
         if args.command == "agent" and args.agent_command == "install":
             from spec.adapters import SPEC_ADAPTERS
             from spec.core.tui import select_multiple
+
             options = [(k, label) for k, (label, _) in SPEC_ADAPTERS.items()]
             selected_keys = select_multiple(
                 "Select AI coding agents to configure with Spec governance:",
@@ -131,7 +133,8 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(0)
         if args.command == "agent" and args.agent_command == "uninstall":
             from spec.adapters import SPEC_ADAPTERS
-            for k, (label, cls) in SPEC_ADAPTERS.items():
+
+            for label, cls in SPEC_ADAPTERS.values():
                 res = cls(args.root).uninstall(dry_run=not args.apply)
                 if not args.apply and res.would_delete:
                     print(f"Would delete owned adapter for {label}: {res.path}")
@@ -171,9 +174,7 @@ def main(argv: list[str] | None = None) -> None:
                     "stage": snapshot.stage.value,
                     "updated_at": snapshot.updated_at,
                     "verification_status": (
-                        snapshot.verification_status.value
-                        if snapshot.verification_status
-                        else None
+                        snapshot.verification_status.value if snapshot.verification_status else None
                     ),
                     "evidence_path": snapshot.evidence_path,
                 }

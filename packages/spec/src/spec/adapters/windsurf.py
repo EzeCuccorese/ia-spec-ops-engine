@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from spec.core.ownership import DeleteResult, OwnershipManifest
 from spec.core.paths import PathBoundary
 from spec.core.write import SafeWriter, WriteResult
-from .codex import CodexAdapter, START_MARKER, END_MARKER, PATTERN
+
+from .codex import END_MARKER, PATTERN, START_MARKER, CodexAdapter
 
 
 class WindsurfAdapter:

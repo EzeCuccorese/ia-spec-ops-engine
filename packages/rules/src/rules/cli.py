@@ -3,14 +3,15 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from .adapters import ALL_ADAPTERS
 from .core.catalog import RuleCatalog, RuleDefinition
 from .core.storage import RuleStorage
-from .core.tui import select_one, select_multiple
-from .adapters import ALL_ADAPTERS
+from .core.tui import select_multiple, select_one
 
 console = Console()
 
@@ -53,7 +54,7 @@ def run_interactive_installer(catalog: RuleCatalog, root: Path) -> None:
         ],
         default_index=0,
     )
-    is_global = (scope_idx == 0)
+    is_global = scope_idx == 0
     storage = RuleStorage.global_storage() if is_global else RuleStorage.local_storage(root)
 
     # 2. Agent selection
@@ -68,9 +69,15 @@ def run_interactive_installer(catalog: RuleCatalog, root: Path) -> None:
     # 3. Rule category / stacks selection
     category_options = [
         ("all", "✨ Select ALL 28 Rules (Full Enterprise Suite)"),
-        ("1-core", "🏛️  Core Rules (Clean Code, SOLID, DDD, Clean Architecture, Testing, Security, EDA)"),
+        (
+            "1-core",
+            "🏛️  Core Rules (Clean Code, SOLID, DDD, Clean Architecture, Testing, Security, EDA)",
+        ),
         ("2-stacks", "💻 Language Stacks (Python, React, Java, C#, Go, Rust, Kotlin, PHP, Dart)"),
-        ("3-infrastructure", "☁️  Infrastructure & DB (Migrations, SQL, Docker, K8s, CI/CD, APIs, Observability)"),
+        (
+            "3-infrastructure",
+            "☁️  Infrastructure & DB (Migrations, SQL, Docker, K8s, CI/CD, APIs, Observability)",
+        ),
         ("4-docs", "📐 Documentation & Diagrams (C4 Architecture Model, Mermaid, ADRs)"),
     ]
     selected_cats = select_multiple(
@@ -93,12 +100,16 @@ def run_interactive_installer(catalog: RuleCatalog, root: Path) -> None:
 
     # Save to storage
     saved_path = storage.save_rules(chosen_rules)
-    console.print(f"[bold green]✔[/bold green] Saved [bold]{len(chosen_rules)} rules[/bold] to [cyan]{saved_path}[/cyan]")
+    console.print(
+        f"[bold green]✔[/bold green] Saved [bold]{len(chosen_rules)} rules[/bold] to [cyan]{saved_path}[/cyan]"
+    )
 
     # Install into selected adapters
     for adapter in selected_adapters:
         target = adapter.install(chosen_rules, saved_path, root, is_global)
-        console.print(f"[bold green]✔[/bold green] Configured {adapter.display_name}: [cyan]{target}[/cyan]")
+        console.print(
+            f"[bold green]✔[/bold green] Configured {adapter.display_name}: [cyan]{target}[/cyan]"
+        )
 
     console.print("\n[bold green]🎉 Rules installation completed successfully![/bold green]\n")
 
@@ -113,7 +124,7 @@ def run_uninstaller(root: Path) -> None:
         ],
         default_index=0,
     )
-    is_global = (scope_idx == 0)
+    is_global = scope_idx == 0
 
     storage = RuleStorage.global_storage() if is_global else RuleStorage.local_storage(root)
     storage.delete_all()
@@ -121,16 +132,30 @@ def run_uninstaller(root: Path) -> None:
     for adapter in ALL_ADAPTERS.values():
         res = adapter.uninstall(root, is_global)
         if res:
-            console.print(f"[bold green]✔[/bold green] Cleaned {adapter.display_name}: [cyan]{res}[/cyan]")
+            console.print(
+                f"[bold green]✔[/bold green] Cleaned {adapter.display_name}: [cyan]{res}[/cyan]"
+            )
 
-    console.print("\n[bold green]✨ All rules successfully uninstalled and user files preserved.[/bold green]\n")
+    console.print(
+        "\n[bold green]✨ All rules successfully uninstalled and user files preserved.[/bold green]\n"
+    )
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="rules", description="SpecOps Rules — Software Engineering Standards TUI")
-    parser.add_argument("action", nargs="?", choices=["install", "uninstall", "list", "menu"], default="menu", help="Action to perform")
+    parser = argparse.ArgumentParser(
+        prog="rules", description="SpecOps Rules — Software Engineering Standards TUI"
+    )
+    parser.add_argument(
+        "action",
+        nargs="?",
+        choices=["install", "uninstall", "list", "menu"],
+        default="menu",
+        help="Action to perform",
+    )
     parser.add_argument("--root", type=Path, default=Path.cwd(), help="Target root directory")
-    parser.add_argument("--global", dest="is_global", action="store_true", help="Force global scope")
+    parser.add_argument(
+        "--global", dest="is_global", action="store_true", help="Force global scope"
+    )
     parser.add_argument("--local", dest="is_local", action="store_true", help="Force local scope")
     parser.add_argument("--all", dest="all_rules", action="store_true", help="Select all rules")
     args = parser.parse_args(argv or sys.argv[1:])
@@ -143,7 +168,11 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.action == "uninstall":
         if args.is_global or args.is_local:
-            storage = RuleStorage.global_storage() if args.is_global else RuleStorage.local_storage(args.root)
+            storage = (
+                RuleStorage.global_storage()
+                if args.is_global
+                else RuleStorage.local_storage(args.root)
+            )
             storage.delete_all()
             for adapter in ALL_ADAPTERS.values():
                 adapter.uninstall(args.root, args.is_global)
@@ -153,7 +182,11 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.action == "install":
         if args.is_global or args.is_local:
-            storage = RuleStorage.global_storage() if args.is_global else RuleStorage.local_storage(args.root)
+            storage = (
+                RuleStorage.global_storage()
+                if args.is_global
+                else RuleStorage.local_storage(args.root)
+            )
             rules_to_save = catalog.rules if args.all_rules else catalog.rules
             saved = storage.save_rules(rules_to_save)
             for adapter in ALL_ADAPTERS.values():

@@ -18,14 +18,17 @@ def test_personal_governance_sdd_flow_end_to_end(tmp_path: Path, capsys) -> None
 
     assert invoke("init", "--root", root) == 0
     assert invoke("agent", "install", "--root", root) == 0
-    assert invoke(
-        "new",
-        "Safe change",
-        "--description",
-        "Prove the governed workflow.",
-        "--root",
-        root,
-    ) == 0
+    assert (
+        invoke(
+            "new",
+            "Safe change",
+            "--description",
+            "Prove the governed workflow.",
+            "--root",
+            root,
+        )
+        == 0
+    )
     assert invoke("plan", "--root", root) == 0
     assert invoke("tasks", "--root", root) == 0
     assert invoke("work", "--root", root) == 0

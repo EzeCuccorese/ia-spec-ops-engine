@@ -41,4 +41,3 @@ def test_rejects_symlink_escape(tmp_path: Path) -> None:
 def test_rejects_broad_dangerous_roots(candidate: Path) -> None:
     with pytest.raises(UnsafeRootError):
         PathBoundary(candidate)
-

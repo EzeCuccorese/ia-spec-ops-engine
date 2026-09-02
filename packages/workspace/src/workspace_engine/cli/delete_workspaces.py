@@ -6,15 +6,20 @@ workspace_engine.cli.delete_workspaces — Eliminación segura e interactiva de 
 from __future__ import annotations
 
 import argparse
-import json
-import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional
 
-from workspace_engine.utils import Color, find_project_root, log_error, log_info, log_success, log_warning, run_git
+from workspace_engine.utils import (
+    Color,
+    find_project_root,
+    log_error,
+    log_info,
+    log_success,
+    log_warning,
+    run_git,
+)
 
 
 def _git(repo_path: Path, *args) -> subprocess.CompletedProcess:
@@ -46,14 +51,18 @@ def delete_single_workspace(workspace_dir: Path, force: bool = False) -> bool:
     return True
 
 
-def delete_workspaces(workspaces: Optional[List[str]] = None, force: bool = False) -> int:
+def delete_workspaces(workspaces: list[str] | None = None, force: bool = False) -> int:
     root = find_project_root()
-    workspaces_root = root / "workspaces" if (root / "workspaces").exists() else root.parent / "workspaces"
+    workspaces_root = (
+        root / "workspaces" if (root / "workspaces").exists() else root.parent / "workspaces"
+    )
 
     # Si se ejecuta desde adentro de un workspace
     if (root / "repositories").is_dir() and root.name != "workspaces":
         if not force:
-            print(f"{Color.RED}{Color.BOLD}⚠ Advertencia: Vas a eliminar el workspace actual: {root.name}{Color.RESET}")
+            print(
+                f"{Color.RED}{Color.BOLD}⚠ Advertencia: Vas a eliminar el workspace actual: {root.name}{Color.RESET}"
+            )
             resp = input(f"{Color.BOLD}¿Eliminar? [y/N]: {Color.RESET}").strip().lower()
             if resp not in ("y", "yes", "s", "si"):
                 log_warning("Operación cancelada.")
@@ -72,8 +81,10 @@ def delete_workspaces(workspaces: Optional[List[str]] = None, force: bool = Fals
         print(f"\n{Color.BOLD}Workspaces disponibles:{Color.RESET}")
         for idx, w in enumerate(available, 1):
             print(f"  {idx}. {w}")
-        choice = input(f"\n{Color.BOLD}Selecciona los números a eliminar (separados por coma) o 'q' para salir: {Color.RESET}").strip()
-        if not choice or choice.lower() == 'q':
+        choice = input(
+            f"\n{Color.BOLD}Selecciona los números a eliminar (separados por coma) o 'q' para salir: {Color.RESET}"
+        ).strip()
+        if not choice or choice.lower() == "q":
             log_warning("Operación cancelada.")
             return 0
         selected_indices = [int(x.strip()) for x in choice.split(",") if x.strip().isdigit()]

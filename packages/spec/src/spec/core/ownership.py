@@ -62,15 +62,15 @@ class OwnershipManifest:
         data = json.loads(self.path.read_text(encoding="utf-8"))
         if data.get("schema_version") != self.schema_version:
             raise OwnershipError("Unsupported ownership manifest schema")
-        return {
-            item["path"]: OwnershipRecord(**item) for item in data.get("files", [])
-        }
+        return {item["path"]: OwnershipRecord(**item) for item in data.get("files", [])}
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "schema_version": self.schema_version,
-            "files": [asdict(record) for record in sorted(self._records.values(), key=lambda r: r.path)],
+            "files": [
+                asdict(record) for record in sorted(self._records.values(), key=lambda r: r.path)
+            ],
         }
         fd, temporary_name = tempfile.mkstemp(prefix=".ownership-", dir=self.path.parent)
         temporary = Path(temporary_name)
@@ -124,4 +124,3 @@ class OwnershipManifest:
         del self._records[record.path]
         self._save()
         return DeleteResult(path=record.path, deleted=True, would_delete=False)
-

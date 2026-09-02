@@ -1,15 +1,13 @@
 import tempfile
 from pathlib import Path
-import pytest
 
 from workspace_engine.run_local.service_wiring import (
     assign_port,
     service_name_from_subdomain,
     spring_context_path,
-    wire_urls,
     wire_db_urls,
+    wire_urls,
 )
-from workspace_engine.run_local.profiles import load_profiles, save_profiles
 
 
 def test_assign_port():
@@ -22,14 +20,17 @@ def test_assign_port():
 
 
 def test_service_name_from_subdomain():
-    assert service_name_from_subdomain("merchants-auth-service-faf-01.dev.generic.com") == "auth-service"
+    assert (
+        service_name_from_subdomain("merchants-auth-service-faf-01.dev.generic.com")
+        == "auth-service"
+    )
     assert service_name_from_subdomain("core-payment-service.prod.generic.com") == "payment-service"
 
 
 def test_wire_urls():
     env = {
         "AUTH_URL": "http://merchants-auth-service-faf.dev.generic.com/api/v1",
-        "OTHER_VAR": "constant_value"
+        "OTHER_VAR": "constant_value",
     }
     running = {"auth-service": 8085}
     wired, updated = wire_urls(env, running)
@@ -41,7 +42,7 @@ def test_wire_urls():
 def test_wire_db_urls():
     env = {
         "DB_URI": "mongodb://localhost:27017/mydb",
-        "PG_URI": "postgres://user:pass@localhost:5432/pgdb"
+        "PG_URI": "postgres://user:pass@localhost:5432/pgdb",
     }
     wired = wire_db_urls(env)
     assert wired.get("SPRING_DATA_MONGODB_URI") == "mongodb://localhost:27017/mydb"

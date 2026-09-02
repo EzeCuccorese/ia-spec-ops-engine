@@ -1,5 +1,5 @@
-from .codex import CodexAdapter
 from .claude import ClaudeAdapter
+from .codex import CodexAdapter
 from .cursor import CursorAdapter
 from .windsurf import WindsurfAdapter
 

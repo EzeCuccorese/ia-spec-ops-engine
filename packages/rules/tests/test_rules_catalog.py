@@ -1,11 +1,10 @@
-import pytest
 from rules.core.catalog import RuleCatalog
 
 
 def test_catalog_loads_all_canonical_rules() -> None:
     catalog = RuleCatalog()
     assert len(catalog.rules) >= 25
-    
+
     categories = catalog.by_category()
     assert "1-core" in categories
     assert "2-stacks" in categories

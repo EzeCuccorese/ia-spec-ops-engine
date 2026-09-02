@@ -2,20 +2,11 @@
 Tests para utilidades compartidas de workspace_engine.common (colores, frontmatter, dotenv, project, subprocess).
 """
 
-import tempfile
-from pathlib import Path
-import pytest
-
 from workspace_engine.common import (
-    parse_dotenv,
-    parse_frontmatter,
-    ProjectType,
-    detect_project_type,
-    find_project_root,
-    run_command_safe,
-    run_command,
-    colorize,
     Color,
+    colorize,
+    parse_frontmatter,
+    run_command_safe,
 )
 
 

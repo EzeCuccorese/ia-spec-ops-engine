@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+
 from .catalog import RuleDefinition
 
 
@@ -27,19 +28,24 @@ class RuleStorage:
             dest = self.target_dir / r.relative_path
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_text(r.content, encoding="utf-8")
-            manifest_rules.append({
-                "id": r.id,
-                "category": r.category,
-                "file": r.relative_path,
-                "description": r.description,
-                "sha256": r.sha256,
-                "triggers": {"globs": list(r.globs)},
-            })
+            manifest_rules.append(
+                {
+                    "id": r.id,
+                    "category": r.category,
+                    "file": r.relative_path,
+                    "description": r.description,
+                    "sha256": r.sha256,
+                    "triggers": {"globs": list(r.globs)},
+                }
+            )
         manifest_path = self.target_dir / "manifest.json"
-        manifest_path.write_text(json.dumps({"schema_version": 1, "rules": manifest_rules}, indent=2), encoding="utf-8")
+        manifest_path.write_text(
+            json.dumps({"schema_version": 1, "rules": manifest_rules}, indent=2), encoding="utf-8"
+        )
         return self.target_dir
 
     def delete_all(self) -> None:
         if self.target_dir.exists():
             import shutil
+
             shutil.rmtree(self.target_dir)

@@ -108,9 +108,7 @@ def _workflow_at_work(tmp_path: Path) -> Workflow:
 
 def test_verification_attempt_records_immutable_evidence(tmp_path: Path) -> None:
     workflow = _workflow_at_work(tmp_path)
-    report = VerificationReport(
-        checks=(CheckResult(id="tests", status=CheckStatus.FAIL),)
-    )
+    report = VerificationReport(checks=(CheckResult(id="tests", status=CheckStatus.FAIL),))
 
     snapshot, evidence_path = workflow.record_verification(report)
 

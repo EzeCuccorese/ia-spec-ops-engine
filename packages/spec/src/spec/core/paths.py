@@ -42,4 +42,3 @@ class PathBoundary:
 
     def relative(self, candidate: str | Path) -> str:
         return self.resolve(candidate).relative_to(self.root).as_posix()
-

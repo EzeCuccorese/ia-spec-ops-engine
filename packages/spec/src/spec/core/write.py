@@ -74,4 +74,3 @@ class SafeWriter:
             raise SafeWriteError(f"Post-write digest mismatch for {relative}")
         self.manifest.record(relative, digest)
         return WriteResult(path=relative, sha256=digest, created=created, updated=not created)
-

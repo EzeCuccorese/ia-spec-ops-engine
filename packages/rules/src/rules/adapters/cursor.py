@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 import shutil
+from pathlib import Path
+
 from ..core.catalog import RuleDefinition
 from .base import BaseAgentAdapter
 
@@ -20,7 +21,9 @@ class CursorAdapter(BaseAgentAdapter):
             return Path.home() / ".cursorrules"
         return root / ".cursorrules"
 
-    def install(self, rules: list[RuleDefinition], storage_path: Path, root: Path, is_global: bool) -> Path:
+    def install(
+        self, rules: list[RuleDefinition], storage_path: Path, root: Path, is_global: bool
+    ) -> Path:
         target = super().install(rules, storage_path, root, is_global)
         if not is_global:
             rules_dir = root / ".cursor" / "rules"

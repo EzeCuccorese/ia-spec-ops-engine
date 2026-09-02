@@ -81,9 +81,7 @@ class Workflow:
                     else None
                 ),
                 evidence_path=(
-                    str(data["evidence_path"])
-                    if data.get("evidence_path") is not None
-                    else None
+                    str(data["evidence_path"]) if data.get("evidence_path") is not None else None
                 ),
             )
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
@@ -102,12 +100,16 @@ class Workflow:
                 raise InvalidTransitionError(
                     f"Feature {current.feature} is already active at stage {current.stage}"
                 )
-            raise ArtifactExistsError(f"Spec already exists and will not be overwritten: {spec_path}")
+            raise ArtifactExistsError(
+                f"Spec already exists and will not be overwritten: {spec_path}"
+            )
         if spec_path.exists():
             if current is None:
                 self._require_nonempty(spec_path, "spec.md")
                 return self._persist(feature, Stage.SPEC)
-            raise ArtifactExistsError(f"Spec already exists and will not be overwritten: {spec_path}")
+            raise ArtifactExistsError(
+                f"Spec already exists and will not be overwritten: {spec_path}"
+            )
         content = (
             f"# Spec: {name.strip()}\n\n"
             "## Purpose\n\n"
@@ -127,7 +129,9 @@ class Workflow:
         if current is None:
             raise InvalidTransitionError("Cannot create a plan without an active spec")
         if current.stage is not Stage.SPEC:
-            raise InvalidTransitionError(f"Plan requires stage spec, current stage is {current.stage}")
+            raise InvalidTransitionError(
+                f"Plan requires stage spec, current stage is {current.stage}"
+            )
         directory = self.feature_dir(current.feature)
         self._require_nonempty(directory / "spec.md", "spec.md")
         plan_path = directory / "plan.md"
@@ -172,9 +176,7 @@ class Workflow:
         self._require_nonempty(self.feature_dir(current.feature) / "tasks.md", "tasks.md")
         return self._persist(current.feature, Stage.WORK)
 
-    def record_verification(
-        self, report: VerificationReport
-    ) -> tuple[WorkflowSnapshot, Path]:
+    def record_verification(self, report: VerificationReport) -> tuple[WorkflowSnapshot, Path]:
         current = self.status()
         allowed = {Stage.WORK, Stage.VERIFY}
         if current is None or current.stage not in allowed:
@@ -237,7 +239,9 @@ class Workflow:
         try:
             descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         except FileExistsError as exc:
-            raise ArtifactExistsError(f"Artifact exists and will not be overwritten: {path}") from exc
+            raise ArtifactExistsError(
+                f"Artifact exists and will not be overwritten: {path}"
+            ) from exc
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
             stream.write(content)
             stream.flush()

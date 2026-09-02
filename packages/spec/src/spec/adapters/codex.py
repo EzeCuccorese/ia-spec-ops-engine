@@ -77,6 +77,13 @@ class CodexAdapter:
 5. `SKIPPED`, `INCOMPLETE`, and `ERROR` are never considered `PASS`.
 6. Run `spec finish` only after recorded verification status is `PASS` and user authorizes.
 
+## Recognized SDD Commands & Workflows
+When the user mentions or asks for spec-new, spec-plan, spec-verify, or spec-finish:
+- spec-new <name>: Execute spec new "<name>", stop immediately, conduct the mandatory requirements interview, then write .spec/specs/<slug>/spec.md.
+- spec-plan: Execute spec plan and spec tasks, stop immediately, conduct the architectural review, then write plan.md and tasks.md.
+- spec-verify: Execute spec verify and audit the verification evidence.
+- spec-finish: Upon verified PASS status and explicit human sign-off, execute spec finish.
+
 ## Mandatory Human Gates & Inquiry
 - Spec Phase: Conduct an incisive requirements interview covering edge cases, failure modes, and data contracts. Never assume defaults or advance to planning without explicit user approval.
 - Plan Phase: Detail architecture, affected files, and test-first strategy. Never start coding without explicit user sign-off.

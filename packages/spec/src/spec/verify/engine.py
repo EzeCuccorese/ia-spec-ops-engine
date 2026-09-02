@@ -33,9 +33,7 @@ class ProcessOutcome:
 
 
 class Runner(Protocol):
-    def run(
-        self, command: tuple[str, ...], cwd: Path, timeout_seconds: int
-    ) -> ProcessOutcome: ...
+    def run(self, command: tuple[str, ...], cwd: Path, timeout_seconds: int) -> ProcessOutcome: ...
 
 
 class SubprocessRunner:

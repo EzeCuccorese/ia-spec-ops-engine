@@ -7,27 +7,25 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
-import sys
 from pathlib import Path
-from typing import List
 
-from workspace_engine.utils import find_project_root, log_error, log_info, log_success, log_warning
+from workspace_engine.utils import log_error, log_info, log_success
 
 
-def update_env_in_yaml(yaml_path: Path, services: List[str], key: str, value: str) -> bool:
+def update_env_in_yaml(yaml_path: Path, services: list[str], key: str, value: str) -> bool:
     if not yaml_path.is_file():
         log_error(f"Archivo no encontrado: {yaml_path}")
         return False
 
     try:
         from ruamel.yaml import YAML
+
         yaml = YAML()
         yaml.preserve_quotes = True
         yaml.indent(mapping=2, sequence=4, offset=2)
         yaml.width = 4096
 
-        with open(yaml_path, "r", encoding="utf-8") as f:
+        with open(yaml_path, encoding="utf-8") as f:
             data = yaml.load(f)
 
         updated = False
@@ -54,12 +52,16 @@ def update_env_in_yaml(yaml_path: Path, services: List[str], key: str, value: st
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Actualiza variables en archivos YAML de GitOps o despliegue.")
+    parser = argparse.ArgumentParser(
+        description="Actualiza variables en archivos YAML de GitOps o despliegue."
+    )
     parser.add_argument("--envs", required=True, help="Ambientes (separados por coma)")
     parser.add_argument("--services", required=True, help="Servicios (separados por coma)")
     parser.add_argument("--var", required=True, help="Nombre de la variable")
     parser.add_argument("--values", required=True, help="Valores (separados por coma)")
-    parser.add_argument("--root", default=os.path.expanduser("~/projects/gitops/apps/apps"), help="Directorio raíz")
+    parser.add_argument(
+        "--root", default=os.path.expanduser("~/projects/gitops/apps/apps"), help="Directorio raíz"
+    )
     parser.add_argument("--suffix", help="Sufijo opcional para valores")
     args = parser.parse_args()
 

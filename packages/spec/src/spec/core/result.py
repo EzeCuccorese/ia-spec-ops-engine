@@ -35,9 +35,7 @@ class VerificationReport:
             return CheckStatus.ERROR
         if any(check.status is CheckStatus.FAIL for check in required):
             return CheckStatus.FAIL
-        if any(
-            check.status in {CheckStatus.INCOMPLETE, CheckStatus.SKIPPED} for check in required
-        ):
+        if any(check.status in {CheckStatus.INCOMPLETE, CheckStatus.SKIPPED} for check in required):
             return CheckStatus.INCOMPLETE
         if all(check.status is CheckStatus.PASS for check in required):
             return CheckStatus.PASS

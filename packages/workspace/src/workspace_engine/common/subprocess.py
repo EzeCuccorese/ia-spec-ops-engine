@@ -9,7 +9,6 @@ import shlex
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
 
 from workspace_engine.common.colors import Color, log_error
 
@@ -17,17 +16,17 @@ DEFAULT_COMMAND_TIMEOUT = 120  # 2 minutos por defecto
 
 
 def run_command(
-    command: Union[str, List[str]],
+    command: str | list[str],
     check: bool = True,
     capture_output: bool = True,
     show_command: bool = False,
-    error_message: Optional[str] = None,
+    error_message: str | None = None,
     shell: bool = False,
-    env: Optional[Dict[str, str]] = None,
-    cwd: Optional[Union[str, Path]] = None,
-    timeout: Optional[int] = DEFAULT_COMMAND_TIMEOUT,
+    env: dict[str, str] | None = None,
+    cwd: str | Path | None = None,
+    timeout: int | None = DEFAULT_COMMAND_TIMEOUT,
     isolated_git: bool = False,
-) -> Optional[str]:
+) -> str | None:
     """
     Ejecuta un comando de sistema de forma determinista con timeout configurable y captura limpia.
     """
@@ -38,7 +37,12 @@ def run_command(
     merged_env = os.environ.copy()
     if isolated_git:
         for k in list(merged_env.keys()):
-            if k.startswith("GIT_") and k not in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
+            if k.startswith("GIT_") and k not in (
+                "GIT_AUTHOR_NAME",
+                "GIT_AUTHOR_EMAIL",
+                "GIT_COMMITTER_NAME",
+                "GIT_COMMITTER_EMAIL",
+            ):
                 del merged_env[k]
         merged_env["GIT_CONFIG_GLOBAL"] = "/dev/null"
         merged_env["GIT_CONFIG_SYSTEM"] = "/dev/null"
@@ -62,7 +66,7 @@ def run_command(
             timeout=timeout,
         )
         return result.stdout.strip() if capture_output else ""
-    except subprocess.TimeoutExpired as e:
+    except subprocess.TimeoutExpired:
         cmd_str = command if isinstance(command, str) else " ".join(command)
         log_error(f"Tiempo de espera agotado ({timeout}s) ejecutando: {cmd_str}")
         if check:
@@ -89,12 +93,12 @@ def run_command(
 
 
 def run_command_safe(
-    cmd: Union[str, List[str]],
-    cwd: Optional[Union[str, Path]] = None,
-    env: Optional[Dict[str, str]] = None,
-    timeout: Optional[int] = DEFAULT_COMMAND_TIMEOUT,
+    cmd: str | list[str],
+    cwd: str | Path | None = None,
+    env: dict[str, str] | None = None,
+    timeout: int | None = DEFAULT_COMMAND_TIMEOUT,
     isolated_git: bool = False,
-) -> Tuple[int, str, str]:
+) -> tuple[int, str, str]:
     """
     Wrapper seguro que retorna (returncode, stdout, stderr) sin lanzar excepciones no controladas.
     """
@@ -102,7 +106,12 @@ def run_command_safe(
     merged_env = os.environ.copy()
     if isolated_git:
         for k in list(merged_env.keys()):
-            if k.startswith("GIT_") and k not in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
+            if k.startswith("GIT_") and k not in (
+                "GIT_AUTHOR_NAME",
+                "GIT_AUTHOR_EMAIL",
+                "GIT_COMMITTER_NAME",
+                "GIT_COMMITTER_EMAIL",
+            ):
                 del merged_env[k]
         merged_env["GIT_CONFIG_GLOBAL"] = "/dev/null"
         merged_env["GIT_CONFIG_SYSTEM"] = "/dev/null"

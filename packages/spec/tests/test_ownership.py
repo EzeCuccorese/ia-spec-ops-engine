@@ -63,4 +63,3 @@ def test_delete_owned_file_supports_dry_run(tmp_path: Path) -> None:
     assert result.deleted is False
     assert result.would_delete is True
     assert (tmp_path / ".spec/generated.txt").exists()
-

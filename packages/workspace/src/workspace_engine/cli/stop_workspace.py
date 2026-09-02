@@ -6,17 +6,17 @@ workspace_engine.cli.stop_workspace — Detención determinista de procesos de s
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import signal
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 from workspace_engine.utils import find_project_root, log_info, log_success, log_warning
 
 
-def stop_workspace(start_dir: Optional[Path] = None) -> int:
+def stop_workspace(start_dir: Path | None = None) -> int:
     """Detiene todos los procesos registrados en .ai-toolkit/run-pids/."""
     workspace_dir = find_project_root(start_dir)
     pids_dir = workspace_dir / ".ai-toolkit" / "run-pids"
@@ -51,10 +51,8 @@ def stop_workspace(start_dir: Optional[Path] = None) -> int:
             try:
                 os.killpg(os.getpgid(pid), signal.SIGTERM)
             except OSError:
-                try:
+                with contextlib.suppress(OSError):
                     os.kill(pid, signal.SIGTERM)
-                except OSError:
-                    pass
 
             for _ in range(50):
                 try:

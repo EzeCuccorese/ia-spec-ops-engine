@@ -17,9 +17,7 @@ def test_doctor_json_has_stable_contract(capsys) -> None:
     assert payload["platform"]
 
 
-def test_verify_executes_config_and_records_workflow_evidence(
-    tmp_path: Path, capsys
-) -> None:
+def test_verify_executes_config_and_records_workflow_evidence(tmp_path: Path, capsys) -> None:
     workflow = Workflow(tmp_path)
     workflow.create_spec("Feature", "Description")
     workflow.create_plan()
@@ -51,8 +49,9 @@ def test_verify_executes_config_and_records_workflow_evidence(
 
 
 def test_cli_new_command_creates_specification(tmp_path: Path) -> None:
-    from spec.cli import main
     import pytest
+
+    from spec.cli import main
 
     with pytest.raises(SystemExit) as exc:
         main(["new", "Direct Feature", "--root", str(tmp_path)])

@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import os
 import sys
-from typing import Sequence
+from collections.abc import Sequence
 
 # ANSI Colors and Controls
 CLEAR_LINE = "\033[2K"
@@ -31,14 +30,9 @@ def get_key() -> str:
             ch2 = sys.stdin.read(1)
             if ch2 == "[":
                 ch3 = sys.stdin.read(1)
-                if ch3 == "A":
-                    return "UP"
-                elif ch3 == "B":
-                    return "DOWN"
-                elif ch3 == "C":
-                    return "RIGHT"
-                elif ch3 == "D":
-                    return "LEFT"
+                arrows = {"A": "UP", "B": "DOWN", "C": "RIGHT", "D": "LEFT"}
+                if ch3 in arrows:
+                    return arrows[ch3]
             return "ESC"
         elif ch1 == "\r" or ch1 == "\n":
             return "ENTER"
@@ -69,7 +63,9 @@ def select_one(
     try:
         # Initial render
         for i, opt in enumerate(options):
-            prefix = f"{CYAN}❯{RESET} {BOLD}{opt}{RESET}" if i == current else f"  {DIM}{opt}{RESET}"
+            prefix = (
+                f"{CYAN}❯{RESET} {BOLD}{opt}{RESET}" if i == current else f"  {DIM}{opt}{RESET}"
+            )
             print(f"  {prefix}")
 
         while True:
@@ -84,7 +80,9 @@ def select_one(
             # Move cursor up and redraw
             print(f"\033[{num_options}A", end="")
             for i, opt in enumerate(options):
-                prefix = f"{CYAN}❯{RESET} {BOLD}{opt}{RESET}" if i == current else f"  {DIM}{opt}{RESET}"
+                prefix = (
+                    f"{CYAN}❯{RESET} {BOLD}{opt}{RESET}" if i == current else f"  {DIM}{opt}{RESET}"
+                )
                 print(f"{CLEAR_LINE}  {prefix}")
             sys.stdout.flush()
 
@@ -108,7 +106,9 @@ def select_multiple(
     current = 0
     num_options = len(options)
 
-    print(f"\n{BOLD}{YELLOW}? {title}{RESET} {DIM}(↑/↓ navigate, Space toggle, 'a' toggle all, Enter confirm){RESET}")
+    print(
+        f"\n{BOLD}{YELLOW}? {title}{RESET} {DIM}(↑/↓ navigate, Space toggle, 'a' toggle all, Enter confirm){RESET}"
+    )
     print(HIDE_CURSOR, end="", flush=True)
 
     try:

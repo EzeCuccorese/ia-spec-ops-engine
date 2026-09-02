@@ -6,17 +6,16 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Dict, Union
 
 _EXPORT_PREFIX_RE = re.compile(r"^\s*export\s+")
 
 
-def parse_dotenv(dotenv_path: Union[Path, str]) -> Dict[str, str]:
+def parse_dotenv(dotenv_path: Path | str) -> dict[str, str]:
     """
     Parsea un archivo .env o set-env.sh a un diccionario clave-valor.
     Soporta prefijos 'export', comentarios, y remueve comillas envolventes.
     """
-    env_vars: Dict[str, str] = {}
+    env_vars: dict[str, str] = {}
     path = Path(dotenv_path)
     if not path.is_file():
         return env_vars

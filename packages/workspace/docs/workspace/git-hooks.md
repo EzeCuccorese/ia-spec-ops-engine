@@ -13,21 +13,23 @@ The **Workspace Engine Git Hooks** module provides an automated, deterministic q
 
 ---
 
-## 🛡️ The 4 Quality Gate Stages
+## 🛡️ The 5 Quality Gate Stages
 
-During `git push`, the pre-push hook sequentially executes 4 stages:
+During `git push` or `ws hooks run`, the pre-push hook sequentially executes 5 stages:
 
 ```
-[Quality Gate Pre-Push Hook] Verifying code quality and security before push...
-🔒 [1/4] Scanning secrets and forbidden tracked files...
-✔ Security & Secrets: PASS
-📝 [2/4] Verifying commit policies & Zero AI mentions...
-✔ Git Policies & Zero AI Mentions: PASS
-🔍 [3/4] Running multi-stack static linters...
-✔ Linters & Static Analysis: PASS
-🧪 [4/4] Running automated test suites...
-✔ Test Suites: PASS
-🚀 All checks passed. Proceeding with git push...
+[Quality Gate Pre-Push Hook] Verificando calidad y seguridad antes de enviar cambios...
+🔒 [1/5] Verificando secretos en los commits que se pushean (gitleaks)...
+✔ Seguridad y Secretos: PASS
+📝 [2/5] Verificando políticas de commit (Conventional Commits, autosquash)...
+✔ Políticas Git: PASS
+🔍 [3/5] Ejecutando análisis estático y linters (Ruff, ESLint, PHPCS, Go vet, Cargo clippy, Flutter)...
+✔ Linters y Análisis Estático: PASS
+🧪 [4/5] Ejecutando suites de tests (Pytest, Jest/Vitest, PHPUnit, Maven/Gradle, Go, Rust, Flutter)...
+✔ Suites de Tests: PASS
+🪝 [5/5] Delegando al hook pre-push del repositorio (Husky u otro)...
+✔ Hooks del Repositorio: PASS
+🚀 Todo en orden. Procediendo con git push...
 ```
 
 ---
@@ -39,17 +41,29 @@ During `git push`, the pre-push hook sequentially executes 4 stages:
 ws hooks status
 ```
 
-### 2. Install Hook in Local Repository
+### 2. Run Quality Gate On-Demand (Without pushing)
+```bash
+ws hooks run
+ws hooks run --scope changed
+ws hooks run --skip gitleaks,commits
+```
+
+### 3. Test Hook Execution
+```bash
+ws hooks test
+```
+
+### 4. Install Hook in Local Repository
 ```bash
 ws hooks install
 ```
 
-### 3. Install Hook Globally (Entire Machine)
+### 5. Install Hook Globally (Entire Machine)
 ```bash
 ws hooks install --global
 ```
 
-### 4. Uninstall Hooks
+### 6. Uninstall Hooks
 ```bash
 ws hooks uninstall
 ws hooks uninstall --global

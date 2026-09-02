@@ -1,5 +1,5 @@
 from .catalog import RuleCatalog, RuleDefinition
-from .storage import RuleStorage
 from .injector import BlockInjector
+from .storage import RuleStorage
 
 __all__ = ["RuleCatalog", "RuleDefinition", "RuleStorage", "BlockInjector"]

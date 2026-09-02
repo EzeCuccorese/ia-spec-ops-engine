@@ -21,7 +21,9 @@ class RuleCatalog:
     """Loads and indexes engineering rules from the bundled catalog."""
 
     def __init__(self, catalog_root: Path | None = None) -> None:
-        self.root = catalog_root or (Path(__file__).resolve().parent.parent.parent.parent / "catalog")
+        self.root = catalog_root or (
+            Path(__file__).resolve().parent.parent.parent.parent / "catalog"
+        )
         self._rules: dict[str, RuleDefinition] = {}
         self._load()
 

@@ -5,33 +5,31 @@ workspace_engine.services.select_repos — Selector interactivo TUI para elegir 
 
 from __future__ import annotations
 
-import os
 import shutil
 import sys
 import termios
 import tty
 from pathlib import Path
-from typing import List, Optional
 
 from workspace_engine.services.tui_utils import _read_key, _resolve_cursor
-from workspace_engine.utils import Color, log_error
+from workspace_engine.utils import Color
 
-TOOLKIT_NAME  = 'ai-dev-toolkit'
-ADD_NEW_LABEL = '[+ Agregar repositorio por nombre]'
+TOOLKIT_NAME = "ai-dev-toolkit"
+ADD_NEW_LABEL = "[+ Agregar repositorio por nombre]"
 
 
-def load_repos(repos_root: Path) -> List[str]:
+def load_repos(repos_root: Path) -> list[str]:
     """Retorna la lista ordenada de directorios dentro de repos_root que contienen un .git."""
     if not repos_root.exists():
         return []
     result = []
     for d in sorted(repos_root.iterdir()):
-        if d.is_dir() and (d / '.git').exists():
+        if d.is_dir() and (d / ".git").exists():
             result.append(d.name)
     return result
 
 
-def apply_filter(repos: List[str], query: str) -> List[str]:
+def apply_filter(repos: list[str], query: str) -> list[str]:
     """Retorna los repositorios cuyos nombres contienen el query buscado."""
     if not query:
         return list(repos)
@@ -40,7 +38,7 @@ def apply_filter(repos: List[str], query: str) -> List[str]:
 
 
 def _open_tty():
-    return open('/dev/tty', 'rb+', buffering=0)
+    return open("/dev/tty", "rb+", buffering=0)
 
 
 def _write(tty_fd, s: str):
@@ -49,25 +47,29 @@ def _write(tty_fd, s: str):
 
 def select_repos(
     toolkit_dir: Path,
-    repos_root: Optional[Path],
+    repos_root: Path | None,
     show_toolkit: bool = False,
-    preselected: Optional[List[str]] = None,
+    preselected: list[str] | None = None,
     allow_custom: bool = False,
-    locked: Optional[List[str]] = None,
-) -> Optional[List[str]]:
+    locked: list[str] | None = None,
+) -> list[str] | None:
     """Ejecuta el selector interactivo TUI de repositorios y retorna los seleccionados."""
     available = load_repos(repos_root) if repos_root else []
-    repos_warning = '' if available else (
-        'No se encontraron repositorios' if repos_root else 'AI_REPOSITORIES_DIR no configurado'
+    repos_warning = (
+        ""
+        if available
+        else (
+            "No se encontraron repositorios" if repos_root else "AI_REPOSITORIES_DIR no configurado"
+        )
     )
 
-    selected: List[str] = []
+    selected: list[str] = []
     if preselected:
         for pre in preselected:
             if pre in available:
                 selected.append(pre)
 
-    custom_repos: List[str] = []
+    custom_repos: list[str] = []
     toolkit_selected = False
 
     locked_set: set = set()
@@ -90,15 +92,15 @@ def select_repos(
 
     try:
         tty.setraw(tty_fd.fileno())
-        _write(tty_fd, '\033[?25l\033[?1049h')
+        _write(tty_fd, "\033[?25l\033[?1049h")
 
         cursor = 0
         scroll = 0
-        filter_str = ''
+        filter_str = ""
         filter_cur = 0
         prev_filter = None
-        filtered = apply_filter(available, '')
-        error_msg = ''
+        filtered = apply_filter(available, "")
+        error_msg = ""
 
         while True:
             if filter_str != prev_filter:
@@ -121,71 +123,104 @@ def select_repos(
             fixed_lines = 16 if show_toolkit else 13
             list_height = max(3, rows - fixed_lines)
             sep_w = cols - 2
-            sep_d = Color.BOLD + Color.CYAN + '═' * sep_w + Color.RESET
-            sep_s = Color.DIM + '─' * sep_w + Color.RESET
+            sep_d = Color.BOLD + Color.CYAN + "═" * sep_w + Color.RESET
+            sep_s = Color.DIM + "─" * sep_w + Color.RESET
 
             lines = []
-            lines.append('\033[H\033[J')
-            lines.append(f'{sep_d}\r\n')
-            lines.append(f'{Color.BOLD}  Seleccionar Repositorios{Color.RESET}\r\n')
-            lines.append(f'{sep_d}\r\n')
-            lines.append(f'  {Color.DIM}↑↓ navegar   ESPACIO marcar   ENTER confirmar   ESC volver{Color.RESET}\r\n')
-            lines.append('\r\n')
+            lines.append("\033[H\033[J")
+            lines.append(f"{sep_d}\r\n")
+            lines.append(f"{Color.BOLD}  Seleccionar Repositorios{Color.RESET}\r\n")
+            lines.append(f"{sep_d}\r\n")
+            lines.append(
+                f"  {Color.DIM}↑↓ navegar   ESPACIO marcar   ENTER confirmar   ESC volver{Color.RESET}\r\n"
+            )
+            lines.append("\r\n")
 
             if toolkit_selected:
-                lines.append(f'  {Color.DIM}Filtro: (no disponible cuando el toolkit está seleccionado){Color.RESET}\r\n')
+                lines.append(
+                    f"  {Color.DIM}Filtro: (no disponible cuando el toolkit está seleccionado){Color.RESET}\r\n"
+                )
             else:
                 _fb = filter_str[:filter_cur]
                 _fa = filter_str[filter_cur:]
-                lines.append(f'  {Color.BOLD}Filtro:{Color.RESET} {Color.YELLOW}{_fb}\x00{_fa}{Color.RESET}\r\n')
-            lines.append('\r\n')
+                lines.append(
+                    f"  {Color.BOLD}Filtro:{Color.RESET} {Color.YELLOW}{_fb}\x00{_fa}{Color.RESET}\r\n"
+                )
+            lines.append("\r\n")
 
             if show_toolkit:
-                lines.append(f'  {Color.BOLD}{Color.YELLOW}── Toolkit ──────────────────────────────────────{Color.RESET}\r\n')
-                marker = '▶' if cursor == 0 else ' '
-                check  = '[✔]' if toolkit_selected else '[ ]'
-                color  = Color.YELLOW if toolkit_selected else Color.DIM
-                lines.append(f'  {color}{marker} {check} {TOOLKIT_NAME}{Color.RESET}\r\n')
-                lines.append('\r\n')
+                lines.append(
+                    f"  {Color.BOLD}{Color.YELLOW}── Toolkit ──────────────────────────────────────{Color.RESET}\r\n"
+                )
+                marker = "▶" if cursor == 0 else " "
+                check = "[✔]" if toolkit_selected else "[ ]"
+                color = Color.YELLOW if toolkit_selected else Color.DIM
+                lines.append(f"  {color}{marker} {check} {TOOLKIT_NAME}{Color.RESET}\r\n")
+                lines.append("\r\n")
 
             if toolkit_selected:
-                lines.append(f'  {Color.DIM}── Repositorios (desmarcar toolkit para habilitar) ──{Color.RESET}\r\n')
+                lines.append(
+                    f"  {Color.DIM}── Repositorios (desmarcar toolkit para habilitar) ──{Color.RESET}\r\n"
+                )
             else:
-                lines.append(f'  {Color.BOLD}{Color.CYAN}── Repositorios ───────────────────────────────{Color.RESET}\r\n')
+                lines.append(
+                    f"  {Color.BOLD}{Color.CYAN}── Repositorios ───────────────────────────────{Color.RESET}\r\n"
+                )
                 if repos_warning:
-                    lines.append(f'  {Color.YELLOW}⚠ {repos_warning}{Color.RESET}\r\n')
+                    lines.append(f"  {Color.YELLOW}⚠ {repos_warning}{Color.RESET}\r\n")
                 else:
-                    lines.append(f'{sep_s}\r\n')
+                    lines.append(f"{sep_s}\r\n")
                     if not filtered:
-                        lines.append(f'  {Color.RED}Ningún repositorio coincide con \'{filter_str}\'.{Color.RESET}\r\n')
+                        lines.append(
+                            f"  {Color.RED}Ningún repositorio coincide con '{filter_str}'.{Color.RESET}\r\n"
+                        )
                     else:
-                        window = filtered[scroll:scroll + list_height]
+                        window = filtered[scroll : scroll + list_height]
                         for j, item in enumerate(window):
                             abs_i = scroll + j
                             rc = (abs_i + 1) if show_toolkit else abs_i
-                            sh = ' ↑' if (j == 0 and scroll > 0) else (' ↓' if (j == len(window) - 1 and (scroll + list_height) < len(filtered)) else '  ')
+                            sh = (
+                                " ↑"
+                                if (j == 0 and scroll > 0)
+                                else (
+                                    " ↓"
+                                    if (
+                                        j == len(window) - 1
+                                        and (scroll + list_height) < len(filtered)
+                                    )
+                                    else "  "
+                                )
+                            )
                             if item == ADD_NEW_LABEL:
-                                marker = '▶' if rc == cursor else ' '
-                                lines.append(f'  {Color.CYAN}{marker} {Color.YELLOW}{item}{Color.RESET}{sh}\r\n')
+                                marker = "▶" if rc == cursor else " "
+                                lines.append(
+                                    f"  {Color.CYAN}{marker} {Color.YELLOW}{item}{Color.RESET}{sh}\r\n"
+                                )
                             else:
                                 is_locked = item in locked_set
                                 if is_locked:
-                                    marker = '▶' if rc == cursor else ' '
+                                    marker = "▶" if rc == cursor else " "
                                     m_color = Color.YELLOW if rc == cursor else Color.DIM
-                                    lines.append(f'  {m_color}{marker}{Color.RESET} {Color.DIM}[✔] {item} (en workspace){Color.RESET}{sh}\r\n')
+                                    lines.append(
+                                        f"  {m_color}{marker}{Color.RESET} {Color.DIM}[✔] {item} (en workspace){Color.RESET}{sh}\r\n"
+                                    )
                                 else:
                                     in_sel = item in selected or item in custom_repos
-                                    check  = '[✔]' if in_sel else '[ ]'
-                                    color  = Color.GREEN if in_sel else Color.DIM
-                                    marker = '▶' if rc == cursor else ' '
+                                    check = "[✔]" if in_sel else "[ ]"
+                                    color = Color.GREEN if in_sel else Color.DIM
+                                    marker = "▶" if rc == cursor else " "
                                     if rc == cursor:
                                         m_color = color if in_sel else Color.CYAN
-                                        lines.append(f'  {m_color}{marker} {check} {item}{Color.RESET}{sh}\r\n')
+                                        lines.append(
+                                            f"  {m_color}{marker} {check} {item}{Color.RESET}{sh}\r\n"
+                                        )
                                     else:
-                                        lines.append(f'  {color}  {check} {item}{Color.RESET}{sh}\r\n')
-                    lines.append(f'{sep_s}\r\n')
+                                        lines.append(
+                                            f"  {color}  {check} {item}{Color.RESET}{sh}\r\n"
+                                        )
+                    lines.append(f"{sep_s}\r\n")
 
-            lines.append('\r\n')
+            lines.append("\r\n")
             sel_count = len(selected) + len(custom_repos) + (1 if toolkit_selected else 0)
             if sel_count > 0:
                 parts = []
@@ -193,26 +228,30 @@ def select_repos(
                     parts.append(TOOLKIT_NAME)
                 parts.extend(selected)
                 parts.extend(custom_repos)
-                label = 'Agregando' if locked_set else 'Seleccionados'
-                lines.append(f'  {Color.BOLD}{label} ({sel_count}):{Color.RESET} {Color.GREEN}{" ".join(parts)}{Color.RESET}\r\n')
+                label = "Agregando" if locked_set else "Seleccionados"
+                lines.append(
+                    f"  {Color.BOLD}{label} ({sel_count}):{Color.RESET} {Color.GREEN}{' '.join(parts)}{Color.RESET}\r\n"
+                )
             elif locked_set:
-                lines.append(f'  {Color.DIM}Ningún repositorio nuevo seleccionado aún.{Color.RESET}\r\n')
+                lines.append(
+                    f"  {Color.DIM}Ningún repositorio nuevo seleccionado aún.{Color.RESET}\r\n"
+                )
             else:
-                lines.append(f'  {Color.DIM}Ningún repositorio seleccionado aún.{Color.RESET}\r\n')
+                lines.append(f"  {Color.DIM}Ningún repositorio seleccionado aún.{Color.RESET}\r\n")
 
             if error_msg:
-                lines.append('\r\n')
-                lines.append(f'  {Color.RED}{error_msg}{Color.RESET}\r\n')
-                error_msg = ''
+                lines.append("\r\n")
+                lines.append(f"  {Color.RED}{error_msg}{Color.RESET}\r\n")
+                error_msg = ""
 
-            frame, cur_seq = _resolve_cursor(''.join(lines))
+            frame, cur_seq = _resolve_cursor("".join(lines))
             _write(tty_fd, frame + cur_seq)
 
             key = _read_key(tty_fd)
 
-            if key in (b'\x1b', b'\x03'):
+            if key in (b"\x1b", b"\x03"):
                 return None
-            elif key == b'\x1b[A':  # Arriba
+            elif key == b"\x1b[A":  # Arriba
                 if cursor > 0:
                     cursor -= 1
                     _rc = (cursor - 1) if show_toolkit else cursor
@@ -220,7 +259,7 @@ def select_repos(
                         scroll = 0
                     elif _rc < scroll:
                         scroll = _rc
-            elif key == b'\x1b[B':  # Abajo
+            elif key == b"\x1b[B":  # Abajo
                 if cursor < total - 1:
                     cursor += 1
                     _, _rows = shutil.get_terminal_size(fallback=(80, 24))
@@ -228,13 +267,13 @@ def select_repos(
                     _rc = (cursor - 1) if show_toolkit else cursor
                     if _rc >= scroll + _lh:
                         scroll = _rc - _lh + 1
-            elif key in (b'\r', b'\n', b''):
+            elif key in (b"\r", b"\n", b""):
                 total_sel = len(selected) + len(custom_repos) + (1 if toolkit_selected else 0)
                 if total_sel == 0:
-                    error_msg = '❌ Selecciona al menos un repositorio.'
+                    error_msg = "❌ Selecciona al menos un repositorio."
                 else:
                     break
-            elif key == b' ':
+            elif key == b" ":
                 if show_toolkit and cursor == 0:
                     toolkit_selected = not toolkit_selected
                     if toolkit_selected:
@@ -246,12 +285,12 @@ def select_repos(
                     if 0 <= item_idx < len(filtered):
                         item = filtered[item_idx]
                         if item in locked_set:
-                            error_msg = 'Ya está en el workspace'
+                            error_msg = "Ya está en el workspace"
                         elif item == ADD_NEW_LABEL:
                             _restore()
                             tty_fd = _open_tty()
                             old_attrs = termios.tcgetattr(tty_fd)
-                            sys.stdout.write('\n  Nombre del repositorio: ')
+                            sys.stdout.write("\n  Nombre del repositorio: ")
                             sys.stdout.flush()
                             new_repo = sys.stdin.readline().strip()
                             if new_repo:
@@ -264,27 +303,27 @@ def select_repos(
                         else:
                             selected.append(item)
                         filtered = apply_filter(available, filter_str)
-            elif key in (b'\x1b[D', b'\x1b[C'):
+            elif key in (b"\x1b[D", b"\x1b[C"):
                 if not toolkit_selected:
-                    d = -1 if key == b'\x1b[D' else 1
+                    d = -1 if key == b"\x1b[D" else 1
                     filter_cur = max(0, min(len(filter_str), filter_cur + d))
-            elif key in (b'\x1b[H', b'\x1b[1~'):
+            elif key in (b"\x1b[H", b"\x1b[1~"):
                 if not toolkit_selected:
                     filter_cur = 0
-            elif key in (b'\x1b[F', b'\x1b[4~'):
+            elif key in (b"\x1b[F", b"\x1b[4~"):
                 if not toolkit_selected:
                     filter_cur = len(filter_str)
-            elif key == b'\x1b[3~':
+            elif key == b"\x1b[3~":
                 if not toolkit_selected and filter_cur < len(filter_str):
-                    filter_str = filter_str[:filter_cur] + filter_str[filter_cur + 1:]
+                    filter_str = filter_str[:filter_cur] + filter_str[filter_cur + 1 :]
                     filtered = apply_filter(available, filter_str)
-            elif key in (b'\x7f', b'\x08'):
+            elif key in (b"\x7f", b"\x08"):
                 if not toolkit_selected and filter_cur > 0:
-                    filter_str = filter_str[:filter_cur - 1] + filter_str[filter_cur:]
+                    filter_str = filter_str[: filter_cur - 1] + filter_str[filter_cur:]
                     filter_cur -= 1
                     filtered = apply_filter(available, filter_str)
             else:
-                ch = key.decode('utf-8', errors='ignore')
+                ch = key.decode("utf-8", errors="ignore")
                 if ch.isprintable() and not toolkit_selected:
                     filter_str = filter_str[:filter_cur] + ch + filter_str[filter_cur:]
                     filter_cur += 1
@@ -292,7 +331,7 @@ def select_repos(
                     filtered = apply_filter(available, filter_str)
 
     finally:
-        _write(tty_fd, '\033[?1049l\033[?25h')
+        _write(tty_fd, "\033[?1049l\033[?25h")
         _restore()
 
     if toolkit_selected:
