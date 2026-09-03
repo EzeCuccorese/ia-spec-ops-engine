@@ -11,12 +11,6 @@ repositories {
 }
 
 dependencies {
-    // Lombok for clean boilerplate
-    compileOnly 'org.projectlombok:lombok:1.18.32'
-    annotationProcessor 'org.projectlombok:lombok:1.18.32'
-    testCompileOnly 'org.projectlombok:lombok:1.18.32'
-    testAnnotationProcessor 'org.projectlombok:lombok:1.18.32'
-
     // Logging
     implementation 'org.slf4j:slf4j-api:2.0.12'
     testImplementation 'ch.qos.logback:logback-classic:1.5.3'

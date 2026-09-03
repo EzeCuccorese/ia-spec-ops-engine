@@ -28,7 +28,9 @@ from spec.governance.judge import SpecJudge
 from spec.governance.project import ProjectGovernance
 from spec.spec.workflow import Workflow
 
+import json
 from agent_roles import (
+    INTERVIEW_GENERATOR_PROMPT,
     JUDGE_PROMPT,
     PLANNER_PROMPT,
     SPEC_AUTHOR_PROMPT,
@@ -119,54 +121,118 @@ def ask_agent_loop(
             )
 
 
-def conduct_requirements_interview() -> dict[str, str]:
-    console.print("\n[bold magenta]📋 Entrevista Inicial de Requerimientos (Agent ➔ Human)[/bold magenta]")
-    console.print("El Agente necesita tu definición sobre 3 decisiones de arquitectura de negocio:\n")
+def conduct_requirements_interview(
+    client: GeminiClient, feature_name: str, feature_desc: str
+) -> dict[str, str]:
+    console.print("\n[bold magenta]📋 Entrevista Dinámica de Requerimientos (Agent ➔ Human)[/bold magenta]")
+    console.print(f"El Agente está analizando el dominio de '{feature_name}' para formular las preguntas críticas...\n")
 
-    # Q1: Monedas
-    console.print("[bold cyan]1. Monedas aceptadas en la API:[/bold cyan]")
-    console.print("   1) Solo USD (Recomendado para demo)")
-    console.print("   2) Multimoneda (USD, EUR, ARS)")
-    q1_choice = Prompt.ask("   Selecciona una opción", choices=["1", "2"], default="1")
-    q1 = "Solo USD" if q1_choice == "1" else "Multimoneda (USD, EUR, ARS)"
+    task = (
+        f"Feature: {feature_name}\n"
+        f"Description: {feature_desc}\n"
+        "Generate 3 architectural and business edge-case questions in JSON."
+    )
 
-    # Q2: Idempotencia
-    console.print("\n[bold cyan]2. Estrategia de Idempotencia:[/bold cyan]")
-    console.print("   1) Header 'Idempotency-Key' con repositorio en memoria (Recomendado)")
-    console.print("   2) Campo en payload JSON con tabla relacional")
-    q2_choice = Prompt.ask("   Selecciona una opción", choices=["1", "2"], default="1")
-    q2 = "Header 'Idempotency-Key' con repositorio en memoria" if q2_choice == "1" else "Campo en payload JSON"
+    fallback_questions_json = """[
+      {
+        "id": "q1",
+        "question": "¿Qué política de monedas debe soportar la API?",
+        "options": [
+          "(Recomendado) Solo USD para transacciones iniciales",
+          "Multimoneda (USD, EUR, ARS) con conversión"
+        ]
+      },
+      {
+        "id": "q2",
+        "question": "¿Qué estrategia de idempotencia prefieres?",
+        "options": [
+          "(Recomendado) Header 'Idempotency-Key' con almacenamiento en memoria",
+          "Idempotencia mediante hash del payload en base de datos"
+        ]
+      },
+      {
+        "id": "q3",
+        "question": "¿Cómo deben manejarse los montos no positivos (<= 0)?",
+        "options": [
+          "(Recomendado) Lanzar PaymentValidationException y responder 400 Bad Request",
+          "Crear la orden con estado REJECTED para auditoría"
+        ]
+      }
+    ]"""
 
-    # Q3: Validación de montos
-    console.print("\n[bold cyan]3. Política de montos inválidos (<= 0):[/bold cyan]")
-    console.print("   1) Rechazo inmediato con PaymentValidationException y código HTTP 400 Bad Request (Recomendado)")
-    console.print("   2) Guardar en base de datos con estado REJECTED")
-    q3_choice = Prompt.ask("   Selecciona una opción", choices=["1", "2"], default="1")
-    q3 = "Excepción PaymentValidationException y HTTP 400" if q3_choice == "1" else "Guardar en estado REJECTED"
+    questions_raw = safe_call_ai(
+        client,
+        INTERVIEW_GENERATOR_PROMPT,
+        task,
+        fallback_content=fallback_questions_json,
+    )
 
-    console.print(f"\n[bold green]✔ Decisiones registradas:[/bold green] {q1} | {q2} | {q3}\n")
-    return {"currencies": q1, "idempotency": q2, "validation": q3}
+    cleaned = questions_raw.strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        cleaned = "\n".join(lines).strip()
+
+    try:
+        questions = json.loads(cleaned)
+    except Exception:
+        questions = json.loads(fallback_questions_json)
+
+    answers: dict[str, str] = {}
+    console.print("[bold green]✔ El Agente generó las siguientes preguntas para vos:[/bold green]\n")
+
+    for idx, q in enumerate(questions, 1):
+        q_text = q.get("question", f"Pregunta {idx}")
+        options = q.get("options", [])
+        console.print(f"[bold cyan]{idx}. {q_text}[/bold cyan]")
+        for opt_idx, opt in enumerate(options, 1):
+            console.print(f"   {opt_idx}) {opt}")
+        console.print(f"   {len(options) + 1}) [Escribir otra respuesta]")
+
+        valid_choices = [str(i) for i in range(1, len(options) + 2)]
+        choice = Prompt.ask("   Selecciona una opción", choices=valid_choices, default="1")
+        choice_idx = int(choice)
+        if choice_idx <= len(options):
+            selected = options[choice_idx - 1]
+        else:
+            selected = Prompt.ask("   Escribe tu respuesta personalizada")
+
+        answers[q_text] = selected
+        console.print(f"   ➔ [dim]Respuesta:[/dim] [green]{selected}[/green]\n")
+
+    return answers
 
 
 def gate_spec(workflow: Workflow, client: GeminiClient) -> None:
     banner("Fase 1: Especificación Formal & Criterios Gherkin", stage="SPEC")
 
-    # Conduct human interview
-    answers = conduct_requirements_interview()
+    feature_name = "Payment Orders API"
+    feature_desc = "Java API for processing transaction orders with idempotency"
+
+    # Conduct dynamic human interview with the Agent
+    answers = conduct_requirements_interview(client, feature_name, feature_desc)
 
     console.print("[bold]Paso 1.1:[/bold] Creando especificación en arnés...")
     with contextlib.suppress(Exception):
-        workflow.create_spec("Payment Orders API", "Java API for processing transaction orders with idempotency")
+        workflow.create_spec(feature_name, feature_desc)
 
     spec_dir = workflow.feature_dir("payment-orders-api")
     spec_path = spec_dir / "spec.md"
+
+    interview_summary = "\n".join(f"- {k}: {v}" for k, v in answers.items())
 
     fallback_spec = f"""# Spec: Payment Orders API
 
 ## User Story
 Como cliente del Payment Gateway,
-quiero emitir órdenes de pago transaccionales seguras ({answers['currencies']}),
-para garantizar el cobro sin duplicaciones mediante {answers['idempotency']}.
+quiero emitir órdenes de pago transaccionales seguras,
+para garantizar el cobro sin duplicaciones.
+
+## Decisiones de Arquitectura del Humano
+{interview_summary}
 
 ## Acceptance Criteria
 
@@ -187,13 +253,13 @@ Scenario: Idempotent replay of existing payment order
   Given an existing PaymentOrder created with idempotency key 'idem-key-999'
   When another order is sent with the exact same idempotency key 'idem-key-999'
   Then the original PaymentOrder is returned without creating a duplicate
+  And the system must confirm that only one transaction was processed and persisted
 """
 
     console.print("[bold]Paso 1.2:[/bold] Solicitando redacción formal al Agente Spec Author con tus respuestas...")
     initial_task = (
-        f"Write formal spec.md for Payment Orders API with @s1, @s2, @s3 scenarios.\n"
-        f"Business decisions from user: Currencies={answers['currencies']}, "
-        f"Idempotency={answers['idempotency']}, Validation={answers['validation']}."
+        f"Write formal spec.md for {feature_name} with @s1, @s2, @s3 scenarios.\n"
+        f"Human Decisions from requirements interview:\n{interview_summary}"
     )
     spec_content = ask_agent_loop(client, SPEC_AUTHOR_PROMPT, initial_task, "spec.md", fallback_spec)
     spec_path.write_text(spec_content, encoding="utf-8")
@@ -319,6 +385,7 @@ class PaymentOrderServiceTest {
         "public interface PaymentOrderRepository {\n"
         "    PaymentOrder save(final PaymentOrder order);\n"
         "    Optional<PaymentOrder> findByIdempotencyKey(final String key);\n"
+        "    int count();\n"
         "}\n",
         encoding="utf-8",
     )
@@ -334,6 +401,10 @@ class PaymentOrderServiceTest {
         "    @Override\n"
         "    public Optional<PaymentOrder> findByIdempotencyKey(final String key) {\n"
         "        return Optional.ofNullable(store.get(key));\n"
+        "    }\n\n"
+        "    @Override\n"
+        "    public int count() {\n"
+        "        return store.size();\n"
         "    }\n"
         "}\n",
         encoding="utf-8",
@@ -431,7 +502,7 @@ class PaymentOrderServiceTest {
     }
 
     @Test
-    @DisplayName("@s3: should return existing order on idempotent replay")
+    @DisplayName("@s3: should return existing order and confirm single persistence on idempotent replay")
     void shouldReturnExistingOrderOnIdempotentReplay() {
         final PaymentOrderRepository repository = new InMemoryPaymentOrderRepository();
         final PaymentOrderService service = new PaymentOrderService(repository);
@@ -443,6 +514,7 @@ class PaymentOrderServiceTest {
         final PaymentOrder second = service.createOrder(request);
 
         assertThat(second.id()).isEqualTo(first.id());
+        assertThat(repository.count()).isEqualTo(1);
     }
 }
 """
@@ -469,7 +541,10 @@ def gate_verify_and_judge(workflow: Workflow, client: GeminiClient) -> None:
     console.print("[bold]Paso 4.1:[/bold] Ejecutando Verificación del arnés...")
     from spec.cli import run_verify
     res = run_verify(TARGET_PROJECT)
-    console.print(f"[bold green]✔ Verificación ejecutada con resultado exitoso (code {res}).[/bold green]")
+    if res != 0:
+        console.print(f"[bold red]❌ La verificación determinística falló (código {res}). Revisa los logs anteriores.[/bold red]")
+        sys.exit(1)
+    console.print("[bold green]✔ Verificación ejecutada con resultado exitoso (PASS).[/bold green]")
 
     console.print("\n[bold]Paso 4.2:[/bold] Evaluando rol del JUEZ (The Judge)...")
     judge = SpecJudge(TARGET_PROJECT)
