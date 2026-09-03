@@ -19,7 +19,7 @@ description: "Generates the architectural implementation plan and atomic task br
 1. Populate `.spec/specs/<feature-slug>/plan.md` with:
    - Component & Layer Architecture (Domain, Application, Infrastructure).
    - Affected files list: `[NEW]`, `[MODIFY]`, `[DELETE]`.
-   - Test-First Strategy: Unit tests (AAA) and integration tests to be written *before* implementation.
-2. Populate `.spec/specs/<feature-slug>/tasks.md` with atomic, sequential sub-tasks.
+   - Test-First Strategy: Unit tests (AAA) mapped to each `@s` scenario to be written *before* implementation (following Uncle Bob's Three Laws of TDD).
+2. Populate `.spec/specs/<feature-slug>/tasks.md` with atomic, sequential sub-tasks referencing the `@s` scenarios they cover.
 3. Present the plan summary.
 4. **STOP**: Ask: *"¿Apruebas este plan de implementación para comenzar el desarrollo Test-First (`spec work`)?"*. Wait for user confirmation.

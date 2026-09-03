@@ -173,7 +173,18 @@ class Workflow:
         if current is None or current.stage is not Stage.TASKS:
             actual = current.stage if current else "none"
             raise InvalidTransitionError(f"Work requires active tasks; current stage is {actual}")
-        self._require_nonempty(self.feature_dir(current.feature) / "tasks.md", "tasks.md")
+        directory = self.feature_dir(current.feature)
+        self._require_nonempty(directory / "tasks.md", "tasks.md")
+        work_path = directory / "work.md"
+        if not work_path.exists():
+            content = (
+                f"# Work Log: {current.feature}\n\n"
+                "## TDD Cycles (Red -> Green -> Refactor)\n"
+                "- [ ] Cycle 1 (@s1): Failing test -> Minimal code -> Refactor\n\n"
+                "## Traceability (@s -> test)\n"
+                "<!-- Map each scenario tag to its implementing test. -->\n"
+            )
+            self._create_artifact(work_path, content)
         return self._persist(current.feature, Stage.WORK)
 
     def record_verification(self, report: VerificationReport) -> tuple[WorkflowSnapshot, Path]:
@@ -221,6 +232,19 @@ class Workflow:
         self._require_nonempty(
             self.boundary.resolve(current.evidence_path), "verification evidence"
         )
+        feature_dir = self.feature_dir(current.feature)
+        spec_file = feature_dir / "spec.md"
+        if spec_file.is_file():
+            from spec.spec.trace import extract_scenarios, find_test_mappings
+
+            scenarios = extract_scenarios(spec_file.read_text(encoding="utf-8"))
+            if scenarios:
+                report = find_test_mappings(scenarios, self.boundary.root, feature_dir=feature_dir)
+                if not report.is_complete:
+                    missing = ", ".join(report.uncovered)
+                    raise InvalidTransitionError(
+                        f"Finish rejected: Scenarios lacking test mapping: {missing}"
+                    )
         return self._persist(
             current.feature,
             Stage.COMPLETE,

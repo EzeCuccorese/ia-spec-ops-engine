@@ -130,12 +130,43 @@ def test_failed_verification_cannot_finish(tmp_path: Path) -> None:
 
 def test_passed_verification_is_required_to_finish(tmp_path: Path) -> None:
     workflow = _workflow_at_work(tmp_path)
-    _, evidence_path = workflow.record_verification(
-        VerificationReport(checks=(CheckResult(id="tests", status=CheckStatus.PASS),))
-    )
+    report = VerificationReport(checks=(CheckResult(id="tests", status=CheckStatus.PASS),))
+    workflow.record_verification(report)
 
     snapshot = workflow.finish()
 
     assert snapshot.stage is Stage.COMPLETE
     assert snapshot.verification_status is CheckStatus.PASS
+
+
+def test_finish_enforces_scenario_traceability(tmp_path: Path) -> None:
+    workflow = Workflow(tmp_path)
+    workflow.create_spec("Trace Feature", "Test traceability gate")
+    spec_md = workflow.feature_dir("trace-feature") / "spec.md"
+    spec_md.write_text(
+        "# Spec: Trace Feature\n\n"
+        "@s2\nScenario: Second case\n  Given x\n  When y\n  Then z\n\n"
+        "@s3\nScenario: Third case\n  Given a\n  When b\n  Then c\n",
+        encoding="utf-8",
+    )
+    workflow.create_plan()
+    workflow.create_tasks()
+    workflow.begin_work()
+    report = VerificationReport(checks=(CheckResult(id="tests", status=CheckStatus.PASS),))
+    _, evidence_path = workflow.record_verification(report)
+
+    # Missing mappings: should fail
+    with pytest.raises(InvalidTransitionError, match="Scenarios lacking test mapping: @s2, @s3"):
+        workflow.finish()
+
+    # Map the scenarios in work.md
+    work_md = workflow.feature_dir("trace-feature") / "work.md"
+    work_md.write_text(
+        "# Work Log\n\n- @s2 -> test_second\n- @s3 -> test_third\n",
+        encoding="utf-8",
+    )
+
+    snapshot = workflow.finish()
+    assert snapshot.stage is Stage.COMPLETE
+
     assert snapshot.evidence_path == str(evidence_path.relative_to(tmp_path))

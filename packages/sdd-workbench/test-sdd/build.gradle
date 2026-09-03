@@ -1,0 +1,44 @@
+plugins {
+    id 'java'
+    id 'jacoco'
+}
+
+group = 'com.cucco.payments'
+version = '0.0.1-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // Lombok for clean boilerplate
+    compileOnly 'org.projectlombok:lombok:1.18.32'
+    annotationProcessor 'org.projectlombok:lombok:1.18.32'
+    testCompileOnly 'org.projectlombok:lombok:1.18.32'
+    testAnnotationProcessor 'org.projectlombok:lombok:1.18.32'
+
+    // Logging
+    implementation 'org.slf4j:slf4j-api:2.0.12'
+    testImplementation 'ch.qos.logback:logback-classic:1.5.3'
+
+    // Testing (JUnit 5 & AssertJ)
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testImplementation 'org.assertj:assertj-core:3.25.3'
+}
+
+test {
+    useJUnitPlatform()
+    testLogging {
+        events "passed", "skipped", "failed"
+        exceptionFormat "full"
+    }
+}
+
+jacocoTestReport {
+    dependsOn test
+    reports {
+        xml.required = true
+        html.required = true
+    }
+}

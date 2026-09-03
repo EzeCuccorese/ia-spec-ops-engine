@@ -26,7 +26,7 @@ Invoke the `ask_question` tool with 3 to 5 targeted, high-impact questions:
 1. Read the user's answers returned by `ask_question`.
 2. Populate `.spec/specs/<feature-slug>/spec.md` with:
    - **User Story**: Persona, Goal, Business Value.
-   - **Concrete Acceptance Criteria**: Exhaustive Gherkin scenarios (`Given / When / Then`) covering happy paths, timeout/error modes, and status codes.
+   - **Concrete Acceptance Criteria**: Exhaustive Gherkin scenarios (`Given / When / Then`) covering happy paths, timeout/error modes, and status codes. Tag each scenario with stable identifiers `@s1`, `@s2`... for automated test traceability.
    - **Formal Data Contracts**: Pydantic models, TypeScript types, or JSON schemas.
 3. Present a brief summary of the updated specification in the chat.
 4. **STOP**: Ask: *"¿Apruebas esta especificación formal para avanzar a la fase de planificación (`spec-plan`)?"*. Wait for user sign-off.
