@@ -84,9 +84,9 @@ When the user mentions or asks for spec-new, spec-plan, spec-verify, or spec-fin
 - spec-verify: Execute spec verify and audit the verification evidence.
 - spec-finish: Upon verified PASS status and explicit human sign-off, execute spec finish.
 
-## Mandatory Human Gates & Inquiry
-- Spec Phase: Conduct an incisive requirements interview covering edge cases, failure modes, and data contracts. Never assume defaults or advance to planning without explicit user approval.
-- Plan Phase: Detail architecture, affected files, and test-first strategy. Never start coding without explicit user sign-off.
+## Mandatory Human Gates & Inquiry (Modal Popups)
+- Spec Phase: Conduct the requirements interview using the platform's interactive modal tool (`ask_question` / `AskFollowupQuestion`). Never dump open questions as chat text or assume default designs. Wait for modal submission before drafting spec.md.
+- Plan Phase: Detail architecture, affected files, and test-first strategy. Resolve technical tradeoffs via interactive modal. Never start coding without explicit user sign-off.
 - Verify & Finish: Never seal features without recorded PASS status and user authorization.
 
 ## Safety & Invariants

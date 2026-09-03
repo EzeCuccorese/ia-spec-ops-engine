@@ -1,28 +1,25 @@
 ---
 name: spec-plan
-description: "Generates the architectural implementation plan and atomic task breakdown after grilling the human on technical decisions."
+description: "Generates the architectural implementation plan and atomic task breakdown after conducting an interactive modal interview on technical decisions."
 ---
 
-# Spec Plan Assistant Skill (Mandatory Architectural Gate)
+# Spec Plan Assistant Skill (Mandatory Architecture Gate)
 
-## 🛑 Critical Rule: Mandatory Architectural Interview & Stop
-1. **NEVER start coding**: You are STRICTLY FORBIDDEN from writing production code or running `spec work` in the same turn as `spec plan`.
-2. **Challenge Design Decisions**: Verify architectural alignment (Clean Architecture, Ports & Adapters, SOLID) and test strategy before locking the plan.
+## 🛑 Critical Invariants
+1. **INTERACTIVE MODAL INQUIRY**: If there are ambiguous architectural decisions (e.g. Testcontainers vs Mocking, database migrations, caching layer), invoke the interactive modal question tool (`ask_question`) instead of dumping open questions in chat.
+2. **NEVER start coding**: Do NOT write production code or execute `spec work` during `spec plan`.
 
-## Phase 1: Architecture & Test-First Inquiry
+## Phase 1: Architectural Formulation
 1. Verify that `.spec/specs/<feature-slug>/spec.md` is approved.
 2. Execute `spec plan` and `spec tasks`.
-3. **STOP and Ask Incisive Architectural Questions**:
-   - **Component Boundaries**: Which layers (Domain, Application, Infrastructure) will be touched? What new interfaces/ports are needed?
-   - **Test-First Strategy**: What unit tests (AAA) and what integration tests (Testcontainers, WireMock, Mocking) will be written *before* implementation?
-   - **Database & State**: Are there migrations involved? What is the rollback and backup strategy?
-   - **Observability & Logging**: What structured logs, metrics, or trace IDs must be added?
+3. If technical tradeoffs exist (e.g. synchronous vs asynchronous DB driver, mock strategy):
+   - Invoke `ask_question` with concrete architectural options.
 
-## Phase 2: Plan & Tasks Formulation (After User Response)
+## Phase 2: Plan & Tasks Documentation
 1. Populate `.spec/specs/<feature-slug>/plan.md` with:
-   - Component & Layer Architecture.
-   - Exact affected files: `[NEW]`, `[MODIFY]`, `[DELETE]`.
-   - Test-First execution checklist.
+   - Component & Layer Architecture (Domain, Application, Infrastructure).
+   - Affected files list: `[NEW]`, `[MODIFY]`, `[DELETE]`.
+   - Test-First Strategy: Unit tests (AAA) and integration tests to be written *before* implementation.
 2. Populate `.spec/specs/<feature-slug>/tasks.md` with atomic, sequential sub-tasks.
 3. Present the plan summary.
-4. **STOP AGAIN**: Ask: *"¿Apruebas este plan de implementación para comenzar el desarrollo Test-First (`/spec-work`)?"*. Wait for user confirmation.
+4. **STOP**: Ask: *"¿Apruebas este plan de implementación para comenzar el desarrollo Test-First (`spec work`)?"*. Wait for user confirmation.
