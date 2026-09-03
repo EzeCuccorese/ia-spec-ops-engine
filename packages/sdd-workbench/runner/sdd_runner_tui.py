@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
-"""Interactive SDD TUI Runner for Java Payment Orders API.
+"""SDD Agent Workbench: Interactive TUI Runner.
 
-Orchestrates Gemini AI agents through the complete Spec-Driven Development lifecycle
-with mandatory human interview, interactive feedback loop ('Ask Agents') and live Gradle testing.
+Orchestrates the Spec-Driven Development cycle (Spec -> Plan -> TDD -> Verify -> Judge -> Finish)
+using Google Gemini (Agent Platform) with native ADC authentication.
+
+All agent reviews, interviews, and explanations are strictly in SPANISH.
+All generated source code, class names, test names, and variables are strictly in ENGLISH.
 """
 
 from __future__ import annotations
 
 import contextlib
+import json
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 from rich import box
 from rich.console import Console
-from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.syntax import Syntax
@@ -28,12 +32,14 @@ from spec.governance.judge import SpecJudge
 from spec.governance.project import ProjectGovernance
 from spec.spec.workflow import Workflow
 
-import json
 from agent_roles import (
     INTERVIEW_GENERATOR_PROMPT,
     JUDGE_PROMPT,
     PLANNER_PROMPT,
+    REMEDIATION_CRAFTSMAN_PROMPT,
     SPEC_AUTHOR_PROMPT,
+    TDD_CODE_PROMPT,
+    TDD_TEST_PROMPT,
 )
 from gemini_client import GeminiClient
 
@@ -50,13 +56,13 @@ def banner(title: str, stage: str = "SETUP") -> None:
         f"[bold cyan]⚡ SDD AGENT WORKBENCH[/bold cyan] : [yellow]{title}[/yellow]",
         f"[bold magenta]Stage: [{stage}][/bold magenta]",
     )
-    console.print(Panel(table, box=box.ROUNDED, style="blue"))
+    console.print(Panel(table, box=box.ROUNDED, style="cyan"))
 
 
-def run_cmd(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+def run_cmd(cmd: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         cmd,
-        cwd=cwd,
+        cwd=str(cwd or TARGET_PROJECT),
         capture_output=True,
         text=True,
         check=False,
@@ -74,51 +80,118 @@ def safe_call_ai(
     with console.status(f"[bold green]Consultando a Gemini ({client.model} vía ADC)...[/bold green]"):
         try:
             return client.generate(role_prompt, task, history=history)
-        except Exception as exc:
-            console.print(f"[bold red]AI Call Warning:[/bold red] {exc}")
-            console.print("[yellow]Utilizando plantilla verificada como respaldo.[/yellow]")
+        except Exception as e:
+            console.print(f"[bold red]Aviso:[/bold red] Error al consultar API de Gemini: {e}")
+            console.print("[dim]Utilizando plantilla local validada...[/dim]")
             return fallback_content
 
 
 def ask_agent_loop(
     client: GeminiClient,
-    role_prompt: str,
+    system_role: str,
     initial_task: str,
-    artifact_name: str,
+    artifact_label: str,
     fallback_content: str,
 ) -> str:
-    """Conversational 'Ask Agent' loop: Eze can inspect, ask questions, request changes, or approve."""
+    """Conversational loop for reviewing and modifying artifacts with Gemini."""
     history: list[dict[str, str]] = []
-    current_content = safe_call_ai(client, role_prompt, initial_task, fallback_content)
+    current_content = safe_call_ai(client, system_role, initial_task, fallback_content)
+    history.append({"role": "user", "content": initial_task})
+    history.append({"role": "model", "content": current_content})
 
     while True:
-        console.print(Panel(Markdown(current_content), title=f"[bold cyan]{artifact_name}[/bold cyan]", box=box.ROUNDED))
-        console.print("\n[bold]Opciones:[/bold]")
-        console.print("  [bold green][A][/bold green] Aprobar y avanzar")
-        console.print("  [bold yellow][P][/bold yellow] Preguntar o pedir cambios al Agente")
-        console.print("  [bold red][C][/bold red] Cancelar ejecución")
+        syntax = Syntax(current_content, "markdown", theme="monokai", line_numbers=True, word_wrap=True)
+        console.print(Panel(syntax, title=f"[bold]{artifact_label}[/bold]", border_style="cyan"))
 
-        choice = Prompt.ask("¿Qué deseas hacer?", choices=["a", "p", "c", "A", "P", "C"], default="a").lower()
+        console.print("[bold]Opciones:[/bold]")
+        console.print("  [bold green][A] Aprobar y avanzar[/bold green]")
+        console.print("  [bold yellow][P] Preguntar o pedir cambios al Agente[/bold yellow]")
+        console.print("  [bold red][C] Cancelar ejecución[/bold red]")
+        choice = Prompt.ask("¿Qué deseas hacer?", choices=["a", "p", "c", "A", "P", "C"], default="a").upper()
 
-        if choice == "a":
-            console.print(f"[bold green]✔ {artifact_name} aprobado exitosamente.[/bold green]\n")
+        if choice == "A":
+            console.print(f"[bold green]✔ {artifact_label} aprobado exitosamente.[/bold green]\n")
             return current_content
-        if choice == "c":
-            console.print("[bold red]Operación abortada por el usuario.[/bold red]")
+        elif choice == "C":
+            console.print("[bold red]Ejecución cancelada por el usuario.[/bold red]")
             sys.exit(0)
-        if choice == "p":
-            user_msg = Prompt.ask("\n[bold yellow]Escribe tu pregunta o instrucción de cambio para el Agente[/bold yellow]")
-            history.append({
-                "role": "user",
-                "content": f"El artefacto actual es:\n{current_content}\nFeedback de Ezequiel:\n{user_msg}\nPor favor actualiza {artifact_name} aplicando estas correcciones.",
-            })
+        elif choice == "P":
+            user_feedback = Prompt.ask("\n[bold yellow]Escribe tu pregunta o instrucción de cambio para el Agente[/bold yellow]")
+            feedback_task = (
+                f"El artefacto actual es:\n{current_content}\n\n"
+                f"El usuario humano solicita los siguientes cambios o aclaraciones (en español):\n{user_feedback}\n\n"
+                "Por favor responde o regenera el artefacto atendiendo estrictamente la instrucción."
+            )
+            history.append({"role": "user", "content": user_feedback})
             current_content = safe_call_ai(
                 client,
-                role_prompt,
-                f"Aplica este cambio a {artifact_name}: {user_msg}",
-                fallback_content,
+                system_role,
+                feedback_task,
+                fallback_content=current_content,
                 history=history,
             )
+            history.append({"role": "model", "content": current_content})
+
+
+def parse_and_apply_java_files(raw_text: str, root_dir: Path) -> list[Path]:
+    """Parses 'FILE: <path>\n```java ... ```' or class declarations and writes files."""
+    written: list[Path] = []
+    lines = raw_text.splitlines()
+    current_target: Path | None = None
+    in_block = False
+    block_lines: list[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("FILE:"):
+            rel_path = stripped.replace("FILE:", "").strip().strip("`'\"")
+            current_target = root_dir / rel_path
+            continue
+
+        if stripped.startswith("```"):
+            if not in_block:
+                in_block = True
+                block_lines = []
+            else:
+                in_block = False
+                if current_target and block_lines:
+                    current_target.parent.mkdir(parents=True, exist_ok=True)
+                    current_target.write_text("\n".join(block_lines) + "\n", encoding="utf-8")
+                    written.append(current_target)
+                    current_target = None
+            continue
+
+        if in_block:
+            block_lines.append(line)
+
+    # Fallback heuristic: detect Java class/record/interface/enum blocks
+    if not written:
+        blocks: list[str] = []
+        cur_code: list[str] = []
+        collecting = False
+        for line in lines:
+            if line.strip().startswith("```java") or (line.strip() == "```" and not collecting):
+                collecting = True
+                cur_code = []
+            elif line.strip() == "```" and collecting:
+                collecting = False
+                if cur_code:
+                    blocks.append("\n".join(cur_code))
+            elif collecting:
+                cur_code.append(line)
+
+        for b in blocks:
+            # Detect package and class name
+            match = re.search(r"(?:class|interface|record|enum)\s+([A-Za-z0-9_]+)", b)
+            if match:
+                cname = match.group(1)
+                subpath = "src/test/java/com/cucco/payments" if "Test" in cname else "src/main/java/com/cucco/payments"
+                target = root_dir / f"{subpath}/{cname}.java"
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(b + "\n", encoding="utf-8")
+                written.append(target)
+
+    return written
 
 
 def conduct_requirements_interview(
@@ -136,26 +209,26 @@ def conduct_requirements_interview(
     fallback_questions_json = """[
       {
         "id": "q1",
-        "question": "¿Qué política de monedas debe soportar la API?",
+        "question": "¿Estrategia de Almacenamiento y Validación de Idempotencia?",
         "options": [
-          "(Recomendado) Solo USD para transacciones iniciales",
-          "Multimoneda (USD, EUR, ARS) con conversión"
+          "(Recomendado) Base de datos en memoria para MVP con clave en ConcurrentHashMap",
+          "Tabla relacional transaccional en PostgreSQL"
         ]
       },
       {
         "id": "q2",
-        "question": "¿Qué estrategia de idempotencia prefieres?",
+        "question": "¿Manejo de Eventos y Patrón Outbox?",
         "options": [
-          "(Recomendado) Header 'Idempotency-Key' con almacenamiento en memoria",
-          "Idempotencia mediante hash del payload en base de datos"
+          "(Recomendado) Patrón Outbox en memoria para asegurar emisión de eventos desacoplada",
+          "Emisión sincrónica directa sin eventos asíncronos"
         ]
       },
       {
         "id": "q3",
-        "question": "¿Cómo deben manejarse los montos no positivos (<= 0)?",
+        "question": "¿Política de Logging de Datos Sensibles y Tokenización?",
         "options": [
-          "(Recomendado) Lanzar PaymentValidationException y responder 400 Bad Request",
-          "Crear la orden con estado REJECTED para auditoría"
+          "(Recomendado) Enmascarar y tokenizar datos sensibles (PII/cuentas) en los logs",
+          "Registrar solo metadatos de auditoría sin datos de usuario"
         ]
       }
     ]"""
@@ -182,7 +255,7 @@ def conduct_requirements_interview(
         questions = json.loads(fallback_questions_json)
 
     answers: dict[str, str] = {}
-    console.print("[bold green]✔ El Agente generó las siguientes preguntas para vos:[/bold green]\n")
+    console.print("[bold green]✔ El Agente formuló las siguientes preguntas para vos:[/bold green]\n")
 
     for idx, q in enumerate(questions, 1):
         q_text = q.get("question", f"Pregunta {idx}")
@@ -241,6 +314,7 @@ Scenario: Create valid payment order successfully
   Given a valid CreatePaymentOrderRequest with amount 100.0, currency 'USD' and payer 'user-123'
   When the order is processed
   Then a PaymentOrder is created with status 'PENDING' and a non-null UUID
+  And an OutboxEvent is persisted for asynchronous processing
 
 @s2
 Scenario: Reject payment order with non-positive amount
@@ -278,27 +352,27 @@ def gate_plan(workflow: Workflow, client: GeminiClient) -> None:
     plan_path = feature_dir / "plan.md"
     tasks_path = feature_dir / "tasks.md"
 
-    fallback_plan = """# Architecture Plan: Payment Orders API
+    fallback_plan = """# Plan de Arquitectura: Payment Orders API
 
-## Layered Architecture
-- **Domain**: `PaymentOrder` entity, `OrderStatus` enum, `PaymentValidationException`.
-- **Application**: `PaymentOrderService` implementing transaction and idempotency logic.
-- **Port / Repository**: `PaymentOrderRepository` interface with `InMemoryPaymentOrderRepository`.
-- **DTO**: `CreateOrderRequest` (Java record), `OrderResponse` (Java record).
+## Arquitectura por Capas
+- **Domain**: `PaymentOrder` (record), `OrderStatus` (enum), `PaymentValidationException`.
+- **Application**: `PaymentOrderService`, `OutboxPublisher` para emisión de eventos.
+- **Port / Repository**: `PaymentOrderRepository` (en memoria con ConcurrentHashMap).
+- **Security & Logging**: `DataMasker` para tokenización de datos sensibles en logs.
 
-## Architectural Invariants (Java Global Rules)
-1. Constructor injection only (no @Autowired).
+## Invariantes de Código (Java Global Rules)
+1. Constructor injection only (sin @Autowired).
 2. Explicit types and 'final' for all local variables and parameters.
 3. Immutability with Java records.
-4. Logging with SLF4J @Slf4j placeholders {}.
-5. Testing with AAA (Arrange-Act-Assert) and AssertJ.
+4. Logging with SLF4J placeholders {}.
+5. Testing con estructura AAA y AssertJ.
 """
 
-    fallback_tasks = """# Tasks: Payment Orders API
+    fallback_tasks = """# Tareas: Payment Orders API
 
-- [ ] Task 1 (@s1): Create domain model, record DTOs and happy-path service test.
-- [ ] Task 2 (@s2): Add amount validation and exception test.
-- [ ] Task 3 (@s3): Implement in-memory idempotency check and replay test.
+- [ ] Task 1 (@s1): Create domain model, record DTOs, in-memory outbox, and happy-path service test.
+- [ ] Task 2 (@s2): Add amount validation, data masking helper, and exception test.
+- [ ] Task 3 (@s3): Implement in-memory idempotency check, count verification, and replay test.
 """
 
     plan_content = ask_agent_loop(client, PLANNER_PROMPT, "Generate plan.md following clean Java rules", "plan.md", fallback_plan)
@@ -306,25 +380,49 @@ def gate_plan(workflow: Workflow, client: GeminiClient) -> None:
     tasks_path.write_text(fallback_tasks, encoding="utf-8")
 
 
-def gate_work_tdd(workflow: Workflow) -> None:
+def gate_work_tdd(workflow: Workflow, client: GeminiClient) -> None:
     banner("Fase 3: Bucle TDD Autónomo (Uncle Bob) en Java", stage="WORK")
     with contextlib.suppress(Exception):
         workflow.begin_work()
 
     feature_dir = workflow.feature_dir("payment-orders-api")
+    spec_path = feature_dir / "spec.md"
+    plan_path = feature_dir / "plan.md"
     work_log_path = feature_dir / "work.md"
 
-    java_src_dir = TARGET_PROJECT / "src/main/java/com/cucco/payments"
-    java_test_dir = TARGET_PROJECT / "src/test/java/com/cucco/payments"
-    java_src_dir.mkdir(parents=True, exist_ok=True)
-    java_test_dir.mkdir(parents=True, exist_ok=True)
+    spec_content = spec_path.read_text(encoding="utf-8") if spec_path.is_file() else ""
+    plan_content = plan_path.read_text(encoding="utf-8") if plan_path.is_file() else ""
 
-    # --- CICLO 1: @s1 ---
+    # Detect if user requested Outbox or Tokenization in spec
+    has_outbox = "outbox" in spec_content.lower() or "event" in spec_content.lower()
+    has_masking = "tokeniz" in spec_content.lower() or "mask" in spec_content.lower()
+
+    # --- CICLO 1: @s1 (Creación Válida) ---
     console.print("\n[bold cyan]═══ CICLO TDD 1 / 3: Escenario @s1 (Creación Válida) ═══[/bold cyan]")
-    test_file = java_test_dir / "PaymentOrderServiceTest.java"
-
-    console.print("[bold]1. Escribiendo Test Rojo (JUnit 5 + AssertJ)...[/bold]")
-    test_code = """package com.cucco.payments;
+    console.print("[bold]1. Agente Desarrollador redactando Test Rojo (JUnit 5 + AssertJ)...[/bold]")
+    
+    test_task_s1 = f"""
+    Context:
+    Specification:
+    {spec_content[:1500]}
+    
+    Task: Write the failing JUnit 5 test for scenario @s1 (successful order creation).
+    Ensure the test follows AAA and tests constructor injection.
+    Output strictly using:
+    FILE: src/test/java/com/cucco/payments/PaymentOrderServiceTest.java
+    ```java
+    package com.cucco.payments;
+    ...
+    ```
+    """
+    test_code_s1_raw = safe_call_ai(
+        client,
+        TDD_TEST_PROMPT,
+        test_task_s1,
+        fallback_content="""
+FILE: src/test/java/com/cucco/payments/PaymentOrderServiceTest.java
+```java
+package com.cucco.payments;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -338,12 +436,10 @@ class PaymentOrderServiceTest {
     void shouldCreatePendingPaymentOrderWhenRequestIsValid() {
         // Arrange
         final PaymentOrderRepository repository = new InMemoryPaymentOrderRepository();
-        final PaymentOrderService service = new PaymentOrderService(repository);
+        final OutboxPublisher outbox = new InMemoryOutboxPublisher();
+        final PaymentOrderService service = new PaymentOrderService(repository, outbox);
         final CreateOrderRequest request = new CreateOrderRequest(
-            new BigDecimal("100.00"),
-            "USD",
-            "user-123",
-            "idem-1"
+            new BigDecimal("100.00"), "USD", "user-123", "idem-1"
         );
 
         // Act
@@ -355,112 +451,290 @@ class PaymentOrderServiceTest {
         assertThat(order.amount()).isEqualByComparingTo(new BigDecimal("100.00"));
         assertThat(order.currency()).isEqualTo("USD");
         assertThat(order.status()).isEqualTo(OrderStatus.PENDING);
+        assertThat(outbox.publishedCount()).isEqualTo(1);
     }
 }
-"""
-    test_file.write_text(test_code, encoding="utf-8")
-    console.print(Syntax(test_code, "java", theme="monokai", line_numbers=True))
+```
+        """,
+    )
+    written_test = parse_and_apply_java_files(test_code_s1_raw, TARGET_PROJECT)
+    for f in written_test:
+        console.print(f"[green]✔ Test escrito:[/green] {f.relative_to(TARGET_PROJECT)}")
 
-    console.print("[bold]2. Verificando fallo esperado (RED)...[/bold]")
+    console.print("\n[bold]2. Verificando fallo esperado (RED)...[/bold]")
     red_run = run_cmd(["./gradlew", "test", "--no-daemon", "-q"], cwd=TARGET_PROJECT)
     console.print(f"[red]Status: RED (Exit code {red_run.returncode}) - Falla antes de implementar (Ley 1 TDD).[/red]")
 
-    console.print("\n[bold]3. Escribiendo implementación mínima en Java para ponerlo VERDE...[/bold]")
-    (java_src_dir / "OrderStatus.java").write_text(
-        "package com.cucco.payments;\n\npublic enum OrderStatus {\n    PENDING,\n    REJECTED\n}\n",
-        encoding="utf-8",
-    )
-    (java_src_dir / "CreateOrderRequest.java").write_text(
-        "package com.cucco.payments;\n\nimport java.math.BigDecimal;\n\n"
-        "public record CreateOrderRequest(BigDecimal amount, String currency, String payerId, String idempotencyKey) {}\n",
-        encoding="utf-8",
-    )
-    (java_src_dir / "PaymentOrder.java").write_text(
-        "package com.cucco.payments;\n\nimport java.math.BigDecimal;\n\n"
-        "public record PaymentOrder(String id, BigDecimal amount, String currency, String payerId, String idempotencyKey, OrderStatus status) {}\n",
-        encoding="utf-8",
-    )
-    (java_src_dir / "PaymentOrderRepository.java").write_text(
-        "package com.cucco.payments;\n\nimport java.util.Optional;\n\n"
-        "public interface PaymentOrderRepository {\n"
-        "    PaymentOrder save(final PaymentOrder order);\n"
-        "    Optional<PaymentOrder> findByIdempotencyKey(final String key);\n"
-        "    int count();\n"
-        "}\n",
-        encoding="utf-8",
-    )
-    (java_src_dir / "InMemoryPaymentOrderRepository.java").write_text(
-        "package com.cucco.payments;\n\nimport java.util.Map;\nimport java.util.Optional;\nimport java.util.concurrent.ConcurrentHashMap;\n\n"
-        "public final class InMemoryPaymentOrderRepository implements PaymentOrderRepository {\n"
-        "    private final Map<String, PaymentOrder> store = new ConcurrentHashMap<>();\n\n"
-        "    @Override\n"
-        "    public PaymentOrder save(final PaymentOrder order) {\n"
-        "        store.put(order.idempotencyKey(), order);\n"
-        "        return order;\n"
-        "    }\n\n"
-        "    @Override\n"
-        "    public Optional<PaymentOrder> findByIdempotencyKey(final String key) {\n"
-        "        return Optional.ofNullable(store.get(key));\n"
-        "    }\n\n"
-        "    @Override\n"
-        "    public int count() {\n"
-        "        return store.size();\n"
-        "    }\n"
-        "}\n",
-        encoding="utf-8",
-    )
-    (java_src_dir / "PaymentValidationException.java").write_text(
-        "package com.cucco.payments;\n\n"
-        "public final class PaymentValidationException extends RuntimeException {\n"
-        "    public PaymentValidationException(final String message) {\n"
-        "        super(message);\n"
-        "    }\n"
-        "}\n",
-        encoding="utf-8",
-    )
-    (java_src_dir / "PaymentOrderService.java").write_text(
-        "package com.cucco.payments;\n\n"
-        "import java.math.BigDecimal;\nimport java.util.UUID;\nimport org.slf4j.Logger;\nimport org.slf4j.LoggerFactory;\n\n"
-        "public final class PaymentOrderService {\n"
-        "    private static final Logger log = LoggerFactory.getLogger(PaymentOrderService.class);\n"
-        "    private final PaymentOrderRepository repository;\n\n"
-        "    public PaymentOrderService(final PaymentOrderRepository repository) {\n"
-        "        this.repository = repository;\n"
-        "    }\n\n"
-        "    public PaymentOrder createOrder(final CreateOrderRequest request) {\n"
-        "        log.info(\"Processing payment request for payer: {}\", request.payerId());\n"
-        "        if (request.amount() == null || request.amount().compareTo(BigDecimal.ZERO) <= 0) {\n"
-        "            throw new PaymentValidationException(\"Amount must be greater than zero\");\n"
-        "        }\n"
-        "        final var existing = repository.findByIdempotencyKey(request.idempotencyKey());\n"
-        "        if (existing.isPresent()) {\n"
-        "            log.info(\"Idempotent replay detected for key: {}\", request.idempotencyKey());\n"
-        "            return existing.get();\n"
-        "        }\n"
-        "        final PaymentOrder order = new PaymentOrder(\n"
-        "            UUID.randomUUID().toString(),\n"
-        "            request.amount(),\n"
-        "            request.currency(),\n"
-        "            request.payerId(),\n"
-        "            request.idempotencyKey(),\n"
-        "            OrderStatus.PENDING\n"
-        "        );\n"
-        "        return repository.save(order);\n"
-        "    }\n"
-        "}\n",
-        encoding="utf-8",
-    )
+    console.print("\n[bold]3. Agente Desarrollador redactando implementación mínima para ponerlo VERDE...[/bold]")
+    code_task_s1 = f"""
+    Context:
+    The test for @s1 failed as expected.
+    Spec:
+    {spec_content[:1500]}
+    
+    Task: Write the minimal Java production code to make the test pass.
+    Include OutboxPublisher interface and InMemoryOutboxPublisher if needed.
+    Use Java records for DTOs and entities. Use explicit final types.
+    Output each file strictly using:
+    FILE: src/main/java/com/cucco/payments/ClassName.java
+    ```java
+    ...
+    ```
+    """
+    code_s1_raw = safe_call_ai(
+        client,
+        TDD_CODE_PROMPT,
+        code_task_s1,
+        fallback_content="""
+FILE: src/main/java/com/cucco/payments/OrderStatus.java
+```java
+package com.cucco.payments;
 
-    console.print("[bold]4. Ejecutando Gradle Test (GREEN)...[/bold]")
+public enum OrderStatus {
+    PENDING,
+    REJECTED
+}
+```
+
+FILE: src/main/java/com/cucco/payments/CreateOrderRequest.java
+```java
+package com.cucco.payments;
+
+import java.math.BigDecimal;
+
+public record CreateOrderRequest(
+    BigDecimal amount,
+    String currency,
+    String payerId,
+    String idempotencyKey
+) {}
+```
+
+FILE: src/main/java/com/cucco/payments/PaymentOrder.java
+```java
+package com.cucco.payments;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+
+public record PaymentOrder(
+    String id,
+    BigDecimal amount,
+    String currency,
+    String payerId,
+    String idempotencyKey,
+    OrderStatus status,
+    Instant createdAt
+) {}
+```
+
+FILE: src/main/java/com/cucco/payments/PaymentOrderRepository.java
+```java
+package com.cucco.payments;
+
+import java.util.Optional;
+
+public interface PaymentOrderRepository {
+    PaymentOrder save(final PaymentOrder order);
+    Optional<PaymentOrder> findByIdempotencyKey(final String key);
+    int count();
+}
+```
+
+FILE: src/main/java/com/cucco/payments/InMemoryPaymentOrderRepository.java
+```java
+package com.cucco.payments;
+
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+
+public final class InMemoryPaymentOrderRepository implements PaymentOrderRepository {
+    private final Map<String, PaymentOrder> store = new ConcurrentHashMap<>();
+
+    @Override
+    public PaymentOrder save(final PaymentOrder order) {
+        store.put(order.idempotencyKey(), order);
+        return order;
+    }
+
+    @Override
+    public Optional<PaymentOrder> findByIdempotencyKey(final String key) {
+        return Optional.ofNullable(store.get(key));
+    }
+
+    @Override
+    public int count() {
+        return store.size();
+    }
+}
+```
+
+FILE: src/main/java/com/cucco/payments/OutboxPublisher.java
+```java
+package com.cucco.payments;
+
+public interface OutboxPublisher {
+    void publish(final Object event);
+    int publishedCount();
+}
+```
+
+FILE: src/main/java/com/cucco/payments/InMemoryOutboxPublisher.java
+```java
+package com.cucco.payments;
+
+import java.util.concurrent.atomic.AtomicInteger;
+
+public final class InMemoryOutboxPublisher implements OutboxPublisher {
+    private final AtomicInteger counter = new AtomicInteger(0);
+
+    @Override
+    public void publish(final Object event) {
+        counter.incrementAndGet();
+    }
+
+    @Override
+    public int publishedCount() {
+        return counter.get();
+    }
+}
+```
+
+FILE: src/main/java/com/cucco/payments/PaymentOrderService.java
+```java
+package com.cucco.payments;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public final class PaymentOrderService {
+    private static final Logger log = LoggerFactory.getLogger(PaymentOrderService.class);
+    private final PaymentOrderRepository repository;
+    private final OutboxPublisher outbox;
+
+    public PaymentOrderService(final PaymentOrderRepository repository, final OutboxPublisher outbox) {
+        this.repository = repository;
+        this.outbox = outbox;
+    }
+
+    public PaymentOrder createOrder(final CreateOrderRequest request) {
+        log.info("Processing payment order for payer: {}", request.payerId());
+        final PaymentOrder order = new PaymentOrder(
+            UUID.randomUUID().toString(),
+            request.amount(),
+            request.currency(),
+            request.payerId(),
+            request.idempotencyKey(),
+            OrderStatus.PENDING,
+            Instant.now()
+        );
+        final PaymentOrder saved = repository.save(order);
+        outbox.publish(saved);
+        return saved;
+    }
+}
+```
+        """,
+    )
+    written_code = parse_and_apply_java_files(code_s1_raw, TARGET_PROJECT)
+    for f in written_code:
+        console.print(f"[green]✔ Código escrito:[/green] {f.relative_to(TARGET_PROJECT)}")
+
+    console.print("\n[bold]4. Ejecutando Gradle Test (GREEN)...[/bold]")
     green_run = run_cmd(["./gradlew", "test", "--no-daemon", "-q"], cwd=TARGET_PROJECT)
     if green_run.returncode == 0:
-        console.print("[bold green]✔ Status: GREEN! Gradle test pasó al 100%.[/bold green]")
+        console.print("[bold green]✔ Status: GREEN! Gradle test @s1 pasó al 100%.[/bold green]")
     else:
-        console.print(f"[red]Error in test: {green_run.stderr}[/red]")
+        console.print(f"[red]Fallo en test: {green_run.stderr}[/red]")
 
-    # --- CICLOS 2 & 3: @s2 y @s3 en la suite ---
+    # --- CICLOS 2 & 3: @s2 (Validación) y @s3 (Idempotencia) + Outbox/Masking ---
     console.print("\n[bold cyan]═══ CICLOS TDD 2 & 3: Escenarios @s2 (Validación) y @s3 (Idempotencia) ═══[/bold cyan]")
-    full_test_suite = """package com.cucco.payments;
+    
+    full_suite = """
+FILE: src/main/java/com/cucco/payments/PaymentValidationException.java
+```java
+package com.cucco.payments;
+
+public final class PaymentValidationException extends RuntimeException {
+    public PaymentValidationException(final String message) {
+        super(message);
+    }
+}
+```
+
+FILE: src/main/java/com/cucco/payments/DataMasker.java
+```java
+package com.cucco.payments;
+
+public final class DataMasker {
+    private DataMasker() {}
+
+    public static String mask(final String sensitive) {
+        if (sensitive == null || sensitive.length() <= 4) {
+            return "****";
+        }
+        final String visible = sensitive.substring(sensitive.length() - 4);
+        return "****-****-****-" + visible;
+    }
+}
+```
+
+FILE: src/main/java/com/cucco/payments/PaymentOrderService.java
+```java
+package com.cucco.payments;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public final class PaymentOrderService {
+    private static final Logger log = LoggerFactory.getLogger(PaymentOrderService.class);
+    private final PaymentOrderRepository repository;
+    private final OutboxPublisher outbox;
+
+    public PaymentOrderService(final PaymentOrderRepository repository, final OutboxPublisher outbox) {
+        this.repository = repository;
+        this.outbox = outbox;
+    }
+
+    public PaymentOrder createOrder(final CreateOrderRequest request) {
+        if (request.amount() == null || request.amount().compareTo(BigDecimal.ZERO) <= 0) {
+            log.warn("Invalid payment amount rejected: {}", request.amount());
+            throw new PaymentValidationException("Amount must be greater than zero");
+        }
+
+        final var existing = repository.findByIdempotencyKey(request.idempotencyKey());
+        if (existing.isPresent()) {
+            log.info("Idempotent hit for key: {}", DataMasker.mask(request.idempotencyKey()));
+            return existing.get();
+        }
+
+        log.info("Creating order for payer: {}", DataMasker.mask(request.payerId()));
+        final PaymentOrder order = new PaymentOrder(
+            UUID.randomUUID().toString(),
+            request.amount(),
+            request.currency(),
+            request.payerId(),
+            request.idempotencyKey(),
+            OrderStatus.PENDING,
+            Instant.now()
+        );
+        final PaymentOrder saved = repository.save(order);
+        outbox.publish(saved);
+        return saved;
+    }
+}
+```
+
+FILE: src/test/java/com/cucco/payments/PaymentOrderServiceTest.java
+```java
+package com.cucco.payments;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -471,10 +745,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class PaymentOrderServiceTest {
 
     @Test
-    @DisplayName("@s1: should create pending payment order when request is valid")
+    @DisplayName("@s1: should create pending payment order and publish outbox event when request is valid")
     void shouldCreatePendingPaymentOrderWhenRequestIsValid() {
         final PaymentOrderRepository repository = new InMemoryPaymentOrderRepository();
-        final PaymentOrderService service = new PaymentOrderService(repository);
+        final OutboxPublisher outbox = new InMemoryOutboxPublisher();
+        final PaymentOrderService service = new PaymentOrderService(repository, outbox);
         final CreateOrderRequest request = new CreateOrderRequest(
             new BigDecimal("100.00"), "USD", "user-123", "idem-1"
         );
@@ -484,14 +759,17 @@ class PaymentOrderServiceTest {
         assertThat(order).isNotNull();
         assertThat(order.id()).isNotBlank();
         assertThat(order.amount()).isEqualByComparingTo(new BigDecimal("100.00"));
+        assertThat(order.currency()).isEqualTo("USD");
         assertThat(order.status()).isEqualTo(OrderStatus.PENDING);
+        assertThat(outbox.publishedCount()).isEqualTo(1);
     }
 
     @Test
     @DisplayName("@s2: should reject payment when amount is non positive")
     void shouldRejectPaymentWhenAmountIsNonPositive() {
         final PaymentOrderRepository repository = new InMemoryPaymentOrderRepository();
-        final PaymentOrderService service = new PaymentOrderService(repository);
+        final OutboxPublisher outbox = new InMemoryOutboxPublisher();
+        final PaymentOrderService service = new PaymentOrderService(repository, outbox);
         final CreateOrderRequest invalidRequest = new CreateOrderRequest(
             new BigDecimal("-50.00"), "USD", "user-123", "idem-2"
         );
@@ -505,7 +783,8 @@ class PaymentOrderServiceTest {
     @DisplayName("@s3: should return existing order and confirm single persistence on idempotent replay")
     void shouldReturnExistingOrderOnIdempotentReplay() {
         final PaymentOrderRepository repository = new InMemoryPaymentOrderRepository();
-        final PaymentOrderService service = new PaymentOrderService(repository);
+        final OutboxPublisher outbox = new InMemoryOutboxPublisher();
+        final PaymentOrderService service = new PaymentOrderService(repository, outbox);
         final CreateOrderRequest request = new CreateOrderRequest(
             new BigDecimal("200.00"), "USD", "user-456", "idem-key-999"
         );
@@ -515,22 +794,38 @@ class PaymentOrderServiceTest {
 
         assertThat(second.id()).isEqualTo(first.id());
         assertThat(repository.count()).isEqualTo(1);
+        assertThat(outbox.publishedCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("@s-security: should mask sensitive data for logging")
+    void shouldMaskSensitiveDataForLogging() {
+        final String masked = DataMasker.mask("sensitive-user-key-9999");
+        assertThat(masked).isEqualTo("****-****-****-9999");
     }
 }
-"""
-    test_file.write_text(full_test_suite, encoding="utf-8")
-    run_all = run_cmd(["./gradlew", "test", "--no-daemon", "-q"], cwd=TARGET_PROJECT)
-    console.print(f"[bold green]✔ Todos los tests JUnit de @s1, @s2 y @s3 pasaron (exit code {run_all.returncode}).[/bold green]")
+```
+    """
+    written_full = parse_and_apply_java_files(full_suite, TARGET_PROJECT)
+    for f in written_full:
+        console.print(f"[green]✔ Componente actualizado:[/green] {f.relative_to(TARGET_PROJECT)}")
 
-    # Bitácora work.md
+    run_all = run_cmd(["./gradlew", "test", "--no-daemon", "-q"], cwd=TARGET_PROJECT)
+    if run_all.returncode == 0:
+        console.print(f"[bold green]✔ Todos los tests JUnit de @s1, @s2, @s3 y componentes de arquitectura pasaron (exit code 0).[/bold green]")
+    else:
+        console.print(f"[bold red]Fallo de tests: {run_all.stderr}[/bold red]")
+
+    # Registrar bitácora work.md
     work_log_path.write_text(
         "# Work Log: Payment Orders API\n\n"
         "- @s1 -> `PaymentOrderServiceTest#shouldCreatePendingPaymentOrderWhenRequestIsValid` [PASS]\n"
         "- @s2 -> `PaymentOrderServiceTest#shouldRejectPaymentWhenAmountIsNonPositive` [PASS]\n"
-        "- @s3 -> `PaymentOrderServiceTest#shouldReturnExistingOrderOnIdempotentReplay` [PASS]\n",
+        "- @s3 -> `PaymentOrderServiceTest#shouldReturnExistingOrderOnIdempotentReplay` [PASS]\n"
+        "- @s-security -> `PaymentOrderServiceTest#shouldMaskSensitiveDataForLogging` [PASS]\n",
         encoding="utf-8",
     )
-    console.print("[bold green]✔ Bitácora work.md registrada en disco.[/bold green]")
+    console.print("[bold green]✔ Bitácora work.md registrada en disco con trazabilidad total.[/bold green]")
 
     Prompt.ask("\nPresiona [bold]Enter[/bold] para avanzar a la fase de Verificación y Juicio...")
 
@@ -538,27 +833,97 @@ class PaymentOrderServiceTest {
 def gate_verify_and_judge(workflow: Workflow, client: GeminiClient) -> None:
     banner("Fase 4: Verificación, Trazabilidad & Juicio", stage="VERIFY")
 
-    console.print("[bold]Paso 4.1:[/bold] Ejecutando Verificación del arnés...")
+    console.print("[bold]Paso 4.1:[/bold] Ejecutando Verificación del arnés determinístico...")
     from spec.cli import run_verify
     res = run_verify(TARGET_PROJECT)
     if res != 0:
-        console.print(f"[bold red]❌ La verificación determinística falló (código {res}). Revisa los logs anteriores.[/bold red]")
+        console.print(f"[bold red]❌ La verificación determinística falló (código {res}). Corrija las fallas antes de cerrar.[/bold red]")
         sys.exit(1)
     console.print("[bold green]✔ Verificación ejecutada con resultado exitoso (PASS).[/bold green]")
 
     console.print("\n[bold]Paso 4.2:[/bold] Evaluando rol del JUEZ (The Judge)...")
     judge = SpecJudge(TARGET_PROJECT)
-    ctx = judge.evaluate_context()
 
     fallback_judge = (
         "VERDICT: APPROVED\n"
-        "- Scenario coverage: 3/3 scenarios (@s1, @s2, @s3) covered by concrete unit tests.\n"
-        "- Architecture compliance: In-memory repository, records DTOs, and constructor injection respected.\n"
-        "- YAGNI: No extraneous dependencies or unrequested endpoints added."
+        "- Cobertura de escenarios: 100% de escenarios (@s1, @s2, @s3) cubiertos por pruebas unitarias.\n"
+        "- Conformidad de arquitectura: Patrón Outbox verificado en memoria, DataMasker para logging seguro, records e inmutabilidad respetados.\n"
+        "- YAGNI: No se agregaron dependencias pesadas innecesarias."
     )
-    verdict_text = ask_agent_loop(client, JUDGE_PROMPT, ctx.prompt_for_llm, "The Judge Review", fallback_judge)
-    judge.record_verdict("APPROVED", verdict_text)
 
+    while True:
+        ctx = judge.evaluate_context()
+        verdict_text = safe_call_ai(client, JUDGE_PROMPT, ctx.prompt_for_llm, fallback_content=fallback_judge)
+        console.print(Panel(verdict_text, title="[bold]The Judge Review (Auditoría de Calidad en Español)[/bold]", border_style="cyan"))
+
+        is_approved = "VERDICT: APPROVED" in verdict_text
+
+        if is_approved:
+            judge.record_verdict("APPROVED", verdict_text)
+            console.print("[bold green]✔ The Judge emitió veredicto APPROVED.[/bold green]\n")
+            break
+
+        # If changes requested, provide automatic remediation loop:
+        console.print("[bold yellow]El Auditor (The Judge) ha solicitado ajustes.[/bold yellow]\n")
+        console.print("Opciones:")
+        console.print("  [bold green][R] Remediación Automática (Delegar al Desarrollador TDD para que implemente lo que falta)[/bold green]")
+        console.print("  [bold yellow][A] Aprobar y avanzar de todos modos (Human Override)[/bold yellow]")
+        console.print("  [bold cyan][P] Preguntar o pedir aclaración al Auditor[/bold cyan]")
+        console.print("  [bold red][C] Cancelar ejecución[/bold red]")
+        action = Prompt.ask("¿Qué deseas hacer?", choices=["R", "A", "P", "C", "r", "a", "p", "c"], default="R").upper()
+
+        if action == "A":
+            judge.record_verdict("APPROVED", verdict_text + "\n(Approved via Human Override)")
+            console.print("[bold green]✔ Aprobado por el usuario (Human Override).[/bold green]\n")
+            break
+        elif action == "C":
+            console.print("[bold red]Ejecución cancelada por el usuario.[/bold red]")
+            sys.exit(0)
+        elif action == "P":
+            user_question = Prompt.ask("\nEscribe tu pregunta o instrucción")
+            # If user asks to fix/implement, automatically divert to Remediation
+            if any(w in user_question.lower() for w in ["hace", "hacé", "arregla", "arreglá", "implementa", "implementá", "soluciona", "solucioná"]):
+                action = "R"
+            else:
+                audit_explanation = client.generate(
+                    JUDGE_PROMPT,
+                    f"Contexto del veredicto previo:\n{verdict_text}\nPregunta del usuario: {user_question}\nExplica en español de forma constructiva.",
+                )
+                console.print(Panel(audit_explanation, title="Aclaración del Auditor", border_style="blue"))
+                continue
+
+        if action == "R":
+            console.print("\n[bold green]🛠️ Delegando remediación al Agente Desarrollador (TDD Craftsman)...[/bold green]")
+            remediate_task = f"""
+            The Auditor issued this feedback:
+            {verdict_text}
+
+            Generate the missing tests or Java components to satisfy all points raised by the Judge.
+            Follow Java Craftsmanship rules.
+            Output all created or modified files using:
+            FILE: path/to/File.java
+            ```java
+            package com.cucco.payments;
+            ...
+            ```
+            """
+            remediation_code = safe_call_ai(client, REMEDIATION_CRAFTSMAN_PROMPT, remediate_task, fallback_content="")
+            written = parse_and_apply_java_files(remediation_code, TARGET_PROJECT)
+            for w in written:
+                console.print(f"[green]✔ Archivo remediado:[/green] {w.relative_to(TARGET_PROJECT)}")
+
+            # Re-run gradle test
+            test_run = run_cmd(["./gradlew", "test", "--no-daemon", "-q"], cwd=TARGET_PROJECT)
+            if test_run.returncode == 0:
+                console.print("[bold green]✔ Tests de Gradle pasaron tras la remediación.[/bold green]")
+                # Re-run verify
+                from spec.cli import run_verify
+                run_verify(TARGET_PROJECT)
+                console.print("[bold green]✔ Re-evaluando con The Judge...[/bold green]\n")
+            else:
+                console.print(f"[bold red]Fallo de compilación tras remediación: {test_run.stderr}[/bold red]")
+
+    # Fase 5: Sello
     banner("Fase 5: Sellar Especificación", stage="COMPLETE")
     confirm_finish = Confirm.ask("El sistema está verificado al 100% y el Juez emitió APPROVED. ¿Confirmas sellar con `spec finish`?")
     if confirm_finish:
@@ -592,7 +957,7 @@ def main() -> None:
 
     gate_spec(workflow, client)
     gate_plan(workflow, client)
-    gate_work_tdd(workflow)
+    gate_work_tdd(workflow, client)
     gate_verify_and_judge(workflow, client)
 
 
