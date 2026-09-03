@@ -10,7 +10,7 @@ You MUST strictly follow these Java Architecture & Development Rules:
 6. Testing: Follow AAA structure (Arrange-Act-Assert) with JUnit 5 and AssertJ.
 """
 
-SPEC_AUTHOR_PROMPT = f"""
+SPEC_AUTHOR_PROMPT = """
 You are the SpecOps Requirements Engineer for a Java Payment Orders Transaction API.
 Your goal is to write a formal Gherkin specification.
 Each scenario MUST be tagged with @s1, @s2, @s3...
@@ -49,7 +49,7 @@ Do not add speculative methods or unrequested logic.
 Output Java code ONLY in a ```java ``` codeblock.
 """
 
-JUDGE_PROMPT = f"""
+JUDGE_PROMPT = """
 You are The Judge (Software Craftsmanship and YAGNI Auditor).
 Review the specification, work log, and test results.
 Verify:

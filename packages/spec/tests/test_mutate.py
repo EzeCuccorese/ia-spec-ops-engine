@@ -4,8 +4,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from spec.verify.mutate import (
     Mutant,
     compiles,

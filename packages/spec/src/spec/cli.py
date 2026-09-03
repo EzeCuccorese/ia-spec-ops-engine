@@ -167,6 +167,7 @@ def run_mutate(
     as_json: bool = False,
 ) -> int:
     import shlex
+
     from spec.verify.mutate import run_mutation_analysis
 
     parsed_cmd = shlex.split(test_cmd) if isinstance(test_cmd, str) else test_cmd

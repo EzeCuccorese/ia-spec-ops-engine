@@ -7,7 +7,7 @@ with mandatory human gates and live Gradle test feedback.
 
 from __future__ import annotations
 
-import os
+import contextlib
 import subprocess
 import sys
 from pathlib import Path
@@ -24,19 +24,15 @@ from rich.table import Table
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "packages/spec/src"))
 
-from spec.governance.judge import SpecJudge
-from spec.governance.project import ProjectGovernance
-from spec.spec.assist import TestAssistant
-from spec.spec.workflow import Stage, Workflow
-
-from agent_roles import (
+from agent_roles import (  # noqa: E402
     JUDGE_PROMPT,
     PLANNER_PROMPT,
     SPEC_AUTHOR_PROMPT,
-    TDD_CODE_PROMPT,
-    TDD_TEST_PROMPT,
 )
-from gemini_client import GeminiClient
+from gemini_client import GeminiClient  # noqa: E402
+from spec.governance.judge import SpecJudge  # noqa: E402
+from spec.governance.project import ProjectGovernance  # noqa: E402
+from spec.spec.workflow import Workflow  # noqa: E402
 
 console = Console()
 WORKBENCH_DIR = Path(__file__).resolve().parent.parent
@@ -83,10 +79,8 @@ def gate_spec(workflow: Workflow, client: GeminiClient) -> None:
     banner("Fase 1: Especificación Formal & Criterios Gherkin", stage="SPEC")
 
     console.print("[bold]Paso 1.1:[/bold] Creando especificación en arnés...")
-    try:
+    with contextlib.suppress(Exception):
         workflow.create_spec("Payment Orders API", "Java API for processing transaction orders with idempotency")
-    except Exception:
-        pass  # Already exists or resumed
 
     spec_dir = workflow.feature_dir("payment-orders-api")
     spec_path = spec_dir / "spec.md"

@@ -84,15 +84,12 @@ class ProjectAuditor:
             missing: list[str] = []
             if not (feature_dir / "spec.md").is_file():
                 missing.append("spec.md")
-            if status.stage in (Stage.PLAN, Stage.TASKS, Stage.WORK, Stage.VERIFY):
-                if not (feature_dir / "plan.md").is_file():
-                    missing.append("plan.md")
-            if status.stage in (Stage.TASKS, Stage.WORK, Stage.VERIFY):
-                if not (feature_dir / "tasks.md").is_file():
-                    missing.append("tasks.md")
-            if status.stage in (Stage.WORK, Stage.VERIFY):
-                if not (feature_dir / "work.md").is_file():
-                    missing.append("work.md")
+            if status.stage in (Stage.PLAN, Stage.TASKS, Stage.WORK, Stage.VERIFY) and not (feature_dir / "plan.md").is_file():
+                missing.append("plan.md")
+            if status.stage in (Stage.TASKS, Stage.WORK, Stage.VERIFY) and not (feature_dir / "tasks.md").is_file():
+                missing.append("tasks.md")
+            if status.stage in (Stage.WORK, Stage.VERIFY) and not (feature_dir / "work.md").is_file():
+                missing.append("work.md")
 
             if missing:
                 c3_passed = False
