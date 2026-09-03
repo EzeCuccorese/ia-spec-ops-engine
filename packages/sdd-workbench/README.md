@@ -11,7 +11,8 @@ packages/sdd-workbench/
 ├── .env.example              # Plantilla de configuración segura
 ├── runner/                   # Orquestador y TUI en Python
 │   ├── sdd_runner_tui.py     # Script interactivo principal con TUI en Rich
-│   ├── gemini_client.py      # Conector a la API de Gemini (gemini-flash-latest)
+│   ├── clean_workbench.py    # Runner para limpiar y dejar el entorno 100% prístino
+│   ├── gemini_client.py      # Conector con ADC a Agent Platform (gemini-flash-latest)
 │   └── agent_roles.py        # Prompts especializados (SpecAuthor, Craftsman, Judge)
 ├── test-sdd/                 # Proyecto objetivo en Java 21 / Spring Boot
 │   ├── build.gradle          # Configuración con Gradle, JUnit 5, AssertJ y JaCoCo
@@ -43,7 +44,15 @@ packages/sdd-workbench/
      * Ciclo Rojo: Genera el test JUnit 5 y corre `./gradlew test` (falla).
      * Ciclo Verde: Genera la implementación mínima en Java y corre `./gradlew test` (pasa 100%).
      * Registra la bitácora `work.md` en disco.
-   * **Fase 4 (Verificación y Juicio)**:
-     * Ejecuta `spec verify` auditando la trazabilidad de todos los escenarios.
-     * El Agente **The Judge** audita el código contra YAGNI y emite el veredicto `APPROVED`.
-   * **Fase 5 (Sello)**: El sistema te pide confirmación final y ejecuta `spec finish`.
+    * **Fase 4 (Verificación y Juicio)**:
+      * Ejecuta `spec verify` auditando la trazabilidad de todos los escenarios.
+      * El Agente **The Judge** audita el código contra YAGNI y emite el veredicto `APPROVED`.
+    * **Fase 5 (Sello y Limpieza)**: El sistema te pide confirmación final y ejecuta `spec finish`. Al concluir, te ofrece limpiar automáticamente el entorno.
+
+4. **Limpiar y Resetear el Entorno en Cualquier Momento**:
+   Para resetear el proyecto a un estado 100% limpio y prístino:
+   ```bash
+   python3 packages/sdd-workbench/runner/clean_workbench.py
+   # O de forma directa sin confirmación:
+   python3 packages/sdd-workbench/runner/clean_workbench.py --force
+   ```

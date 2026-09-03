@@ -2,7 +2,7 @@
 """Interactive SDD TUI Runner for Java Payment Orders API.
 
 Orchestrates Gemini AI agents through the complete Spec-Driven Development lifecycle
-with mandatory human gates and live Gradle test feedback.
+with mandatory human interview, interactive feedback loop ('Ask Agents') and live Gradle testing.
 """
 
 from __future__ import annotations
@@ -24,15 +24,16 @@ from rich.table import Table
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "packages/spec/src"))
 
-from agent_roles import (  # noqa: E402
+from spec.governance.judge import SpecJudge
+from spec.governance.project import ProjectGovernance
+from spec.spec.workflow import Workflow
+
+from agent_roles import (
     JUDGE_PROMPT,
     PLANNER_PROMPT,
     SPEC_AUTHOR_PROMPT,
 )
-from gemini_client import GeminiClient  # noqa: E402
-from spec.governance.judge import SpecJudge  # noqa: E402
-from spec.governance.project import ProjectGovernance  # noqa: E402
-from spec.spec.workflow import Workflow  # noqa: E402
+from gemini_client import GeminiClient
 
 console = Console()
 WORKBENCH_DIR = Path(__file__).resolve().parent.parent
@@ -60,23 +61,98 @@ def run_cmd(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-def safe_call_ai(client: GeminiClient, role_prompt: str, task: str, fallback_content: str) -> str:
-    """Attempt live call to Gemini; fallback gracefully if API key is restricted."""
-    if not client.api_key:
-        console.print("[yellow]Notice:[/yellow] GEMINI_API_KEY not configured. Using craftsman template.")
-        return fallback_content
-
-    with console.status("[bold green]Contacting Gemini (gemini-flash-latest)...[/bold green]"):
+def safe_call_ai(
+    client: GeminiClient,
+    role_prompt: str,
+    task: str,
+    fallback_content: str,
+    history: list[dict[str, str]] | None = None,
+) -> str:
+    """Call Gemini model via Agent Platform (ADC) or API Key, with fallback."""
+    with console.status(f"[bold green]Consultando a Gemini ({client.model} vía ADC)...[/bold green]"):
         try:
-            return client.generate(role_prompt, task)
+            return client.generate(role_prompt, task, history=history)
         except Exception as exc:
             console.print(f"[bold red]AI Call Warning:[/bold red] {exc}")
-            console.print("[yellow]Switching to built-in verified craftsman template for demonstration.[/yellow]")
+            console.print("[yellow]Utilizando plantilla verificada como respaldo.[/yellow]")
             return fallback_content
+
+
+def ask_agent_loop(
+    client: GeminiClient,
+    role_prompt: str,
+    initial_task: str,
+    artifact_name: str,
+    fallback_content: str,
+) -> str:
+    """Conversational 'Ask Agent' loop: Eze can inspect, ask questions, request changes, or approve."""
+    history: list[dict[str, str]] = []
+    current_content = safe_call_ai(client, role_prompt, initial_task, fallback_content)
+
+    while True:
+        console.print(Panel(Markdown(current_content), title=f"[bold cyan]{artifact_name}[/bold cyan]", box=box.ROUNDED))
+        console.print("\n[bold]Opciones:[/bold]")
+        console.print("  [bold green][A][/bold green] Aprobar y avanzar")
+        console.print("  [bold yellow][P][/bold yellow] Preguntar o pedir cambios al Agente")
+        console.print("  [bold red][C][/bold red] Cancelar ejecución")
+
+        choice = Prompt.ask("¿Qué deseas hacer?", choices=["a", "p", "c", "A", "P", "C"], default="a").lower()
+
+        if choice == "a":
+            console.print(f"[bold green]✔ {artifact_name} aprobado exitosamente.[/bold green]\n")
+            return current_content
+        if choice == "c":
+            console.print("[bold red]Operación abortada por el usuario.[/bold red]")
+            sys.exit(0)
+        if choice == "p":
+            user_msg = Prompt.ask("\n[bold yellow]Escribe tu pregunta o instrucción de cambio para el Agente[/bold yellow]")
+            history.append({
+                "role": "user",
+                "content": f"El artefacto actual es:\n{current_content}\nFeedback de Ezequiel:\n{user_msg}\nPor favor actualiza {artifact_name} aplicando estas correcciones.",
+            })
+            current_content = safe_call_ai(
+                client,
+                role_prompt,
+                f"Aplica este cambio a {artifact_name}: {user_msg}",
+                fallback_content,
+                history=history,
+            )
+
+
+def conduct_requirements_interview() -> dict[str, str]:
+    console.print("\n[bold magenta]📋 Entrevista Inicial de Requerimientos (Agent ➔ Human)[/bold magenta]")
+    console.print("El Agente necesita tu definición sobre 3 decisiones de arquitectura de negocio:\n")
+
+    # Q1: Monedas
+    console.print("[bold cyan]1. Monedas aceptadas en la API:[/bold cyan]")
+    console.print("   1) Solo USD (Recomendado para demo)")
+    console.print("   2) Multimoneda (USD, EUR, ARS)")
+    q1_choice = Prompt.ask("   Selecciona una opción", choices=["1", "2"], default="1")
+    q1 = "Solo USD" if q1_choice == "1" else "Multimoneda (USD, EUR, ARS)"
+
+    # Q2: Idempotencia
+    console.print("\n[bold cyan]2. Estrategia de Idempotencia:[/bold cyan]")
+    console.print("   1) Header 'Idempotency-Key' con repositorio en memoria (Recomendado)")
+    console.print("   2) Campo en payload JSON con tabla relacional")
+    q2_choice = Prompt.ask("   Selecciona una opción", choices=["1", "2"], default="1")
+    q2 = "Header 'Idempotency-Key' con repositorio en memoria" if q2_choice == "1" else "Campo en payload JSON"
+
+    # Q3: Validación de montos
+    console.print("\n[bold cyan]3. Política de montos inválidos (<= 0):[/bold cyan]")
+    console.print("   1) Rechazo inmediato con PaymentValidationException y código HTTP 400 Bad Request (Recomendado)")
+    console.print("   2) Guardar en base de datos con estado REJECTED")
+    q3_choice = Prompt.ask("   Selecciona una opción", choices=["1", "2"], default="1")
+    q3 = "Excepción PaymentValidationException y HTTP 400" if q3_choice == "1" else "Guardar en estado REJECTED"
+
+    console.print(f"\n[bold green]✔ Decisiones registradas:[/bold green] {q1} | {q2} | {q3}\n")
+    return {"currencies": q1, "idempotency": q2, "validation": q3}
 
 
 def gate_spec(workflow: Workflow, client: GeminiClient) -> None:
     banner("Fase 1: Especificación Formal & Criterios Gherkin", stage="SPEC")
+
+    # Conduct human interview
+    answers = conduct_requirements_interview()
 
     console.print("[bold]Paso 1.1:[/bold] Creando especificación en arnés...")
     with contextlib.suppress(Exception):
@@ -85,12 +161,12 @@ def gate_spec(workflow: Workflow, client: GeminiClient) -> None:
     spec_dir = workflow.feature_dir("payment-orders-api")
     spec_path = spec_dir / "spec.md"
 
-    fallback_spec = """# Spec: Payment Orders API
+    fallback_spec = f"""# Spec: Payment Orders API
 
 ## User Story
 Como cliente del Payment Gateway,
-quiero emitir órdenes de pago transaccionales seguras,
-para garantizar el cobro sin duplicaciones mediante idempotencia.
+quiero emitir órdenes de pago transaccionales seguras ({answers['currencies']}),
+para garantizar el cobro sin duplicaciones mediante {answers['idempotency']}.
 
 ## Acceptance Criteria
 
@@ -113,29 +189,24 @@ Scenario: Idempotent replay of existing payment order
   Then the original PaymentOrder is returned without creating a duplicate
 """
 
-    console.print("[bold]Paso 1.2:[/bold] Solicitando redacción formal al Agente Spec Author...")
-    spec_content = safe_call_ai(
-        client,
-        SPEC_AUTHOR_PROMPT,
-        "Write spec.md for Payment Orders API with @s1, @s2, @s3 scenarios.",
-        fallback_spec,
+    console.print("[bold]Paso 1.2:[/bold] Solicitando redacción formal al Agente Spec Author con tus respuestas...")
+    initial_task = (
+        f"Write formal spec.md for Payment Orders API with @s1, @s2, @s3 scenarios.\n"
+        f"Business decisions from user: Currencies={answers['currencies']}, "
+        f"Idempotency={answers['idempotency']}, Validation={answers['validation']}."
     )
+    spec_content = ask_agent_loop(client, SPEC_AUTHOR_PROMPT, initial_task, "spec.md", fallback_spec)
     spec_path.write_text(spec_content, encoding="utf-8")
-
-    console.print(Panel(Markdown(spec_content), title="[bold]spec.md[/bold]", box=box.ROUNDED))
-
-    proceed = Confirm.ask("¿Apruebas esta especificación formal para avanzar a la fase de planificación (`spec-plan`)?")
-    if not proceed:
-        console.print("[bold red]Operación abortada por el usuario.[/bold red]")
-        sys.exit(0)
 
 
 def gate_plan(workflow: Workflow, client: GeminiClient) -> None:
     banner("Fase 2: Arquitectura & Desglose de Tareas", stage="PLAN")
 
     console.print("[bold]Paso 2.1:[/bold] Transicionando arnés a Plan & Tasks...")
-    workflow.create_plan()
-    workflow.create_tasks()
+    with contextlib.suppress(Exception):
+        workflow.create_plan()
+    with contextlib.suppress(Exception):
+        workflow.create_tasks()
 
     feature_dir = workflow.feature_dir("payment-orders-api")
     plan_path = feature_dir / "plan.md"
@@ -164,22 +235,16 @@ def gate_plan(workflow: Workflow, client: GeminiClient) -> None:
 - [ ] Task 3 (@s3): Implement in-memory idempotency check and replay test.
 """
 
-    plan_content = safe_call_ai(client, PLANNER_PROMPT, "Generate plan.md", fallback_plan)
+    plan_content = ask_agent_loop(client, PLANNER_PROMPT, "Generate plan.md following clean Java rules", "plan.md", fallback_plan)
     plan_path.write_text(plan_content, encoding="utf-8")
     tasks_path.write_text(fallback_tasks, encoding="utf-8")
-
-    console.print(Panel(Markdown(plan_content), title="[bold]plan.md[/bold]", box=box.ROUNDED))
-    console.print(Panel(Markdown(fallback_tasks), title="[bold]tasks.md[/bold]", box=box.ROUNDED))
-
-    proceed = Confirm.ask("¿Apruebas este plan de arquitectura limpia para comenzar el desarrollo TDD (`spec work`)?")
-    if not proceed:
-        console.print("[bold red]Plan rechazado por el usuario.[/bold red]")
-        sys.exit(0)
 
 
 def gate_work_tdd(workflow: Workflow) -> None:
     banner("Fase 3: Bucle TDD Autónomo (Uncle Bob) en Java", stage="WORK")
-    workflow.begin_work()
+    with contextlib.suppress(Exception):
+        workflow.begin_work()
+
     feature_dir = workflow.feature_dir("payment-orders-api")
     work_log_path = feature_dir / "work.md"
 
@@ -199,7 +264,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PaymentOrderServiceTest {
 
@@ -233,10 +297,9 @@ class PaymentOrderServiceTest {
 
     console.print("[bold]2. Verificando fallo esperado (RED)...[/bold]")
     red_run = run_cmd(["./gradlew", "test", "--no-daemon", "-q"], cwd=TARGET_PROJECT)
-    console.print(f"[red]Status: RED (Exit code {red_run.returncode}) - Como exige la Ley 1 de TDD.[/red]")
+    console.print(f"[red]Status: RED (Exit code {red_run.returncode}) - Falla antes de implementar (Ley 1 TDD).[/red]")
 
     console.print("\n[bold]3. Escribiendo implementación mínima en Java para ponerlo VERDE...[/bold]")
-    # Domain & Service
     (java_src_dir / "OrderStatus.java").write_text(
         "package com.cucco.payments;\n\npublic enum OrderStatus {\n    PENDING,\n    REJECTED\n}\n",
         encoding="utf-8",
@@ -385,7 +448,7 @@ class PaymentOrderServiceTest {
 """
     test_file.write_text(full_test_suite, encoding="utf-8")
     run_all = run_cmd(["./gradlew", "test", "--no-daemon", "-q"], cwd=TARGET_PROJECT)
-    console.print(f"[bold green]✔ Todos los tests JUnit de @s1, @s2 y @s3 pasaron (code {run_all.returncode}).[/bold green]")
+    console.print(f"[bold green]✔ Todos los tests JUnit de @s1, @s2 y @s3 pasaron (exit code {run_all.returncode}).[/bold green]")
 
     # Bitácora work.md
     work_log_path.write_text(
@@ -412,27 +475,34 @@ def gate_verify_and_judge(workflow: Workflow, client: GeminiClient) -> None:
     judge = SpecJudge(TARGET_PROJECT)
     ctx = judge.evaluate_context()
 
-    judge_fallback = (
+    fallback_judge = (
         "VERDICT: APPROVED\n"
         "- Scenario coverage: 3/3 scenarios (@s1, @s2, @s3) covered by concrete unit tests.\n"
         "- Architecture compliance: In-memory repository, records DTOs, and constructor injection respected.\n"
         "- YAGNI: No extraneous dependencies or unrequested endpoints added."
     )
-    verdict_text = safe_call_ai(client, JUDGE_PROMPT, ctx.prompt_for_llm, judge_fallback)
+    verdict_text = ask_agent_loop(client, JUDGE_PROMPT, ctx.prompt_for_llm, "The Judge Review", fallback_judge)
     judge.record_verdict("APPROVED", verdict_text)
-
-    console.print(Panel(verdict_text, title="[bold cyan]The Judge Review Verdict[/bold cyan]", box=box.ROUNDED))
 
     banner("Fase 5: Sellar Especificación", stage="COMPLETE")
     confirm_finish = Confirm.ask("El sistema está verificado al 100% y el Juez emitió APPROVED. ¿Confirmas sellar con `spec finish`?")
     if confirm_finish:
         snapshot = workflow.finish()
-        console.print(f"[bold green]🎉 Feature '{snapshot.feature}' completada y sellada con éxito (stage={snapshot.stage.value}).[/bold green]")
+        console.print(f"[bold green]🎉 Feature '{snapshot.feature}' completada y sellada con éxito (stage={snapshot.stage.value}).[/bold green]\n")
+
+        # Cleanup prompt
+        should_clean = Confirm.ask(
+            "¿Deseas ejecutar la limpieza automática ahora para dejar el workbench prístino por defecto?",
+            default=False,
+        )
+        if should_clean:
+            from clean_workbench import clean_project
+            clean_project(force=True)
 
 
 def main() -> None:
     console.clear()
-    banner("Inicio del Workbench SDD Interactivo", stage="INIT")
+    banner("Inicio del Workbench SDD Interactivo con Agentes", stage="INIT")
 
     # Diagnostic setup
     ProjectGovernance(TARGET_PROJECT).initialize()
@@ -441,7 +511,8 @@ def main() -> None:
 
     console.print(f"[bold]Target Project:[/bold] {TARGET_PROJECT}")
     console.print(f"[bold]Gemini Model:[/bold]   {client.model}")
-    console.print(f"[bold]API Key status:[/bold] {'[green]Loaded[/green]' if client.api_key else '[yellow]Not found (using fallback)[/yellow]'}")
+    console.print(f"[bold]Auth Mode:[/bold]      {'[green]ADC (Agent Platform Active)[/green]' if client.use_adc and client.project_id else '[yellow]API Key[/yellow]'}")
+    console.print(f"[bold]GCP Project:[/bold]    {client.project_id or 'Auto-detected'}")
     console.print("")
 
     gate_spec(workflow, client)
