@@ -40,6 +40,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--apply", action="store_true", help="Delete after ownership validation; default is dry-run"
     )
 
+    preflight = subparsers.add_parser(
+        "preflight", help="Agnostic pre-flight validation, baseline check, and worktree provisioning"
+    )
+    preflight.add_argument("name", help="Feature name")
+    preflight.add_argument("--from", dest="from_branch", default=None, help="Base branch")
+    preflight.add_argument("--branch", default=None, help="Target feature branch")
+    preflight.add_argument("--worktree", action="store_true", default=True, help="Provision isolated Git Worktree")
+    preflight.add_argument("--no-worktree", dest="worktree", action="store_false", help="Do not provision worktree")
+    preflight.add_argument("--description", default="", help="Feature description")
+    preflight.add_argument("--root", type=Path, default=Path.cwd())
+    preflight.add_argument("--json", action="store_true")
+
     new = subparsers.add_parser("new", help="Create a new active specification")
     new.add_argument("name")
     new.add_argument("--description", default="")
@@ -305,6 +317,30 @@ def main(argv: list[str] | None = None) -> None:
                 elif args.apply:
                     print(f"Cleaned adapter for {label}")
             raise SystemExit(0)
+        if args.command == "preflight":
+            from spec.core.preflight import PreflightManager
+
+            mgr = PreflightManager(args.root)
+            res = mgr.run(
+                args.name,
+                base_branch=args.from_branch,
+                branch=args.branch,
+                use_worktree=args.worktree,
+                description=args.description,
+            )
+            if args.json:
+                print(json.dumps(res, indent=2))
+            else:
+                if res["status"] == "FAIL":
+                    print(f"Preflight FAIL: {res['error']}")
+                    if res.get("evidence_path"):
+                        print(f"Evidence: {res['evidence_path']}")
+                else:
+                    print(f"Preflight READY: feature '{res['feature']}' initialized")
+                    print(f"Worktree: {res['worktree_path']}")
+                    print(f"Branch: {res['branch']} (from {res['base_branch']})")
+                    print(f"Baseline: {res['baseline']}")
+            raise SystemExit(0 if res["status"] == "READY" else 1)
         if args.command == "new":
             snapshot = Workflow(args.root).create_spec(args.name, args.description)
             print(f"Created spec {snapshot.feature} (stage={snapshot.stage.value})")
