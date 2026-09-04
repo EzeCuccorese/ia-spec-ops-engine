@@ -380,6 +380,53 @@ def gate_plan(workflow: Workflow, client: GeminiClient) -> None:
     tasks_path.write_text(fallback_tasks, encoding="utf-8")
 
 
+def compile_and_auto_heal(
+    client: GeminiClient,
+    step_description: str,
+    max_retries: int = 2,
+) -> bool:
+    """Verifies Gradle build/tests and invokes AI Craftsman to heal compilation or test errors."""
+    for attempt in range(max_retries + 1):
+        run = run_cmd(["./gradlew", "test", "--no-daemon", "-q"], cwd=TARGET_PROJECT)
+        if run.returncode == 0:
+            return True
+
+        err_output = (run.stderr or run.stdout).strip()
+        console.print(f"\n[bold yellow]⚠️ Error de compilación o test detectado (intento {attempt + 1}/{max_retries + 1}):[/bold yellow]")
+        console.print(Panel(err_output[:2000], title="javac / gradle output", border_style="red"))
+
+        if attempt == max_retries:
+            console.print("[bold red]❌ Se alcanzó el límite de auto-sanación sin lograr compilar.[/bold red]")
+            return False
+
+        console.print("[bold cyan]🛠️ Agente Desarrollador analizando el error para auto-corregir...[/bold cyan]")
+        heal_prompt = f"""
+The Java build or test failed with the following error:
+{err_output}
+
+Step Context:
+{step_description}
+
+CRITICAL JAVA RULES TO REMEMBER:
+- Record header components are implicitly final; NEVER use the 'final' keyword inside record declarations (e.g. write 'public record Foo(UUID id, String name)', NEVER 'record Foo(final UUID id)').
+- Use constructor injection with explicit types and final fields.
+- Use explicit final types for local variables and method parameters.
+
+Fix all affected files and output strictly using:
+FILE: path/to/File.java
+```java
+package com.cucco.payments;
+...
+```
+"""
+        repaired_raw = safe_call_ai(client, TDD_CODE_PROMPT, heal_prompt, fallback_content="")
+        written = parse_and_apply_java_files(repaired_raw, TARGET_PROJECT)
+        for f in written:
+            console.print(f"[green]✔ Archivo auto-corregido:[/green] {f.relative_to(TARGET_PROJECT)}")
+
+    return False
+
+
 def gate_work_tdd(workflow: Workflow, client: GeminiClient) -> None:
     banner("Fase 3: Bucle TDD Autónomo (Uncle Bob) en Java", stage="WORK")
     with contextlib.suppress(Exception):
@@ -644,12 +691,11 @@ public final class PaymentOrderService {
     for f in written_code:
         console.print(f"[green]✔ Código escrito:[/green] {f.relative_to(TARGET_PROJECT)}")
 
-    console.print("\n[bold]4. Ejecutando Gradle Test (GREEN)...[/bold]")
-    green_run = run_cmd(["./gradlew", "test", "--no-daemon", "-q"], cwd=TARGET_PROJECT)
-    if green_run.returncode == 0:
-        console.print("[bold green]✔ Status: GREEN! Gradle test @s1 pasó al 100%.[/bold green]")
-    else:
-        console.print(f"[red]Fallo en test: {green_run.stderr}[/red]")
+    console.print("\n[bold]4. Verificando compilación y tests con Auto-Healing (GREEN)...[/bold]")
+    if not compile_and_auto_heal(client, "Ciclo 1: @s1 - Creación válida de orden"):
+        console.print("[bold red]❌ El ciclo 1 no pudo compilar exitosamente. Deteniendo ejecución.[/bold red]")
+        sys.exit(1)
+    console.print("[bold green]✔ Status: GREEN! Gradle test @s1 pasó al 100%.[/bold green]")
 
     # --- CICLOS 2 & 3: @s2 (Validación) y @s3 (Idempotencia) + Outbox/Masking ---
     console.print("\n[bold cyan]═══ CICLOS TDD 2 & 3: Escenarios @s2 (Validación) y @s3 (Idempotencia) ═══[/bold cyan]")
@@ -810,11 +856,17 @@ class PaymentOrderServiceTest {
     for f in written_full:
         console.print(f"[green]✔ Componente actualizado:[/green] {f.relative_to(TARGET_PROJECT)}")
 
-    run_all = run_cmd(["./gradlew", "test", "--no-daemon", "-q"], cwd=TARGET_PROJECT)
-    if run_all.returncode == 0:
-        console.print(f"[bold green]✔ Todos los tests JUnit de @s1, @s2, @s3 y componentes de arquitectura pasaron (exit code 0).[/bold green]")
-    else:
-        console.print(f"[bold red]Fallo de tests: {run_all.stderr}[/bold red]")
+    # Clean any orphan commands generated during previous dynamic prompts
+    for orphan in ["CreatePaymentOrderCommand.java", "PaymentOrderServiceImpl.java"]:
+        orphan_path = TARGET_PROJECT / f"src/main/java/com/cucco/payments/{orphan}"
+        if orphan_path.exists():
+            orphan_path.unlink()
+
+    console.print("\n[bold]Verificando suite completa con Auto-Healing...[/bold]")
+    if not compile_and_auto_heal(client, "Ciclos 2 y 3: @s2 validación y @s3 idempotencia"):
+        console.print("[bold red]❌ La suite completa no pudo compilar exitosamente. Deteniendo ejecución.[/bold red]")
+        sys.exit(1)
+    console.print("[bold green]✔ Todos los tests JUnit de @s1, @s2, @s3 y componentes de arquitectura pasaron (exit code 0).[/bold green]")
 
     # Registrar bitácora work.md
     work_log_path.write_text(
