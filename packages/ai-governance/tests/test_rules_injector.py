@@ -1,4 +1,4 @@
-from rules.core.injector import END_MARKER, START_MARKER, BlockInjector
+from ai_governance.rules.core.injector import END_MARKER, START_MARKER, BlockInjector
 
 
 def test_inject_creates_new_block_on_empty_content() -> None:

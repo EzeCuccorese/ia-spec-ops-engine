@@ -23,13 +23,20 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = [
-    "packages/rules/src/rules",
+    "packages/ai-governance/src/ai_governance",
     "packages/spec/src/spec",
     "packages/workspace/src/workspace_engine",
 ]
 
 [project.scripts]
-rules = "rules.cli:main"
+governance = "ai_governance.cli:main"
+rules = "ai_governance.rules.cli:main"
+frugal = "ai_governance.frugality.cli:main"
+statusline = "ai_governance.telemetry.statusline:main"
+progress = "ai_governance.session.cli:main"
+progreso = "ai_governance.session.cli:main"
+jira = "ai_governance.tools.jira:main"
+confluence = "ai_governance.tools.confluence:main"
 spec = "spec.cli:main"
 ws = "workspace_engine.cli.main:main"
 
@@ -42,9 +49,9 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 ignore = ["E501"]
 
 [tool.pytest.ini_options]
-pythonpath = ["packages/rules/src", "packages/spec/src", "packages/workspace/src", "."]
+pythonpath = ["packages/ai-governance/src", "packages/spec/src", "packages/workspace/src", "."]
 python_files = ["test_*.py", "*_test.py"]
-testpaths = ["packages/rules/tests", "packages/spec/tests", "packages/workspace/tests"]
+testpaths = ["packages/ai-governance/tests", "packages/spec/tests", "packages/workspace/tests"]
 addopts = "-ra --strict-markers"
 markers = [
     "integration: end-to-end integration tests",

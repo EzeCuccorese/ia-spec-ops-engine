@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from rules.cli import main
+from ai_governance.rules.cli import main
 
 
 def test_cli_list_action(capsys) -> None:

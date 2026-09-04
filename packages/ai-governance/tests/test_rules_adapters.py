@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from rules.adapters import ALL_ADAPTERS
-from rules.core.catalog import RuleCatalog
+from ai_governance.rules.adapters import ALL_ADAPTERS
+from ai_governance.rules.core.catalog import RuleCatalog
 
 
 def test_all_adapters_install_and_uninstall_reversibly(tmp_path: Path) -> None:
