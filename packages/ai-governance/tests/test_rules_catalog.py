@@ -1,4 +1,4 @@
-from rules.core.catalog import RuleCatalog
+from ai_governance.rules.core.catalog import RuleCatalog
 
 
 def test_catalog_loads_all_canonical_rules() -> None:

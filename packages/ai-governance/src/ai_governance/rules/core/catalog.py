@@ -21,9 +21,16 @@ class RuleCatalog:
     """Loads and indexes engineering rules from the bundled catalog."""
 
     def __init__(self, catalog_root: Path | None = None) -> None:
-        self.root = catalog_root or (
-            Path(__file__).resolve().parent.parent.parent.parent / "catalog"
-        )
+        if catalog_root:
+            self.root = catalog_root
+        else:
+            found = None
+            for p in Path(__file__).resolve().parents:
+                cand = p / "catalog"
+                if cand.is_dir() and (cand / "manifest.json").exists():
+                    found = cand
+                    break
+            self.root = found or (Path(__file__).resolve().parents[4] / "catalog")
         self._rules: dict[str, RuleDefinition] = {}
         self._load()
 

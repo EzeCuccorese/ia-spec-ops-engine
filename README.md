@@ -2,15 +2,15 @@
 
 **SpecOps Engine** is a decoupled monorepo containing three independent, modular tools:
 
-1. **`rules` (`packages/rules/`)**: Autonomous Software Engineering Standards Catalog (28 canonical rules: SOLID, DDD, Clean Architecture, Testing, Security, All Stacks) & Interactive Multi-Agent Reversible Injector (`rules`).
+1. **`ai-governance` (`packages/ai-governance/`)**: Software Engineering Standards Catalog (28 canonical rules), Runtime Context Frugality (test trimming & listing condensation), Telemetry & Ritmo Pacing, Lightweight Session State, and Zero-Overhead Tools (`governance`, `rules`, `frugal`, `statusline`, `progreso`, `jira`, `confluence`).
 2. **`spec` (`packages/spec/`)**: AI Governance, Spec-Driven Development (SDD), and deterministic verification engine for coding agents (`spec`).
 3. **`workspace` (`packages/workspace/`)**: Workspace tools, Git worktree helpers, and local DevOps utilities (`ws`).
 
 ```
 cucco-specops-engine/
 ├── packages/
-│   ├── rules/                 # Engineering Standards Catalog & Reversible Injector (CLI `rules`)
-│   │   ├── src/rules/
+│   ├── ai-governance/         # Standards, Frugality, Telemetry, Ritmo, Session Tracking
+│   │   ├── src/ai_governance/
 │   │   ├── catalog/           # 28 canonical engineering rules (Core, Stacks, Infra, Docs)
 │   │   ├── tests/
 │   │   └── pyproject.toml
@@ -35,16 +35,19 @@ cucco-specops-engine/
 
 ## ⚡ Quick Start
 
-### 1. Engineering Standards Catalog (`rules`)
+### 1. AI Governance & Standards (`governance` / `rules`)
 
-Run the interactive TUI assistant to configure your agents globally or locally:
+Run the interactive TUI assistant or inspect standards and ritmo pacing:
 
 ```bash
-# Direct interactive TUI (Menu driven, zero flags needed)
-PYTHONPATH=packages/rules/src python3 -m rules.cli
+# Governance Master CLI
+PYTHONPATH=packages/ai-governance/src python3 -m ai_governance.cli --help
 
 # List all 28 canonical rules
-PYTHONPATH=packages/rules/src python3 -m rules.cli list
+PYTHONPATH=packages/ai-governance/src python3 -m ai_governance.rules.cli list
+
+# Calculate business-day budget pacing (Ritmo)
+PYTHONPATH=packages/ai-governance/src python3 -m ai_governance.cli ritmo --budget 150 --spent 30
 ```
 
 ---

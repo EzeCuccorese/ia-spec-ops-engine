@@ -3,9 +3,9 @@ requires = ["hatchling>=1.26"]
 build-backend = "hatchling.build"
 
 [project]
-name = "specops-rules"
+name = "specops-ai-governance"
 version = "0.1.0"
-description = "Autonomous Software Engineering Standards Catalog & Multi-Agent Reversible Injector."
+description = "SpecOps AI Governance — Engineering Standards, Token Frugality, Telemetry, Ritmo Pacing & Light Session Management."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -20,10 +20,17 @@ dev = [
 ]
 
 [project.scripts]
-rules = "rules.cli:main"
+governance = "ai_governance.cli:main"
+rules = "ai_governance.rules.cli:main"
+frugal = "ai_governance.frugality.cli:main"
+statusline = "ai_governance.telemetry.statusline:main"
+progress = "ai_governance.session.cli:main"
+progreso = "ai_governance.session.cli:main"
+jira = "ai_governance.tools.jira:main"
+confluence = "ai_governance.tools.confluence:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/rules"]
+packages = ["src/ai_governance"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]
