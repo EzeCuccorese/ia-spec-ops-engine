@@ -43,23 +43,32 @@ API = f"{BASE_URL}/wiki/rest/api"
 
 def check_env():
     """Validates required environment variables."""
-    missing = [v for v in ["ATLASSIAN_EMAIL", "ATLASSIAN_API_TOKEN", "ATLASSIAN_URL"]
-               if not os.environ.get(v)]
+    missing = [
+        v
+        for v in ["ATLASSIAN_EMAIL", "ATLASSIAN_API_TOKEN", "ATLASSIAN_URL"]
+        if not os.environ.get(v)
+    ]
     if missing:
         print("Error: Missing required environment variables:")
         for v in missing:
-            print(f"  export {v}=\"...\"")
+            print(f'  export {v}="..."')
         print("\nTo configure them in ~/.zshrc:")
-        print("  export ATLASSIAN_EMAIL=\"your-email@company.com\"")
-        print("  export ATLASSIAN_URL=\"https://company.atlassian.net\"")
-        print("  ATLASSIAN_API_TOKEN=\"$(security find-generic-password -s atlassian-api-token -w 2>/dev/null)\"")
+        print('  export ATLASSIAN_EMAIL="your-email@company.com"')
+        print('  export ATLASSIAN_URL="https://company.atlassian.net"')
+        print(
+            '  ATLASSIAN_API_TOKEN="$(security find-generic-password -s atlassian-api-token -w 2>/dev/null)"'
+        )
         print("  export ATLASSIAN_API_TOKEN")
         sys.exit(1)
 
 
 def _auth_header():
     cred = base64.b64encode(f"{EMAIL}:{TOKEN}".encode()).decode()
-    return {"Authorization": f"Basic {cred}", "Content-Type": "application/json", "Accept": "application/json"}
+    return {
+        "Authorization": f"Basic {cred}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
 
 
 def _request(method, url, payload=None):
@@ -81,9 +90,16 @@ def _request(method, url, payload=None):
         sys.exit(1)
 
 
-def get(path):           return _request("GET",  f"{API}{path}")
-def post(path, payload): return _request("POST", f"{API}{path}", payload)
-def put(path, payload):  return _request("PUT",  f"{API}{path}", payload)
+def get(path):
+    return _request("GET", f"{API}{path}")
+
+
+def post(path, payload):
+    return _request("POST", f"{API}{path}", payload)
+
+
+def put(path, payload):
+    return _request("PUT", f"{API}{path}", payload)
 
 
 def html_to_md(html_str):
@@ -93,10 +109,22 @@ def html_to_md(html_str):
     text = html_str
 
     for level in range(6, 0, -1):
-        text = re.sub(rf"<h{level}[^>]*>(.*?)</h{level}>", rf"\n{'#' * level} \1\n", text, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(
+            rf"<h{level}[^>]*>(.*?)</h{level}>",
+            rf"\n{'#' * level} \1\n",
+            text,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
 
-    text = re.sub(r"<pre[^>]*><code[^>]*>(.*?)</code></pre>", r"\n```\n\1\n```\n", text, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r"<pre[^>]*>(.*?)</pre>", r"\n```\n\1\n```\n", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(
+        r"<pre[^>]*><code[^>]*>(.*?)</code></pre>",
+        r"\n```\n\1\n```\n",
+        text,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    text = re.sub(
+        r"<pre[^>]*>(.*?)</pre>", r"\n```\n\1\n```\n", text, flags=re.DOTALL | re.IGNORECASE
+    )
     text = re.sub(r"<code[^>]*>(.*?)</code>", r"`\1`", text, flags=re.DOTALL | re.IGNORECASE)
 
     text = re.sub(r"<strong[^>]*>(.*?)</strong>", r"**\1**", text, flags=re.DOTALL | re.IGNORECASE)
@@ -105,7 +133,12 @@ def html_to_md(html_str):
     text = re.sub(r"<i[^>]*>(.*?)</i>", r"*\1*", text, flags=re.DOTALL | re.IGNORECASE)
     text = re.sub(r"<s[^>]*>(.*?)</s>", r"~~\1~~", text, flags=re.DOTALL | re.IGNORECASE)
 
-    text = re.sub(r'<a[^>]*href=["\']([^"\']*)["\'][^>]*>(.*?)</a>', r"[\2](\1)", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(
+        r'<a[^>]*href=["\']([^"\']*)["\'][^>]*>(.*?)</a>',
+        r"[\2](\1)",
+        text,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
 
     text = re.sub(r"<li[^>]*>(.*?)</li>", r"- \1\n", text, flags=re.DOTALL | re.IGNORECASE)
     text = re.sub(r"</?[uo]l[^>]*>", "\n", text, flags=re.IGNORECASE)
@@ -121,14 +154,18 @@ def html_to_md(html_str):
             clean_cells = [re.sub(r"<[^>]+>", "", c).strip() for c in cells]
             md_rows.append("| " + " | ".join(clean_cells) + " |")
         if len(md_rows) > 1:
-            first_cells = re.findall(r"<t[hd][^>]*>(.*?)</t[hd]>", rows[0], flags=re.DOTALL | re.IGNORECASE)
+            first_cells = re.findall(
+                r"<t[hd][^>]*>(.*?)</t[hd]>", rows[0], flags=re.DOTALL | re.IGNORECASE
+            )
             sep = "| " + " | ".join(["---"] * len(first_cells)) + " |"
             md_rows.insert(1, sep)
         return "\n" + "\n".join(md_rows) + "\n"
 
     text = re.sub(r"<table[^>]*>.*?</table>", convert_table, text, flags=re.DOTALL | re.IGNORECASE)
 
-    text = re.sub(r"<blockquote[^>]*>(.*?)</blockquote>", r"\n> \1\n", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(
+        r"<blockquote[^>]*>(.*?)</blockquote>", r"\n> \1\n", text, flags=re.DOTALL | re.IGNORECASE
+    )
     text = re.sub(r"<p[^>]*>(.*?)</p>", r"\n\1\n", text, flags=re.DOTALL | re.IGNORECASE)
     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
     text = re.sub(r"<hr\s*/?>", "\n---\n", text, flags=re.IGNORECASE)
@@ -198,6 +235,7 @@ def md_to_storage(md):
 
 # ── Commands ──────────────────────────────────────────────────────────────────
 
+
 def cmd_read(page_id):
     """Displays page in clean Markdown."""
     data = get(f"/content/{page_id}?expand=body.storage,version,space")
@@ -209,7 +247,9 @@ def cmd_read(page_id):
 
     print(f"# {title}\n")
     print(f"**Space**: {space}  |  **Version**: {ver}  |  **ID**: {page_id}")
-    print(f"**URL**: {BASE_URL}/wiki/spaces/{data.get('space',{}).get('key','')}/pages/{page_id}\n")
+    print(
+        f"**URL**: {BASE_URL}/wiki/spaces/{data.get('space', {}).get('key', '')}/pages/{page_id}\n"
+    )
     print("---\n")
     print(md)
 
@@ -227,12 +267,12 @@ def cmd_search(query, space_key=None):
         print("_No results found._")
         return
 
-    print(f"## Results for \"{query}\" ({len(results)} of {total})\n")
+    print(f'## Results for "{query}" ({len(results)} of {total})\n')
     print("| ID | Space | Title |")
     print("|---|---|---|")
     for r in results:
         space = r.get("space", {}).get("key", "—")
-        print(f"| {r['id']} | {space} | {r.get('title','')} |")
+        print(f"| {r['id']} | {space} | {r.get('title', '')} |")
 
 
 def cmd_spaces():
@@ -248,7 +288,7 @@ def cmd_spaces():
     print("| Key | Name |")
     print("|---|---|")
     for s in sorted(results, key=lambda x: x.get("name", "")):
-        print(f"| {s.get('key','')} | {s.get('name','')} |")
+        print(f"| {s.get('key', '')} | {s.get('name', '')} |")
 
 
 def cmd_create(space_key, title, body_md, parent_id=None):
@@ -320,7 +360,8 @@ def cmd_comment(page_id, text):
 
 
 def cmd_help():
-    print(textwrap.dedent("""
+    print(
+        textwrap.dedent("""
         confluence — Lightweight CLI for Confluence REST API v1
         ========================================================
 
@@ -343,7 +384,8 @@ def cmd_help():
           confluence create DS "Architecture Decisions" "## ADR-001\n\nDecision details."
           confluence append 1548025858 "Additional notes added from CLI"
           confluence comment 1548025858 "Approved ✅"
-    """).strip())
+    """).strip()
+    )
 
 
 def main():

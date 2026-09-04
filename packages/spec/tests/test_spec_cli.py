@@ -137,4 +137,3 @@ def test_cli_judge_command(tmp_path: Path, capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "RECORDED"
     assert payload["verdict"] == "APPROVED"
-

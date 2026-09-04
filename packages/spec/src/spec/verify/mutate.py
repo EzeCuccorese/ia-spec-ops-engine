@@ -90,19 +90,13 @@ def generate_mutants(source: str, *, target_lines: set[int] | None = None) -> li
         text = tok.string
 
         if tok.type == tokenize.OP and text in OP_MUTATIONS:
-            mutants.append(
-                Mutant(row, col_start, col_end, text, OP_MUTATIONS[text], "operator")
-            )
+            mutants.append(Mutant(row, col_start, col_end, text, OP_MUTATIONS[text], "operator"))
         elif tok.type == tokenize.NAME and text in NAME_MUTATIONS:
-            mutants.append(
-                Mutant(row, col_start, col_end, text, NAME_MUTATIONS[text], "keyword")
-            )
+            mutants.append(Mutant(row, col_start, col_end, text, NAME_MUTATIONS[text], "keyword"))
         elif tok.type == tokenize.NUMBER:
             repl = _int_mutation(text)
             if repl is not None:
-                mutants.append(
-                    Mutant(row, col_start, col_end, text, repl, "number")
-                )
+                mutants.append(Mutant(row, col_start, col_end, text, repl, "number"))
 
     lines = source.splitlines(keepends=True)
     for idx, raw in enumerate(lines, start=1):

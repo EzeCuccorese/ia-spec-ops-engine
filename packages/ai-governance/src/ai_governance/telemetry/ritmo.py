@@ -28,7 +28,9 @@ class RitmoStatus:
 
 class RitmoCalculator:
     @staticmethod
-    def count_business_days(year: int, month: int, start_day: int = 1, end_day: int | None = None) -> int:
+    def count_business_days(
+        year: int, month: int, start_day: int = 1, end_day: int | None = None
+    ) -> int:
         """Counts Monday-Friday days within [start_day, end_day] of the given year/month."""
         num_days = calendar.monthrange(year, month)[1]
         last_day = min(num_days, end_day if end_day is not None else num_days)

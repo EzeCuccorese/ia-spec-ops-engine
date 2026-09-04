@@ -16,7 +16,9 @@ from .tracker import SessionTracker, TaskState
 console = Console()
 
 
-def show_task(task: TaskState, full_log: bool = False, tracker: SessionTracker | None = None) -> None:
+def show_task(
+    task: TaskState, full_log: bool = False, tracker: SessionTracker | None = None
+) -> None:
     table = Table(title=f"📌 Task: {task.id} — {task.title}", border_style="cyan")
     table.add_column("Property", style="bold green")
     table.add_column("Details", style="white")
@@ -33,8 +35,7 @@ def show_task(task: TaskState, full_log: bool = False, tracker: SessionTracker |
 
     if task.repos:
         repos_str = "\n".join(
-            f"• {r.get('path', '')} (branch: {r.get('branch', 'main')})"
-            for r in task.repos
+            f"• {r.get('path', '')} (branch: {r.get('branch', 'main')})" for r in task.repos
         )
         table.add_row("Repositories", repos_str)
 
@@ -48,7 +49,9 @@ def show_task(task: TaskState, full_log: bool = False, tracker: SessionTracker |
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(prog="progress", description="SpecOps Lightweight Session Tracking")
+    parser = argparse.ArgumentParser(
+        prog="progress", description="SpecOps Lightweight Session Tracking"
+    )
     sub = parser.add_subparsers(dest="cmd")
 
     # list / listar
@@ -71,7 +74,9 @@ def main() -> int:
         p_new = sub.add_parser(cmd_name, help="Create new task")
         p_new.add_argument("task_id", help="Task ID or Jira ticket")
         p_new.add_argument("--title", "--titulo", dest="title", required=True, help="Task title")
-        p_new.add_argument("--summary", "--resumen", dest="summary", default="", help="Initial summary")
+        p_new.add_argument(
+            "--summary", "--resumen", dest="summary", default="", help="Initial summary"
+        )
 
     args = parser.parse_args()
     tracker = SessionTracker()
@@ -97,7 +102,9 @@ def main() -> int:
             return 1
         t = tracker.get_task(resolved)
         if not t:
-            console.print(f"[yellow]Ticket detected ({resolved}), but no task has been created yet.[/yellow]")
+            console.print(
+                f"[yellow]Ticket detected ({resolved}), but no task has been created yet.[/yellow]"
+            )
             return 1
         show_task(t, full_log=args.full, tracker=tracker)
         return 0
@@ -105,7 +112,9 @@ def main() -> int:
     elif args.cmd in ("show", "ver", "view"):
         target = args.task_id or TaskResolver.resolve_from_git()
         if not target:
-            console.print("[red]Specify a task_id or run within a branch containing a ticket.[/red]")
+            console.print(
+                "[red]Specify a task_id or run within a branch containing a ticket.[/red]"
+            )
             return 1
         t = tracker.get_task(target)
         if not t:

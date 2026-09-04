@@ -115,7 +115,10 @@ def clean_project(force: bool = False, verbose: bool = True) -> None:
     # 4. Re-ensure base verification.json & policy.json exist
     ProjectGovernance(TARGET_PROJECT).initialize()
     v_config = spec_dir / "verification.json"
-    if not v_config.exists() or v_config.read_text().strip() in ('{"schema_version": 1, "checks": []}', ""):
+    if not v_config.exists() or v_config.read_text().strip() in (
+        '{"schema_version": 1, "checks": []}',
+        "",
+    ):
         v_config.write_text(
             '{\n  "schema_version": 1,\n  "checks": [\n    {\n      "id": "gradle-test",\n      "command": ["./gradlew", "test", "--no-daemon", "-q"],\n      "required": true\n    }\n  ]\n}\n',
             encoding="utf-8",

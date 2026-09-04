@@ -77,7 +77,9 @@ def safe_call_ai(
     history: list[dict[str, str]] | None = None,
 ) -> str:
     """Call Gemini model via Agent Platform (ADC) or API Key, with fallback."""
-    with console.status(f"[bold green]Consultando a Gemini ({client.model} vía ADC)...[/bold green]"):
+    with console.status(
+        f"[bold green]Consultando a Gemini ({client.model} vía ADC)...[/bold green]"
+    ):
         try:
             return client.generate(role_prompt, task, history=history)
         except Exception as e:
@@ -100,14 +102,18 @@ def ask_agent_loop(
     history.append({"role": "model", "content": current_content})
 
     while True:
-        syntax = Syntax(current_content, "markdown", theme="monokai", line_numbers=True, word_wrap=True)
+        syntax = Syntax(
+            current_content, "markdown", theme="monokai", line_numbers=True, word_wrap=True
+        )
         console.print(Panel(syntax, title=f"[bold]{artifact_label}[/bold]", border_style="cyan"))
 
         console.print("[bold]Opciones:[/bold]")
         console.print("  [bold green][A] Aprobar y avanzar[/bold green]")
         console.print("  [bold yellow][P] Preguntar o pedir cambios al Agente[/bold yellow]")
         console.print("  [bold red][C] Cancelar ejecución[/bold red]")
-        choice = Prompt.ask("¿Qué deseas hacer?", choices=["a", "p", "c", "A", "P", "C"], default="a").upper()
+        choice = Prompt.ask(
+            "¿Qué deseas hacer?", choices=["a", "p", "c", "A", "P", "C"], default="a"
+        ).upper()
 
         if choice == "A":
             console.print(f"[bold green]✔ {artifact_label} aprobado exitosamente.[/bold green]\n")
@@ -116,7 +122,9 @@ def ask_agent_loop(
             console.print("[bold red]Ejecución cancelada por el usuario.[/bold red]")
             sys.exit(0)
         elif choice == "P":
-            user_feedback = Prompt.ask("\n[bold yellow]Escribe tu pregunta o instrucción de cambio para el Agente[/bold yellow]")
+            user_feedback = Prompt.ask(
+                "\n[bold yellow]Escribe tu pregunta o instrucción de cambio para el Agente[/bold yellow]"
+            )
             feedback_task = (
                 f"El artefacto actual es:\n{current_content}\n\n"
                 f"El usuario humano solicita los siguientes cambios o aclaraciones (en español):\n{user_feedback}\n\n"
@@ -185,7 +193,11 @@ def parse_and_apply_java_files(raw_text: str, root_dir: Path) -> list[Path]:
             match = re.search(r"(?:class|interface|record|enum)\s+([A-Za-z0-9_]+)", b)
             if match:
                 cname = match.group(1)
-                subpath = "src/test/java/com/cucco/payments" if "Test" in cname else "src/main/java/com/cucco/payments"
+                subpath = (
+                    "src/test/java/com/cucco/payments"
+                    if "Test" in cname
+                    else "src/main/java/com/cucco/payments"
+                )
                 target = root_dir / f"{subpath}/{cname}.java"
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(b + "\n", encoding="utf-8")
@@ -197,8 +209,12 @@ def parse_and_apply_java_files(raw_text: str, root_dir: Path) -> list[Path]:
 def conduct_requirements_interview(
     client: GeminiClient, feature_name: str, feature_desc: str
 ) -> dict[str, str]:
-    console.print("\n[bold magenta]📋 Entrevista Dinámica de Requerimientos (Agent ➔ Human)[/bold magenta]")
-    console.print(f"El Agente está analizando el dominio de '{feature_name}' para formular las preguntas críticas...\n")
+    console.print(
+        "\n[bold magenta]📋 Entrevista Dinámica de Requerimientos (Agent ➔ Human)[/bold magenta]"
+    )
+    console.print(
+        f"El Agente está analizando el dominio de '{feature_name}' para formular las preguntas críticas...\n"
+    )
 
     task = (
         f"Feature: {feature_name}\n"
@@ -255,7 +271,9 @@ def conduct_requirements_interview(
         questions = json.loads(fallback_questions_json)
 
     answers: dict[str, str] = {}
-    console.print("[bold green]✔ El Agente formuló las siguientes preguntas para vos:[/bold green]\n")
+    console.print(
+        "[bold green]✔ El Agente formuló las siguientes preguntas para vos:[/bold green]\n"
+    )
 
     for idx, q in enumerate(questions, 1):
         q_text = q.get("question", f"Pregunta {idx}")
@@ -330,12 +348,16 @@ Scenario: Idempotent replay of existing payment order
   And the system must confirm that only one transaction was processed and persisted
 """
 
-    console.print("[bold]Paso 1.2:[/bold] Solicitando redacción formal al Agente Spec Author con tus respuestas...")
+    console.print(
+        "[bold]Paso 1.2:[/bold] Solicitando redacción formal al Agente Spec Author con tus respuestas..."
+    )
     initial_task = (
         f"Write formal spec.md for {feature_name} with @s1, @s2, @s3 scenarios.\n"
         f"Human Decisions from requirements interview:\n{interview_summary}"
     )
-    spec_content = ask_agent_loop(client, SPEC_AUTHOR_PROMPT, initial_task, "spec.md", fallback_spec)
+    spec_content = ask_agent_loop(
+        client, SPEC_AUTHOR_PROMPT, initial_task, "spec.md", fallback_spec
+    )
     spec_path.write_text(spec_content, encoding="utf-8")
 
 
@@ -375,7 +397,13 @@ def gate_plan(workflow: Workflow, client: GeminiClient) -> None:
 - [ ] Task 3 (@s3): Implement in-memory idempotency check, count verification, and replay test.
 """
 
-    plan_content = ask_agent_loop(client, PLANNER_PROMPT, "Generate plan.md following clean Java rules", "plan.md", fallback_plan)
+    plan_content = ask_agent_loop(
+        client,
+        PLANNER_PROMPT,
+        "Generate plan.md following clean Java rules",
+        "plan.md",
+        fallback_plan,
+    )
     plan_path.write_text(plan_content, encoding="utf-8")
     tasks_path.write_text(fallback_tasks, encoding="utf-8")
 
@@ -392,14 +420,20 @@ def compile_and_auto_heal(
             return True
 
         err_output = (run.stderr or run.stdout).strip()
-        console.print(f"\n[bold yellow]⚠️ Error de compilación o test detectado (intento {attempt + 1}/{max_retries + 1}):[/bold yellow]")
+        console.print(
+            f"\n[bold yellow]⚠️ Error de compilación o test detectado (intento {attempt + 1}/{max_retries + 1}):[/bold yellow]"
+        )
         console.print(Panel(err_output[:2000], title="javac / gradle output", border_style="red"))
 
         if attempt == max_retries:
-            console.print("[bold red]❌ Se alcanzó el límite de auto-sanación sin lograr compilar.[/bold red]")
+            console.print(
+                "[bold red]❌ Se alcanzó el límite de auto-sanación sin lograr compilar.[/bold red]"
+            )
             return False
 
-        console.print("[bold cyan]🛠️ Agente Desarrollador analizando el error para auto-corregir...[/bold cyan]")
+        console.print(
+            "[bold cyan]🛠️ Agente Desarrollador analizando el error para auto-corregir...[/bold cyan]"
+        )
         heal_prompt = f"""
 The Java build or test failed with the following error:
 {err_output}
@@ -421,10 +455,14 @@ package com.cucco.payments;
 ...
 ```
 """
-        repaired_raw = safe_call_ai(client, REMEDIATION_CRAFTSMAN_PROMPT, heal_prompt, fallback_content="")
+        repaired_raw = safe_call_ai(
+            client, REMEDIATION_CRAFTSMAN_PROMPT, heal_prompt, fallback_content=""
+        )
         written = parse_and_apply_java_files(repaired_raw, TARGET_PROJECT)
         for f in written:
-            console.print(f"[green]✔ Archivo auto-corregido:[/green] {f.relative_to(TARGET_PROJECT)}")
+            console.print(
+                f"[green]✔ Archivo auto-corregido:[/green] {f.relative_to(TARGET_PROJECT)}"
+            )
 
     return False
 
@@ -441,9 +479,13 @@ def gate_work_tdd(workflow: Workflow, client: GeminiClient) -> None:
     spec_content = spec_path.read_text(encoding="utf-8") if spec_path.is_file() else ""
 
     # --- CICLO 1: @s1 (Creación Válida) ---
-    console.print("\n[bold cyan]═══ CICLO TDD 1 / 3: Escenario @s1 (Creación Válida) ═══[/bold cyan]")
-    console.print("[bold]1. Agente Desarrollador redactando Test Rojo (JUnit 5 + AssertJ)...[/bold]")
-    
+    console.print(
+        "\n[bold cyan]═══ CICLO TDD 1 / 3: Escenario @s1 (Creación Válida) ═══[/bold cyan]"
+    )
+    console.print(
+        "[bold]1. Agente Desarrollador redactando Test Rojo (JUnit 5 + AssertJ)...[/bold]"
+    )
+
     test_task_s1 = f"""
     Context:
     Specification:
@@ -506,9 +548,13 @@ class PaymentOrderServiceTest {
 
     console.print("\n[bold]2. Verificando fallo esperado (RED)...[/bold]")
     red_run = run_cmd(["./gradlew", "test", "--no-daemon", "-q"], cwd=TARGET_PROJECT)
-    console.print(f"[red]Status: RED (Exit code {red_run.returncode}) - Falla antes de implementar (Ley 1 TDD).[/red]")
+    console.print(
+        f"[red]Status: RED (Exit code {red_run.returncode}) - Falla antes de implementar (Ley 1 TDD).[/red]"
+    )
 
-    console.print("\n[bold]3. Agente Desarrollador redactando implementación mínima para ponerlo VERDE...[/bold]")
+    console.print(
+        "\n[bold]3. Agente Desarrollador redactando implementación mínima para ponerlo VERDE...[/bold]"
+    )
     code_task_s1 = f"""
     Context:
     The test for @s1 failed as expected.
@@ -689,13 +735,17 @@ public final class PaymentOrderService {
 
     console.print("\n[bold]4. Verificando compilación y tests con Auto-Healing (GREEN)...[/bold]")
     if not compile_and_auto_heal(client, "Ciclo 1: @s1 - Creación válida de orden"):
-        console.print("[bold red]❌ El ciclo 1 no pudo compilar exitosamente. Deteniendo ejecución.[/bold red]")
+        console.print(
+            "[bold red]❌ El ciclo 1 no pudo compilar exitosamente. Deteniendo ejecución.[/bold red]"
+        )
         sys.exit(1)
     console.print("[bold green]✔ Status: GREEN! Gradle test @s1 pasó al 100%.[/bold green]")
 
     # --- CICLOS 2 & 3: @s2 (Validación) y @s3 (Idempotencia) + Outbox/Masking ---
-    console.print("\n[bold cyan]═══ CICLOS TDD 2 & 3: Escenarios @s2 (Validación) y @s3 (Idempotencia) ═══[/bold cyan]")
-    
+    console.print(
+        "\n[bold cyan]═══ CICLOS TDD 2 & 3: Escenarios @s2 (Validación) y @s3 (Idempotencia) ═══[/bold cyan]"
+    )
+
     full_suite = """
 FILE: src/main/java/com/cucco/payments/PaymentValidationException.java
 ```java
@@ -860,9 +910,13 @@ class PaymentOrderServiceTest {
 
     console.print("\n[bold]Verificando suite completa con Auto-Healing...[/bold]")
     if not compile_and_auto_heal(client, "Ciclos 2 y 3: @s2 validación y @s3 idempotencia"):
-        console.print("[bold red]❌ La suite completa no pudo compilar exitosamente. Deteniendo ejecución.[/bold red]")
+        console.print(
+            "[bold red]❌ La suite completa no pudo compilar exitosamente. Deteniendo ejecución.[/bold red]"
+        )
         sys.exit(1)
-    console.print("[bold green]✔ Todos los tests JUnit de @s1, @s2, @s3 y componentes de arquitectura pasaron (exit code 0).[/bold green]")
+    console.print(
+        "[bold green]✔ Todos los tests JUnit de @s1, @s2, @s3 y componentes de arquitectura pasaron (exit code 0).[/bold green]"
+    )
 
     # Registrar bitácora work.md
     work_log_path.write_text(
@@ -873,7 +927,9 @@ class PaymentOrderServiceTest {
         "- @s-security -> `PaymentOrderServiceTest#shouldMaskSensitiveDataForLogging` [PASS]\n",
         encoding="utf-8",
     )
-    console.print("[bold green]✔ Bitácora work.md registrada en disco con trazabilidad total.[/bold green]")
+    console.print(
+        "[bold green]✔ Bitácora work.md registrada en disco con trazabilidad total.[/bold green]"
+    )
 
     Prompt.ask("\nPresiona [bold]Enter[/bold] para avanzar a la fase de Verificación y Juicio...")
 
@@ -883,9 +939,12 @@ def gate_verify_and_judge(workflow: Workflow, client: GeminiClient) -> None:
 
     console.print("[bold]Paso 4.1:[/bold] Ejecutando Verificación del arnés determinístico...")
     from spec.cli import run_verify
+
     res = run_verify(TARGET_PROJECT)
     if res != 0:
-        console.print(f"[bold red]❌ La verificación determinística falló (código {res}). Corrija las fallas antes de cerrar.[/bold red]")
+        console.print(
+            f"[bold red]❌ La verificación determinística falló (código {res}). Corrija las fallas antes de cerrar.[/bold red]"
+        )
         sys.exit(1)
     console.print("[bold green]✔ Verificación ejecutada con resultado exitoso (PASS).[/bold green]")
 
@@ -901,8 +960,16 @@ def gate_verify_and_judge(workflow: Workflow, client: GeminiClient) -> None:
 
     while True:
         ctx = judge.evaluate_context()
-        verdict_text = safe_call_ai(client, JUDGE_PROMPT, ctx.prompt_for_llm, fallback_content=fallback_judge)
-        console.print(Panel(verdict_text, title="[bold]The Judge Review (Auditoría de Calidad en Español)[/bold]", border_style="cyan"))
+        verdict_text = safe_call_ai(
+            client, JUDGE_PROMPT, ctx.prompt_for_llm, fallback_content=fallback_judge
+        )
+        console.print(
+            Panel(
+                verdict_text,
+                title="[bold]The Judge Review (Auditoría de Calidad en Español)[/bold]",
+                border_style="cyan",
+            )
+        )
 
         is_approved = "VERDICT: APPROVED" in verdict_text
 
@@ -914,11 +981,17 @@ def gate_verify_and_judge(workflow: Workflow, client: GeminiClient) -> None:
         # If changes requested, provide automatic remediation loop:
         console.print("[bold yellow]El Auditor (The Judge) ha solicitado ajustes.[/bold yellow]\n")
         console.print("Opciones:")
-        console.print("  [bold green][R] Remediación Automática (Delegar al Desarrollador TDD para que implemente lo que falta)[/bold green]")
-        console.print("  [bold yellow][A] Aprobar y avanzar de todos modos (Human Override)[/bold yellow]")
+        console.print(
+            "  [bold green][R] Remediación Automática (Delegar al Desarrollador TDD para que implemente lo que falta)[/bold green]"
+        )
+        console.print(
+            "  [bold yellow][A] Aprobar y avanzar de todos modos (Human Override)[/bold yellow]"
+        )
         console.print("  [bold cyan][P] Preguntar o pedir aclaración al Auditor[/bold cyan]")
         console.print("  [bold red][C] Cancelar ejecución[/bold red]")
-        action = Prompt.ask("¿Qué deseas hacer?", choices=["R", "A", "P", "C", "r", "a", "p", "c"], default="R").upper()
+        action = Prompt.ask(
+            "¿Qué deseas hacer?", choices=["R", "A", "P", "C", "r", "a", "p", "c"], default="R"
+        ).upper()
 
         if action == "A":
             judge.record_verdict("APPROVED", verdict_text + "\n(Approved via Human Override)")
@@ -930,18 +1003,34 @@ def gate_verify_and_judge(workflow: Workflow, client: GeminiClient) -> None:
         elif action == "P":
             user_question = Prompt.ask("\nEscribe tu pregunta o instrucción")
             # If user asks to fix/implement, automatically divert to Remediation
-            if any(w in user_question.lower() for w in ["hace", "hacé", "arregla", "arreglá", "implementa", "implementá", "soluciona", "solucioná"]):
+            if any(
+                w in user_question.lower()
+                for w in [
+                    "hace",
+                    "hacé",
+                    "arregla",
+                    "arreglá",
+                    "implementa",
+                    "implementá",
+                    "soluciona",
+                    "solucioná",
+                ]
+            ):
                 action = "R"
             else:
                 audit_explanation = client.generate(
                     JUDGE_PROMPT,
                     f"Contexto del veredicto previo:\n{verdict_text}\nPregunta del usuario: {user_question}\nExplica en español de forma constructiva.",
                 )
-                console.print(Panel(audit_explanation, title="Aclaración del Auditor", border_style="blue"))
+                console.print(
+                    Panel(audit_explanation, title="Aclaración del Auditor", border_style="blue")
+                )
                 continue
 
         if action == "R":
-            console.print("\n[bold green]🛠️ Delegando remediación al Agente Desarrollador (TDD Craftsman)...[/bold green]")
+            console.print(
+                "\n[bold green]🛠️ Delegando remediación al Agente Desarrollador (TDD Craftsman)...[/bold green]"
+            )
             remediate_task = f"""
             The Auditor issued this feedback:
             {verdict_text}
@@ -955,28 +1044,41 @@ def gate_verify_and_judge(workflow: Workflow, client: GeminiClient) -> None:
             ...
             ```
             """
-            remediation_code = safe_call_ai(client, REMEDIATION_CRAFTSMAN_PROMPT, remediate_task, fallback_content="")
+            remediation_code = safe_call_ai(
+                client, REMEDIATION_CRAFTSMAN_PROMPT, remediate_task, fallback_content=""
+            )
             written = parse_and_apply_java_files(remediation_code, TARGET_PROJECT)
             for w in written:
-                console.print(f"[green]✔ Archivo remediado:[/green] {w.relative_to(TARGET_PROJECT)}")
+                console.print(
+                    f"[green]✔ Archivo remediado:[/green] {w.relative_to(TARGET_PROJECT)}"
+                )
 
             # Re-run gradle test
             test_run = run_cmd(["./gradlew", "test", "--no-daemon", "-q"], cwd=TARGET_PROJECT)
             if test_run.returncode == 0:
-                console.print("[bold green]✔ Tests de Gradle pasaron tras la remediación.[/bold green]")
+                console.print(
+                    "[bold green]✔ Tests de Gradle pasaron tras la remediación.[/bold green]"
+                )
                 # Re-run verify
                 from spec.cli import run_verify
+
                 run_verify(TARGET_PROJECT)
                 console.print("[bold green]✔ Re-evaluando con The Judge...[/bold green]\n")
             else:
-                console.print(f"[bold red]Fallo de compilación tras remediación: {test_run.stderr}[/bold red]")
+                console.print(
+                    f"[bold red]Fallo de compilación tras remediación: {test_run.stderr}[/bold red]"
+                )
 
     # Fase 5: Sello
     banner("Fase 5: Sellar Especificación", stage="COMPLETE")
-    confirm_finish = Confirm.ask("El sistema está verificado al 100% y el Juez emitió APPROVED. ¿Confirmas sellar con `spec finish`?")
+    confirm_finish = Confirm.ask(
+        "El sistema está verificado al 100% y el Juez emitió APPROVED. ¿Confirmas sellar con `spec finish`?"
+    )
     if confirm_finish:
         snapshot = workflow.finish()
-        console.print(f"[bold green]🎉 Feature '{snapshot.feature}' completada y sellada con éxito (stage={snapshot.stage.value}).[/bold green]\n")
+        console.print(
+            f"[bold green]🎉 Feature '{snapshot.feature}' completada y sellada con éxito (stage={snapshot.stage.value}).[/bold green]\n"
+        )
 
         # Cleanup prompt
         should_clean = Confirm.ask(
@@ -985,6 +1087,7 @@ def gate_verify_and_judge(workflow: Workflow, client: GeminiClient) -> None:
         )
         if should_clean:
             from clean_workbench import clean_project
+
             clean_project(force=True)
 
 
@@ -999,14 +1102,19 @@ def main() -> None:
 
     console.print(f"[bold]Target Project:[/bold] {TARGET_PROJECT}")
     console.print(f"[bold]Gemini Model:[/bold]   {client.model}")
-    console.print(f"[bold]Auth Mode:[/bold]      {'[green]ADC (Agent Platform Active)[/green]' if client.use_adc and client.project_id else '[yellow]API Key[/yellow]'}")
+    console.print(
+        f"[bold]Auth Mode:[/bold]      {'[green]ADC (Agent Platform Active)[/green]' if client.use_adc and client.project_id else '[yellow]API Key[/yellow]'}"
+    )
     console.print(f"[bold]GCP Project:[/bold]    {client.project_id or 'Auto-detected'}")
     console.print("")
 
     # Automatic pre-run cleanup for pristine baseline
     from clean_workbench import clean_project
+
     clean_project(force=True, verbose=False)
-    console.print("[bold green]✔ Entorno test-sdd reseteado a estado prístino (IDLE, 0 residuos de pruebas previas).[/bold green]\n")
+    console.print(
+        "[bold green]✔ Entorno test-sdd reseteado a estado prístino (IDLE, 0 residuos de pruebas previas).[/bold green]\n"
+    )
 
     gate_spec(workflow, client)
     gate_plan(workflow, client)

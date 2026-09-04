@@ -45,23 +45,32 @@ AGILE = f"{BASE_URL}/rest/agile/1.0"
 
 def check_env():
     """Validates required environment variables."""
-    missing = [v for v in ["ATLASSIAN_EMAIL", "ATLASSIAN_API_TOKEN", "ATLASSIAN_URL"]
-               if not os.environ.get(v)]
+    missing = [
+        v
+        for v in ["ATLASSIAN_EMAIL", "ATLASSIAN_API_TOKEN", "ATLASSIAN_URL"]
+        if not os.environ.get(v)
+    ]
     if missing:
         print("Error: Missing required environment variables:")
         for v in missing:
-            print(f"  export {v}=\"...\"")
+            print(f'  export {v}="..."')
         print("\nTo configure them in ~/.zshrc:")
-        print("  export ATLASSIAN_EMAIL=\"your-email@company.com\"")
-        print("  export ATLASSIAN_URL=\"https://company.atlassian.net\"")
-        print("  ATLASSIAN_API_TOKEN=\"$(security find-generic-password -s atlassian-api-token -w 2>/dev/null)\"")
+        print('  export ATLASSIAN_EMAIL="your-email@company.com"')
+        print('  export ATLASSIAN_URL="https://company.atlassian.net"')
+        print(
+            '  ATLASSIAN_API_TOKEN="$(security find-generic-password -s atlassian-api-token -w 2>/dev/null)"'
+        )
         print("  export ATLASSIAN_API_TOKEN")
         sys.exit(1)
 
 
 def _auth_header():
     cred = base64.b64encode(f"{EMAIL}:{TOKEN}".encode()).decode()
-    return {"Authorization": f"Basic {cred}", "Content-Type": "application/json", "Accept": "application/json"}
+    return {
+        "Authorization": f"Basic {cred}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
 
 
 def _request(method, path, payload=None, base=API):
@@ -84,12 +93,24 @@ def _request(method, path, payload=None, base=API):
         sys.exit(1)
 
 
-def get(path):           return _request("GET",  path)
-def post(path, payload): return _request("POST", path, payload)
-def put(path, payload):  return _request("PUT",  path, payload)
+def get(path):
+    return _request("GET", path)
 
-def agile_get(path):           return _request("GET",  path, base=AGILE)
-def agile_post(path, payload): return _request("POST", path, payload, base=AGILE)
+
+def post(path, payload):
+    return _request("POST", path, payload)
+
+
+def put(path, payload):
+    return _request("PUT", path, payload)
+
+
+def agile_get(path):
+    return _request("GET", path, base=AGILE)
+
+
+def agile_post(path, payload):
+    return _request("POST", path, payload, base=AGILE)
 
 
 def _adf_to_md(node):
@@ -125,7 +146,10 @@ def _adf_to_md(node):
     elif ntype == "bulletList":
         return "".join(f"- {_adf_to_md(item).strip()}\n" for item in content) + "\n"
     elif ntype == "orderedList":
-        return "".join(f"{i+1}. {_adf_to_md(item).strip()}\n" for i, item in enumerate(content)) + "\n"
+        return (
+            "".join(f"{i + 1}. {_adf_to_md(item).strip()}\n" for i, item in enumerate(content))
+            + "\n"
+        )
     elif ntype == "listItem":
         return inner.strip()
     elif ntype == "codeBlock":
@@ -176,7 +200,9 @@ def _inline_to_adf(text):
 
 def _is_table_separator(line):
     line = line.strip()
-    return bool(line.startswith("|") and line.endswith("|") and re.match(r"^\|(\s*:?-+:?\s*\|)+$", line))
+    return bool(
+        line.startswith("|") and line.endswith("|") and re.match(r"^\|(\s*:?-+:?\s*\|)+$", line)
+    )
 
 
 def _parse_table_row(line):
@@ -194,10 +220,12 @@ def _table_to_adf(lines):
         cell_type = "tableHeader" if i == 0 else "tableCell"
         row_content = []
         for cell_text in _parse_table_row(line):
-            row_content.append({
-                "type": cell_type,
-                "content": [{"type": "paragraph", "content": _inline_to_adf(cell_text)}],
-            })
+            row_content.append(
+                {
+                    "type": cell_type,
+                    "content": [{"type": "paragraph", "content": _inline_to_adf(cell_text)}],
+                }
+            )
         rows.append({"type": "tableRow", "content": row_content})
     return {"type": "table", "content": rows}
 
@@ -209,10 +237,18 @@ def _md_to_adf(text):
 
     def flush_bullets():
         if bullet_accum:
-            content.append({
-                "type": "bulletList",
-                "content": [{"type": "listItem", "content": [{"type": "paragraph", "content": _inline_to_adf(item)}]} for item in bullet_accum],
-            })
+            content.append(
+                {
+                    "type": "bulletList",
+                    "content": [
+                        {
+                            "type": "listItem",
+                            "content": [{"type": "paragraph", "content": _inline_to_adf(item)}],
+                        }
+                        for item in bullet_accum
+                    ],
+                }
+            )
             bullet_accum.clear()
 
     def flush_table():
@@ -248,9 +284,12 @@ def _md_to_adf(text):
 
 # ── Commands ──────────────────────────────────────────────────────────────────
 
+
 def cmd_issue(key):
     """Displays issue in clean Markdown."""
-    data = get(f"/issue/{key}?fields=summary,status,assignee,reporter,priority,issuetype,description,created,updated,labels,comment")
+    data = get(
+        f"/issue/{key}?fields=summary,status,assignee,reporter,priority,issuetype,description,created,updated,labels,comment"
+    )
     f = data.get("fields", {})
 
     assignee = (f.get("assignee") or {}).get("displayName", "Unassigned")
@@ -266,7 +305,9 @@ def cmd_issue(key):
     print(f"\n**Type**: {itype}  |  **Status**: {status}  |  **Priority**: {priority}")
     print(f"**Assignee**: {assignee}  |  **Reporter**: {reporter}")
     print(f"**Labels**: {labels}")
-    print(f"**Created**: {_fmt_date(f.get('created',''))}  |  **Updated**: {_fmt_date(f.get('updated',''))}")
+    print(
+        f"**Created**: {_fmt_date(f.get('created', ''))}  |  **Updated**: {_fmt_date(f.get('updated', ''))}"
+    )
     print(f"\n## Description\n\n{desc_md}")
 
     comments = f.get("comment", {}).get("comments", [])
@@ -281,8 +322,14 @@ def cmd_issue(key):
 
 def cmd_search(jql):
     """Searches issues using JQL."""
-    data = post("/search/jql", {"jql": jql, "maxResults": 30,
-                                 "fields": ["key", "summary", "status", "assignee", "priority", "issuetype"]})
+    data = post(
+        "/search/jql",
+        {
+            "jql": jql,
+            "maxResults": 30,
+            "fields": ["key", "summary", "status", "assignee", "priority", "issuetype"],
+        },
+    )
     issues = data.get("issues", [])
     total = data.get("total", 0)
     if not issues:
@@ -297,7 +344,7 @@ def cmd_search(jql):
         assignee = (f.get("assignee") or {}).get("displayName", "—")
         status = f.get("status", {}).get("name", "—")
         itype = f.get("issuetype", {}).get("name", "—")
-        print(f"| {i['key']} | {itype} | {status} | {assignee} | {f.get('summary','')} |")
+        print(f"| {i['key']} | {itype} | {status} | {assignee} | {f.get('summary', '')} |")
 
 
 def cmd_comments(key):
@@ -408,7 +455,8 @@ def cmd_sprint(key, name):
 
 
 def cmd_help():
-    print(textwrap.dedent("""
+    print(
+        textwrap.dedent("""
         jira — Lightweight CLI for Jira REST API v3
         ===========================================
 
@@ -437,7 +485,8 @@ def cmd_help():
           jira transition ONB-1125 "In Progress"
           jira assign ONB-1125 me
           jira sprint ONB-1230 active
-    """).strip())
+    """).strip()
+    )
 
 
 def main():

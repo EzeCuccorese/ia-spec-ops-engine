@@ -101,7 +101,9 @@ def find_test_mappings(
         matching_files: list[str] = []
         for path, text in file_contents:
             if pattern.search(text):
-                matching_files.append(str(path.relative_to(root) if path.is_relative_to(root) else path))
+                matching_files.append(
+                    str(path.relative_to(root) if path.is_relative_to(root) else path)
+                )
 
         if matching_files:
             report.covered[tag] = matching_files

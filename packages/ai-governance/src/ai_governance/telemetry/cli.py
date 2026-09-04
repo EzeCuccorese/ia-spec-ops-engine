@@ -25,7 +25,10 @@ def show_ritmo_table(monthly_budget: float, actual_spend: float) -> None:
     table.add_column("Value", style="yellow")
 
     table.add_row("Monthly Budget", f"${monthly_budget:.2f} USD")
-    table.add_row("Business Days", f"{st.elapsed_business_days} / {st.total_business_days} days ({st.pace_ratio*100:.1f}%)")
+    table.add_row(
+        "Business Days",
+        f"{st.elapsed_business_days} / {st.total_business_days} days ({st.pace_ratio * 100:.1f}%)",
+    )
     table.add_row("Expected Spend to Date", f"${st.expected_spend_usd:.2f} USD")
     table.add_row("Actual Spend to Date", f"${st.actual_spend_usd:.2f} USD")
     diff_style = "[green]" if st.is_under_budget else "[red]"
@@ -35,7 +38,9 @@ def show_ritmo_table(monthly_budget: float, actual_spend: float) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(prog="telemetry", description="SpecOps AI Telemetry & Ritmo Pacing")
+    parser = argparse.ArgumentParser(
+        prog="telemetry", description="SpecOps AI Telemetry & Ritmo Pacing"
+    )
     sub = parser.add_subparsers(dest="cmd")
 
     p_ritmo = sub.add_parser("ritmo", help="Calculate business-day pacing")

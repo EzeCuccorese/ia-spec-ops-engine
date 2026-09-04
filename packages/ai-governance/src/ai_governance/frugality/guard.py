@@ -18,9 +18,7 @@ class ContextGuard:
 
         if current_tokens >= threshold:
             status = "critical"
-            recommendation = (
-                "Context window limit reached. Recommend running `/compact` or saving progress and `/clear`."
-            )
+            recommendation = "Context window limit reached. Recommend running `/compact` or saving progress and `/clear`."
         elif current_tokens >= threshold * 0.6:
             status = "warning"
             recommendation = (

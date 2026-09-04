@@ -53,7 +53,9 @@ class TestTrimmer:
             partes.append("\n".join(lineas[:head_n]))
             omitidas = inicio_resumen - head_n
             if omitidas > 0:
-                partes.append(f"[... {omitidas} lines of green test output omitted for frugality ...]")
+                partes.append(
+                    f"[... {omitidas} lines of green test output omitted for frugality ...]"
+                )
             anterior_fin = inicio_resumen - 1
         else:
             antes = cfg.get("test_contexto_antes", 3)
