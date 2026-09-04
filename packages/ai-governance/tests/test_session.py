@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from ai_governance.session.resolver import TaskResolver
+
 from ai_governance.session.tracker import SessionTracker, TaskState
 
 

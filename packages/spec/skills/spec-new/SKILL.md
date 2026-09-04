@@ -13,12 +13,12 @@ description: "Interactive Spec-Driven Development assistant. Prompts for base br
 
 ## Phase 0: Pre-Flight Modal Gate (ask_question)
 Before touching any code or initializing the feature, invoke `ask_question` with:
-- **Pregunta 1 (Rama Base)**: "¿De qué rama base salimos para esta feature?"
-  - Options: Provide the detected current/trunk branch (e.g. `(Recommended) Rama actual (<branch>)`, `main`, `develop`).
-- **Pregunta 2 (Nombre de Rama)**: "¿Nombre de la nueva rama / feature?"
+- **Question 1 (Base Branch)**: "Which base branch should we branch off for this feature?"
+  - Options: Provide the detected current/trunk branch (e.g. `(Recommended) Current branch (<branch>)`, `main`, `develop`).
+- **Question 2 (Branch Name)**: "What is the name for the new branch / feature?"
   - Options: `(Recommended) feature/<slug>`, `fix/<slug>`, `spike/<slug>`.
-- **Pregunta 3 (Aislamiento en Worktree)**: "¿Deseas aislar el feature en un Git Worktree nuevo?"
-  - Options: `(Recommended) Sí, crear Git Worktree aislado con symlinks de dependencias`, `No, trabajar sobre el directorio actual`.
+- **Question 3 (Worktree Isolation)**: "Do you want to isolate the feature in a new Git Worktree?"
+  - Options: `(Recommended) Yes, create isolated Git Worktree with dependency symlinks`, `No, work in the current directory`.
 
 ## Phase 1: Deterministic Pre-Flight Execution
 1. Run `spec preflight "<feature-name>" --from "<base_branch>" --branch "<feature_branch>" [--worktree] --json`.
@@ -29,7 +29,7 @@ Before touching any code or initializing the feature, invoke `ask_question` with
 ## Phase 2: Conduct Requirements Modal Interview (ask_question)
 Inside the target feature directory, analyze the project domain and invoke `ask_question` with 3 to 5 targeted, incisive questions:
 - **Questions Structure**:
-  - `question`: Concise question title (e.g., "Granularidad de Probes y Endpoints", "Chequeo de dependencias y fallas", "Contrato y formato de error JSON").
+  - `question`: Concise question title (e.g., "Health Probes and Endpoint Granularity", "Dependency Failure Modes", "JSON Error Contract").
   - `options`: 2 to 4 realistic technical alternatives formatted as user decisions. Prefix the best practice option with `(Recommended)`.
   - `is_multi_select`: `true` for combinable items, `false` for mutually exclusive choices.
 - The UI will render the interactive popup modal. Execution automatically blocks until the human clicks Submit.
@@ -42,4 +42,5 @@ Inside the target feature directory, analyze the project domain and invoke `ask_
    - Tag each scenario with stable identifiers `@s1`, `@s2`... for automated test traceability.
    - **Formal Data Contracts**: Structured schemas / models.
 3. Present a brief summary of the updated specification in the chat.
-4. **STOP**: Ask: *"¿Apruebas esta especificación formal para avanzar a la fase de planificación (`spec-plan`)?"*. Wait for user sign-off.
+4. **STOP**: Ask: *"Do you approve this formal specification to advance to the planning phase (`spec-plan`)?"*. Wait for user sign-off.
+

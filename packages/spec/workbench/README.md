@@ -1,58 +1,59 @@
 # SDD Agent Workbench: Java Payment Orders API Demo
 
-Entorno aislado e interactivo para ejecutar el ciclo de vida completo de **Spec-Driven Development (SDD)** con agentes de Inteligencia Artificial (Google Gemini) sobre una aplicación real en **Java / Spring Boot**.
+Isolated, interactive test environment for executing the complete **Spec-Driven Development (SDD)** lifecycle using AI coding agents (Google Gemini) on a real-world **Java 21 / Spring Boot** application.
 
 ---
 
-## Estructura del Toolkit
+## Toolkit Structure
 
 ```
 packages/spec/workbench/
-├── .env.example              # Plantilla de configuración segura
-├── runner/                   # Orquestador y TUI en Python
-│   ├── sdd_runner_tui.py     # Script interactivo principal con TUI en Rich
-│   ├── clean_workbench.py    # Runner para limpiar y dejar el entorno 100% prístino
-│   ├── gemini_client.py      # Conector con ADC a Agent Platform (gemini-flash-latest)
-│   └── agent_roles.py        # Prompts especializados (SpecAuthor, Craftsman, Judge)
-├── test-sdd/                 # Proyecto objetivo en Java 21 / Spring Boot
-│   ├── build.gradle          # Configuración con Gradle, JUnit 5, AssertJ y JaCoCo
-│   ├── gradlew               # Gradle wrapper ejecutable
-│   ├── .spec/                # Gobernanza del arnés (policy.json, verification.json)
-│   └── src/                  # Código Java generado bajo TDD
+├── .env.example              # Secure environment variables template
+├── runner/                   # Python TUI orchestrator and runners
+│   ├── sdd_runner_tui.py     # Main interactive runner with Rich TUI
+│   ├── clean_workbench.py    # Reset script to leave the environment 100% pristine
+│   ├── gemini_client.py      # Connector to Agent Platform (gemini-flash-latest)
+│   └── agent_roles.py        # Specialized agent personas (SpecAuthor, Craftsman, Judge)
+├── test-sdd/                 # Target Java 21 / Spring Boot project
+│   ├── build.gradle          # Gradle build with JUnit 5, AssertJ, and JaCoCo
+│   ├── gradlew               # Executable Gradle wrapper
+│   ├── .spec/                # Spec governance (policy.json, verification.json)
+│   └── src/                  # Java source code generated under strict TDD
 ```
 
 ---
 
-## Cómo Ejecutarlo
+## How to Run
 
-1. **Configuración de Variables de Entorno**:
-   Copia el archivo `.env.example` a `.env` en este directorio:
+1. **Environment Configuration**:
+   Copy `.env.example` to `.env` in this directory:
    ```bash
    cp packages/spec/workbench/.env.example packages/spec/workbench/.env
    ```
-   Edita `.env` y coloca tu `GEMINI_API_KEY` (obtenida en [Google AI Studio](https://aistudio.google.com/)).
+   Edit `.env` and set your `GEMINI_API_KEY` (obtained from [Google AI Studio](https://aistudio.google.com/)).
 
-2. **Ejecutar el Runner Interactivo por Consola**:
+2. **Run Interactive Console Runner**:
    ```bash
    python3 packages/spec/workbench/runner/sdd_runner_tui.py
    ```
 
-3. **Flujo de Interacción Humana**:
-   * **Fase 1 (Spec)**: El agente redacta `spec.md` con escenarios Gherkin `@s1`, `@s2`, `@s3`. El TUI te muestra el resultado formateado y solicita confirmación.
-   * **Fase 2 (Plan)**: El agente de arquitectura genera `plan.md` y `tasks.md` respetando las reglas de Java limpio (records, inmutabilidad, constructor injection).
-   * **Fase 3 (TDD)**:
-     * Ciclo Rojo: Genera el test JUnit 5 y corre `./gradlew test` (falla).
-     * Ciclo Verde: Genera la implementación mínima en Java y corre `./gradlew test` (pasa 100%).
-     * Registra la bitácora `work.md` en disco.
-    * **Fase 4 (Verificación y Juicio)**:
-      * Ejecuta `spec verify` auditando la trazabilidad de todos los escenarios.
-      * El Agente **The Judge** audita el código contra YAGNI y emite el veredicto `APPROVED`.
-    * **Fase 5 (Sello y Limpieza)**: El sistema te pide confirmación final y ejecuta `spec finish`. Al concluir, te ofrece limpiar automáticamente el entorno.
+3. **Human-in-the-Loop Workflow**:
+   * **Phase 1 (Spec)**: The agent authors `spec.md` with Gherkin acceptance scenarios `@s1`, `@s2`, `@s3`. The TUI displays the formatted specification and requests human sign-off.
+   * **Phase 2 (Plan)**: The architecture agent produces `plan.md` and `tasks.md` adhering to clean Java idioms (records, immutability, constructor injection).
+   * **Phase 3 (TDD)**:
+     * Red Cycle: Generates JUnit 5 test and runs `./gradlew test` (fails).
+     * Green Cycle: Generates minimal Java implementation and runs `./gradlew test` (passes 100%).
+     * Writes development log to `work.md` on disk.
+   * **Phase 4 (Verification & Craftsmanship Judge)**:
+     * Runs `spec verify` auditing traceability across all `@s` scenarios.
+     * **The Judge** agent audits code against YAGNI / over-engineering and issues the `APPROVED` verdict.
+   * **Phase 5 (Seal & Clean)**: The runner prompts for final confirmation and executes `spec finish`. Upon completion, it offers to automatically clean the workspace.
 
-4. **Limpiar y Resetear el Entorno en Cualquier Momento**:
-   Para resetear el proyecto a un estado 100% limpio y prístino:
+4. **Reset Environment at Any Time**:
+   To reset the target demo project to a 100% pristine baseline:
    ```bash
    python3 packages/spec/workbench/runner/clean_workbench.py
-   # O de forma directa sin confirmación:
+   # Or without interactive confirmation prompt:
    python3 packages/spec/workbench/runner/clean_workbench.py --force
    ```
+

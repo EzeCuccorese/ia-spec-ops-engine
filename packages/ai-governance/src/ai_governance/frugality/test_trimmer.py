@@ -44,7 +44,7 @@ class TestTrimmer:
         resumen_final = lineas[inicio_resumen:]
 
         indices_falla = [
-            i for i, l in enumerate(lineas[:inicio_resumen]) if FAIL_MARKER_RE.search(l)
+            i for i, line in enumerate(lineas[:inicio_resumen]) if FAIL_MARKER_RE.search(line)
         ]
 
         partes = []

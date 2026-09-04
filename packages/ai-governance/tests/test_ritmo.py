@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+
 from ai_governance.telemetry.ritmo import RitmoCalculator
 
 

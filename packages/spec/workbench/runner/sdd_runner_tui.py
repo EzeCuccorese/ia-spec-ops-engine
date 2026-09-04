@@ -28,10 +28,6 @@ from rich.table import Table
 SPEC_SRC = Path(__file__).resolve().parent.parent.parent / "src"
 sys.path.insert(0, str(SPEC_SRC))
 
-from spec.governance.judge import SpecJudge
-from spec.governance.project import ProjectGovernance
-from spec.spec.workflow import Workflow
-
 from agent_roles import (
     INTERVIEW_GENERATOR_PROMPT,
     JUDGE_PROMPT,
@@ -42,6 +38,10 @@ from agent_roles import (
     TDD_TEST_PROMPT,
 )
 from gemini_client import GeminiClient
+
+from spec.governance.judge import SpecJudge
+from spec.governance.project import ProjectGovernance
+from spec.spec.workflow import Workflow
 
 console = Console()
 WORKBENCH_DIR = Path(__file__).resolve().parent.parent
@@ -436,15 +436,9 @@ def gate_work_tdd(workflow: Workflow, client: GeminiClient) -> None:
 
     feature_dir = workflow.feature_dir("payment-orders-api")
     spec_path = feature_dir / "spec.md"
-    plan_path = feature_dir / "plan.md"
     work_log_path = feature_dir / "work.md"
 
     spec_content = spec_path.read_text(encoding="utf-8") if spec_path.is_file() else ""
-    plan_content = plan_path.read_text(encoding="utf-8") if plan_path.is_file() else ""
-
-    # Detect if user requested Outbox or Tokenization in spec
-    has_outbox = "outbox" in spec_content.lower() or "event" in spec_content.lower()
-    has_masking = "tokeniz" in spec_content.lower() or "mask" in spec_content.lower()
 
     # --- CICLO 1: @s1 (Creación Válida) ---
     console.print("\n[bold cyan]═══ CICLO TDD 1 / 3: Escenario @s1 (Creación Válida) ═══[/bold cyan]")

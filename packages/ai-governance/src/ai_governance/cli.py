@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+
 from rich.console import Console
 from rich.panel import Panel
 
@@ -83,7 +84,7 @@ def main() -> int:
         sys.argv = ["progress"] + remaining_args
         return session_main()
     else:
-        args = parser.parse_args()
+        parser.parse_args()
         return 0
 
 

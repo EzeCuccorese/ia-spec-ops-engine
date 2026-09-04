@@ -1,92 +1,112 @@
 # SpecOps Engine
 
-**SpecOps Engine** is a decoupled monorepo containing three independent, modular tools:
-
-1. **`ai-governance` (`packages/ai-governance/`)**: Software Engineering Standards Catalog (28 canonical rules), Runtime Context Frugality (test trimming & listing condensation), Telemetry & Ritmo Pacing, Lightweight Session State, and Zero-Overhead Tools (`governance`, `rules`, `frugal`, `statusline`, `progreso`, `jira`, `confluence`).
-2. **`spec` (`packages/spec/`)**: AI Governance, Spec-Driven Development (SDD), and deterministic verification engine for coding agents (`spec`).
-3. **`workspace` (`packages/workspace/`)**: Workspace tools, Git worktree helpers, and local DevOps utilities (`ws`).
+**SpecOps Engine** is a decoupled monorepo providing comprehensive infrastructure for AI-assisted software engineering and local developer workspace orchestration:
 
 ```
-cucco-specops-engine/
-├── packages/
-│   ├── ai-governance/         # Standards, Frugality, Telemetry, Ritmo, Session Tracking
-│   │   ├── src/ai_governance/
-│   │   ├── catalog/           # 28 canonical engineering rules (Core, Stacks, Infra, Docs)
-│   │   ├── tests/
-│   │   └── pyproject.toml
-│   │
-│   ├── spec/                  # AI Governance & Spec-Driven Development (CLI `spec`)
-│   │   ├── src/spec/
-│   │   ├── tests/
-│   │   ├── docs/
-│   │   └── pyproject.toml
-│   │
-│   └── workspace/             # DevOps & Workspace Management Tools (CLI `ws`)
-│       ├── src/workspace_engine/
-│       ├── tests/
-│       ├── docs/
-│       └── pyproject.toml
-│
-├── pyproject.toml             # Root monorepo orchestrator
-└── README.md
+                                  SPECOPS ENGINE
+ ┌───────────────────────────┬───────────────────────────┬───────────────────────────┐
+ │     AI-GOVERNANCE         │           SPEC            │         WORKSPACE         │
+ ├───────────────────────────┼───────────────────────────┼───────────────────────────┤
+ │ • 28 Engineering Rules    │ • Honest SDD Lifecycle    │ • Multi-Repo Workspaces   │
+ │ • Context Frugality       │ • Preflight & Worktrees   │ • Git Worktree Isolation  │
+ │ • Telemetry & Ritmo Pacing│ • Test Traceability (@s)  │ • Local Microservices     │
+ │ • Sessions (progreso)     │ • Immutable Evidence      │ • Pre-Push Quality Gate   │
+ │ • Jira & Confluence Tools │ • AST Mutation Testing    │ • K8s, JDK & Build Tools  │
+ └───────────────────────────┴───────────────────────────┴───────────────────────────┘
 ```
 
 ---
 
-## ⚡ Quick Start
+## 📦 Monorepo Packages
 
-### 1. AI Governance & Standards (`governance` / `rules`)
+Each package is strictly modular, independent, and comes with its own hermetic test suite:
 
-Run the interactive TUI assistant or inspect standards and ritmo pacing:
+1. [**`packages/ai-governance`**](packages/ai-governance/README.md):
+   Software engineering standards catalog (28 canonical rules across Core, Stacks, Infra, Docs), context frugality runtime for condensing test outputs, high-visibility ANSI `statusline`, business-day budget pacing algorithm (`ritmo`), lightweight cross-session task tracking (`progreso`), and zero-MCP-overhead Markdown tools (`jira`, `confluence`).
+2. [**`packages/spec`**](packages/spec/README.md):
+   Deterministic governance and Spec-Driven Development (SDD) engine for AI coding agents. Enforces the honest loop: `init -> agent install -> preflight -> new -> plan -> tasks -> work -> verify -> finish` with strict JSON `argv` verification without shell evaluation and immutable evidence recording.
+3. [**`packages/workspace`**](packages/workspace/README.md):
+   Local development orchestrator: deterministic multi-repo workspace management using Git worktrees (`ws generate`, `ws worktree`), local microservices orchestration with auto-discovery and interactive TUI (`ws run-local`), 5-stage pre-push Quality Gate (`ws hooks`), and Kubernetes pod environment utilities (`ws kube`).
+
+---
+
+## 💻 Quick Installation & Setup
+
+### Prerequisites
+- **Python >= 3.11**
+- [**uv**](https://github.com/astral-sh/uv) (Extremely fast Python package manager)
+- **Git**
+
+### Full Monorepo Editable Installation
+
+Clone the repository and install all packages alongside developer dependencies:
 
 ```bash
-# Governance Master CLI
-PYTHONPATH=packages/ai-governance/src python3 -m ai_governance.cli --help
+# 1. Create and activate a virtual environment
+uv venv
+source .venv/bin/activate
 
-# List all 28 canonical rules
-PYTHONPATH=packages/ai-governance/src python3 -m ai_governance.rules.cli list
+# 2. Install the complete monorepo in editable mode with dev dependencies
+uv pip install -e ".[dev]"
+```
 
-# Calculate business-day budget pacing (Ritmo)
-PYTHONPATH=packages/ai-governance/src python3 -m ai_governance.cli ritmo --budget 150 --spent 30
+Once installed, you will have **9 global executable CLI commands** registered on your PATH:
+
+| Command | Source Package | Description |
+|---|---|---|
+| `spec` | `packages/spec` | Governance & Spec-Driven Development CLI |
+| `ws` | `packages/workspace` | Workspace, microservices & DevOps manager |
+| `governance`| `packages/ai-governance` | Master AI governance CLI |
+| `rules` | `packages/ai-governance` | 28 software engineering standards catalog & injector |
+| `frugal` | `packages/ai-governance` | Output condenser & context frugality trimmer |
+| `statusline`| `packages/ai-governance` | Real-time ANSI token cost & context telemetry bar |
+| `progreso` | `packages/ai-governance` | Cross-session task tracking (~300 tokens) |
+| `jira` | `packages/ai-governance` | Jira ticket querying and status transitions in Markdown |
+| `confluence`| `packages/ai-governance` | Confluence search and page reader in Markdown |
+
+---
+
+## 🔄 Integrated Daily Workflow
+
+How the 3 tools collaborate in a typical developer feature cycle:
+
+```bash
+# 1. Workspace: Create an isolated environment for the new feature
+ws worktree /path/to/base-repo /path/to/worktree feature/order-checkout
+
+# 2. AI-Governance: Register the task and inject standards into agent config
+progreso nueva ONB-2050 --titulo "Order checkout refactor"
+rules install --local --all
+
+# 3. Spec: Validate baseline and initialize the formal specification
+spec preflight "order-checkout" --worktree
+spec new "order-checkout" --description "Idempotent payment processing"
+spec plan
+spec tasks
+
+# 4. Test-Driven Development (TDD):
+spec work
+spec test-assist --next
+
+# 5. Deterministic verification and sign-off:
+spec verify
+spec finish
+
+# 6. Quality Gate: Ensure zero secrets and clean code before pushing
+ws hooks run
+git push origin feature/order-checkout
 ```
 
 ---
 
-### 2. AI Governance & SDD Engine (`spec`)
+## 🧪 Unified Testing
 
-Run `spec` directly or against any target repository:
-
-```bash
-export SPEC="PYTHONPATH=$PWD/packages/spec/src python3 -m spec"
-$SPEC doctor
-$SPEC init --root /path/to/project
-$SPEC agent install --root /path/to/project
-$SPEC new "User Authentication" --root /path/to/project
-$SPEC plan --root /path/to/project
-$SPEC tasks --root /path/to/project
-$SPEC work --root /path/to/project
-$SPEC verify --root /path/to/project
-$SPEC finish --root /path/to/project
-```
-
----
-
-### 3. Workspace & DevOps Engine (`ws`)
-
-Run `ws` for local development utilities:
+Run all hermetic test suites across all packages:
 
 ```bash
-PYTHONPATH=packages/workspace/src python3 -m workspace_engine.cli.main --help
+pytest
 ```
 
----
 
-## 🧪 Testing
-
-Execute all test suites hermetically across all packages:
-
-```bash
-python3 -m pytest
-```
 
 

@@ -6,12 +6,12 @@ Scans ~/.claude/projects/**/*.jsonl without external network calls, computing ex
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from .prices import PriceCatalog
-from .ritmo import RitmoCalculator, RitmoStatus
+from .ritmo import RitmoCalculator
 
 
 class CostMonitor:

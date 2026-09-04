@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +32,7 @@ class TaskState:
     steps: list[dict[str, Any]] = field(default_factory=list)  # [{"text": "...", "done": bool}]
     repos: list[dict[str, Any]] = field(default_factory=list)  # [{"path": "...", "branch": "...", "pr": "..."}]
     links: list[dict[str, str]] = field(default_factory=list)  # [{"title": "...", "url": "..."}]
-    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -98,7 +98,7 @@ class SessionTracker:
             return None
 
     def save_task(self, task: TaskState) -> None:
-        task.updated_at = datetime.now(timezone.utc).isoformat()
+        task.updated_at = datetime.now(UTC).isoformat()
         p = self._json_path(task.id)
         try:
             p.parent.mkdir(parents=True, exist_ok=True)
@@ -108,7 +108,7 @@ class SessionTracker:
 
     def append_log(self, task_id: str, entry: str) -> None:
         md_file = self._md_path(task_id)
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
         try:
             md_file.parent.mkdir(parents=True, exist_ok=True)
             with open(md_file, "a", encoding="utf-8") as f:

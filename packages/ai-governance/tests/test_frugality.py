@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+
 from ai_governance.frugality.guard import ContextGuard
 from ai_governance.frugality.output_trimmer import OutputTrimmer
 from ai_governance.frugality.pre_check import PreCheck

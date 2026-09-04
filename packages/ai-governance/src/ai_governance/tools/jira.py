@@ -103,11 +103,16 @@ def _adf_to_md(node):
         text = node.get("text", "")
         for m in node.get("marks", []):
             mtype = m.get("type")
-            if mtype == "strong":     text = f"**{text}**"
-            elif mtype == "em":       text = f"*{text}*"
-            elif mtype == "code":     text = f"`{text}`"
-            elif mtype == "strike":   text = f"~~{text}~~"
-            elif mtype == "link":     text = f"[{text}]({m.get('attrs',{}).get('href','')})"
+            if mtype == "strong":
+                text = f"**{text}**"
+            elif mtype == "em":
+                text = f"*{text}*"
+            elif mtype == "code":
+                text = f"`{text}`"
+            elif mtype == "strike":
+                text = f"~~{text}~~"
+            elif mtype == "link":
+                text = f"[{text}]({m.get('attrs', {}).get('href', '')})"
         return text
 
     inner = "".join(_adf_to_md(c) for c in content)
@@ -146,7 +151,8 @@ def _adf_to_md(node):
 
 
 def _fmt_date(iso):
-    if not iso: return "—"
+    if not iso:
+        return "—"
     try:
         return datetime.fromisoformat(iso.replace("Z", "+00:00")).strftime("%Y-%m-%d %H:%M")
     except Exception:
