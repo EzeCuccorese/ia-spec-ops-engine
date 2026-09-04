@@ -11,18 +11,23 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from workspace_engine.cli import set_java
 from workspace_engine.services.benchmark_display import render_final_table
-from workspace_engine.utils import Color, detect_project_type, find_project_root, log_error, log_info, log_success, log_warning
+from workspace_engine.utils import (
+    Color,
+    detect_project_type,
+    find_project_root,
+    log_error,
+    log_warning,
+)
 
 
-def run_repo_tests(repo_path: Path) -> Dict[str, any]:
+def run_repo_tests(repo_path: Path) -> dict[str, any]:
     """Ejecuta los tests unitarios de un repositorio y mide tiempos de ejecución."""
     name = repo_path.name
-    ptype = detect_project_type(repo_path)
-    
+    detect_project_type(repo_path)
+
     t0 = time.time()
     cmd = []
     env = os.environ.copy()
@@ -100,7 +105,7 @@ def run_repo_tests(repo_path: Path) -> Dict[str, any]:
     }
 
 
-def run_benchmark(repos_filter: Optional[List[str]] = None, start_dir: Optional[Path] = None) -> int:
+def run_benchmark(repos_filter: list[str] | None = None, start_dir: Path | None = None) -> int:
     workspace_dir = find_project_root(start_dir)
     repos_dir = workspace_dir / "repositories"
 
@@ -125,14 +130,32 @@ def run_benchmark(repos_filter: Optional[List[str]] = None, start_dir: Optional[
     summary_file = results_dir / "summary.tsv"
 
     headers = [
-        "repo", "exit_code", "status", "install_secs", "build_secs", "cold_secs", "warm_secs",
-        "total_secs", "cold_tests", "warm_tests", "warm_icon", "cold_icon", "row_icon",
-        "note", "pre_install_secs", "pre_cold_secs", "pre_warm_secs", "install_wall_secs",
-        "cold_wall_secs", "warm_wall_secs"
+        "repo",
+        "exit_code",
+        "status",
+        "install_secs",
+        "build_secs",
+        "cold_secs",
+        "warm_secs",
+        "total_secs",
+        "cold_tests",
+        "warm_tests",
+        "warm_icon",
+        "cold_icon",
+        "row_icon",
+        "note",
+        "pre_install_secs",
+        "pre_cold_secs",
+        "pre_warm_secs",
+        "install_wall_secs",
+        "cold_wall_secs",
+        "warm_wall_secs",
     ]
     tsv_lines = ["\t".join(headers)]
 
-    print(f"\n{Color.BOLD}Ejecutando suite de tests para {len(targets)} repositorio(s)...{Color.RESET}\n")
+    print(
+        f"\n{Color.BOLD}Ejecutando suite de tests para {len(targets)} repositorio(s)...{Color.RESET}\n"
+    )
 
     has_failures = False
     for r in targets:
@@ -154,7 +177,9 @@ def run_benchmark(repos_filter: Optional[List[str]] = None, start_dir: Optional[
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Ejecuta benchmark de tests unitarios de repositorios locales.")
+    parser = argparse.ArgumentParser(
+        description="Ejecuta benchmark de tests unitarios de repositorios locales."
+    )
     parser.add_argument("repos", nargs="*", help="Repositorios específicos a testear")
     args = parser.parse_args()
     sys.exit(run_benchmark(repos_filter=args.repos))

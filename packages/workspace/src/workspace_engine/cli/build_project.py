@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from workspace_engine.cli import set_java
-from workspace_engine.utils import Color, log_error, log_info, log_success, log_warning, run_command
+from workspace_engine.utils import log_error, log_info, log_success, log_warning, run_command
 
 
 def build_project(project_dir: Path | None = None) -> int:

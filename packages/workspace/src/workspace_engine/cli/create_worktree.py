@@ -10,7 +10,6 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
 
 from workspace_engine.utils import find_project_root, log_error, log_info, log_success
 
@@ -20,7 +19,9 @@ def _run_cmd(cmd: list[str]) -> tuple[int, str, str]:
     return res.returncode, res.stdout, res.stderr
 
 
-def create_worktree(branch: str, from_branch: Optional[str] = None, start_dir: Optional[Path] = None) -> int:
+def create_worktree(
+    branch: str, from_branch: str | None = None, start_dir: Path | None = None
+) -> int:
     """Crea un git worktree para la rama especificada y copia configuraciones locales."""
     repo_root = find_project_root(start_dir)
     sanitized_branch = branch.replace("/", "-")
@@ -46,7 +47,15 @@ def create_worktree(branch: str, from_branch: Optional[str] = None, start_dir: O
         ["git", "-C", str(repo_root), "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"]
     )
     code_remote, _, _ = _run_cmd(
-        ["git", "-C", str(repo_root), "show-ref", "--verify", "--quiet", f"refs/remotes/origin/{branch}"]
+        [
+            "git",
+            "-C",
+            str(repo_root),
+            "show-ref",
+            "--verify",
+            "--quiet",
+            f"refs/remotes/origin/{branch}",
+        ]
     )
 
     if code_local == 0:
@@ -65,7 +74,17 @@ def create_worktree(branch: str, from_branch: Optional[str] = None, start_dir: O
             f"origin/{branch}",
         ]
     else:
-        cmd = ["git", "-C", str(repo_root), "worktree", "add", "-b", branch, str(worktree_dir), base_branch]
+        cmd = [
+            "git",
+            "-C",
+            str(repo_root),
+            "worktree",
+            "add",
+            "-b",
+            branch,
+            str(worktree_dir),
+            base_branch,
+        ]
 
     res, _, err = _run_cmd(cmd)
     if res != 0:
@@ -97,7 +116,9 @@ def create_worktree(branch: str, from_branch: Optional[str] = None, start_dir: O
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Crea un Git worktree aislado en ../workspace-<rama>")
+    parser = argparse.ArgumentParser(
+        description="Crea un Git worktree aislado en ../workspace-<rama>"
+    )
     parser.add_argument("branch", help="Nombre de la rama para el worktree")
     args = parser.parse_args()
     sys.exit(create_worktree(args.branch))

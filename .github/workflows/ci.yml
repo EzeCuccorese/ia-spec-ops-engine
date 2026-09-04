@@ -2,7 +2,7 @@ name: CI Quality Gate
 
 on:
   push:
-    branches: [ main, master, develop ]
+    branches: [ main, master, develop, codex/**, feature/** ]
   pull_request:
     branches: [ main, master, develop ]
 
@@ -15,6 +15,12 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          version: "latest"
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -23,20 +29,27 @@ jobs:
       - name: Set up Git config
         run: |
           git config --global user.name "CI Test User"
-          git config --global user.email "ci@devscripts.org"
+          git config --global user.email "ci@example.org"
 
-      - name: Install uv & Dependencies
+      - name: Install Dependencies
         run: |
-          python -m pip install --upgrade pip uv
           uv pip install --system -e ".[dev]"
-          uv pip install --system -e "packages/common[dev]"
-          uv pip install --system -e "packages/workspace[dev]"
-          uv pip install --system -e "packages/sdd[dev]"
 
       - name: Run Ruff Lint
         run: |
-          ruff check packages/ rules/
+          uv run --with ruff ruff check packages/
+
+      - name: Run Ruff Format Check
+        run: |
+          uv run --with ruff ruff format --check packages/
 
       - name: Run Pytest Suite with Coverage
         run: |
-          pytest -v --cov=devscripts_common --cov=workspace_engine --cov=sdd_engine --cov-report=term-missing
+          uv run pytest -v --cov=ai_governance --cov=spec --cov=workspace_engine --cov-report=term-missing
+
+      - name: Verify CLI Tools & Diagnostics
+        run: |
+          uv run ws doctor
+          uv run ws hooks status
+
+

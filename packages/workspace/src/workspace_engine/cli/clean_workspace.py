@@ -9,12 +9,11 @@ import argparse
 import shutil
 import sys
 from pathlib import Path
-from typing import Optional
 
 from workspace_engine.utils import find_project_root, log_info, log_success
 
 
-def clean_workspace(start_dir: Optional[Path] = None) -> int:
+def clean_workspace(start_dir: Path | None = None) -> int:
     """Limpia caches de build y temporales en repositories/ y .ai-toolkit/."""
     workspace_dir = find_project_root(start_dir)
     log_info(f"[clean-workspace] {workspace_dir}")
@@ -49,7 +48,9 @@ def clean_workspace(start_dir: Optional[Path] = None) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Limpia artefactos de compilación y caches en el workspace.")
+    parser = argparse.ArgumentParser(
+        description="Limpia artefactos de compilación y caches en el workspace."
+    )
     parser.parse_args()
     sys.exit(clean_workspace())
 

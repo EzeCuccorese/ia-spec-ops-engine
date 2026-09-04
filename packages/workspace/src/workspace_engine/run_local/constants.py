@@ -1,6 +1,7 @@
 """
 workspace_engine.run_local.constants — Constantes, rutas y configuración para run_local.
 """
+
 from __future__ import annotations
 
 import json
@@ -10,27 +11,27 @@ from pathlib import Path
 from workspace_engine.utils import Color
 
 # ── ANSI Colors ───────────────────────────────────────────────────────────────
-RED    = Color.RED
-GREEN  = Color.GREEN
-CYAN   = Color.CYAN
+RED = Color.RED
+GREEN = Color.GREEN
+CYAN = Color.CYAN
 YELLOW = Color.YELLOW
-BOLD   = Color.BOLD
-DIM    = Color.DIM
-RESET  = Color.RESET
+BOLD = Color.BOLD
+DIM = Color.DIM
+RESET = Color.RESET
 
 # ── Directories and Files ─────────────────────────────────────────────────────
-CONFIG_DIR        = Path.home() / '.config' / 'run-local'
-DATA_DIR          = Path.home() / '.local' / 'share' / 'run-local'
-LOGS_DIR          = DATA_DIR / 'logs'
-PIDS_DIR          = DATA_DIR / 'pids'
-ENVS_DIR          = DATA_DIR / 'envs'
-STATE_FILE        = DATA_DIR / 'state.json'
-DB_CFG_FILE       = CONFIG_DIR / 'databases.yml'
-PROFILES_FILE     = CONFIG_DIR / 'profiles.json'
-LAST_CONFIGS_FILE = DATA_DIR / 'last-configs.json'
+CONFIG_DIR = Path.home() / ".config" / "run-local"
+DATA_DIR = Path.home() / ".local" / "share" / "run-local"
+LOGS_DIR = DATA_DIR / "logs"
+PIDS_DIR = DATA_DIR / "pids"
+ENVS_DIR = DATA_DIR / "envs"
+STATE_FILE = DATA_DIR / "state.json"
+DB_CFG_FILE = CONFIG_DIR / "databases.yml"
+PROFILES_FILE = CONFIG_DIR / "profiles.json"
+LAST_CONFIGS_FILE = DATA_DIR / "last-configs.json"
 
-LOG_MAX_BYTES  = 100 * 1024 * 1024   # rotate log when it exceeds 100 MB
-LOG_KEEP_BYTES =  20 * 1024 * 1024   # keep last 20 MB after rotation
+LOG_MAX_BYTES = 100 * 1024 * 1024  # rotate log when it exceeds 100 MB
+LOG_KEEP_BYTES = 20 * 1024 * 1024  # keep last 20 MB after rotation
 
 # ── Project Configuration ──────────────────────────────────────────────────────
 _CONFIG_LOADED = False
@@ -49,17 +50,17 @@ def load_project_config() -> dict:
         "local_envs_dir_name": "local-envs",
         "workspaces_dir_name": "workspaces",
         "toolkit_dir_name": "project-toolkit",
-        "url_pattern": r"https?://([a-z0-9-]+)\.(?:dev|prod)\.generic\.com(/[\S]*)?"
+        "url_pattern": r"https?://([a-z0-9-]+)\.(?:dev|prod)\.generic\.com(/[\S]*)?",
     }
-    config_path = Path.home() / '.config' / 'devscripts' / 'config.json'
-    if not config_path.exists() and 'XDG_CONFIG_HOME' in os.environ:
-        config_path = Path(os.environ['XDG_CONFIG_HOME']) / 'devscripts' / 'config.json'
+    config_path = Path.home() / ".config" / "devscripts" / "config.json"
+    if not config_path.exists() and "XDG_CONFIG_HOME" in os.environ:
+        config_path = Path(os.environ["XDG_CONFIG_HOME"]) / "devscripts" / "config.json"
     if not config_path.exists():
-        config_path = Path('config.json')
+        config_path = Path("config.json")
 
     if config_path.exists():
         try:
-            with open(config_path, 'r', encoding='utf-8') as f:
+            with open(config_path, encoding="utf-8") as f:
                 user_config = json.load(f)
                 for k, v in user_config.items():
                     default_config[k] = v
@@ -72,14 +73,28 @@ def load_project_config() -> dict:
 PROJECT_CONFIG = load_project_config()
 
 # ── Environments ───────────────────────────────────────────────────────────────
-LOCAL_ENV = {'id': 'local', 'cluster': None, 'namespace': None, 'label': 'local — set-env-local.sh'}
+LOCAL_ENV = {"id": "local", "cluster": None, "namespace": None, "label": "local — set-env-local.sh"}
 KUBE_ENVS = PROJECT_CONFIG["environments"]
 ENVIRONMENTS = [LOCAL_ENV] + KUBE_ENVS
 
 # ── Noise filter ───────────────────────────────────────────────────────────────
-_NOISE_EXACT  = {'HOSTNAME', 'HOME', 'PATH', 'USER', 'SHELL', 'SHLVL', 'PWD', 'OLDPWD', 'LANG', '_', 'TERM', 'TERM_PROGRAM', 'COLORTERM'}
-_NOISE_PREFIX = ('KUBERNETES_', 'JAVA_', 'LC_', 'LS_COLORS', 'JVM_')
-_NOISE_SUFFIX = ('_SERVICE_HOST', '_SERVICE_PORT')
+_NOISE_EXACT = {
+    "HOSTNAME",
+    "HOME",
+    "PATH",
+    "USER",
+    "SHELL",
+    "SHLVL",
+    "PWD",
+    "OLDPWD",
+    "LANG",
+    "_",
+    "TERM",
+    "TERM_PROGRAM",
+    "COLORTERM",
+}
+_NOISE_PREFIX = ("KUBERNETES_", "JAVA_", "LC_", "LS_COLORS", "JVM_")
+_NOISE_SUFFIX = ("_SERVICE_HOST", "_SERVICE_PORT")
 
 _DEFAULT_DB_CFG = """\
 # run-local.py — configuración de bases de datos locales

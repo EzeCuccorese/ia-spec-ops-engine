@@ -4,25 +4,18 @@ Cubre verificación de procesos vivos, escalado de señales, guardado y carga de
 manejo de puertos y terminación elegante.
 """
 
-import json
 import os
-import signal
 import tempfile
-import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 from workspace_engine.run_local.process_manager import (
     _pid_alive,
     _status_str,
-    _port_in_use,
-    save_state,
-    load_state,
     graceful_kill_pid,
+    save_state,
     stop_all,
 )
-from workspace_engine.run_local import constants
 
 
 def test_pid_alive_current_process():
@@ -42,12 +35,33 @@ def test_save_and_load_state():
         tmp_path = Path(tmpdir)
         state_file = tmp_path / "state.json"
         data_dir = tmp_path
-        
-        with patch("workspace_engine.run_local.constants.STATE_FILE", state_file), \
-             patch("workspace_engine.run_local.constants.DATA_DIR", data_dir):
-            mock_launch = [{"name": "svc-a", "path": str(tmp_path), "port": 8080, "env": {}, "base_env": "local", "db_env": "local", "up_mode": "auto"}]
-            mock_results = [{"name": "svc-a", "path": str(tmp_path), "port": 8080, "pid": os.getpid(), "ok": True, "type": "node"}]
-            
+
+        with (
+            patch("workspace_engine.run_local.constants.STATE_FILE", state_file),
+            patch("workspace_engine.run_local.constants.DATA_DIR", data_dir),
+        ):
+            mock_launch = [
+                {
+                    "name": "svc-a",
+                    "path": str(tmp_path),
+                    "port": 8080,
+                    "env": {},
+                    "base_env": "local",
+                    "db_env": "local",
+                    "up_mode": "auto",
+                }
+            ]
+            mock_results = [
+                {
+                    "name": "svc-a",
+                    "path": str(tmp_path),
+                    "port": 8080,
+                    "pid": os.getpid(),
+                    "ok": True,
+                    "type": "node",
+                }
+            ]
+
             save_state(mock_launch, mock_results)
             assert state_file.exists()
 
@@ -60,9 +74,12 @@ def test_graceful_kill_pid_already_dead():
 @patch("os.kill")
 def test_graceful_kill_pid_escalation(mock_kill):
     # Simular que el proceso no muere con SIGTERM y requiere SIGKILL
-    with patch("workspace_engine.run_local.process_manager._pid_alive", side_effect=[True, True, True, False]):
+    with patch(
+        "workspace_engine.run_local.process_manager._pid_alive",
+        side_effect=[True, True, True, False],
+    ):
         graceful_kill_pid(12345, timeout=0.1)
-        
+
         # Verificar que se llamó a SIGTERM (15) y luego a SIGKILL (9)
         calls = mock_kill.call_args_list
         signals_sent = [call[0][1] for call in calls]
@@ -81,10 +98,11 @@ def test_stop_all_clean_pids():
         (pids_dir / "service1.pid").write_text("99999991\n")
         (pids_dir / "service2.pid").write_text("99999992\n")
 
-        with patch("workspace_engine.run_local.constants.PIDS_DIR", pids_dir), \
-             patch("workspace_engine.run_local.constants.STATE_FILE", state_file), \
-             patch("workspace_engine.run_local.process_manager.graceful_kill_pid") as mock_kill:
-            
+        with (
+            patch("workspace_engine.run_local.constants.PIDS_DIR", pids_dir),
+            patch("workspace_engine.run_local.constants.STATE_FILE", state_file),
+            patch("workspace_engine.run_local.process_manager.graceful_kill_pid") as mock_kill,
+        ):
             stop_all()
             assert mock_kill.call_count == 2
             # Los archivos .pid y state.json deben haberse borrado

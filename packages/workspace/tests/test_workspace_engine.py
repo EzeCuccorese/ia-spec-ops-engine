@@ -1,22 +1,16 @@
-import os
-import shutil
 import tempfile
 from pathlib import Path
-import pytest
 
+from workspace_engine.cli.clean_workspace import clean_workspace
+from workspace_engine.cli.set_java import detect_required_java_version
+from workspace_engine.cli.stop_workspace import stop_workspace
+from workspace_engine.services.render_agents import render_agents_md
 from workspace_engine.utils import (
     FileLock,
     ProjectType,
     detect_project_type,
-    find_project_root,
     parse_dotenv,
-    resolve_local_env,
 )
-from workspace_engine.services.render_agents import render_agents_md
-from workspace_engine.services.configure_repos import RepoConfig, configure_repos
-from workspace_engine.cli.clean_workspace import clean_workspace
-from workspace_engine.cli.stop_workspace import stop_workspace
-from workspace_engine.cli.set_java import detect_required_java_version
 
 
 def test_file_lock():
@@ -27,7 +21,6 @@ def test_file_lock():
         # El archivo queda como descriptor de kernel, pero el lock se libera
         with FileLock(lock_file):
             assert lock_file.exists()
-
 
 
 def test_detect_project_type():
@@ -56,7 +49,7 @@ def test_detect_project_type():
 def test_parse_dotenv():
     with tempfile.TemporaryDirectory() as tmpdir:
         env_path = Path(tmpdir) / ".env"
-        env_path.write_text("FOO=bar\n# Comment\nBAZ=\"hello world\"\nEMPTY=\n")
+        env_path.write_text('FOO=bar\n# Comment\nBAZ="hello world"\nEMPTY=\n')
         res = parse_dotenv(env_path)
         assert res["FOO"] == "bar"
         assert res["BAZ"] == "hello world"
@@ -81,7 +74,7 @@ def test_clean_workspace():
         ai_dir.mkdir()
         (ai_dir / "workspace.json").write_text("{}")
         (ai_dir / "cache.tmp").write_text("data")
-        
+
         repos = ws / "repositories" / "my-service" / "node_modules"
         repos.mkdir(parents=True)
         (repos / "dummy.js").write_text("x")
@@ -104,7 +97,9 @@ def test_stop_workspace_empty():
 def test_detect_required_java_version():
     with tempfile.TemporaryDirectory() as tmpdir:
         ws = Path(tmpdir)
-        (ws / "pom.xml").write_text("<project><properties><java.version>17</java.version></properties></project>")
+        (ws / "pom.xml").write_text(
+            "<project><properties><java.version>17</java.version></properties></project>"
+        )
         assert detect_required_java_version(ws) == "17"
 
         (ws / "pom.xml").unlink()

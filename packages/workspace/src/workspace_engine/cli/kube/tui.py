@@ -4,20 +4,18 @@ workspace_engine.cli.kube.tui — Interfaz interactiva Rich TUI para Kubernetes.
 
 from __future__ import annotations
 
-import sys
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from rich.console import Console
-from rich.panel import Panel
-from rich.prompt import Prompt, Confirm
+from rich.prompt import Prompt
 from rich.table import Table
 
-from devscripts_common import Color, log_info, log_warning, log_error
+from workspace_engine.common import log_warning
 
 console = Console()
 
 
-def select_context(contexts: List[Dict[str, Any]]) -> Optional[str]:
+def select_context(contexts: list[dict[str, Any]]) -> str | None:
     """Muestra un picker interactivo con Rich para seleccionar el contexto de Kubernetes."""
     if not contexts:
         log_warning("No se encontraron contextos de kubectl configurados.")
@@ -36,7 +34,7 @@ def select_context(contexts: List[Dict[str, Any]]) -> Optional[str]:
         table.add_row(str(idx), ctx["name"], status)
 
     console.print(table)
-    
+
     choice = Prompt.ask(
         "Selecciona el número del contexto",
         choices=[str(i) for i in range(1, len(contexts) + 1)],

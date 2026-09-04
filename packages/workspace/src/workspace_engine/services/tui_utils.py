@@ -10,19 +10,18 @@ import re
 import select as _select
 import sys
 import termios
-from typing import Optional
 
 try:
     import tty
 except ImportError:
     tty = None
 
-_ANSI_RE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]|\x1b[^[]')
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b[^[]")
 
 
 def strip_ansi(text: str) -> str:
     """Elimina secuencias de escape ANSI para calcular la longitud visible real."""
-    return _ANSI_RE.sub('', text)
+    return _ANSI_RE.sub("", text)
 
 
 def pad_colored(plain_text: str, width: int, colored_text: str) -> str:
@@ -44,7 +43,7 @@ def open_tty():
     """Abre /dev/tty para interacción directa por terminal."""
     try:
         return open("/dev/tty", "rb+", buffering=0)
-    except (OSError, IOError):
+    except OSError:
         return sys.stdin
 
 
@@ -60,7 +59,7 @@ def write_tty(tty_fd, text: str) -> None:
         os.write(tty_fd, text.encode("utf-8", errors="ignore"))
 
 
-def read_key(tty_fd, timeout: Optional[float] = None) -> Optional[bytes]:
+def read_key(tty_fd, timeout: float | None = None) -> bytes | None:
     """Lee una pulsación de tecla acumulando secuencias de escape ANSI multi-byte."""
     fd = tty_fd.fileno() if hasattr(tty_fd, "fileno") else tty_fd
     old_settings = termios.tcgetattr(fd)
@@ -78,14 +77,14 @@ def read_key(tty_fd, timeout: Optional[float] = None) -> Optional[bytes]:
 def _read_key(tty_fd) -> bytes:
     """Lee una tecla desde TTY esperando secuencias compuestas."""
     ch = tty_fd.read(1)
-    if ch != b'\x1b':
+    if ch != b"\x1b":
         return ch
-    buf = b'\x1b'
+    buf = b"\x1b"
     r, _, _ = _select.select([tty_fd], [], [], 0.1)
     while r:
         byte = tty_fd.read(1)
         buf += byte
-        if byte.isalpha() or byte == b'~':
+        if byte.isalpha() or byte == b"~":
             break
         r, _, _ = _select.select([tty_fd], [], [], 0.05)
     return buf
@@ -93,14 +92,14 @@ def _read_key(tty_fd) -> bytes:
 
 def _resolve_cursor(output: str) -> tuple[str, str]:
     """Ubica el centinela de cursor \\x00 y retorna (frame, cursor_seq)."""
-    idx = output.find('\x00')
+    idx = output.find("\x00")
     if idx < 0:
-        return output, '\033[?25l'
+        return output, "\033[?25l"
     before = output[:idx]
-    after  = output[idx + 1:]
-    last_home = before.rfind('\033[H')
-    frame = before[last_home + 3:] if last_home >= 0 else before
-    lines = frame.split('\r\n')
+    after = output[idx + 1 :]
+    last_home = before.rfind("\033[H")
+    frame = before[last_home + 3 :] if last_home >= 0 else before
+    lines = frame.split("\r\n")
     row = len(lines)
-    col = len(_ANSI_RE.sub('', lines[-1])) + 1
-    return before + after, f'\033[{row};{col}H\033[?25h'
+    col = len(_ANSI_RE.sub("", lines[-1])) + 1
+    return before + after, f"\033[{row};{col}H\033[?25h"

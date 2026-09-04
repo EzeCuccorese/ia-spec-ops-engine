@@ -1,57 +1,63 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.26"]
 build-backend = "hatchling.build"
 
 [project]
-name = "cucco-specops-engine"
-version = "0.3.0"
-description = "Cucco SpecOps Engine — Multi-Agent AI Governance Harness, Deterministic Workspace Engine, SDD Lifecycle Manager & Modular Rules Catalog"
+name = "specops-engine"
+version = "0.4.0"
+description = "SpecOps Engine — Decoupled Monorepo for AI Governance & Spec-Driven Development (spec) and Workspace DevOps Tools (ws)."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
     "rich>=13.0.0",
-    "pydantic>=2.0.0",
-    "ruamel.yaml>=0.17.0",
     "psutil>=5.9",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.0",
+    "pytest>=8.0",
     "pytest-cov",
     "pytest-asyncio",
-    "ruff>=0.1",
+    "ruff>=0.9",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = [
-    "packages/common/src/devscripts_common",
+    "packages/ai-governance/src/ai_governance",
+    "packages/spec/src/spec",
     "packages/workspace/src/workspace_engine",
-    "packages/sdd/src/sdd_engine",
 ]
 
+[project.scripts]
+governance = "ai_governance.cli:main"
+rules = "ai_governance.rules.cli:main"
+frugal = "ai_governance.frugality.cli:main"
+statusline = "ai_governance.telemetry.statusline:main"
+progress = "ai_governance.session.cli:main"
+progreso = "ai_governance.session.cli:main"
+jira = "ai_governance.tools.jira:main"
+confluence = "ai_governance.tools.confluence:main"
+spec = "spec.cli:main"
+ws = "workspace_engine.cli.main:main"
+
 [tool.ruff]
-line-length = 120
-target-version = "py310"
+line-length = 100
+target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E9", "F63", "F7", "F82"]
-ignore = ["E402", "F401", "F841", "E501", "E722", "I001"]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"packages/spec/workbench/runner/**" = ["E402"]
+"packages/spec/tests/test_workbench_harness.py" = ["E402"]
 
 [tool.pytest.ini_options]
-pythonpath = ["packages/common/src", "packages/workspace/src", "packages/sdd/src", "."]
+pythonpath = ["packages/ai-governance/src", "packages/spec/src", "packages/workspace/src", "."]
 python_files = ["test_*.py", "*_test.py"]
-testpaths = ["packages/common/tests", "packages/workspace/tests", "packages/sdd/tests", "tests"]
+testpaths = ["packages/ai-governance/tests", "packages/spec/tests", "packages/workspace/tests"]
 addopts = "-ra --strict-markers"
 markers = [
     "integration: end-to-end integration tests",
 ]
-norecursedirs = ["node_modules", ".venv", "venv", ".git", ".pytest_cache", ".claude"]
-
-[project.scripts]
-# SDD Engine (Full IA & Gobernanza)
-sdd = "sdd_engine.cli:main"
-sdd-engine = "sdd_engine.cli:main"
-
-# Workspace Engine (100% Determinista, cero IA — CLI Unificado)
-ws = "workspace_engine.cli.main:main"
+norecursedirs = ["node_modules", ".venv", "venv", ".git", ".pytest_cache", ".claude", ".spec", ".specops"]

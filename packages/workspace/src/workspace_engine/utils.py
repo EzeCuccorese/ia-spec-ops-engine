@@ -8,42 +8,49 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
-from typing import Dict, Optional, Union
 
 try:
     import fcntl
+
     _HAS_FCNTL = True
 except ImportError:
     _HAS_FCNTL = False
 
-from devscripts_common import (
-    Color,
-    RED,
-    GREEN,
-    YELLOW,
+import contextlib
+
+from workspace_engine.common import (
     BLUE,
-    MAGENTA,
-    CYAN,
-    WHITE,
-    GRAY,
     BOLD,
+    CYAN,
+    DEFAULT_COMMAND_TIMEOUT,
     DIM,
-    UNDERLINE,
-    RESET,
     END,
+    GRAY,
+    GREEN,
+    MAGENTA,
+    RED,
+    RESET,
+    UNDERLINE,
+    WHITE,
+    YELLOW,
+    Color,
+    ProjectType,
+    colorize,
+    console,
+    detect_fe_framework,
+    detect_project_type,
+    err_console,
+    find_project_root,
+    is_go_service,
+    is_rust_service,
+    is_spring_boot_app,
+    log_error,
     log_info,
     log_success,
     log_warning,
-    log_error,
-    colorize,
     parse_dotenv,
-    find_project_root,
-    detect_project_type,
+    parse_frontmatter,
     read_package_json,
-    is_spring_boot_app,
-    is_go_service,
-    detect_fe_framework,
-    ProjectType,
     run_command,
     run_command_safe,
 )
@@ -52,13 +59,13 @@ from devscripts_common import (
 class FileLock:
     """Context manager para bloqueo seguro de archivos en operaciones atómicas."""
 
-    def __init__(self, lock_file_path: Union[str, Path]):
+    def __init__(self, lock_file_path: str | Path):
         self.lock_file_path = Path(lock_file_path)
         self._fd = None
 
     def __enter__(self) -> FileLock:
         self.lock_file_path.parent.mkdir(parents=True, exist_ok=True)
-        self._fd = open(self.lock_file_path, 'w')
+        self._fd = open(self.lock_file_path, "w")
         if _HAS_FCNTL:
             fcntl.flock(self._fd.fileno(), fcntl.LOCK_EX)
         return self
@@ -66,15 +73,13 @@ class FileLock:
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         if self._fd:
             if _HAS_FCNTL:
-                try:
+                with contextlib.suppress(OSError):
                     fcntl.flock(self._fd.fileno(), fcntl.LOCK_UN)
-                except OSError:
-                    pass
             self._fd.close()
             self._fd = None
 
 
-def run_git(repo_path: Union[str, Path], *args: str) -> subprocess.CompletedProcess:
+def run_git(repo_path: str | Path, *args: str) -> subprocess.CompletedProcess:
     """Ejecuta comandos git de forma hermética, aislando variables ambientales de subshells."""
     clean_env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     clean_env["GIT_CONFIG_GLOBAL"] = "/dev/null"
@@ -84,14 +89,14 @@ def run_git(repo_path: Union[str, Path], *args: str) -> subprocess.CompletedProc
     clean_env.setdefault("GIT_COMMITTER_NAME", "Workspace User")
     clean_env.setdefault("GIT_COMMITTER_EMAIL", "workspace@example.com")
     return subprocess.run(
-        ['git', '-C', str(repo_path)] + list(args),
+        ["git", "-C", str(repo_path)] + list(args),
         capture_output=True,
         text=True,
         env=clean_env,
     )
 
 
-def resolve_local_env(repo_path: Union[Path, str], repo_name: str) -> Optional[Path]:
+def resolve_local_env(repo_path: Path | str, repo_name: str) -> Path | None:
     """Ubica el archivo .env de un repositorio específico dentro del workspace."""
     p = Path(repo_path)
     repo_env = p / ".env"
@@ -104,3 +109,44 @@ def resolve_local_env(repo_path: Union[Path, str], repo_name: str) -> Optional[P
         return workspace_env
 
     return None
+
+
+__all__ = [
+    "BLUE",
+    "BOLD",
+    "CYAN",
+    "DEFAULT_COMMAND_TIMEOUT",
+    "DIM",
+    "END",
+    "FileLock",
+    "GRAY",
+    "GREEN",
+    "MAGENTA",
+    "RED",
+    "RESET",
+    "UNDERLINE",
+    "WHITE",
+    "YELLOW",
+    "Color",
+    "ProjectType",
+    "colorize",
+    "console",
+    "detect_fe_framework",
+    "detect_project_type",
+    "err_console",
+    "find_project_root",
+    "is_go_service",
+    "is_rust_service",
+    "is_spring_boot_app",
+    "log_error",
+    "log_info",
+    "log_success",
+    "log_warning",
+    "parse_dotenv",
+    "parse_frontmatter",
+    "read_package_json",
+    "resolve_local_env",
+    "run_command",
+    "run_command_safe",
+    "run_git",
+]

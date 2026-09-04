@@ -33,3 +33,9 @@ AGENTS.md
 CLAUDE.md
 GEMINI.md
 
+packages/sdd-workbench/.env
+packages/sdd-workbench/test-sdd/.spec/specs/
+packages/sdd-workbench/test-sdd/.spec/state.json
+packages/sdd-workbench/test-sdd/.spec/evidence/
+packages/sdd-workbench/test-sdd/.gradle/
+packages/sdd-workbench/test-sdd/build/

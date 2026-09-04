@@ -9,9 +9,15 @@ import argparse
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional
 
-from workspace_engine.utils import Color, detect_project_type, find_project_root, log_error, log_info, log_success, log_warning
+from workspace_engine.utils import (
+    detect_project_type,
+    find_project_root,
+    log_error,
+    log_info,
+    log_success,
+    log_warning,
+)
 
 
 def install_repo_deps(repo_path: Path) -> bool:
@@ -23,9 +29,7 @@ def install_repo_deps(repo_path: Path) -> bool:
 
     if (repo_path / "yarn.lock").is_file():
         cmd = ["yarn", "install"]
-    elif (repo_path / "package-lock.json").is_file():
-        cmd = ["npm", "install"]
-    elif (repo_path / "package.json").is_file():
+    elif (repo_path / "package-lock.json").is_file() or (repo_path / "package.json").is_file():
         cmd = ["npm", "install"]
     elif (repo_path / "gradlew").is_file():
         cmd = ["./gradlew", "dependencies", "--quiet"]
@@ -50,7 +54,7 @@ def install_repo_deps(repo_path: Path) -> bool:
         return False
 
 
-def install_all_deps(repos_filter: Optional[List[str]] = None, start_dir: Optional[Path] = None) -> int:
+def install_all_deps(repos_filter: list[str] | None = None, start_dir: Path | None = None) -> int:
     workspace_dir = find_project_root(start_dir)
     repos_dir = workspace_dir / "repositories"
 
@@ -62,7 +66,7 @@ def install_all_deps(repos_filter: Optional[List[str]] = None, start_dir: Option
         log_error(f"No se encontró directorio de repositorios en {workspace_dir}")
         return 1
 
-    targets: List[Path] = []
+    targets: list[Path] = []
     if repos_filter:
         for rname in repos_filter:
             p = repos_dir / rname

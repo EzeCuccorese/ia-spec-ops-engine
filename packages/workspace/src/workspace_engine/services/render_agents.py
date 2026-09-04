@@ -5,19 +5,19 @@ a partir de plantillas deterministas con sustituciones específicas del workspac
 """
 
 from __future__ import annotations
+
 import sys
 from pathlib import Path
-from typing import List, Union
 
 
 def render_agents_md(
-    template_path: Union[str, Path],
+    template_path: str | Path,
     workspace_name: str,
     repos_dir: str,
-    repos: List[str],
+    repos: list[str],
 ) -> str:
     """Retorna el contenido renderizado para las instrucciones del workspace."""
-    repo_list = '\n'.join(f'- {r}' for r in repos)
+    repo_list = "\n".join(f"- {r}" for r in repos)
     template_file = Path(template_path)
     if not template_file.exists():
         return (
@@ -25,14 +25,14 @@ def render_agents_md(
             f"Los repositorios de este workspace se ubican en `{repos_dir}/`.\n\n"
             f"## Repositorios\n\n{repo_list}\n"
         )
-    content = template_file.read_text(encoding='utf-8')
+    content = template_file.read_text(encoding="utf-8")
     replacements = {
-        '{workspace_name}': workspace_name,
-        '{{WORKSPACE_NAME}}': workspace_name,
-        '{repos_dir}': repos_dir,
-        '{{REPOS_DIR}}': repos_dir,
-        '{repo_list}': repo_list,
-        '{{REPOSITORIES_LIST}}': repo_list,
+        "{workspace_name}": workspace_name,
+        "{{WORKSPACE_NAME}}": workspace_name,
+        "{repos_dir}": repos_dir,
+        "{{REPOS_DIR}}": repos_dir,
+        "{repo_list}": repo_list,
+        "{{REPOSITORIES_LIST}}": repo_list,
     }
     for k, v in replacements.items():
         content = content.replace(k, v)
@@ -43,10 +43,13 @@ def render_agents_md(
 render_claude_md = render_agents_md
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     if len(sys.argv) < 4:
-        print(f'Uso: {sys.argv[0]} <template> <workspace_name> <repos_dir> [repo ...]', file=sys.stderr)
+        print(
+            f"Uso: {sys.argv[0]} <template> <workspace_name> <repos_dir> [repo ...]",
+            file=sys.stderr,
+        )
         sys.exit(1)
     t_path, ws_name, r_dir = sys.argv[1], sys.argv[2], sys.argv[3]
     repositories = sys.argv[4:]
-    print(render_agents_md(t_path, ws_name, r_dir, repositories), end='')
+    print(render_agents_md(t_path, ws_name, r_dir, repositories), end="")

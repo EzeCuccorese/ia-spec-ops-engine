@@ -11,7 +11,6 @@ import shutil
 import signal
 import sys
 import time
-from typing import Dict, List, Optional
 
 from rich.console import Console, Group
 from rich.live import Live
@@ -27,7 +26,9 @@ def _detect_type(repo: str) -> str:
     d = os.path.join(workspace, "repositories", repo) if workspace else ""
     if not d or not os.path.isdir(d):
         return ""
-    if os.path.exists(os.path.join(d, "gradlew")) or os.path.exists(os.path.join(d, "build.gradle")):
+    if os.path.exists(os.path.join(d, "gradlew")) or os.path.exists(
+        os.path.join(d, "build.gradle")
+    ):
         return "gradle"
     if os.path.exists(os.path.join(d, "pom.xml")):
         return "maven"
@@ -50,29 +51,29 @@ def _detect_type(repo: str) -> str:
 
 
 STATUS_ICON = {
-    "pending":  "⏸️",
-    "running":  "🔄",
-    "green":    "✅",
+    "pending": "⏸️",
+    "running": "🔄",
+    "green": "✅",
     "red_code": "❌",
-    "red_infra":"⚠️",
+    "red_infra": "⚠️",
     "no_tests": "0️⃣",
 }
 
 STATUS_COLOR = {
-    "pending":  "dim",
-    "running":  "cyan",
-    "green":    "green",
+    "pending": "dim",
+    "running": "cyan",
+    "green": "green",
     "red_code": "red",
-    "red_infra":"yellow",
+    "red_infra": "yellow",
     "no_tests": "dim",
 }
 
 STATUS_FRIENDLY = {
-    "pending":  "pendiente",
-    "running":  "ejecutando",
-    "green":    "pasó",
+    "pending": "pendiente",
+    "running": "ejecutando",
+    "green": "pasó",
     "red_code": "fallaron tests",
-    "red_infra":"error infra",
+    "red_infra": "error infra",
     "no_tests": "sin tests",
 }
 
@@ -83,14 +84,14 @@ def _friendly_status(status: str) -> str:
 
 def _fmt_elapsed(secs: float) -> str:
     s = int(secs)
-    return f"{s//3600:02d}:{(s%3600)//60:02d}:{s%60:02d}"
+    return f"{s // 3600:02d}:{(s % 3600) // 60:02d}:{s % 60:02d}"
 
 
 def _fmt_phase_elapsed(secs: float) -> str:
     s = int(secs)
     m, s = divmod(s, 60)
     if m >= 60:
-        return f"{m//60}h{m%60:02d}:{s:02d}"
+        return f"{m // 60}h{m % 60:02d}:{s:02d}"
     return f"{m:02d}:{s:02d}"
 
 
@@ -118,7 +119,7 @@ def _fmt_gross_net(net_display: str, gross_secs) -> str:
     return f"{lead}{gross} ({net_time})"
 
 
-def _sorted_repos(repos: List[str], statuses: Dict) -> List[str]:
+def _sorted_repos(repos: list[str], statuses: dict) -> list[str]:
     orig_idx = {r: i for i, r in enumerate(repos)}
 
     def key(repo):
@@ -136,7 +137,7 @@ def _sorted_repos(repos: List[str], statuses: Dict) -> List[str]:
     return sorted(repos, key=key)
 
 
-def _select_visible(ordered: List[str], statuses: Dict, keep: int) -> tuple[List[str], int]:
+def _select_visible(ordered: list[str], statuses: dict, keep: int) -> tuple[list[str], int]:
     if len(ordered) <= keep:
         return ordered, 0
 
@@ -144,10 +145,10 @@ def _select_visible(ordered: List[str], statuses: Dict, keep: int) -> tuple[List
         return statuses.get(r, {}).get("status", "pending")
 
     running = [r for r in ordered if _st(r) == "running"]
-    done    = [r for r in ordered if _st(r) in ("green", "red_code", "red_infra", "no_tests")]
+    done = [r for r in ordered if _st(r) in ("green", "red_code", "red_infra", "no_tests")]
     pending = [r for r in ordered if _st(r) == "pending"]
 
-    selected: List[str] = []
+    selected: list[str] = []
     for group in (running, list(reversed(done)), pending):
         for r in group:
             if len(selected) >= keep:
@@ -159,24 +160,26 @@ def _select_visible(ordered: List[str], statuses: Dict, keep: int) -> tuple[List
     return visible, len(ordered) - len(visible)
 
 
-def build_table(repos: List[str], statuses: Dict, repeat: bool, max_rows: Optional[int] = None) -> Table:
+def build_table(
+    repos: list[str], statuses: dict, repeat: bool, max_rows: int | None = None
+) -> Table:
     t = Table(show_header=True, header_style="bold", box=None, padding=(0, 1))
-    t.add_column("#",       width=2,  no_wrap=True)
-    t.add_column("",        width=2,  no_wrap=True)
-    t.add_column("REPO",    min_width=22, max_width=30, no_wrap=True)
-    t.add_column("TIPO",    width=6,  no_wrap=True)
-    t.add_column("TESTS",   width=8,  no_wrap=True)
-    t.add_column("PRE-I",   width=8,  no_wrap=True)
+    t.add_column("#", width=2, no_wrap=True)
+    t.add_column("", width=2, no_wrap=True)
+    t.add_column("REPO", min_width=22, max_width=30, no_wrap=True)
+    t.add_column("TIPO", width=6, no_wrap=True)
+    t.add_column("TESTS", width=8, no_wrap=True)
+    t.add_column("PRE-I", width=8, no_wrap=True)
     t.add_column("INSTALL", width=14, no_wrap=True)
-    t.add_column("BUILD",   width=6,  no_wrap=True)
-    t.add_column("PRE-C",   width=8,  no_wrap=True)
-    t.add_column("COLD",    width=18, no_wrap=True)
+    t.add_column("BUILD", width=6, no_wrap=True)
+    t.add_column("PRE-C", width=8, no_wrap=True)
+    t.add_column("COLD", width=18, no_wrap=True)
     if repeat:
-        t.add_column("PRE-W", width=8,  no_wrap=True)
-        t.add_column("WARM",  width=18, no_wrap=True)
-    t.add_column("TOTAL",   width=7,  no_wrap=True)
-    t.add_column("HORA",    width=8,  no_wrap=True)
-    t.add_column("ESTADO",  min_width=13, no_wrap=True, overflow="ellipsis")
+        t.add_column("PRE-W", width=8, no_wrap=True)
+        t.add_column("WARM", width=18, no_wrap=True)
+    t.add_column("TOTAL", width=7, no_wrap=True)
+    t.add_column("HORA", width=8, no_wrap=True)
+    t.add_column("ESTADO", min_width=13, no_wrap=True, overflow="ellipsis")
 
     ordered = _sorted_repos(repos, statuses)
     hidden = 0
@@ -187,7 +190,7 @@ def build_table(repos: List[str], statuses: Dict, repeat: bool, max_rows: Option
     for i, repo in enumerate(ordered, 1):
         s = statuses.get(repo, {})
         status = s.get("status", "pending")
-        icon  = s.get("row_icon") or STATUS_ICON.get(status, "?")
+        icon = s.get("row_icon") or STATUS_ICON.get(status, "?")
         color = STATUS_COLOR.get(status, "")
 
         def cell(v, c=color):
@@ -197,38 +200,85 @@ def build_table(repos: List[str], statuses: Dict, repeat: bool, max_rows: Option
         repo_type = s.get("type") or _detect_type(repo)
 
         if status == "pending":
-            row = [num, icon, repo, repo_type, "", "", "", "", "", "", *([ "", "" ] if repeat else []), "", "", _friendly_status(status)]
+            row = [
+                num,
+                icon,
+                repo,
+                repo_type,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                *(["", ""] if repeat else []),
+                "",
+                "",
+                _friendly_status(status),
+            ]
         elif status == "running":
             repo_start = s.get("repo_start_epoch")
             time_val = _fmt_secs_py(time.time() - float(repo_start)) if repo_start else ""
             phase = s.get("phase", "")
             phase_start = s.get("phase_start_epoch")
-            phase_cell = f"🔄 {_fmt_phase_elapsed(time.time() - float(phase_start))}" if (phase and phase_start) else ""
+            phase_cell = (
+                f"🔄 {_fmt_phase_elapsed(time.time() - float(phase_start))}"
+                if (phase and phase_start)
+                else ""
+            )
 
-            pre_install_val = s.get("pre_install", "") or (phase_cell if phase == "pre_install" else "")
-            install_val     = _fmt_gross_net(s.get("install", ""), s.get("install_wall")) or (phase_cell if phase == "install" else "")
-            build_val       = s.get("build", "")       or (phase_cell if phase == "build" else "")
-            pre_cold_val    = s.get("pre_cold", "")    or (phase_cell if phase == "pre_cold" else "")
-            cold_val        = _fmt_gross_net(s.get("cold", ""), s.get("cold_wall")) or (phase_cell if phase in ("cold", "cold_tests") else "")
-            pre_warm_val    = s.get("pre_warm", "")    or (phase_cell if phase == "pre_warm" else "")
-            warm_val        = _fmt_gross_net(s.get("warm", ""), s.get("warm_wall")) or (phase_cell if phase == "warm" else "")
+            pre_install_val = s.get("pre_install", "") or (
+                phase_cell if phase == "pre_install" else ""
+            )
+            install_val = _fmt_gross_net(s.get("install", ""), s.get("install_wall")) or (
+                phase_cell if phase == "install" else ""
+            )
+            build_val = s.get("build", "") or (phase_cell if phase == "build" else "")
+            pre_cold_val = s.get("pre_cold", "") or (phase_cell if phase == "pre_cold" else "")
+            cold_val = _fmt_gross_net(s.get("cold", ""), s.get("cold_wall")) or (
+                phase_cell if phase in ("cold", "cold_tests") else ""
+            )
+            pre_warm_val = s.get("pre_warm", "") or (phase_cell if phase == "pre_warm" else "")
+            warm_val = _fmt_gross_net(s.get("warm", ""), s.get("warm_wall")) or (
+                phase_cell if phase == "warm" else ""
+            )
 
             row = [
-                num, icon, repo, repo_type,
-                s.get("tests", ""), pre_install_val, install_val, build_val,
-                pre_cold_val, cold_val, *([pre_warm_val, warm_val] if repeat else []),
-                time_val, "", _friendly_status(status),
+                num,
+                icon,
+                repo,
+                repo_type,
+                s.get("tests", ""),
+                pre_install_val,
+                install_val,
+                build_val,
+                pre_cold_val,
+                cold_val,
+                *([pre_warm_val, warm_val] if repeat else []),
+                time_val,
+                "",
+                _friendly_status(status),
             ]
         else:
             build_val = s.get("build", "")
             install_cell = _fmt_gross_net(s.get("install", ""), s.get("install_wall"))
-            cold_cell    = _fmt_gross_net(s.get("cold", ""),    s.get("cold_wall"))
-            warm_cell    = _fmt_gross_net(s.get("warm", ""),    s.get("warm_wall"))
+            cold_cell = _fmt_gross_net(s.get("cold", ""), s.get("cold_wall"))
+            warm_cell = _fmt_gross_net(s.get("warm", ""), s.get("warm_wall"))
             row = [
-                num, icon, repo, repo_type,
-                s.get("tests", ""), s.get("pre_install", ""), install_cell, build_val,
-                s.get("pre_cold", ""), cold_cell, *([s.get("pre_warm", ""), warm_cell] if repeat else []),
-                s.get("total", ""), s.get("finish_time", ""), _friendly_status(status),
+                num,
+                icon,
+                repo,
+                repo_type,
+                s.get("tests", ""),
+                s.get("pre_install", ""),
+                install_cell,
+                build_val,
+                s.get("pre_cold", ""),
+                cold_cell,
+                *([s.get("pre_warm", ""), warm_cell] if repeat else []),
+                s.get("total", ""),
+                s.get("finish_time", ""),
+                _friendly_status(status),
             ]
 
         t.add_row(*[cell(v) for v in row])
@@ -246,7 +296,10 @@ def build_table(repos: List[str], statuses: Dict, repeat: bool, max_rows: Option
 
 class LiveDisplay:
     """Componente actualizable para Live de Rich."""
-    def __init__(self, repos: List[str], statuses: Dict, repeat: bool, start_time: float, parallel: int):
+
+    def __init__(
+        self, repos: list[str], statuses: dict, repeat: bool, start_time: float, parallel: int
+    ):
         self.repos = repos
         self.statuses = statuses
         self.repeat = repeat
@@ -255,21 +308,27 @@ class LiveDisplay:
 
     def __rich_console__(self, console, options):
         elapsed = _fmt_elapsed(time.monotonic() - self.start_time)
-        done_count = sum(1 for r in self.repos if self.statuses.get(r, {}).get("status", "pending") not in ("pending", "running"))
+        done_count = sum(
+            1
+            for r in self.repos
+            if self.statuses.get(r, {}).get("status", "pending") not in ("pending", "running")
+        )
         mode_label = "repeat" if self.repeat else "single"
         header = Text(
             f"⏱  {elapsed}   {done_count}/{len(self.repos)} repos   paralelo={self.parallel}   modo={mode_label}",
             style="bold cyan",
         )
         max_rows = max(5, console.size.height - 3)
-        group = Group(header, build_table(self.repos, self.statuses, self.repeat, max_rows=max_rows))
+        group = Group(
+            header, build_table(self.repos, self.statuses, self.repeat, max_rows=max_rows)
+        )
         yield from group.__rich_console__(console, options)
 
 
 def run_final(summary_path: str, elapsed: str = "") -> None:
     """Renderiza el reporte final a partir del archivo summary.tsv."""
-    repos: List[str] = []
-    statuses: Dict = {}
+    repos: list[str] = []
+    statuses: dict = {}
 
     try:
         with open(summary_path, encoding="utf-8") as f:
@@ -288,41 +347,58 @@ def run_final(summary_path: str, elapsed: str = "") -> None:
             continue
         if len(parts) < 13:
             continue
-        (repo, _exit, status, install_s, build_s, cold_s, warm_s,
-         total_s, cold_tests, warm_tests, warm_icon, cold_icon, row_icon) = parts[:13]
+        (
+            repo,
+            _exit,
+            status,
+            install_s,
+            build_s,
+            cold_s,
+            warm_s,
+            total_s,
+            cold_tests,
+            warm_tests,
+            warm_icon,
+            cold_icon,
+            row_icon,
+        ) = parts[:13]
         note = parts[13] if len(parts) > 13 else ""
         pre_install_s = parts[14] if len(parts) > 14 else "0"
-        pre_cold_s    = parts[15] if len(parts) > 15 else "0"
-        pre_warm_s    = parts[16] if len(parts) > 16 else "0"
+        pre_cold_s = parts[15] if len(parts) > 15 else "0"
+        pre_warm_s = parts[16] if len(parts) > 16 else "0"
         install_wall_s = parts[17] if len(parts) > 17 else "0"
-        cold_wall_s    = parts[18] if len(parts) > 18 else "0"
-        warm_wall_s    = parts[19] if len(parts) > 19 else "0"
+        cold_wall_s = parts[18] if len(parts) > 18 else "0"
+        warm_wall_s = parts[19] if len(parts) > 19 else "0"
 
         repos.append(repo)
         statuses[repo] = {
-            "status":      status,
-            "type":        _detect_type(repo),
-            "row_icon":    row_icon,
-            "tests":       cold_tests,
-            "install":     _fmt_secs_py(install_s),
-            "build":       _fmt_secs_py(build_s),
-            "cold":        f"{cold_icon} {_fmt_secs_py(cold_s)}" if cold_icon and _fmt_secs_py(cold_s) else "",
-            "warm":        f"{warm_icon} {_fmt_secs_py(warm_s)}" if warm_icon and _fmt_secs_py(warm_s) else "",
-            "total_secs":  float(total_s or 0),
-            "total":       _fmt_secs_py(total_s),
-            "note":        note,
+            "status": status,
+            "type": _detect_type(repo),
+            "row_icon": row_icon,
+            "tests": cold_tests,
+            "install": _fmt_secs_py(install_s),
+            "build": _fmt_secs_py(build_s),
+            "cold": f"{cold_icon} {_fmt_secs_py(cold_s)}"
+            if cold_icon and _fmt_secs_py(cold_s)
+            else "",
+            "warm": f"{warm_icon} {_fmt_secs_py(warm_s)}"
+            if warm_icon and _fmt_secs_py(warm_s)
+            else "",
+            "total_secs": float(total_s or 0),
+            "total": _fmt_secs_py(total_s),
+            "note": note,
             "pre_install": _fmt_secs_py(pre_install_s),
-            "pre_cold":    _fmt_secs_py(pre_cold_s),
-            "pre_warm":    _fmt_secs_py(pre_warm_s),
+            "pre_cold": _fmt_secs_py(pre_cold_s),
+            "pre_warm": _fmt_secs_py(pre_warm_s),
             "install_wall": install_wall_s,
-            "cold_wall":    cold_wall_s,
-            "warm_wall":    warm_wall_s,
+            "cold_wall": cold_wall_s,
+            "warm_wall": warm_wall_s,
         }
 
     repeat = any(s.get("warm") for s in statuses.values())
-    green    = sum(1 for s in statuses.values() if s["status"] == "green")
-    red      = sum(1 for s in statuses.values() if s["status"] == "red_code")
-    infra    = sum(1 for s in statuses.values() if s["status"] == "red_infra")
+    green = sum(1 for s in statuses.values() if s["status"] == "green")
+    red = sum(1 for s in statuses.values() if s["status"] == "red_code")
+    infra = sum(1 for s in statuses.values() if s["status"] == "red_infra")
     no_tests = sum(1 for s in statuses.values() if s["status"] == "no_tests")
 
     c = Console(width=shutil.get_terminal_size(fallback=(200, 50)).columns)
@@ -351,7 +427,7 @@ def main():
     final_mode = False
     summary_path = None
     elapsed = ""
-    repos: List[str] = []
+    repos: list[str] = []
 
     raw = sys.argv[1:]
     i = 0
@@ -382,7 +458,10 @@ def main():
 
     if final_mode:
         if not summary_path:
-            print("Uso: benchmark_display.py --workspace-dir DIR --final <summary.tsv> [--elapsed HH:MM:SS]", file=sys.stderr)
+            print(
+                "Uso: benchmark_display.py --workspace-dir DIR --final <summary.tsv> [--elapsed HH:MM:SS]",
+                file=sys.stderr,
+            )
             sys.exit(1)
         run_final(summary_path, elapsed)
         return
@@ -390,7 +469,7 @@ def main():
     if not repos:
         sys.exit(0)
 
-    statuses: Dict = {}
+    statuses: dict = {}
     start_time = time.monotonic()
     console = Console()
     done_summary = None
@@ -398,7 +477,14 @@ def main():
     signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     display = LiveDisplay(repos, statuses, repeat, start_time, parallel)
 
-    with Live(display, console=console, screen=False, transient=True, refresh_per_second=4, vertical_overflow="visible") as live:
+    with Live(
+        display,
+        console=console,
+        screen=False,
+        transient=True,
+        refresh_per_second=4,
+        vertical_overflow="visible",
+    ) as live:
         for raw_line in sys.stdin:
             raw_line = raw_line.strip()
             if not raw_line:

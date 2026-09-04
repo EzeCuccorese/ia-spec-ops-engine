@@ -7,9 +7,8 @@ from __future__ import annotations
 import os
 import stat
 from pathlib import Path
-from typing import Dict, Optional
 
-from devscripts_common import log_info, log_success, log_error
+from workspace_engine.common import log_success
 
 
 def write_secret_file(file_path: Path | str, content: str) -> None:
@@ -23,7 +22,7 @@ def write_secret_file(file_path: Path | str, content: str) -> None:
     os.chmod(p, stat.S_IRUSR | stat.S_IWUSR)
 
 
-def export_dotenv(target_path: Path | str, env_vars: Dict[str, str]) -> None:
+def export_dotenv(target_path: Path | str, env_vars: dict[str, str]) -> None:
     """Exporta las variables a formato .env con permisos seguros."""
     lines = [f"{k}={v}" for k, v in sorted(env_vars.items())]
     content = "\n".join(lines) + "\n"
@@ -31,7 +30,7 @@ def export_dotenv(target_path: Path | str, env_vars: Dict[str, str]) -> None:
     log_success(f"Archivo .env exportado de forma segura (chmod 600) en: {target_path}")
 
 
-def export_set_env_sh(target_path: Path | str, env_vars: Dict[str, str]) -> None:
+def export_set_env_sh(target_path: Path | str, env_vars: dict[str, str]) -> None:
     """Exporta las variables a formato bash con 'export' y permisos 600."""
     lines = ["#!/usr/bin/env bash", ""]
     for k, v in sorted(env_vars.items()):

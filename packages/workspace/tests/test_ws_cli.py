@@ -2,11 +2,9 @@
 Tests para el entry point unificado `ws` y subcomandos de Workspace Engine.
 """
 
-import sys
 from unittest.mock import patch
-import pytest
 
-from workspace_engine.cli.main import main, doctor_check
+from workspace_engine.cli.main import doctor_check, main
 
 
 def test_doctor_check():

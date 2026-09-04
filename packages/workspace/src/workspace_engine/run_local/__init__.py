@@ -1,33 +1,9 @@
 """
 workspace_engine.run_local — Orquestador y lanzador determinista de microservicios locales.
 """
+
 from __future__ import annotations
 
-from workspace_engine.run_local import constants, discovery, process_manager, profiles, service_wiring
-from workspace_engine.run_local.constants import (
-    BOLD,
-    CONFIG_DIR,
-    CYAN,
-    DATA_DIR,
-    DB_CFG_FILE,
-    DIM,
-    ENVIRONMENTS,
-    ENVS_DIR,
-    GREEN,
-    KUBE_ENVS,
-    LAST_CONFIGS_FILE,
-    LOCAL_ENV,
-    LOG_KEEP_BYTES,
-    LOG_MAX_BYTES,
-    LOGS_DIR,
-    PIDS_DIR,
-    PROFILES_FILE,
-    PROJECT_CONFIG,
-    RED,
-    RESET,
-    STATE_FILE,
-    YELLOW,
-)
 from workspace_engine.run_local.discovery import (
     detect_service,
     find_project_root,

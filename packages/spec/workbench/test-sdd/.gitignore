@@ -1,0 +1,5 @@
+.gradle/
+build/
+.spec/specs/
+.spec/evidence/
+.spec/state.json
