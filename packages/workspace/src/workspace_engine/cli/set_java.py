@@ -12,12 +12,11 @@ import shlex
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, Optional
 
-from workspace_engine.utils import log_error, log_info, log_success, log_warning, run_command
+from workspace_engine.utils import log_info, log_success, log_warning, run_command
 
 
-def detect_required_java_version(project_dir: Optional[Path] = None) -> Optional[str]:
+def detect_required_java_version(project_dir: Path | None = None) -> str | None:
     """Detecta la versión de Java requerida a partir de los archivos de build."""
     cwd = project_dir or Path.cwd()
     pom = cwd / "pom.xml"
@@ -26,15 +25,17 @@ def detect_required_java_version(project_dir: Optional[Path] = None) -> Optional
 
     if pom.is_file():
         content = pom.read_text(encoding="utf-8", errors="ignore")
-        match = re.search(r'<maven\.compiler\.target>([^<]+)</maven\.compiler\.target>', content)
+        match = re.search(r"<maven\.compiler\.target>([^<]+)</maven\.compiler\.target>", content)
         if not match:
-            match = re.search(r'<java\.version>([^<]+)</java\.version>', content)
+            match = re.search(r"<java\.version>([^<]+)</java\.version>", content)
         if match:
             return match.group(1).strip()
 
     if gradle.is_file() or gradle_kts.is_file():
-        content = (gradle if gradle.is_file() else gradle_kts).read_text(encoding="utf-8", errors="ignore")
-        match = re.search(r'JavaLanguageVersion\.of\((\d+)\)', content)
+        content = (gradle if gradle.is_file() else gradle_kts).read_text(
+            encoding="utf-8", errors="ignore"
+        )
+        match = re.search(r"JavaLanguageVersion\.of\((\d+)\)", content)
         if not match:
             match = re.search(r'sourceCompatibility\s*=\s*[\'"]?([\d.]+)', content)
         if match:
@@ -43,7 +44,7 @@ def detect_required_java_version(project_dir: Optional[Path] = None) -> Optional
     return None
 
 
-def get_java_env(version_tag: str) -> Optional[Dict[str, str]]:
+def get_java_env(version_tag: str) -> dict[str, str] | None:
     """Obtiene variables de entorno para una versión de Java vía SDKMAN."""
     sdkman_init = os.path.expanduser("~/.sdkman/bin/sdkman-init.sh")
     if not os.path.isfile(sdkman_init):
@@ -54,16 +55,16 @@ def get_java_env(version_tag: str) -> Optional[Dict[str, str]]:
     cmd = f'source {safe_sdkman} && sdk use java {safe_version} > /dev/null && echo "JAVA_HOME=$JAVA_HOME" && echo "PATH=$PATH"'
     output = run_command(cmd, shell=True, capture_output=True)
 
-    env: Dict[str, str] = {}
+    env: dict[str, str] = {}
     if output:
         for line in output.splitlines():
-            if '=' in line:
-                k, v = line.split('=', 1)
+            if "=" in line:
+                k, v = line.split("=", 1)
                 env[k] = v
     return env if "JAVA_HOME" in env else None
 
 
-def get_current_java_version() -> Optional[str]:
+def get_current_java_version() -> str | None:
     """Obtiene la versión de Java activa actualmente en el sistema."""
     try:
         process = subprocess.run(["java", "-version"], capture_output=True, text=True)
@@ -76,7 +77,7 @@ def get_current_java_version() -> Optional[str]:
     return None
 
 
-def find_best_java_match(required_version: str) -> Optional[str]:
+def find_best_java_match(required_version: str) -> str | None:
     """Encuentra la mejor versión coincidente de Java en SDKMAN."""
     sdkman_init = os.path.expanduser("~/.sdkman/bin/sdkman-init.sh")
     if not os.path.isfile(sdkman_init):
@@ -89,25 +90,29 @@ def find_best_java_match(required_version: str) -> Optional[str]:
 
     available_versions = []
     for line in java_list.splitlines():
-        if required_version in line and any(k in line.lower() for k in ("installed", "tem", "corretto", "open", "librc")):
-            parts = line.split('|')
+        if required_version in line and any(
+            k in line.lower() for k in ("installed", "tem", "corretto", "open", "librc")
+        ):
+            parts = line.split("|")
             if len(parts) > 5:
                 ver = parts[5].strip()
                 if ver:
                     available_versions.append(ver)
 
     if not available_versions:
-        matches = re.findall(r'\b\d+\.[\d\.]+\-\w+\b', java_list)
+        matches = re.findall(r"\b\d+\.[\d\.]+\-\w+\b", java_list)
         available_versions = [m for m in matches if required_version in m]
 
     if not available_versions:
         return None
 
-    installed = [v for v in available_versions if "installed" in java_list.lower() and v in java_list]
+    installed = [
+        v for v in available_versions if "installed" in java_list.lower() and v in java_list
+    ]
     return installed[0] if installed else available_versions[0]
 
 
-def setups_java(project_dir: Optional[Path] = None) -> Optional[Dict[str, str]]:
+def setups_java(project_dir: Path | None = None) -> dict[str, str] | None:
     """Detecta y configura el entorno Java requerido."""
     required = detect_required_java_version(project_dir)
     if not required:

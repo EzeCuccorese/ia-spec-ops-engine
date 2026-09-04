@@ -7,7 +7,6 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
 
 
 def assign_port(repo_name: str) -> int:
@@ -19,8 +18,7 @@ def assign_port(repo_name: str) -> int:
 _NS_PREFIXES = ("merchants-", "prt-bgal-", "prt-", "core-", "frontend-", "partners-", "api-")
 _ENV_SLUGS = ("faf", "csf", "ars", "staging", "dev", "prod", "stg-01", "stg-02", "stg-03")
 _ENV_SLUG_RE = re.compile(
-    r"-(" + "|".join(sorted(_ENV_SLUGS, key=len, reverse=True)) + r")(-[a-z0-9-]+)?$",
-    re.IGNORECASE
+    r"-(" + "|".join(sorted(_ENV_SLUGS, key=len, reverse=True)) + r")(-[a-z0-9-]+)?$", re.IGNORECASE
 )
 _URL_RE = re.compile(r"https?://([a-z0-9.-]+)(\/[^\s\"']*)?", re.IGNORECASE)
 
@@ -30,12 +28,12 @@ def service_name_from_subdomain(subdomain: str, strip_env: bool = True) -> str:
     s = subdomain.split(".")[0].lower()
     for prefix in _NS_PREFIXES:
         if s.startswith(prefix):
-            s = s[len(prefix):]
+            s = s[len(prefix) :]
             break
     if strip_env:
         m = _ENV_SLUG_RE.search(s)
         if m:
-            s = s[:m.start()]
+            s = s[: m.start()]
     return s
 
 
@@ -69,7 +67,7 @@ def spring_context_path(repo_path: Path) -> str:
     return ""
 
 
-def node_health_path(repo_path: Path) -> Optional[str]:
+def node_health_path(repo_path: Path) -> str | None:
     """Detecta la ruta de health check para servicios Node.js."""
     repo_path = Path(repo_path)
     version_prefix = ""
@@ -94,7 +92,7 @@ def node_health_path(repo_path: Path) -> Optional[str]:
     return None
 
 
-def service_link(svc_type: str, port: int, repo_path: Optional[Path] = None) -> Tuple[str, str]:
+def service_link(svc_type: str, port: int, repo_path: Path | None = None) -> tuple[str, str]:
     """Genera etiqueta y URL para acceder a un servicio levantado localmente."""
     if svc_type in ("spring-gradle", "spring-maven", "spring_boot", "spring"):
         ctx = spring_context_path(repo_path) if repo_path else ""
@@ -108,10 +106,12 @@ def service_link(svc_type: str, port: int, repo_path: Optional[Path] = None) -> 
     return "App", f"http://localhost:{port}/"
 
 
-def wire_urls(env_vars: Dict[str, str], running_ports: Dict[str, int]) -> Tuple[Dict[str, str], Dict[str, int]]:
+def wire_urls(
+    env_vars: dict[str, str], running_ports: dict[str, int]
+) -> tuple[dict[str, str], dict[str, int]]:
     """Reescribe URLs remotas en variables de entorno para que apunten a puertos locales activos."""
     res = dict(env_vars)
-    wired: Dict[str, int] = {}
+    wired: dict[str, int] = {}
 
     for key, val in env_vars.items():
         if not isinstance(val, str) or ("http://" not in val and "https://" not in val):
@@ -130,18 +130,22 @@ def wire_urls(env_vars: Dict[str, str], running_ports: Dict[str, int]) -> Tuple[
     return res, wired
 
 
-def wire_db_urls(src_env: Dict[str, str]) -> Dict[str, str]:
+def wire_db_urls(src_env: dict[str, str]) -> dict[str, str]:
     """Extrae y mapea cadenas de conexión a base de datos (MongoDB, PostgreSQL)."""
-    res: Dict[str, str] = {}
+    res: dict[str, str] = {}
     mongo_uris = []
     postgres_uris = []
 
-    for k, v in src_env.items():
+    for _k, v in src_env.items():
         if not isinstance(v, str):
             continue
         if v.startswith("mongodb://") or v.startswith("mongodb+srv://"):
             mongo_uris.append(v)
-        elif v.startswith("postgres://") or v.startswith("postgresql://") or v.startswith("jdbc:postgresql://"):
+        elif (
+            v.startswith("postgres://")
+            or v.startswith("postgresql://")
+            or v.startswith("jdbc:postgresql://")
+        ):
             postgres_uris.append(v)
 
     if len(set(mongo_uris)) == 1:

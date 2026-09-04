@@ -5,31 +5,18 @@ Tests unitarios calibrados para workspace_engine.run_local.discovery.
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
 
-import pytest
 from workspace_engine.run_local.discovery import (
-    _has_spring_boot_app,
-    _read_pkg,
-    _is_fe_framework,
-    _is_go_service,
-    _fmt_uptime,
+    _db_vars_from,
     _fmt_bytes,
+    _fmt_uptime,
     _is_noise,
     _service_link,
     _service_name_from_subdomain,
-    _db_vars_from,
-    resolve_repos_dir,
-    find_envs_root,
-    global_env_path,
-    workspace_env_path,
-    resolve_local_env,
     detect_service,
-    scan_repos,
     list_sources,
+    scan_repos,
     wire_db_local,
-    wire_db_pod,
-    override_urls_from_env,
 )
 
 
@@ -72,7 +59,9 @@ def test_detect_service_spring_boot():
         p = Path(tmpdir)
         main_dir = p / "src" / "main" / "java" / "com" / "example"
         main_dir.mkdir(parents=True)
-        (main_dir / "Application.java").write_text("@SpringBootApplication\npublic class Application {}")
+        (main_dir / "Application.java").write_text(
+            "@SpringBootApplication\npublic class Application {}"
+        )
         (p / "gradlew").touch()
 
         svc = detect_service(p)
@@ -115,8 +104,11 @@ def test_wire_db_local_and_pod():
     with tempfile.TemporaryDirectory() as tmpdir:
         p = Path(tmpdir)
         (p / "build.gradle").touch()
-        db_cfg = {"mongodb": "mongodb://localhost:27018", "postgresql": "postgresql://localhost:5432"}
-        
+        db_cfg = {
+            "mongodb": "mongodb://localhost:27018",
+            "postgresql": "postgresql://localhost:5432",
+        }
+
         wired_local = wire_db_local(env_vars, db_cfg, p)
         assert isinstance(wired_local, dict)
 

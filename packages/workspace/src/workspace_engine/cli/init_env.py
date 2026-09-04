@@ -9,14 +9,20 @@ import argparse
 import shutil
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
-from workspace_engine.utils import Color, find_project_root, log_error, log_info, log_success, log_warning, parse_dotenv
+from workspace_engine.utils import (
+    Color,
+    find_project_root,
+    log_error,
+    log_info,
+    log_success,
+    parse_dotenv,
+)
 
 
-def parse_example_file(example_path: Path) -> List[Tuple[str, str, str]]:
+def parse_example_file(example_path: Path) -> list[tuple[str, str, str]]:
     """Devuelve una lista de tuplas (comentario, variable, default_value)."""
-    results: List[Tuple[str, str, str]] = []
+    results: list[tuple[str, str, str]] = []
     if not example_path.is_file():
         return results
 
@@ -36,15 +42,17 @@ def parse_example_file(example_path: Path) -> List[Tuple[str, str, str]]:
     return results
 
 
-def sync_env_file(example_path: Path, target_path: Path, force: bool = False, check_only: bool = False) -> int:
+def sync_env_file(
+    example_path: Path, target_path: Path, force: bool = False, check_only: bool = False
+) -> int:
     if not example_path.is_file():
         log_error(f"Archivo de plantilla no encontrado: {example_path}")
         return 1
 
-    existing_values: Dict[str, str] = parse_dotenv(target_path) if target_path.is_file() else {}
+    existing_values: dict[str, str] = parse_dotenv(target_path) if target_path.is_file() else {}
     example_items = parse_example_file(example_path)
 
-    missing: List[Tuple[str, str, str]] = []
+    missing: list[tuple[str, str, str]] = []
     for comment, var, default_val in example_items:
         if var not in existing_values or not existing_values[var]:
             missing.append((comment, var, default_val))
@@ -52,7 +60,7 @@ def sync_env_file(example_path: Path, target_path: Path, force: bool = False, ch
     if check_only:
         if missing:
             print(f"\n{Color.YELLOW}⚠ Variables no configuradas en {target_path}:{Color.RESET}")
-            for comment, var, default_val in missing:
+            for _comment, var, default_val in missing:
                 hint = f"={Color.DIM}{default_val}{Color.RESET}" if default_val else ""
                 print(f"  {Color.YELLOW}•{Color.RESET} {var}{hint}")
             return 1
@@ -77,15 +85,15 @@ def sync_env_file(example_path: Path, target_path: Path, force: bool = False, ch
         prompt_val = current_val or default_val
         if prompt_val:
             print(f"  {Color.YELLOW}💡 Valor actual / default: {prompt_val}{Color.RESET}")
-        
+
         user_input = input(f"  {Color.BOLD}{var}:{Color.RESET} [{prompt_val}]: ").strip()
         final_val = user_input if user_input else prompt_val
         updated[var] = final_val
         print("")
 
     # Escribir archivo actualizado
-    lines = [f"# Generado por init-env"]
-    for comment, var, _ in example_items:
+    lines = ["# Generado por init-env"]
+    for _comment, var, _ in example_items:
         val = updated.get(var, "")
         if "\n" in val:
             lines.append(f'{var}="{val}"')
@@ -100,8 +108,14 @@ def sync_env_file(example_path: Path, target_path: Path, force: bool = False, ch
 
 def main():
     parser = argparse.ArgumentParser(description="Inicializa o sincroniza variables en config/.env")
-    parser.add_argument("--force", action="store_true", help="Preguntar por todas las variables, no solo las faltantes")
-    parser.add_argument("--check-only", action="store_true", help="Solo verificar si faltan variables")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Preguntar por todas las variables, no solo las faltantes",
+    )
+    parser.add_argument(
+        "--check-only", action="store_true", help="Solo verificar si faltan variables"
+    )
     args = parser.parse_args()
 
     root = find_project_root()
