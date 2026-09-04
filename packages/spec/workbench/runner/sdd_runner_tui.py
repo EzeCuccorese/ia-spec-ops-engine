@@ -407,19 +407,21 @@ The Java build or test failed with the following error:
 Step Context:
 {step_description}
 
-CRITICAL JAVA RULES TO REMEMBER:
-- Record header components are implicitly final; NEVER use the 'final' keyword inside record declarations (e.g. write 'public record Foo(UUID id, String name)', NEVER 'record Foo(final UUID id)').
-- Use constructor injection with explicit types and final fields.
-- Use explicit final types for local variables and method parameters.
+CRITICAL RULES TO RESOLVE THIS ERROR:
+- If the error is in a test file (src/test/java/...), fix the test file.
+- If the error is in production code (src/main/java/...), fix the production file.
+- If the error is a mismatch (e.g. constructor arguments, method names, or class names), synchronize BOTH the test and the production classes so they match perfectly.
+- Remember: Record header components are implicitly final; NEVER use the 'final' keyword inside record declarations.
+- Use explicit final types for local variables and parameters.
 
-Fix all affected files and output strictly using:
+Output all fixed files strictly using:
 FILE: path/to/File.java
 ```java
 package com.cucco.payments;
 ...
 ```
 """
-        repaired_raw = safe_call_ai(client, TDD_CODE_PROMPT, heal_prompt, fallback_content="")
+        repaired_raw = safe_call_ai(client, REMEDIATION_CRAFTSMAN_PROMPT, heal_prompt, fallback_content="")
         written = parse_and_apply_java_files(repaired_raw, TARGET_PROJECT)
         for f in written:
             console.print(f"[green]✔ Archivo auto-corregido:[/green] {f.relative_to(TARGET_PROJECT)}")

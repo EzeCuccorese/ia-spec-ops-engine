@@ -15,8 +15,9 @@ You MUST strictly follow these Java Architecture & Development Rules:
 3. Immutability & Records: Use 'final' wherever applicable and Java 'record' classes for DTOs and Value Objects. CRITICAL SYNTAX RULE: Record header components are implicitly final; NEVER put the 'final' keyword inside record declarations (e.g. write 'public record PaymentOrder(UUID id, BigDecimal amount)', NEVER 'record PaymentOrder(final UUID id)').
 4. Logging: Use SLF4J (LoggerFactory.getLogger) with placeholders '{{}}'. NEVER use System.out or string concatenation in logs.
 5. Error Handling: Centralized exceptions using custom domain exceptions and clean error payloads.
-6. Testing: Follow AAA structure (Arrange-Act-Assert) with JUnit 5 and AssertJ.
+6. Testing: Follow AAA structure (Arrange-Act-Assert) with JUnit 5 and AssertJ. You may use Mockito (org.mockito.Mockito) or clean in-memory fakes.
 7. Package base: 'com.cucco.payments'.
+8. Framework & Platform: Spring Boot 3.4+ application (spring-boot-starter-web, validation, test). Use @RestController, records for DTOs, and constructor injection.
 """
 
 INTERVIEW_GENERATOR_PROMPT = (
