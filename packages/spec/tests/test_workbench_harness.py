@@ -83,8 +83,9 @@ def test_clean_workbench_cleans_test_sdd_and_passes_governance_audit() -> None:
     # Execute clean_project
     clean_project(force=True, verbose=False)
 
-    # Invariant checks: All generated and build dirs removed
-    assert not (TARGET_PROJECT / "src").exists(), "src/ should be deleted by clean_project"
+    # Invariant checks: Dirty files removed and base Spring Boot restored
+    assert not (dummy_src / "DirtyPaymentOrder.java").exists(), "Dirty generated classes should be deleted by clean_project"
+    assert (TARGET_PROJECT / "src/main/java/com/cucco/payments/PaymentOrdersApplication.java").is_file(), "PaymentOrdersApplication must be restored"
     assert not (TARGET_PROJECT / "build").exists(), "build/ should be deleted by clean_project"
     assert not (TARGET_PROJECT / ".gradle").exists(), ".gradle/ should be deleted by clean_project"
     assert not (spec_dir / "specs").exists(), ".spec/specs/ should be deleted by clean_project"

@@ -48,12 +48,46 @@ def clean_project(force: bool = False, verbose: bool = True) -> None:
             console.print("[yellow]Limpieza cancelada.[/yellow]")
             return
 
-    # 1. Clean Java sources
+    # 1. Clean Java sources and restore baseline Spring Boot scaffolding
     src_dir = TARGET_PROJECT / "src"
     if src_dir.exists():
         shutil.rmtree(src_dir)
-        if verbose:
-            console.print("[green]✔ Directorio src/ eliminado.[/green]")
+
+    app_pkg = TARGET_PROJECT / "src/main/java/com/cucco/payments"
+    app_pkg.mkdir(parents=True, exist_ok=True)
+    (app_pkg / "PaymentOrdersApplication.java").write_text(
+        "package com.cucco.payments;\n\n"
+        "import org.springframework.boot.SpringApplication;\n"
+        "import org.springframework.boot.autoconfigure.SpringBootApplication;\n\n"
+        "@SpringBootApplication\n"
+        "public class PaymentOrdersApplication {\n"
+        "    public static void main(final String[] args) {\n"
+        "        SpringApplication.run(PaymentOrdersApplication.class, args);\n"
+        "    }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    res_dir = TARGET_PROJECT / "src/main/resources"
+    res_dir.mkdir(parents=True, exist_ok=True)
+    (res_dir / "application.yml").write_text(
+        "server:\n  port: 8080\n\nspring:\n  application:\n    name: payment-orders-api\n",
+        encoding="utf-8",
+    )
+    test_pkg = TARGET_PROJECT / "src/test/java/com/cucco/payments"
+    test_pkg.mkdir(parents=True, exist_ok=True)
+    (test_pkg / "PaymentOrdersApplicationTest.java").write_text(
+        "package com.cucco.payments;\n\n"
+        "import org.junit.jupiter.api.Test;\n"
+        "import org.springframework.boot.test.context.SpringBootTest;\n\n"
+        "@SpringBootTest\n"
+        "class PaymentOrdersApplicationTest {\n"
+        "    @Test\n"
+        "    void contextLoads() {}\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    if verbose:
+        console.print("[green]✔ Base de Spring Boot restaurada en verde.[/green]")
 
     # 2. Clean Gradle build artifacts
     for d in ["build", ".gradle"]:

@@ -1,24 +1,39 @@
 plugins {
-    id 'java'
-    id 'jacoco'
+    id "java"
+    id "org.springframework.boot" version "3.4.3"
+    id "io.spring.dependency-management" version "1.1.7"
+    id "jacoco"
 }
 
-group = 'com.cucco.payments'
-version = '0.0.1-SNAPSHOT'
+group = "com.cucco.payments"
+version = "0.0.1-SNAPSHOT"
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+}
 
 repositories {
     mavenCentral()
 }
 
 dependencies {
-    // Logging
-    implementation 'org.slf4j:slf4j-api:2.0.12'
-    testImplementation 'ch.qos.logback:logback-classic:1.5.3'
+    // Spring Boot Web & Validation
+    implementation "org.springframework.boot:spring-boot-starter-web"
+    implementation "org.springframework.boot:spring-boot-starter-validation"
 
-    // Testing (JUnit 5 & AssertJ)
-    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-    testImplementation 'org.assertj:assertj-core:3.25.3'
+    // Structured Logging
+    implementation "org.slf4j:slf4j-api"
+
+    // Testing (JUnit 5, AssertJ, Mockito, MockMvc)
+    testImplementation "org.springframework.boot:spring-boot-starter-test"
+    testImplementation "org.assertj:assertj-core"
+    testImplementation "org.mockito:mockito-core"
+    testImplementation "org.mockito:mockito-junit-jupiter"
 }
 
 test {
