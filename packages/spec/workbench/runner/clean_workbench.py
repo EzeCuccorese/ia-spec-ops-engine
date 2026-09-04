@@ -21,23 +21,23 @@ WORKBENCH_DIR = Path(__file__).resolve().parent.parent
 TARGET_PROJECT = WORKBENCH_DIR / "test-sdd"
 
 # Add engine src to path
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-sys.path.insert(0, str(REPO_ROOT / "packages/spec/src"))
+SPEC_SRC = Path(__file__).resolve().parent.parent.parent / "src"
+sys.path.insert(0, str(SPEC_SRC))
 
 from spec.governance.project import ProjectGovernance
 
 
-def clean_project(force: bool = False) -> None:
-    table = Table.grid(expand=True)
-    table.add_column(justify="left")
-    table.add_column(justify="right")
-    table.add_row(
-        "[bold cyan]🧹 SDD WORKBENCH CLEANER[/bold cyan]",
-        "[bold green]Status: [RESET][/bold green]",
-    )
-    console.print(Panel(table, box=box.ROUNDED, style="cyan"))
-
-    console.print(f"[bold]Target Project to reset:[/bold] {TARGET_PROJECT}")
+def clean_project(force: bool = False, verbose: bool = True) -> None:
+    if verbose:
+        table = Table.grid(expand=True)
+        table.add_column(justify="left")
+        table.add_column(justify="right")
+        table.add_row(
+            "[bold cyan]🧹 SDD WORKBENCH CLEANER[/bold cyan]",
+            "[bold green]Status: [RESET][/bold green]",
+        )
+        console.print(Panel(table, box=box.ROUNDED, style="cyan"))
+        console.print(f"[bold]Target Project to reset:[/bold] {TARGET_PROJECT}")
 
     if not force:
         proceed = Confirm.ask(
@@ -52,14 +52,16 @@ def clean_project(force: bool = False) -> None:
     src_dir = TARGET_PROJECT / "src"
     if src_dir.exists():
         shutil.rmtree(src_dir)
-        console.print("[green]✔ Directorio src/ eliminado.[/green]")
+        if verbose:
+            console.print("[green]✔ Directorio src/ eliminado.[/green]")
 
     # 2. Clean Gradle build artifacts
     for d in ["build", ".gradle"]:
         p = TARGET_PROJECT / d
         if p.exists():
             shutil.rmtree(p)
-            console.print(f"[green]✔ Artefactos {d}/ eliminados.[/green]")
+            if verbose:
+                console.print(f"[green]✔ Artefactos {d}/ eliminados.[/green]")
 
     # 3. Clean Spec runtime state & specs
     spec_dir = TARGET_PROJECT / ".spec"
@@ -68,11 +70,13 @@ def clean_project(force: bool = False) -> None:
             p = spec_dir / item
             if p.exists():
                 shutil.rmtree(p)
-                console.print(f"[green]✔ .spec/{item}/ eliminado.[/green]")
+                if verbose:
+                    console.print(f"[green]✔ .spec/{item}/ eliminado.[/green]")
         state_file = spec_dir / "state.json"
         if state_file.exists():
             state_file.unlink()
-            console.print("[green]✔ .spec/state.json reseteado a reposo (IDLE).[/green]")
+            if verbose:
+                console.print("[green]✔ .spec/state.json reseteado a reposo (IDLE).[/green]")
 
     # 4. Re-ensure base verification.json & policy.json exist
     ProjectGovernance(TARGET_PROJECT).initialize()
@@ -82,15 +86,17 @@ def clean_project(force: bool = False) -> None:
             '{\n  "schema_version": 1,\n  "checks": [\n    {\n      "id": "gradle-test",\n      "command": ["./gradlew", "test", "--no-daemon", "-q"],\n      "required": true\n    }\n  ]\n}\n',
             encoding="utf-8",
         )
-        console.print("[green]✔ .spec/verification.json restaurado con ./gradlew test.[/green]")
+        if verbose:
+            console.print("[green]✔ .spec/verification.json restaurado con ./gradlew test.[/green]")
 
-    console.print(
-        Panel(
-            "[bold green]✨ El entorno test-sdd ha quedado 100% limpio, por defecto y prístino para la próxima ejecución.[/bold green]",
-            box=box.ROUNDED,
-            style="green",
+    if verbose:
+        console.print(
+            Panel(
+                "[bold green]✨ El entorno test-sdd ha quedado 100% limpio, por defecto y prístino para la próxima ejecución.[/bold green]",
+                box=box.ROUNDED,
+                style="green",
+            )
         )
-    )
 
 
 if __name__ == "__main__":

@@ -4,9 +4,14 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from typing import TYPE_CHECKING
+
 from spec.core.ownership import OwnershipManifest
 from spec.core.paths import PathBoundary
 from spec.core.write import SafeWriter
+
+if TYPE_CHECKING:
+    from spec.governance.audit import AuditReport
 
 
 @dataclass(frozen=True)
@@ -41,6 +46,11 @@ class ProjectGovernance:
             writer.write(relative, json.dumps(document, indent=2) + "\n")
             created.append(relative)
         return InitializationResult(created=tuple(created), existing=tuple(existing))
+
+    def audit(self) -> AuditReport:
+        from spec.governance.audit import ProjectAuditor
+
+        return ProjectAuditor(self.boundary.root).audit()
 
     @staticmethod
     def _policy() -> dict[str, object]:

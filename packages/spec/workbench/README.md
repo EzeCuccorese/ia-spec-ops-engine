@@ -7,7 +7,7 @@ Entorno aislado e interactivo para ejecutar el ciclo de vida completo de **Spec-
 ## Estructura del Toolkit
 
 ```
-packages/sdd-workbench/
+packages/spec/workbench/
 ├── .env.example              # Plantilla de configuración segura
 ├── runner/                   # Orquestador y TUI en Python
 │   ├── sdd_runner_tui.py     # Script interactivo principal con TUI en Rich
@@ -28,13 +28,13 @@ packages/sdd-workbench/
 1. **Configuración de Variables de Entorno**:
    Copia el archivo `.env.example` a `.env` en este directorio:
    ```bash
-   cp packages/sdd-workbench/.env.example packages/sdd-workbench/.env
+   cp packages/spec/workbench/.env.example packages/spec/workbench/.env
    ```
    Edita `.env` y coloca tu `GEMINI_API_KEY` (obtenida en [Google AI Studio](https://aistudio.google.com/)).
 
 2. **Ejecutar el Runner Interactivo por Consola**:
    ```bash
-   python3 packages/sdd-workbench/runner/sdd_runner_tui.py
+   python3 packages/spec/workbench/runner/sdd_runner_tui.py
    ```
 
 3. **Flujo de Interacción Humana**:
@@ -52,7 +52,7 @@ packages/sdd-workbench/
 4. **Limpiar y Resetear el Entorno en Cualquier Momento**:
    Para resetear el proyecto a un estado 100% limpio y prístino:
    ```bash
-   python3 packages/sdd-workbench/runner/clean_workbench.py
+   python3 packages/spec/workbench/runner/clean_workbench.py
    # O de forma directa sin confirmación:
-   python3 packages/sdd-workbench/runner/clean_workbench.py --force
+   python3 packages/spec/workbench/runner/clean_workbench.py --force
    ```

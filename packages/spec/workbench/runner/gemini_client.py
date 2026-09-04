@@ -49,7 +49,7 @@ class GeminiClient:
         candidates = [
             Path(env_path) if env_path else None,
             Path(__file__).parent.parent / ".env",
-            Path.cwd() / "packages/sdd-workbench/.env",
+            Path.cwd() / "packages/spec/workbench/.env",
             Path.cwd() / ".env",
         ]
         loaded: dict[str, str] = {}

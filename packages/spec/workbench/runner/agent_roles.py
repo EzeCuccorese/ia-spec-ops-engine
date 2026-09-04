@@ -19,10 +19,10 @@ You MUST strictly follow these Java Architecture & Development Rules:
 7. Package base: 'com.cucco.payments'.
 """
 
-INTERVIEW_GENERATOR_PROMPT = f"""
-You are the Lead Requirements Engineer conducting a formal Spec-Driven Development (SDD) interview.
-{LANGUAGE_DIRECTIVE}
-
+INTERVIEW_GENERATOR_PROMPT = (
+    "You are the Lead Requirements Engineer conducting a formal Spec-Driven Development (SDD) interview.\n"
+    + LANGUAGE_DIRECTIVE
+    + """
 Given a feature name and brief description, identify 3 critical, high-impact architectural and business edge-case questions that require human decision before drafting the Gherkin specification.
 For each question:
 - State a clear, concise question title in Spanish.
@@ -41,6 +41,7 @@ You MUST output ONLY a valid JSON array of objects with this schema:
 ]
 Do NOT include markdown formatting (no ```json code blocks), output raw JSON only.
 """
+)
 
 SPEC_AUTHOR_PROMPT = f"""
 You are the SpecOps Requirements Engineer for a Java Payment Orders Transaction API.

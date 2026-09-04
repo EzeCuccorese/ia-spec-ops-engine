@@ -25,8 +25,8 @@ from rich.syntax import Syntax
 from rich.table import Table
 
 # Add engine src to path for Spec CLI import
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-sys.path.insert(0, str(REPO_ROOT / "packages/spec/src"))
+SPEC_SRC = Path(__file__).resolve().parent.parent.parent / "src"
+sys.path.insert(0, str(SPEC_SRC))
 
 from spec.governance.judge import SpecJudge
 from spec.governance.project import ProjectGovernance
@@ -954,6 +954,11 @@ def main() -> None:
     console.print(f"[bold]Auth Mode:[/bold]      {'[green]ADC (Agent Platform Active)[/green]' if client.use_adc and client.project_id else '[yellow]API Key[/yellow]'}")
     console.print(f"[bold]GCP Project:[/bold]    {client.project_id or 'Auto-detected'}")
     console.print("")
+
+    # Automatic pre-run cleanup for pristine baseline
+    from clean_workbench import clean_project
+    clean_project(force=True, verbose=False)
+    console.print("[bold green]✔ Entorno test-sdd reseteado a estado prístino (IDLE, 0 residuos de pruebas previas).[/bold green]\n")
 
     gate_spec(workflow, client)
     gate_plan(workflow, client)
