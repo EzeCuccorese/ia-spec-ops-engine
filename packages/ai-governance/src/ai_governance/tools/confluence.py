@@ -282,7 +282,7 @@ def cmd_update(page_id, body_md):
         "body": {"storage": {"value": md_to_storage(body_md), "representation": "storage"}},
         "version": {"number": ver + 1},
     }
-    data = put(f"/content/{page_id}", payload)
+    put(f"/content/{page_id}", payload)
     print(f"✅ Page updated: **{title}** (v{ver + 1})")
 
 

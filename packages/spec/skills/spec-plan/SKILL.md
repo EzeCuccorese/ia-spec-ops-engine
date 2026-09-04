@@ -22,4 +22,4 @@ description: "Generates the architectural implementation plan and atomic task br
    - Test-First Strategy: Unit tests (AAA) mapped to each `@s` scenario to be written *before* implementation (following Uncle Bob's Three Laws of TDD).
 2. Populate `.spec/specs/<feature-slug>/tasks.md` with atomic, sequential sub-tasks referencing the `@s` scenarios they cover.
 3. Present the plan summary.
-4. **STOP**: Ask: *"¿Apruebas este plan de implementación para comenzar el desarrollo Test-First (`spec work`)?"*. Wait for user confirmation.
+4. **STOP**: Ask: *"Do you approve this implementation plan to begin Test-First development (`spec work`)?"*. Wait for user confirmation.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+
 from ai_governance.telemetry.cost_monitor import CostMonitor
 from ai_governance.telemetry.prices import PriceCatalog
 

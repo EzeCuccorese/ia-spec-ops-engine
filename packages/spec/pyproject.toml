@@ -33,3 +33,7 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"workbench/runner/**" = ["E402"]
+"tests/test_workbench_harness.py" = ["E402"]

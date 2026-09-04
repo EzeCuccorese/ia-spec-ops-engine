@@ -3,6 +3,7 @@ guard.py — Evaluates active context window size and recommends compact/clear a
 """
 
 from __future__ import annotations
+
 from typing import Any
 
 

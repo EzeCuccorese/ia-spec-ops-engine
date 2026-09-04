@@ -20,7 +20,7 @@ class OutputTrimmer:
 
     @staticmethod
     def is_homogeneous(lineas: list[str], pct: float = 0.7) -> bool:
-        prefijos = [l.strip()[:3] for l in lineas if l.strip()]
+        prefijos = [line.strip()[:3] for line in lineas if line.strip()]
         if not prefijos:
             return False
         _, top = Counter(prefijos).most_common(1)[0]

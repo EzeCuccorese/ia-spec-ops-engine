@@ -6,6 +6,7 @@ Fail-open: never breaks agent execution.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
@@ -42,10 +43,8 @@ def load_config() -> dict:
     cfg = dict(DEFAULT_CONFIG)
     cfg_file = get_runtime_dir() / "frugal.json"
     if cfg_file.exists():
-        try:
+        with contextlib.suppress(Exception):
             cfg.update(json.loads(cfg_file.read_text(encoding="utf-8")))
-        except Exception:
-            pass
     return cfg
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+
 from ai_governance.telemetry.statusline import format_statusline, format_tokens
 
 
