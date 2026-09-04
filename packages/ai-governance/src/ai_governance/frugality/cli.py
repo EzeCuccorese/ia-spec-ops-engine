@@ -31,9 +31,7 @@ DEFAULT_CONFIG = {
 
 
 def get_runtime_dir() -> Path:
-    base = os.environ.get("CLAUDE_USAGE_DIR") or str(
-        Path.home() / ".claude" / "usage-monitor"
-    )
+    base = os.environ.get("CLAUDE_USAGE_DIR") or str(Path.home() / ".claude" / "usage-monitor")
     p = Path(base)
     p.mkdir(parents=True, exist_ok=True)
     return p

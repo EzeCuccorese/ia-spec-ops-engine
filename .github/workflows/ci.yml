@@ -45,7 +45,7 @@ jobs:
 
       - name: Run Pytest Suite with Coverage
         run: |
-          uv run pytest -v --cov=rules --cov=spec --cov=workspace_engine --cov-report=term-missing
+          uv run pytest -v --cov=ai_governance --cov=spec --cov=workspace_engine --cov-report=term-missing
 
       - name: Verify CLI Tools & Diagnostics
         run: |

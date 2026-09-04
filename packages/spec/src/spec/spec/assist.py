@@ -84,18 +84,14 @@ class TestAssistant:
                     break
 
         if status.stage in (Stage.SPEC, Stage.PLAN, Stage.TASKS):
-            instruction = (
-                f"Current stage is '{status.stage.value}'. Advance through plan/tasks before starting TDD."
-            )
+            instruction = f"Current stage is '{status.stage.value}'. Advance through plan/tasks before starting TDD."
         elif next_scenario:
             instruction = (
                 f"Next TDD Step: Write failing test for scenario {next_scenario.tag} ({next_scenario.title}), "
                 f"then implement minimal code, verify green, and record in work.md."
             )
         else:
-            instruction = (
-                "All scenarios are covered by tests! Run 'spec verify' and 'spec judge' before finish."
-            )
+            instruction = "All scenarios are covered by tests! Run 'spec verify' and 'spec judge' before finish."
 
         return AssistContext(
             feature=status.feature,

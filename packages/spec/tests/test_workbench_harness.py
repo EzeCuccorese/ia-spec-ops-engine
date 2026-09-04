@@ -85,12 +85,18 @@ def test_clean_workbench_cleans_test_sdd_and_passes_governance_audit() -> None:
     clean_project(force=True, verbose=False)
 
     # Invariant checks: Dirty files removed and base Spring Boot restored
-    assert not (dummy_src / "DirtyPaymentOrder.java").exists(), "Dirty generated classes should be deleted by clean_project"
-    assert (TARGET_PROJECT / "src/main/java/com/cucco/payments/PaymentOrdersApplication.java").is_file(), "PaymentOrdersApplication must be restored"
+    assert not (dummy_src / "DirtyPaymentOrder.java").exists(), (
+        "Dirty generated classes should be deleted by clean_project"
+    )
+    assert (
+        TARGET_PROJECT / "src/main/java/com/cucco/payments/PaymentOrdersApplication.java"
+    ).is_file(), "PaymentOrdersApplication must be restored"
     assert not (TARGET_PROJECT / "build").exists(), "build/ should be deleted by clean_project"
     assert not (TARGET_PROJECT / ".gradle").exists(), ".gradle/ should be deleted by clean_project"
     assert not (spec_dir / "specs").exists(), ".spec/specs/ should be deleted by clean_project"
-    assert not (spec_dir / "evidence").exists(), ".spec/evidence/ should be deleted by clean_project"
+    assert not (spec_dir / "evidence").exists(), (
+        ".spec/evidence/ should be deleted by clean_project"
+    )
 
     # State check: state.json unlinked, workflow in IDLE (status is None)
     assert not dummy_state.exists(), ".spec/state.json should be unlinked"
@@ -163,7 +169,7 @@ class PaymentOrderTest {
 
     test_content = expected_test_path.read_text(encoding="utf-8")
     assert "class PaymentOrderTest" in test_content
-    assert "assertThat(order.id()).isEqualTo(\"ord-1\");" in test_content
+    assert 'assertThat(order.id()).isEqualTo("ord-1");' in test_content
 
 
 def test_parse_and_apply_java_files_fallback_heuristic(tmp_path: Path) -> None:

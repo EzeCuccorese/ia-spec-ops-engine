@@ -65,22 +65,27 @@ def main() -> int:
 
     if cmd == "rules":
         from .rules.cli import main as rules_main
+
         sys.argv = ["rules"] + remaining_args
         return rules_main()
     elif cmd == "frugal":
         from .frugality.cli import main as frugal_main
+
         sys.argv = ["frugal"] + remaining_args
         return frugal_main()
     elif cmd == "statusline":
         from .telemetry.statusline import main as status_main
+
         sys.argv = ["statusline"] + remaining_args
         return status_main()
     elif cmd in ("ritmo", "usage"):
         from .telemetry.cli import main as telemetry_main
+
         sys.argv = ["telemetry", cmd] + remaining_args
         return telemetry_main()
     elif cmd in ("progress", "task", "progreso"):
         from .session.cli import main as session_main
+
         sys.argv = ["progress"] + remaining_args
         return session_main()
     else:

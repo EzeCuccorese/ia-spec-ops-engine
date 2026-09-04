@@ -30,7 +30,9 @@ def format_tokens(total: int) -> str:
     return str(total)
 
 
-def format_statusline(payload: dict[str, Any], include_ritmo: bool = False, monthly_budget: float = 0.0) -> str:
+def format_statusline(
+    payload: dict[str, Any], include_ritmo: bool = False, monthly_budget: float = 0.0
+) -> str:
     cost = float((payload.get("cost") or {}).get("total_cost_usd") or 0.0)
     ctx = payload.get("context_window") or {}
     total_in = int(ctx.get("total_input_tokens") or 0)
@@ -78,6 +80,7 @@ def format_statusline(payload: dict[str, Any], include_ritmo: bool = False, mont
 
     if include_ritmo and monthly_budget > 0:
         from .ritmo import RitmoCalculator
+
         ritmo_stat = RitmoCalculator.calculate_pace(monthly_budget, actual_spend_usd=cost)
         ritmo_color = GRN if ritmo_stat.is_under_budget else RED
         parts.append(

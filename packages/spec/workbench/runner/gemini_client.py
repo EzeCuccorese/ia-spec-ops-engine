@@ -63,10 +63,14 @@ class GeminiClient:
                 break
 
         key = loaded.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY", "")
-        model = loaded.get("GEMINI_MODEL_TARGET") or os.environ.get("GEMINI_MODEL_TARGET", "gemini-flash-latest")
+        model = loaded.get("GEMINI_MODEL_TARGET") or os.environ.get(
+            "GEMINI_MODEL_TARGET", "gemini-flash-latest"
+        )
         project_id = loaded.get("GCP_PROJECT_ID") or os.environ.get("GCP_PROJECT_ID", "")
         location = loaded.get("GCP_LOCATION") or os.environ.get("GCP_LOCATION", "global")
-        use_adc_val = (loaded.get("USE_AGENT_PLATFORM") or loaded.get("USE_VERTEX_AI", "true")).lower() in ("true", "1", "yes")
+        use_adc_val = (
+            loaded.get("USE_AGENT_PLATFORM") or loaded.get("USE_VERTEX_AI", "true")
+        ).lower() in ("true", "1", "yes")
 
         return cls(
             api_key=key,
@@ -92,7 +96,9 @@ class GeminiClient:
             "ADC token not available. Please run: 'gcloud auth application-default login'"
         )
 
-    def generate(self, system_instruction: str, user_prompt: str, history: list[dict[str, str]] | None = None) -> str:
+    def generate(
+        self, system_instruction: str, user_prompt: str, history: list[dict[str, str]] | None = None
+    ) -> str:
         """Call Gemini model via Agent Platform (ADC) or Google AI Studio (API Key)."""
         contents = []
 
@@ -104,10 +110,12 @@ class GeminiClient:
                 contents.append({"role": role, "parts": [{"text": item.get("content", "")}]})
 
         # Add current user prompt
-        contents.append({
-            "role": "user",
-            "parts": [{"text": f"{system_text}\nTask:\n{user_prompt}"}],
-        })
+        contents.append(
+            {
+                "role": "user",
+                "parts": [{"text": f"{system_text}\nTask:\n{user_prompt}"}],
+            }
+        )
 
         payload = {
             "contents": contents,

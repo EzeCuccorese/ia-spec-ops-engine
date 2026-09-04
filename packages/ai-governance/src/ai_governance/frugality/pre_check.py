@@ -24,8 +24,7 @@ PATTERNS = (
     (
         "lockfile",
         lambda c: any(
-            re.search(rf"\b(cat|less|more|bat)\b.*\b{re.escape(lf)}\b", c)
-            for lf in LOCKFILES
+            re.search(rf"\b(cat|less|more|bat)\b.*\b{re.escape(lf)}\b", c) for lf in LOCKFILES
         ),
         "This lockfile may contain thousands of lines. Frugal alternative: "
         "use `rg '\"package\":' <file>` or package-specific dependency inspection tools.",
@@ -39,8 +38,7 @@ PATTERNS = (
     (
         "git_log_sin_limite",
         lambda c: bool(
-            re.search(r"\bgit\s+log\b", c)
-            and not re.search(r"(-n\s*\d+|--oneline|-\d+\b)", c)
+            re.search(r"\bgit\s+log\b", c) and not re.search(r"(-n\s*\d+|--oneline|-\d+\b)", c)
         ),
         "`git log` without limits may print the entire history. Use `git log --oneline -n 10`.",
     ),
@@ -70,7 +68,9 @@ PATTERNS = (
 
 class PreCheck:
     @staticmethod
-    def check_command(command: str, session_id: str | None = None, runtime_dir: Path | None = None) -> str | None:
+    def check_command(
+        command: str, session_id: str | None = None, runtime_dir: Path | None = None
+    ) -> str | None:
         if not command or "#nofrugal" in command or os.environ.get("FRUGAL") == "0":
             return None
 

@@ -41,13 +41,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     preflight = subparsers.add_parser(
-        "preflight", help="Agnostic pre-flight validation, baseline check, and worktree provisioning"
+        "preflight",
+        help="Agnostic pre-flight validation, baseline check, and worktree provisioning",
     )
     preflight.add_argument("name", help="Feature name")
     preflight.add_argument("--from", dest="from_branch", default=None, help="Base branch")
     preflight.add_argument("--branch", default=None, help="Target feature branch")
-    preflight.add_argument("--worktree", action="store_true", default=True, help="Provision isolated Git Worktree")
-    preflight.add_argument("--no-worktree", dest="worktree", action="store_false", help="Do not provision worktree")
+    preflight.add_argument(
+        "--worktree", action="store_true", default=True, help="Provision isolated Git Worktree"
+    )
+    preflight.add_argument(
+        "--no-worktree", dest="worktree", action="store_false", help="Do not provision worktree"
+    )
     preflight.add_argument("--description", default="", help="Feature description")
     preflight.add_argument("--root", type=Path, default=Path.cwd())
     preflight.add_argument("--json", action="store_true")
@@ -81,20 +86,28 @@ def build_parser() -> argparse.ArgumentParser:
     mutate.add_argument("target", type=Path, help="Target Python file to mutate")
     mutate.add_argument("--test-cmd", type=str, help="Test command to run (e.g. 'pytest -q')")
     mutate.add_argument("--max", type=int, default=100, help="Maximum mutants to evaluate")
-    mutate.add_argument("--threshold", type=float, default=100.0, help="Required killed score percentage")
+    mutate.add_argument(
+        "--threshold", type=float, default=100.0, help="Required killed score percentage"
+    )
     mutate.add_argument("--root", type=Path, default=Path.cwd())
     mutate.add_argument("--json", action="store_true")
 
-    audit = subparsers.add_parser("audit", help="Audit repository and active spec against checkpoints")
+    audit = subparsers.add_parser(
+        "audit", help="Audit repository and active spec against checkpoints"
+    )
     audit.add_argument("--root", type=Path, default=Path.cwd())
     audit.add_argument("--json", action="store_true")
 
     assist = subparsers.add_parser("test-assist", help="Assistance for agents executing TDD tests")
-    assist.add_argument("--next", action="store_true", help="Output only the next uncovered scenario")
+    assist.add_argument(
+        "--next", action="store_true", help="Output only the next uncovered scenario"
+    )
     assist.add_argument("--root", type=Path, default=Path.cwd())
     assist.add_argument("--json", action="store_true")
 
-    judge = subparsers.add_parser("judge", help="Prepare craftsmanship evaluation context or record verdict")
+    judge = subparsers.add_parser(
+        "judge", help="Prepare craftsmanship evaluation context or record verdict"
+    )
     judge.add_argument("--approve", action="store_true", help="Record an APPROVED verdict")
     judge.add_argument("--reject", action="store_true", help="Record a CHANGES_REQUESTED verdict")
     judge.add_argument("--remarks", default="", help="Remarks or reasons for the verdict")

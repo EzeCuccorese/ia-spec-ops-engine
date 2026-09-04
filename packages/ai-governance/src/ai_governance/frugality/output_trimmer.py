@@ -70,9 +70,7 @@ class OutputTrimmer:
         return msg.strip()
 
     @classmethod
-    def trim_listing(
-        cls, stdout: str, cfg: dict[str, Any], reference: str = ""
-    ) -> str | None:
+    def trim_listing(cls, stdout: str, cfg: dict[str, Any], reference: str = "") -> str | None:
         large_json = cls.parse_large_json(stdout)
         if large_json:
             parsed, n = large_json

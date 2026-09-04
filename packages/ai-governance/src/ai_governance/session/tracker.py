@@ -30,7 +30,9 @@ class TaskState:
     status: str = "active"  # active, paused, closed
     summary: str = ""
     steps: list[dict[str, Any]] = field(default_factory=list)  # [{"text": "...", "done": bool}]
-    repos: list[dict[str, Any]] = field(default_factory=list)  # [{"path": "...", "branch": "...", "pr": "..."}]
+    repos: list[dict[str, Any]] = field(
+        default_factory=list
+    )  # [{"path": "...", "branch": "...", "pr": "..."}]
     links: list[dict[str, str]] = field(default_factory=list)  # [{"title": "...", "url": "..."}]
     updated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
@@ -56,8 +58,10 @@ class TaskState:
 class SessionTracker:
     def __init__(self, root_dir: Path | None = None) -> None:
         custom = os.environ.get("CLAUDE_PROGRESS_DIR")
-        self.root_dir = root_dir or (Path(custom) if custom else Path.home() / ".claude" / "progress")
-        
+        self.root_dir = root_dir or (
+            Path(custom) if custom else Path.home() / ".claude" / "progress"
+        )
+
         legacy_dir = self.root_dir / "tareas"
         self.tasks_dir = self.root_dir / "tasks"
         if legacy_dir.exists() and not self.tasks_dir.exists():

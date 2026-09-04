@@ -53,14 +53,20 @@ class PreflightManager:
         curr = current if code == 0 and current else "HEAD"
 
         code, local_out, _ = self._run_git("branch", "--format=%(refname:short)")
-        local_branches = [b.strip() for b in local_out.splitlines() if b.strip()] if code == 0 else []
+        local_branches = (
+            [b.strip() for b in local_out.splitlines() if b.strip()] if code == 0 else []
+        )
 
         code, remote_out, _ = self._run_git("branch", "-r", "--format=%(refname:short)")
-        remote_branches = [
-            b.strip().removeprefix("origin/")
-            for b in remote_out.splitlines()
-            if b.strip() and not b.strip().endswith("/HEAD")
-        ] if code == 0 else []
+        remote_branches = (
+            [
+                b.strip().removeprefix("origin/")
+                for b in remote_out.splitlines()
+                if b.strip() and not b.strip().endswith("/HEAD")
+            ]
+            if code == 0
+            else []
+        )
 
         return BranchInfo(
             current_branch=curr,
@@ -123,7 +129,11 @@ class PreflightManager:
         total_count = len(report.checks)
         passed = report.status is CheckStatus.PASS
 
-        summary = f"{passed_count}/{total_count} checks passed" if passed else f"FAIL: {total_count - passed_count} checks failed"
+        summary = (
+            f"{passed_count}/{total_count} checks passed"
+            if passed
+            else f"FAIL: {total_count - passed_count} checks failed"
+        )
 
         return BaselineGateResult(
             passed=passed,
@@ -143,7 +153,9 @@ class PreflightManager:
             raise PreflightError(f"Target worktree directory already exists: {worktree_dir}")
 
         # 1. Create worktree
-        code, stdout, stderr = self._run_git("worktree", "add", "-b", branch, str(worktree_dir), base_branch)
+        code, stdout, stderr = self._run_git(
+            "worktree", "add", "-b", branch, str(worktree_dir), base_branch
+        )
         if code != 0:
             # Fallback if local branch already exists
             code, stdout, stderr = self._run_git("worktree", "add", str(worktree_dir), branch)

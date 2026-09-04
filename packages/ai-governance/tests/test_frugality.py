@@ -29,10 +29,12 @@ def test_trim_pytest_all_passed() -> None:
     ]
     for i in range(1, 41):
         lines.append(f"tests/test_module.py::test_case_{i:02d} PASSED")
-    lines.extend([
-        "",
-        "============================== 50 passed in 1.20s ==============================",
-    ])
+    lines.extend(
+        [
+            "",
+            "============================== 50 passed in 1.20s ==============================",
+        ]
+    )
     full_output = "\n".join(lines)
 
     trimmed = TestTrimmer.trim(full_output, CFG)
@@ -51,20 +53,24 @@ def test_trim_pytest_with_failures() -> None:
     ]
     for i in range(1, 10):
         lines.append(f"tests/test_mod.py::test_ok_{i} PASSED")
-    lines.extend([
-        "______________________________ test_bad_auth _______________________________",
-        ">       assert status == 200",
-        "E       AssertionError: assert 401 == 200",
-        "tests/test_mod.py:55: AssertionError",
-    ])
+    lines.extend(
+        [
+            "______________________________ test_bad_auth _______________________________",
+            ">       assert status == 200",
+            "E       AssertionError: assert 401 == 200",
+            "tests/test_mod.py:55: AssertionError",
+        ]
+    )
     for i in range(11, 20):
         lines.append(f"tests/test_mod.py::test_ok_{i} PASSED")
-    lines.extend([
-        "",
-        "=========================== short test summary info ============================",
-        "FAILED tests/test_mod.py::test_bad_auth - AssertionError: assert 401 == 200",
-        "========================= 1 failed, 19 passed in 0.5s ==========================",
-    ])
+    lines.extend(
+        [
+            "",
+            "=========================== short test summary info ============================",
+            "FAILED tests/test_mod.py::test_bad_auth - AssertionError: assert 401 == 200",
+            "========================= 1 failed, 19 passed in 0.5s ==========================",
+        ]
+    )
     full_output = "\n".join(lines)
 
     trimmed = TestTrimmer.trim(full_output, CFG)
