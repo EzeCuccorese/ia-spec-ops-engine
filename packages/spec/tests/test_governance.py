@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from spec.agents import AgentsAdapter
+from spec.agents import AgentsAdapter, ClaudeAdapter, render_consumer, render_contributor
 from spec.core.ownership import FileChangedError, OwnershipManifest
 from spec.governance.project import ProjectGovernance
 
@@ -88,3 +88,44 @@ def test_agents_adapter_refuses_to_delete_modified_governance_file(tmp_path: Pat
         adapter.uninstall(dry_run=False)
 
     assert (tmp_path / ".spec/governance.md").exists()
+
+
+def test_agents_adapter_render_detects_contributor_vs_consumer(tmp_path: Path) -> None:
+    # Consumer repo (empty dir)
+    adapter = AgentsAdapter(tmp_path)
+    assert adapter.render() == render_consumer()
+    assert "uv pip install -e" not in adapter.render()
+
+    # Contributor repo (contains packages/spec)
+    contributor_dir = tmp_path / "contributor_repo"
+    (contributor_dir / "packages" / "spec").mkdir(parents=True)
+    contributor_adapter = AgentsAdapter(contributor_dir)
+    assert contributor_adapter.render() == render_contributor()
+    assert "uv pip install -e" in contributor_adapter.render()
+
+
+def test_claude_adapter_installs_and_uninstalls_reversibly(tmp_path: Path) -> None:
+    ProjectGovernance(tmp_path).initialize()
+    adapter = ClaudeAdapter(tmp_path)
+
+    # 1. Install creates governance.md, AGENTS.md, and CLAUDE.md
+    res = adapter.install()
+    assert res.created is True
+    assert (tmp_path / ".spec/governance.md").exists()
+    assert (tmp_path / "AGENTS.md").exists()
+    assert (tmp_path / "CLAUDE.md").exists()
+    assert "@AGENTS.md" in (tmp_path / "CLAUDE.md").read_text()
+
+    manifest = OwnershipManifest(tmp_path)
+    assert manifest.get("CLAUDE.md") is not None
+    assert manifest.get(".spec/governance.md") is not None
+
+    # 2. Uninstall cleanly removes all generated files
+    del_res = adapter.uninstall(dry_run=False)
+    assert del_res.deleted is True
+    assert not (tmp_path / ".spec/governance.md").exists()
+    assert not (tmp_path / "AGENTS.md").exists()
+    assert not (tmp_path / "CLAUDE.md").exists()
+    manifest_after = OwnershipManifest(tmp_path)
+    assert manifest_after.get("CLAUDE.md") is None
+    assert manifest_after.get(".spec/governance.md") is None

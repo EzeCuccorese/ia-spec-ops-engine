@@ -27,6 +27,7 @@ def test_ritmo_pacing_under_budget() -> None:
     )
     assert stat.total_business_days == 22
     assert stat.elapsed_business_days == 4
+    assert stat.days_remaining == 18
     assert round(stat.expected_spend_usd, 2) == 20.00
     assert stat.actual_spend_usd == 15.00
     assert stat.variance_usd == -5.00
@@ -43,5 +44,30 @@ def test_ritmo_pacing_over_budget() -> None:
     )
     assert stat.is_under_budget is False
     assert stat.variance_usd == 10.00
+    assert stat.days_remaining == 18
     assert "EXCEEDED" in stat.status_label
     assert "variance" in stat.status_label
+
+
+def test_count_business_days_boundary_conditions() -> None:
+    # start_day > last_day
+    assert RitmoCalculator.count_business_days(2026, 9, start_day=15, end_day=10) == 0
+
+    # start_day < 1 clamped to 1
+    assert RitmoCalculator.count_business_days(2026, 9, start_day=-5, end_day=4) == 4
+
+    # end_day < 1 returns 0
+    assert RitmoCalculator.count_business_days(2026, 9, start_day=1, end_day=0) == 0
+    assert RitmoCalculator.count_business_days(2026, 9, start_day=1, end_day=-10) == 0
+
+    # start_day beyond month end returns 0
+    assert RitmoCalculator.count_business_days(2026, 9, start_day=35) == 0
+
+    # Last business day of month: days_remaining is 0
+    last_day_stat = RitmoCalculator.calculate_pace(
+        monthly_budget_usd=100.0,
+        actual_spend_usd=90.0,
+        target_date=date(2026, 9, 30),
+    )
+    assert last_day_stat.elapsed_business_days == 22
+    assert last_day_stat.days_remaining == 0

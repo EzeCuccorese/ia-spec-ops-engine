@@ -335,7 +335,7 @@ def main(argv: list[str] | None = None) -> None:
             )
             raise SystemExit(0)
         if args.command == "agent" and args.agent_command == "install":
-            from spec.agents import RECOGNIZED_AGENTS, AgentsAdapter
+            from spec.agents import RECOGNIZED_AGENTS, AgentsAdapter, ClaudeAdapter
 
             if args.agent:
                 target_agent = args.agent.strip().lower()
@@ -365,16 +365,17 @@ def main(argv: list[str] | None = None) -> None:
 
             for k in keys_to_install:
                 label = RECOGNIZED_AGENTS[k]
+                adapter_cls = ClaudeAdapter if k == "claude" else AgentsAdapter
                 adapter_instance = (
-                    AgentsAdapter(args.root, target=args.file)
+                    adapter_cls(args.root, target=args.file)
                     if args.file
-                    else AgentsAdapter(args.root)
+                    else adapter_cls(args.root)
                 )
                 res = adapter_instance.install()
                 print(f"Configured {label}: {res.path}")
             raise SystemExit(0)
         if args.command == "agent" and args.agent_command == "uninstall":
-            from spec.agents import RECOGNIZED_AGENTS, AgentsAdapter
+            from spec.agents import RECOGNIZED_AGENTS, AgentsAdapter, ClaudeAdapter
 
             if args.agent:
                 target_agent = args.agent.strip().lower()
@@ -394,10 +395,11 @@ def main(argv: list[str] | None = None) -> None:
 
             for k in keys_to_uninstall:
                 label = RECOGNIZED_AGENTS[k]
+                adapter_cls = ClaudeAdapter if k == "claude" else AgentsAdapter
                 adapter_instance = (
-                    AgentsAdapter(args.root, target=args.file)
+                    adapter_cls(args.root, target=args.file)
                     if args.file
-                    else AgentsAdapter(args.root)
+                    else adapter_cls(args.root)
                 )
                 res = adapter_instance.uninstall(dry_run=not args.apply)
                 if not args.apply and res.would_delete:

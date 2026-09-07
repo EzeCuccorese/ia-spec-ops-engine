@@ -88,14 +88,28 @@ def main() -> int:
     remaining_args = sys.argv[2:]
 
     if cmd == "config":
-        from workspace_engine.config.init_config import run_config_init
+        try:
+            from workspace_engine.config.init_config import run_config_init
+        except ImportError:
+            console.print(
+                "[bold yellow]Notice:[/bold yellow] 'workspace_engine' is not installed or available.\n"
+                "Install sibling package 'workspace-engine' to use 'governance config'."
+            )
+            return 1
 
         cfg_args = remaining_args
         if cfg_args and cfg_args[0] == "init":
             cfg_args = cfg_args[1:]
         return run_config_init(cfg_args)
     elif cmd == "agent":
-        from spec.cli import main as spec_main
+        try:
+            from spec.cli import main as spec_main
+        except ImportError:
+            console.print(
+                "[bold yellow]Notice:[/bold yellow] 'spec' is not installed or available.\n"
+                "Install sibling package 'spec' to use 'governance agent'."
+            )
+            return 1
 
         try:
             spec_main(["agent"] + remaining_args)
@@ -103,18 +117,38 @@ def main() -> int:
         except SystemExit as e:
             return e.code if isinstance(e.code, int) else 0
     elif cmd == "doctor":
-        from spec.cli import run_doctor
-        from workspace_engine.cli.main import doctor_check
+        try:
+            from spec.cli import main as spec_main
+            from workspace_engine.cli.main import doctor_check
+        except ImportError:
+            console.print(
+                "[bold yellow]Notice:[/bold yellow] 'spec' or 'workspace_engine' is not installed or available.\n"
+                "Install sibling packages to use 'governance doctor'."
+            )
+            return 1
 
         doctor_check()
         print()
-        return run_doctor()
+        try:
+            spec_main(["doctor"] + remaining_args)
+            return 0
+        except SystemExit as e:
+            return e.code if isinstance(e.code, int) else 0
     elif cmd == "audit":
-        from pathlib import Path
+        try:
+            from spec.cli import main as spec_main
+        except ImportError:
+            console.print(
+                "[bold yellow]Notice:[/bold yellow] 'spec' is not installed or available.\n"
+                "Install sibling package 'spec' to use 'governance audit'."
+            )
+            return 1
 
-        from spec.cli import run_audit
-
-        return run_audit(Path.cwd())
+        try:
+            spec_main(["audit"] + remaining_args)
+            return 0
+        except SystemExit as e:
+            return e.code if isinstance(e.code, int) else 0
     elif cmd == "rules":
         from .rules.cli import main as rules_main
 

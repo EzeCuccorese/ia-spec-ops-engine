@@ -49,9 +49,9 @@ def test_baseline_gate_skipped_when_no_verification_config(tmp_path: Path) -> No
     mgr = PreflightManager(tmp_path)
     res = mgr.run("Sample Feature", use_worktree=False)
 
-    assert res["status"] == "READY"
-    assert res["feature"] == "sample-feature"
-    assert res["baseline"] == "PASS"
+    assert res["status"] == "FAIL"
+    assert res["baseline"] == "SKIPPED"
+    assert "No verification checks configured" in res["error"]
 
 
 def test_baseline_gate_aborts_on_failure(tmp_path: Path) -> None:
@@ -127,6 +127,18 @@ def test_cli_preflight_command(tmp_path: Path, capsys) -> None:
     _init_git_repo(repo_dir)
     ProjectGovernance(repo_dir).initialize()
 
+    v_config = {
+        "schema_version": 1,
+        "checks": [
+            {
+                "id": "passing-check",
+                "command": ["true"],
+                "required": True,
+            }
+        ],
+    }
+    (repo_dir / ".spec" / "verification.json").write_text(json.dumps(v_config), encoding="utf-8")
+
     with pytest.raises(SystemExit) as exc:
         main(["preflight", "CLI Feature", "--no-worktree", "--root", str(repo_dir), "--json"])
     assert exc.value.code == 0
@@ -135,3 +147,60 @@ def test_cli_preflight_command(tmp_path: Path, capsys) -> None:
     payload = json.loads(out)
     assert payload["status"] == "READY"
     assert payload["feature"] == "cli-feature"
+    assert payload["baseline"] == "PASS"
+
+
+def test_cli_preflight_command_rejects_empty_checks(tmp_path: Path, capsys) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    _init_git_repo(repo_dir)
+    ProjectGovernance(repo_dir).initialize()
+
+    v_config = {
+        "schema_version": 1,
+        "checks": [],
+    }
+    (repo_dir / ".spec" / "verification.json").write_text(json.dumps(v_config), encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc:
+        main(["preflight", "Empty Feature", "--no-worktree", "--root", str(repo_dir), "--json"])
+    assert exc.value.code == 1
+
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+    assert payload["status"] == "FAIL"
+    assert payload["baseline"] == "SKIPPED"
+
+
+def test_baseline_gate_records_non_destructive_evidence(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    _init_git_repo(repo_dir)
+    ProjectGovernance(repo_dir).initialize()
+
+    v_config = {
+        "schema_version": 1,
+        "checks": [
+            {
+                "id": "passing-check",
+                "command": ["true"],
+                "required": True,
+            }
+        ],
+    }
+    (repo_dir / ".spec" / "verification.json").write_text(json.dumps(v_config), encoding="utf-8")
+
+    mgr = PreflightManager(repo_dir)
+    gate_res1 = mgr.run_baseline_gate()
+    assert gate_res1.passed is True
+
+    evidence_dir = repo_dir / ".spec" / "evidence" / "preflight"
+    assert (evidence_dir / "baseline.json").is_file()
+    timestamped_initial = list(evidence_dir.glob("baseline-*.json"))
+    assert len(timestamped_initial) == 1
+
+    gate_res2 = mgr.run_baseline_gate()
+    assert gate_res2.passed is True
+    assert (evidence_dir / "baseline.json").is_file()
+    timestamped_subsequent = list(evidence_dir.glob("baseline-*.json"))
+    assert len(timestamped_subsequent) == 2

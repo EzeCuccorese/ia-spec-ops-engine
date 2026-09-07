@@ -39,6 +39,7 @@ from datetime import datetime
 EMAIL = os.environ.get("ATLASSIAN_EMAIL", "")
 TOKEN = os.environ.get("ATLASSIAN_API_TOKEN", "")
 BASE_URL = os.environ.get("ATLASSIAN_URL", "").rstrip("/")
+ATLASSIAN_TIMEOUT = float(os.environ.get("ATLASSIAN_TIMEOUT", "30.0"))
 
 
 def _get_base_url():
@@ -92,7 +93,7 @@ def _request(method, path, payload=None, base=None):
     data = json.dumps(payload).encode() if payload else None
     req = urllib.request.Request(url, data=data, headers=_auth_header(), method=method)
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=ATLASSIAN_TIMEOUT) as resp:
             body = resp.read().decode()
             return json.loads(body) if body else {}
     except urllib.error.HTTPError as e:
@@ -103,6 +104,9 @@ def _request(method, path, payload=None, base=None):
         except Exception:
             pass
         print(f"HTTP {e.code} Error calling {method} {path}:\n{err}", file=sys.stderr)
+        sys.exit(1)
+    except urllib.error.URLError as e:
+        print(f"Network error calling {method} {path}: {e.reason}", file=sys.stderr)
         sys.exit(1)
 
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from workspace_engine.config.init_config import (
     generate_default_config,
     init_config,
@@ -11,12 +13,29 @@ from workspace_engine.config.init_config import (
 )
 
 
-def test_generate_default_config() -> None:
+def test_generate_default_config_minimal() -> None:
     cfg = generate_default_config("my-test-proj", "my-domain.io")
+    assert cfg["project_name"] == "my-test-proj"
+    assert cfg["domain"] == "my-domain.io"
+    assert cfg["namespaces"] == ["core", "services", "tools"]
+    assert cfg["env_slugs"] == ["dev", "staging", "prod"]
+    assert cfg["repositories_dir_env_var"] == "PROJECT_REPOSITORIES_DIR"
+    assert cfg["local_envs_dir_name"] == "local-envs"
+    assert cfg["workspaces_dir_name"] == "workspaces"
+    assert cfg["toolkit_dir_name"] == "project-toolkit"
+    assert "url_pattern" in cfg
+    assert "environments" not in cfg
+    assert "artifact_registry_domain" not in cfg
+    assert "vpn" not in cfg
+
+
+def test_generate_default_config_enterprise() -> None:
+    cfg = generate_default_config("my-test-proj", "my-domain.io", enterprise=True)
     assert cfg["project_name"] == "my-test-proj"
     assert cfg["domain"] == "my-domain.io"
     assert "environments" in cfg
     assert len(cfg["environments"]) == 3
+    assert cfg["artifact_registry_domain"] == "generic"
     assert "vpn" in cfg
 
 
@@ -30,6 +49,21 @@ def test_resolve_config_target(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
     global_target = resolve_config_target(is_local=False, cwd=tmp_path)
     assert global_target == xdg / "specops" / "config.json"
+
+
+def test_resolve_config_target_mutually_exclusive() -> None:
+    with pytest.raises(ValueError, match="Flags --local and --global are mutually exclusive."):
+        resolve_config_target(is_local=True, is_global=True)
+
+
+def test_init_config_mutually_exclusive() -> None:
+    with pytest.raises(ValueError, match="Flags --local and --global are mutually exclusive."):
+        init_config(is_local=True, is_global=True)
+
+
+def test_run_config_init_mutually_exclusive_cli() -> None:
+    with pytest.raises(SystemExit):
+        run_config_init(["--local", "--global"])
 
 
 def test_init_config_local_creation(tmp_path: Path) -> None:
@@ -46,6 +80,23 @@ def test_init_config_local_creation(tmp_path: Path) -> None:
     data = json.loads(target.read_text(encoding="utf-8"))
     assert data["project_name"] == "custom-project"
     assert data["domain"] == "custom.corp"
+    assert "vpn" not in data
+
+
+def test_init_config_enterprise_creation(tmp_path: Path) -> None:
+    target = init_config(
+        is_local=True,
+        enterprise=True,
+        project_name="corp-project",
+        domain="corp.com",
+        non_interactive=True,
+        cwd=tmp_path,
+    )
+    assert target.exists()
+    data = json.loads(target.read_text(encoding="utf-8"))
+    assert data["project_name"] == "corp-project"
+    assert "vpn" in data
+    assert "environments" in data
 
 
 def test_init_config_existing_preserves_without_force(tmp_path: Path) -> None:
@@ -95,3 +146,34 @@ def test_run_config_init_cli(tmp_path: Path, monkeypatch) -> None:
     data = json.loads(target.read_text(encoding="utf-8"))
     assert data["project_name"] == "cli-proj"
     assert data["domain"] == "cli.test"
+    assert "vpn" not in data
+
+
+def test_run_config_init_enterprise_cli(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    exit_code = run_config_init(
+        ["--local", "--yes", "--enterprise", "--name", "ent-proj", "--domain", "ent.test"]
+    )
+    assert exit_code == 0
+
+    target = tmp_path / ".specops" / "config.json"
+    assert target.exists()
+    data = json.loads(target.read_text(encoding="utf-8"))
+    assert data["project_name"] == "ent-proj"
+    assert "vpn" in data
+    assert "environments" in data
+
+
+def test_run_config_init_devops_cli(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    exit_code = run_config_init(
+        ["--local", "--yes", "--devops", "--name", "devops-proj", "--domain", "devops.test"]
+    )
+    assert exit_code == 0
+
+    target = tmp_path / ".specops" / "config.json"
+    assert target.exists()
+    data = json.loads(target.read_text(encoding="utf-8"))
+    assert data["project_name"] == "devops-proj"
+    assert "vpn" in data
+    assert "environments" in data

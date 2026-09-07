@@ -5,8 +5,10 @@ import os
 import shutil
 import subprocess
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from spec.core.paths import PathBoundary
 from spec.core.result import CheckStatus
@@ -102,7 +104,7 @@ class PreflightManager:
         config_path = self.root / ".spec" / "verification.json"
         if not config_path.is_file():
             return BaselineGateResult(
-                passed=True,
+                passed=False,
                 status="SKIPPED",
                 summary="No verification checks configured in .spec/verification.json",
                 evidence_path=None,
@@ -113,7 +115,7 @@ class PreflightManager:
         checks = load_checks(self.root)
         if not checks:
             return BaselineGateResult(
-                passed=True,
+                passed=False,
                 status="SKIPPED",
                 summary="No verification checks configured",
                 evidence_path=None,
@@ -124,11 +126,25 @@ class PreflightManager:
         engine = VerificationEngine(self.root)
         report = engine.run(checks)
 
-        # Save structured baseline evidence in disk (isolated from prompt context)
+        # Save structured baseline evidence on disk non-destructively
         evidence_dir = self.root / ".spec" / "evidence" / "preflight"
         evidence_dir.mkdir(parents=True, exist_ok=True)
+        content = json.dumps(report.to_dict(), indent=2) + "\n"
+
+        now = datetime.now(UTC)
+        timestamp = now.strftime("%Y%m%d-%H%M%S")
+        timestamped_file = evidence_dir / f"baseline-{timestamp}.json"
+        if timestamped_file.exists():
+            timestamp = f"{timestamp}-{now.strftime('%f')}"
+            timestamped_file = evidence_dir / f"baseline-{timestamp}.json"
+        if timestamped_file.exists():
+            timestamp = f"{timestamp}-{uuid4().hex[:6]}"
+            timestamped_file = evidence_dir / f"baseline-{timestamp}.json"
+
+        timestamped_file.write_text(content, encoding="utf-8")
+
         evidence_file = evidence_dir / "baseline.json"
-        evidence_file.write_text(json.dumps(report.to_dict(), indent=2), encoding="utf-8")
+        evidence_file.write_text(content, encoding="utf-8")
 
         passed_count = sum(1 for c in report.checks if c.status is CheckStatus.PASS)
         total_count = len(report.checks)
@@ -233,6 +249,7 @@ class PreflightManager:
                 "evidence_path": baseline.evidence_path,
                 "checks_passed": baseline.checks_passed,
                 "checks_total": baseline.checks_total,
+                "baseline": baseline.status,
             }
 
         # 4. Provision worktree or use current directory

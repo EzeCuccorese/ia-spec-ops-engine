@@ -31,6 +31,7 @@ import re
 import sys
 import textwrap
 import urllib.error
+import urllib.parse
 import urllib.request
 
 # ── Configuration ─────────────────────────────────────────────────────────────
@@ -38,6 +39,7 @@ import urllib.request
 EMAIL = os.environ.get("ATLASSIAN_EMAIL", "")
 TOKEN = os.environ.get("ATLASSIAN_API_TOKEN", "")
 BASE_URL = os.environ.get("ATLASSIAN_URL", "").rstrip("/")
+ATLASSIAN_TIMEOUT = float(os.environ.get("ATLASSIAN_TIMEOUT", "30.0"))
 
 
 def _get_base_url():
@@ -85,7 +87,7 @@ def _request(method, url, payload=None):
     data = json.dumps(payload).encode() if payload else None
     req = urllib.request.Request(url, data=data, headers=_auth_header(), method=method)
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=ATLASSIAN_TIMEOUT) as resp:
             body = resp.read().decode()
             return json.loads(body) if body else {}
     except urllib.error.HTTPError as e:
@@ -96,6 +98,9 @@ def _request(method, url, payload=None):
         except Exception:
             pass
         print(f"HTTP {e.code} Error calling {method} {url}:\n{err}", file=sys.stderr)
+        sys.exit(1)
+    except urllib.error.URLError as e:
+        print(f"Network error calling {method} {url}: {e.reason}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -263,14 +268,22 @@ def cmd_read(page_id):
     print(md)
 
 
+def escape_cql_literal(text: str) -> str:
+    """Safely escape backslashes and double quotes for CQL literal strings."""
+    return text.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def cmd_search(query, space_key=None):
     """Searches pages by text query."""
-    cql = f'text ~ "{query}" AND type = page'
+    safe_query = escape_cql_literal(query)
+    cql = f'text ~ "{safe_query}" AND type = page'
     if space_key:
-        cql += f' AND space = "{space_key}"'
+        safe_space = escape_cql_literal(space_key)
+        cql += f' AND space = "{safe_space}"'
     data = get(f"/content/search?cql={urllib.parse.quote(cql)}&limit=15&expand=space,version")
     results = data.get("results", [])
     total = data.get("totalSize", len(results))
+    size = data.get("size", len(results))
 
     if not results:
         print("_No results found._")
@@ -282,6 +295,11 @@ def cmd_search(query, space_key=None):
     for r in results:
         space = r.get("space", {}).get("key", "—")
         print(f"| {r['id']} | {space} | {r.get('title', '')} |")
+
+    if total > size or total > len(results):
+        print(
+            f"\n_More results exist ({len(results)} of {total} shown). Refine query or specify --space._"
+        )
 
 
 def cmd_spaces():

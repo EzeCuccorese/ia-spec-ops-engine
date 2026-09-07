@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -55,12 +56,40 @@ class TaskState:
         )
 
 
+def _sanitize_task_id(task_id: str) -> str:
+    """Sanitize task ID to prevent directory traversal and unsafe characters.
+
+    Allows only [a-zA-Z0-9_.-], strips path separators and leading dots/slashes.
+    """
+    if not isinstance(task_id, str):
+        raise ValueError(f"Task ID must be a string, got {type(task_id).__name__}")
+    cleaned = task_id.replace("/", "").replace("\\", "")
+    cleaned = re.sub(r"[^a-zA-Z0-9_.-]", "", cleaned)
+    cleaned = cleaned.lstrip("./\\")
+    if not cleaned:
+        raise ValueError(f"Invalid or unsafe task ID: {task_id!r}")
+    return cleaned
+
+
 class SessionTracker:
+    _sanitize_task_id = staticmethod(_sanitize_task_id)
+
     def __init__(self, root_dir: Path | None = None) -> None:
-        custom = os.environ.get("CLAUDE_PROGRESS_DIR")
-        self.root_dir = root_dir or (
-            Path(custom) if custom else Path.home() / ".claude" / "progress"
-        )
+        if root_dir is not None:
+            self.root_dir = root_dir
+        else:
+            env_dir = os.environ.get("SPECOPS_PROGRESS_DIR") or os.environ.get(
+                "CLAUDE_PROGRESS_DIR"
+            )
+            if env_dir:
+                self.root_dir = Path(env_dir)
+            else:
+                specops_dir = Path.home() / ".specops" / "progress"
+                claude_dir = Path.home() / ".claude" / "progress"
+                if claude_dir.exists() and not specops_dir.exists():
+                    self.root_dir = claude_dir
+                else:
+                    self.root_dir = specops_dir
 
         legacy_dir = self.root_dir / "tareas"
         self.tasks_dir = self.root_dir / "tasks"
@@ -87,13 +116,26 @@ class SessionTracker:
                 pass
 
     def _json_path(self, task_id: str) -> Path:
-        return self.tasks_dir / f"{task_id}.json"
+        safe_id = self._sanitize_task_id(task_id)
+        resolved_tasks = self.tasks_dir.resolve()
+        path = (self.tasks_dir / f"{safe_id}.json").resolve()
+        if not path.is_relative_to(resolved_tasks):
+            raise ValueError(f"Task path {path} traverses outside tasks directory {self.tasks_dir}")
+        return path
 
     def _md_path(self, task_id: str) -> Path:
-        return self.tasks_dir / f"{task_id}.md"
+        safe_id = self._sanitize_task_id(task_id)
+        resolved_tasks = self.tasks_dir.resolve()
+        path = (self.tasks_dir / f"{safe_id}.md").resolve()
+        if not path.is_relative_to(resolved_tasks):
+            raise ValueError(f"Task path {path} traverses outside tasks directory {self.tasks_dir}")
+        return path
 
     def get_task(self, task_id: str) -> TaskState | None:
-        p = self._json_path(task_id)
+        try:
+            p = self._json_path(task_id)
+        except ValueError:
+            return None
         if not p.exists():
             return None
         try:
@@ -107,8 +149,8 @@ class SessionTracker:
         try:
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(json.dumps(task.to_dict(), indent=2), encoding="utf-8")
-        except OSError:
-            pass
+        except OSError as e:
+            raise OSError(f"Failed to save task '{task.id}' to {p}: {e}") from e
 
     def append_log(self, task_id: str, entry: str) -> None:
         md_file = self._md_path(task_id)
@@ -117,11 +159,14 @@ class SessionTracker:
             md_file.parent.mkdir(parents=True, exist_ok=True)
             with open(md_file, "a", encoding="utf-8") as f:
                 f.write(f"\n### {ts}\n\n{entry.strip()}\n")
-        except OSError:
-            pass
+        except OSError as e:
+            raise OSError(f"Failed to append log for task '{task_id}' to {md_file}: {e}") from e
 
     def read_log(self, task_id: str) -> str:
-        md_file = self._md_path(task_id)
+        try:
+            md_file = self._md_path(task_id)
+        except ValueError:
+            return ""
         if not md_file.exists():
             return ""
         return md_file.read_text(encoding="utf-8")

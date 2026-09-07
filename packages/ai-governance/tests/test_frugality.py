@@ -128,3 +128,38 @@ def test_context_guard() -> None:
 
     critical = ContextGuard.evaluate(110_000, threshold=100_000)
     assert critical["status"] == "critical"
+
+
+def test_run_pre_bash_no_permission_decision(monkeypatch, capsys, tmp_path) -> None:
+    from io import StringIO
+
+    from ai_governance.frugality import cli
+
+    monkeypatch.setattr(cli, "get_runtime_dir", lambda: tmp_path)
+    input_payload = {
+        "tool_input": {"command": "cat package-lock.json"},
+        "session_id": "test-isolated-session",
+    }
+    monkeypatch.setattr("sys.stdin", StringIO(json.dumps(input_payload)))
+
+    cli.run_pre_bash({})
+    out = capsys.readouterr().out
+    assert out.strip() != ""
+    data = json.loads(out)
+    hook_out = data["hookSpecificOutput"]
+    assert hook_out["hookEventName"] == "PreToolUse"
+    assert "additionalContext" in hook_out
+    assert "permissionDecision" not in hook_out
+
+
+def test_get_runtime_dir_neutral_default(monkeypatch, tmp_path) -> None:
+    from pathlib import Path
+
+    from ai_governance.frugality.cli import get_runtime_dir
+
+    monkeypatch.delenv("SPECOPS_USAGE_DIR", raising=False)
+    monkeypatch.delenv("CLAUDE_USAGE_DIR", raising=False)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    d = get_runtime_dir()
+    assert d == tmp_path / ".specops" / "usage-monitor"

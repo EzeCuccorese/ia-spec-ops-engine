@@ -95,3 +95,71 @@ def test_confluence_cmd_read(mock_urlopen, monkeypatch, capsys):
     captured = capsys.readouterr().out
     assert "# Architecture Doc" in captured
     assert "Hello Confluence" in captured
+
+
+@patch("urllib.request.urlopen")
+def test_atlassian_urlopen_timeout(mock_urlopen, monkeypatch):
+    monkeypatch.setenv("ATLASSIAN_EMAIL", "test@example.com")
+    monkeypatch.setenv("ATLASSIAN_API_TOKEN", "fake_token")
+    monkeypatch.setenv("ATLASSIAN_URL", "https://company.atlassian.net")
+
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = b"{}"
+    mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+    jira.get("/issue/TEST-1")
+    assert mock_urlopen.call_args.kwargs.get("timeout") == 30.0
+
+    confluence.get("/content/123")
+    assert mock_urlopen.call_args.kwargs.get("timeout") == 30.0
+
+
+def test_confluence_escape_cql_literal():
+    raw = 'hello "world" \\ test'
+    escaped = confluence.escape_cql_literal(raw)
+    assert escaped == r"hello \"world\" \\ test"
+
+    # Plain string remains unchanged
+    assert confluence.escape_cql_literal("simple query") == "simple query"
+
+
+@patch("urllib.request.urlopen")
+def test_confluence_cmd_search_pagination(mock_urlopen, monkeypatch, capsys):
+    monkeypatch.setenv("ATLASSIAN_EMAIL", "test@example.com")
+    monkeypatch.setenv("ATLASSIAN_API_TOKEN", "fake_token")
+    monkeypatch.setenv("ATLASSIAN_URL", "https://company.atlassian.net")
+
+    mock_resp = MagicMock()
+    # 2 results returned out of 10 total
+    mock_resp.read.return_value = (
+        b'{"results": [{"id": "1", "title": "Doc 1", "space": {"key": "ENG"}}, '
+        b'{"id": "2", "title": "Doc 2", "space": {"key": "ENG"}}], '
+        b'"size": 2, "totalSize": 10}'
+    )
+    mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+    confluence.cmd_search('architecture "spec" \\ 1', space_key="ENG")
+    captured = capsys.readouterr().out
+    assert "Results for" in captured
+    assert "More results exist (2 of 10 shown)" in captured
+
+
+@patch("urllib.request.urlopen")
+def test_atlassian_urlerror_handling(mock_urlopen, monkeypatch, capsys):
+    import urllib.error
+
+    monkeypatch.setenv("ATLASSIAN_EMAIL", "test@example.com")
+    monkeypatch.setenv("ATLASSIAN_API_TOKEN", "fake_token")
+    monkeypatch.setenv("ATLASSIAN_URL", "https://company.atlassian.net")
+
+    mock_urlopen.side_effect = urllib.error.URLError("Connection refused")
+
+    with pytest.raises(SystemExit):
+        jira.get("/issue/FAIL-1")
+    err = capsys.readouterr().err
+    assert "Network error" in err
+
+    with pytest.raises(SystemExit):
+        confluence.get("/content/FAIL-1")
+    err = capsys.readouterr().err
+    assert "Network error" in err

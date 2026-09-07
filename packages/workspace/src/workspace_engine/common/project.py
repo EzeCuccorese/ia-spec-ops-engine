@@ -5,9 +5,18 @@ workspace_engine.common.project — Detección determinista de tipo de proyecto,
 from __future__ import annotations
 
 import json
-from enum import StrEnum
+import sys
 from pathlib import Path
 from typing import Any
+
+if sys.version_info >= (3, 11):  # noqa: UP036
+    from enum import StrEnum
+else:
+    from enum import Enum
+
+    class StrEnum(str, Enum):  # noqa: UP042
+        def __str__(self) -> str:
+            return str(self.value)
 
 
 class ProjectType(StrEnum):
