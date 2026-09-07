@@ -70,7 +70,8 @@ packages/ai-governance/
 ├── src/ai_governance/
 │   ├── cli.py                 # Master unified CLI dispatcher (`governance`)
 │   ├── rules/                 # Standards catalog engine and injector (`rules`)
-│   ├── adapters/              # Agent adapters (Claude, Codex, Cursor, Windsurf)
+│   │   ├── agents.py          # Universal AGENTS.md rules injector & manager
+│   │   └── core/              # Catalog, injector, storage, and TUI components
 │   ├── frugality/             # Test trimmers and context guards (`frugal`)
 │   ├── telemetry/             # ANSI statusline, cost monitor, and `ritmo` algorithm
 │   ├── session/               # Cross-session progress tracker (`progreso`)
@@ -79,9 +80,9 @@ packages/ai-governance/
 ```
 
 ### Component Data Flow
-1. **Standards & Adapters**: `rules` reads Markdown definitions from `catalog/` and utilizes `adapters/` to inject delimited sections with safe markers (`<!-- managed by specops: start -->`). Uninstalling cleanly cleans only the injected block without touching user configurations.
+1. **Standards & Agents**: `rules` reads Markdown definitions from `catalog/` and injects delimited sections with safe markers (`<!-- rules:start -->`) directly into `AGENTS.md`. Uninstalling cleanly removes only the injected block without touching user configurations.
 2. **Context Frugality Engine**: Intercepts Bash command outputs via stdin/stdout (`--post-bash`). It detects test runners, elides green passed lines, and surfaces exclusively failure blocks (`FAILURES`), broken assertions, and the summary line.
-3. **Session Persistence**: Stores the active state in `~/.claude/progreso/<id>.json` (compact) and extended logs in `<id>.md`. Enables any agent to resolve the active task from the current git repository and branch via `progreso aqui`.
+3. **Session Persistence**: Stores the active state in `~/.specops/progreso/<id>.json` (compact) and extended logs in `<id>.md`. Enables any agent to resolve the active task from the current git repository and branch via `progreso aqui`.
 
 ---
 
@@ -101,7 +102,7 @@ governance task         # Manage cross-session tasks
 ---
 
 ### 2. Software Engineering Standards (`rules`)
-Manages the 28 canonical rules and reversibly injects them into configured AI agents.
+Manages the 28 canonical rules and reversibly injects them into configured AI agents via `AGENTS.md`.
 
 ```bash
 # List all 28 canonical rules with their triggers
@@ -119,7 +120,7 @@ rules uninstall --global
 rules uninstall --local
 ```
 
-**Supported AI Coding Agents**: Claude Code (`CLAUDE.md`), OpenAI Codex (`AGENTS.md`), Cursor (`.cursorrules`), Windsurf (`.windsurfrules`).
+**Universal Agent Standard**: All AI coding agents (Antigravity, Claude Code, Cursor, Windsurf, Aider, etc.) follow the universal open standard `AGENTS.md`.
 
 ---
 
