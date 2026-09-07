@@ -1,5 +1,5 @@
 """
-devscripts_common.colors — Paleta de colores ANSI y consola Rich unificada para Devscripts.
+workspace_engine.common.colors — Paleta de colores ANSI y consola Rich unificada para Workspace Engine.
 """
 
 from __future__ import annotations

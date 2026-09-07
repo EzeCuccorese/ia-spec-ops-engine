@@ -1,6 +1,5 @@
 """
 workspace_engine.utils — Utilidades de terminal, colores, detección de entorno y procesos para Workspace Engine.
-Re-exporta y extiende utilidades de devscripts_common para mantener compatibilidad.
 """
 
 from __future__ import annotations

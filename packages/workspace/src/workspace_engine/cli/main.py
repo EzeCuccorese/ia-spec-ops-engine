@@ -194,6 +194,14 @@ def main() -> None:
         "doctor", help="Verify system tools, compilers, and development environment"
     )
 
+    # ws config
+    p_config = subparsers.add_parser(
+        "config", help="Initialize and manage SpecOps workspace configuration"
+    )
+    p_config.add_argument(
+        "config_args", nargs=argparse.REMAINDER, help="Subcommand and options for ws config"
+    )
+
     args = parser.parse_args()
 
     if not args.command:
@@ -201,7 +209,14 @@ def main() -> None:
         sys.exit(0)
 
     # Delegate to corresponding modules
-    if args.command == "doctor":
+    if args.command == "config":
+        from workspace_engine.config.init_config import run_config_init
+
+        cfg_args = args.config_args
+        if cfg_args and cfg_args[0] == "init":
+            cfg_args = cfg_args[1:]
+        sys.exit(run_config_init(cfg_args))
+    elif args.command == "doctor":
         doctor_check()
     elif args.command == "hooks":
         from workspace_engine.cli.manage_hooks import main as hooks_main
@@ -264,9 +279,9 @@ def main() -> None:
 
         run_main()
     elif args.command == "kube":
-        from workspace_engine.cli.kube_env import main as kube_main
+        from workspace_engine.cli.kube.main import main as kube_main
 
-        kube_main()
+        sys.exit(kube_main(args.action))
 
 
 if __name__ == "__main__":

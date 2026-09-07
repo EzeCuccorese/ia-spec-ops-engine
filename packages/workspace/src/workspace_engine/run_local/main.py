@@ -127,10 +127,10 @@ def _launch_and_report(configs: list, db_cfg: dict) -> tuple:
 def main():
     if not _CONFIG_LOADED and "pytest" not in sys.modules:
         print(
-            f"{RED}Error: No se encontró la configuración en ~/.config/devscripts/config.json ni config.json en el directorio actual.{RESET}"
+            f"{RED}Error: No se encontró la configuración en ~/.config/specops/config.json ni config.json en el directorio actual.{RESET}"
         )
         print(
-            f"Por favor, copia config.json.template a ~/.config/devscripts/config.json y edita sus valores.{RESET}"
+            f"Por favor, copia config.json.template a ~/.config/specops/config.json y edita sus valores.{RESET}"
         )
         sys.exit(1)
 

@@ -32,10 +32,31 @@ def build_parser() -> argparse.ArgumentParser:
 
     agent = subparsers.add_parser("agent", help="Manage reversible coding-agent adapters")
     agent_sub = agent.add_subparsers(dest="agent_command", required=True)
-    agent_install = agent_sub.add_parser("install", help="Install the Codex AGENTS.md adapter")
+    agent_install = agent_sub.add_parser("install", help="Install coding agent governance adapters")
+    agent_install.add_argument(
+        "agent",
+        nargs="?",
+        default=None,
+        help="Agent to install (antigravity, codex, claude, cursor, windsurf, aider, copilot, gemini, custom, all)",
+    )
     agent_install.add_argument("--root", type=Path, default=Path.cwd())
-    agent_uninstall = agent_sub.add_parser("uninstall", help="Remove Spec-owned AGENTS.md")
+    agent_install.add_argument(
+        "--file", type=str, default=None, help="Target file for custom agent (defaults to AGENTS.md)"
+    )
+    agent_install.add_argument(
+        "--yes", "-y", action="store_true", help="Non-interactive execution with defaults"
+    )
+    agent_uninstall = agent_sub.add_parser("uninstall", help="Remove Spec-owned governance adapters")
+    agent_uninstall.add_argument(
+        "agent",
+        nargs="?",
+        default=None,
+        help="Agent to uninstall (antigravity, codex, claude, cursor, windsurf, aider, copilot, gemini, custom, all)",
+    )
     agent_uninstall.add_argument("--root", type=Path, default=Path.cwd())
+    agent_uninstall.add_argument(
+        "--file", type=str, default=None, help="Target file for custom agent (defaults to AGENTS.md)"
+    )
     agent_uninstall.add_argument(
         "--apply", action="store_true", help="Delete after ownership validation; default is dry-run"
     )
@@ -307,24 +328,70 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(0)
         if args.command == "agent" and args.agent_command == "install":
             from spec.adapters import SPEC_ADAPTERS
-            from spec.core.tui import select_multiple
 
-            options = [(k, label) for k, (label, _) in SPEC_ADAPTERS.items()]
-            selected_keys = select_multiple(
-                "Select AI coding agents to configure with Spec governance:",
-                options,
-                default_checked=[k for k, _ in options],
-            )
-            for k in selected_keys:
+            if args.agent:
+                target_agent = args.agent.strip().lower()
+                if target_agent == "all":
+                    keys_to_install = [k for k in SPEC_ADAPTERS if k not in ("codex", "custom")]
+                elif target_agent in SPEC_ADAPTERS:
+                    keys_to_install = [target_agent]
+                else:
+                    valid_keys = ", ".join(SPEC_ADAPTERS.keys())
+                    print(
+                        f"error: Unknown agent '{args.agent}'. Choose from: {valid_keys}, all",
+                        file=sys.stderr,
+                    )
+                    raise SystemExit(1)
+            else:
+                if sys.stdin.isatty() and not args.yes:
+                    from spec.core.tui import select_multiple
+
+                    options = [(k, label) for k, (label, _) in SPEC_ADAPTERS.items() if k not in ("codex", "custom")]
+                    keys_to_install = select_multiple(
+                        "Select AI coding agents to configure with Spec governance:",
+                        options,
+                        default_checked=[k for k, _ in options],
+                    )
+                else:
+                    keys_to_install = ["antigravity"]
+
+            for k in keys_to_install:
                 label, cls = SPEC_ADAPTERS[k]
-                res = cls(args.root).install()
+                adapter_instance = (
+                    cls(args.root, target=args.file)
+                    if k == "custom" and args.file
+                    else cls(args.root)
+                )
+                res = adapter_instance.install()
                 print(f"Configured {label}: {res.path}")
             raise SystemExit(0)
         if args.command == "agent" and args.agent_command == "uninstall":
             from spec.adapters import SPEC_ADAPTERS
 
-            for label, cls in SPEC_ADAPTERS.values():
-                res = cls(args.root).uninstall(dry_run=not args.apply)
+            if args.agent:
+                target_agent = args.agent.strip().lower()
+                if target_agent == "all":
+                    keys_to_uninstall = [k for k in SPEC_ADAPTERS if k not in ("codex", "custom")]
+                elif target_agent in SPEC_ADAPTERS:
+                    keys_to_uninstall = [target_agent]
+                else:
+                    valid_keys = ", ".join(SPEC_ADAPTERS.keys())
+                    print(
+                        f"error: Unknown agent '{args.agent}'. Choose from: {valid_keys}, all",
+                        file=sys.stderr,
+                    )
+                    raise SystemExit(1)
+            else:
+                keys_to_uninstall = [k for k in SPEC_ADAPTERS if k not in ("codex", "custom")]
+
+            for k in keys_to_uninstall:
+                label, cls = SPEC_ADAPTERS[k]
+                adapter_instance = (
+                    cls(args.root, target=args.file)
+                    if k == "custom" and args.file
+                    else cls(args.root)
+                )
+                res = adapter_instance.uninstall(dry_run=not args.apply)
                 if not args.apply and res.would_delete:
                     print(f"Would delete owned adapter for {label}: {res.path}")
                 elif args.apply:

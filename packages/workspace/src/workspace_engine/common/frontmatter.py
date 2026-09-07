@@ -1,5 +1,5 @@
 """
-devscripts_common.frontmatter — Parser unificado de YAML frontmatter para reglas y especificaciones markdown.
+workspace_engine.common.frontmatter — Parser unificado de YAML frontmatter para reglas y especificaciones markdown.
 """
 
 from __future__ import annotations
