@@ -31,7 +31,10 @@ def format_tokens(total: int) -> str:
 
 
 def format_statusline(
-    payload: dict[str, Any], include_ritmo: bool = False, monthly_budget: float = 0.0
+    payload: dict[str, Any],
+    include_ritmo: bool = False,
+    monthly_budget: float = 0.0,
+    monthly_spend_usd: float | None = None,
 ) -> str:
     cost = float((payload.get("cost") or {}).get("total_cost_usd") or 0.0)
     ctx = payload.get("context_window") or {}
@@ -81,7 +84,19 @@ def format_statusline(
     if include_ritmo and monthly_budget > 0:
         from .ritmo import RitmoCalculator
 
-        ritmo_stat = RitmoCalculator.calculate_pace(monthly_budget, actual_spend_usd=cost)
+        if monthly_spend_usd is not None:
+            ritmo_spend = float(monthly_spend_usd)
+        elif payload.get("monthly_spend_usd") is not None:
+            ritmo_spend = float(payload["monthly_spend_usd"])
+        elif (
+            isinstance(payload.get("cost"), dict)
+            and payload["cost"].get("monthly_cost_usd") is not None
+        ):
+            ritmo_spend = float(payload["cost"]["monthly_cost_usd"])
+        else:
+            ritmo_spend = cost
+
+        ritmo_stat = RitmoCalculator.calculate_pace(monthly_budget, actual_spend_usd=ritmo_spend)
         ritmo_color = GRN if ritmo_stat.is_under_budget else RED
         parts.append(
             f"{sep}{LBL}ritmo:{RST} {ritmo_color}d{ritmo_stat.elapsed_business_days}/{ritmo_stat.total_business_days} ({ritmo_stat.status_label}){RST}"

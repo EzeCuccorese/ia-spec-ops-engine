@@ -24,10 +24,10 @@ def test_agents_adapter_install_and_uninstall_reversibly(tmp_path: Path) -> None
 
     # 3. Uninstall
     adapter.uninstall(tmp_path, is_global=False)
-    if target.exists():
-        remaining = target.read_text(encoding="utf-8")
-        assert "<!-- rules:start -->" not in remaining
-        assert custom_note in remaining
+    assert target.exists()
+    remaining = target.read_text(encoding="utf-8")
+    assert "<!-- rules:start -->" not in remaining
+    assert custom_note in remaining
 
 
 def test_all_adapters_registry(tmp_path: Path) -> None:

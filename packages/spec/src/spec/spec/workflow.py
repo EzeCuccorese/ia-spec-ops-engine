@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -11,6 +12,7 @@ from enum import StrEnum
 from pathlib import Path
 from uuid import uuid4
 
+from spec.core.ownership import sha256_file
 from spec.core.paths import PathBoundary
 from spec.core.result import CheckStatus, VerificationReport
 
@@ -55,6 +57,50 @@ def slugify(value: str) -> str:
     if not slug:
         raise ValueError("Feature name must contain at least one letter or number")
     return slug
+
+
+def compute_tree_fingerprint(root: str | Path) -> str:
+    """Computes deterministic SHA-256 fingerprint of repository tree, excluding volatile paths."""
+    root_path = Path(root).resolve()
+    if not root_path.exists():
+        return hashlib.sha256(b"").hexdigest()
+
+    excluded_dirs = {
+        ".git",
+        ".venv",
+        "node_modules",
+        "__pycache__",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".specops",
+    }
+
+    entries: list[tuple[str, str]] = []
+    for dirpath, dirnames, filenames in os.walk(root_path):
+        dirnames[:] = [d for d in dirnames if d not in excluded_dirs]
+        rel_dir = Path(dirpath).relative_to(root_path)
+
+        if rel_dir == Path(".spec") and "evidence" in dirnames:
+            dirnames.remove("evidence")
+
+        for f in filenames:
+            full_path = Path(dirpath, f)
+            rel_file = full_path.relative_to(root_path).as_posix()
+            if rel_file == ".spec/state.json" or (
+                rel_dir == Path(".spec") and f.startswith(".state-")
+            ):
+                continue
+            if rel_file == ".spec/evidence" or rel_file.startswith(".spec/evidence/"):
+                continue
+
+            if full_path.is_file():
+                entries.append((rel_file, sha256_file(full_path)))
+
+    entries.sort(key=lambda item: item[0])
+    hasher = hashlib.sha256()
+    for rel_path, file_hash in entries:
+        hasher.update(f"{rel_path}:{file_hash}\n".encode())
+    return hasher.hexdigest()
 
 
 class Workflow:
@@ -203,10 +249,12 @@ class Workflow:
             f"{recorded_at.strftime('%Y%m%dT%H%M%S.%fZ')}-{uuid4().hex[:8]}.json",
         )
         evidence_path = self.boundary.resolve(relative_path)
+        tree_fingerprint = compute_tree_fingerprint(self.boundary.root)
         payload = {
             "schema_version": 1,
             "feature": current.feature,
             "recorded_at": recorded_at.isoformat(),
+            "tree_fingerprint": tree_fingerprint,
             "report": report.to_dict(),
         }
         self._create_artifact(evidence_path, json.dumps(payload, indent=2) + "\n")
@@ -229,9 +277,19 @@ class Workflow:
             raise InvalidTransitionError("Finish requires verification status PASS")
         if current.evidence_path is None:
             raise InvalidTransitionError("Finish requires recorded verification evidence")
-        self._require_nonempty(
-            self.boundary.resolve(current.evidence_path), "verification evidence"
-        )
+        evidence_file = self.boundary.resolve(current.evidence_path)
+        self._require_nonempty(evidence_file, "verification evidence")
+        try:
+            evidence_data = json.loads(evidence_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            evidence_data = {}
+        recorded_fingerprint = evidence_data.get("tree_fingerprint")
+        if recorded_fingerprint:
+            current_fingerprint = compute_tree_fingerprint(self.boundary.root)
+            if current_fingerprint != recorded_fingerprint:
+                raise InvalidTransitionError(
+                    "Finish rejected: Working tree was modified after recorded verification (fingerprint mismatch)"
+                )
         feature_dir = self.feature_dir(current.feature)
         spec_file = feature_dir / "spec.md"
         if spec_file.is_file():

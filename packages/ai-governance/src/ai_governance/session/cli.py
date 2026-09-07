@@ -116,7 +116,11 @@ def main() -> int:
                 "[red]Specify a task_id or run within a branch containing a ticket.[/red]"
             )
             return 1
-        t = tracker.get_task(target)
+        try:
+            t = tracker.get_task(target)
+        except (ValueError, OSError) as e:
+            console.print(f"[red]Error retrieving task '{target}': {e}[/red]")
+            return 1
         if not t:
             console.print(f"[red]Task '{target}' not found.[/red]")
             return 1
@@ -124,10 +128,14 @@ def main() -> int:
         return 0
 
     elif args.cmd in ("new", "nueva"):
-        t = TaskState(id=args.task_id, title=args.title, summary=args.summary)
-        tracker.save_task(t)
-        console.print(f"[green]✓ Task '{args.task_id}' created successfully.[/green]")
-        return 0
+        try:
+            t = TaskState(id=args.task_id, title=args.title, summary=args.summary)
+            tracker.save_task(t)
+            console.print(f"[green]✓ Task '{args.task_id}' created successfully.[/green]")
+            return 0
+        except (ValueError, OSError) as e:
+            console.print(f"[red]Error creating task '{args.task_id}': {e}[/red]")
+            return 1
 
     return 0
 

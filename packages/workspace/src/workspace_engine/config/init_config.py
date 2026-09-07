@@ -17,14 +17,21 @@ from rich.console import Console
 console = Console()
 
 
-def generate_default_config(project_name: str, domain: str) -> dict:
-    """Returns a fully populated, standard SpecOps configuration dictionary."""
-    return {
+def generate_default_config(project_name: str, domain: str, *, enterprise: bool = False) -> dict:
+    """Returns a SpecOps configuration dictionary (minimal by default, or full enterprise profile)."""
+    cfg = {
         "project_name": project_name,
         "domain": domain,
         "namespaces": ["core", "services", "tools"],
         "env_slugs": ["dev", "staging", "prod"],
-        "environments": [
+        "repositories_dir_env_var": "PROJECT_REPOSITORIES_DIR",
+        "local_envs_dir_name": "local-envs",
+        "workspaces_dir_name": "workspaces",
+        "toolkit_dir_name": "project-toolkit",
+        "url_pattern": rf"https?://([a-z0-9-]+)\.(?:dev|prod)\.{re.escape(domain)}(/[^\s]*)?",
+    }
+    if enterprise:
+        cfg["environments"] = [
             {
                 "id": "dev",
                 "cluster": "dev",
@@ -55,22 +62,17 @@ def generate_default_config(project_name: str, domain: str) -> dict:
                     "Restricted access; monitored and governed.",
                 ],
             },
-        ],
-        "artifact_registry_domain": "generic",
-        "repositories_dir_env_var": "PROJECT_REPOSITORIES_DIR",
-        "local_envs_dir_name": "local-envs",
-        "workspaces_dir_name": "workspaces",
-        "toolkit_dir_name": "project-toolkit",
-        "url_pattern": rf"https?://([a-z0-9-]+)\.(?:dev|prod)\.{re.escape(domain)}(/[^\s]*)?",
-        "vpn": {
+        ]
+        cfg["artifact_registry_domain"] = "generic"
+        cfg["vpn"] = {
             "config_dev": "~/project-dev.ovpn",
             "config_prod": "~/project-prd.ovpn",
             "session_name_dev": f"{project_name}-dev-session",
             "session_name_prod": f"{project_name}-prd-session",
             "internal_host": f"internal.service.{domain}",
             "validation_timeout": 3,
-        },
-    }
+        }
+    return cfg
 
 
 def resolve_config_target(
@@ -81,6 +83,9 @@ def resolve_config_target(
     cwd: Path | None = None,
 ) -> Path:
     """Determines the target path for config.json based on scope flags."""
+    if is_local and is_global:
+        raise ValueError("Flags --local and --global are mutually exclusive.")
+
     if custom_path:
         return custom_path
 
@@ -105,6 +110,8 @@ def init_config(
     force: bool = False,
     non_interactive: bool = False,
     cwd: Path | None = None,
+    enterprise: bool = False,
+    devops: bool = False,
 ) -> Path:
     """Initializes a new SpecOps config.json file.
 
@@ -144,7 +151,8 @@ def init_config(
             prompt_domain = input(f"Base domain [{default_domain}]: ").strip()
             domain = prompt_domain or default_domain
 
-    config_data = generate_default_config(project_name, domain)
+    is_enterprise = enterprise or devops
+    config_data = generate_default_config(project_name, domain, enterprise=is_enterprise)
 
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(config_data, indent=2) + "\n", encoding="utf-8")
@@ -161,16 +169,24 @@ def run_config_init(argv: list[str] | None = None) -> int:
         prog="specops config init",
         description="Initialize SpecOps configuration (.specops/config.json or ~/.config/specops/config.json).",
     )
-    parser.add_argument(
+    scope_group = parser.add_mutually_exclusive_group()
+    scope_group.add_argument(
         "--local",
         action="store_true",
         help="Initialize project-local configuration (.specops/config.json)",
     )
-    parser.add_argument(
+    scope_group.add_argument(
         "--global",
         dest="is_global",
         action="store_true",
         help="Initialize user-global configuration (~/.config/specops/config.json)",
+    )
+    parser.add_argument(
+        "--enterprise",
+        "--devops",
+        dest="enterprise",
+        action="store_true",
+        help="Generate full enterprise configuration with environments, VPN, and ArtifactRegistry",
     )
     parser.add_argument(
         "--path",
@@ -215,6 +231,7 @@ def run_config_init(argv: list[str] | None = None) -> int:
             domain=args.domain,
             force=args.force,
             non_interactive=args.non_interactive,
+            enterprise=args.enterprise,
         )
         return 0
     except Exception as exc:

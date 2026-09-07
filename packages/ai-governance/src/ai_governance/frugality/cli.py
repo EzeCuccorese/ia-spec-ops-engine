@@ -31,7 +31,11 @@ DEFAULT_CONFIG = {
 
 
 def get_runtime_dir() -> Path:
-    base = os.environ.get("CLAUDE_USAGE_DIR") or str(Path.home() / ".claude" / "usage-monitor")
+    base = (
+        os.environ.get("SPECOPS_USAGE_DIR")
+        or os.environ.get("CLAUDE_USAGE_DIR")
+        or str(Path.home() / ".specops" / "usage-monitor")
+    )
     p = Path(base)
     p.mkdir(parents=True, exist_ok=True)
     return p
@@ -61,7 +65,6 @@ def run_pre_bash(cfg: dict) -> None:
                 {
                     "hookSpecificOutput": {
                         "hookEventName": "PreToolUse",
-                        "permissionDecision": "allow",
                         "additionalContext": advice,
                     }
                 }

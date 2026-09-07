@@ -103,6 +103,17 @@ def test_cli_dispatch_doctor() -> None:
         mock_wdoc.assert_called_once()
 
 
+def test_cli_dispatch_doctor_with_remaining_args() -> None:
+    with (
+        patch.object(sys, "argv", ["governance", "doctor", "--json"]),
+        patch("spec.cli.run_doctor", return_value=0) as mock_sdoc,
+        patch("workspace_engine.cli.main.doctor_check") as mock_wdoc,
+    ):
+        assert main() == 0
+        mock_sdoc.assert_called_once_with(as_json=True)
+        mock_wdoc.assert_called_once()
+
+
 def test_cli_dispatch_audit() -> None:
     with (
         patch.object(sys, "argv", ["governance", "audit"]),
@@ -110,3 +121,67 @@ def test_cli_dispatch_audit() -> None:
     ):
         assert main() == 0
         mock_audit.assert_called_once()
+
+
+def test_cli_dispatch_audit_with_remaining_args() -> None:
+    from pathlib import Path
+
+    with (
+        patch.object(sys, "argv", ["governance", "audit", "--json"]),
+        patch("spec.cli.run_audit", return_value=0) as mock_audit,
+    ):
+        assert main() == 0
+        mock_audit.assert_called_once_with(Path.cwd(), as_json=True)
+
+
+def test_cli_dispatch_config_missing_sibling(capsys) -> None:
+    with (
+        patch.object(sys, "argv", ["governance", "config", "init"]),
+        patch.dict(sys.modules, {"workspace_engine.config.init_config": None}),
+    ):
+        assert main() == 1
+        captured = capsys.readouterr()
+        assert "Notice:" in captured.out
+        assert "workspace" in captured.out
+
+
+def test_cli_dispatch_agent_missing_sibling(capsys) -> None:
+    with (
+        patch.object(sys, "argv", ["governance", "agent", "install"]),
+        patch.dict(sys.modules, {"spec.cli": None}),
+    ):
+        assert main() == 1
+        captured = capsys.readouterr()
+        assert "Notice:" in captured.out
+        assert "spec" in captured.out
+
+
+def test_cli_dispatch_doctor_missing_spec(capsys) -> None:
+    with (
+        patch.object(sys, "argv", ["governance", "doctor"]),
+        patch.dict(sys.modules, {"spec.cli": None}),
+    ):
+        assert main() == 1
+        captured = capsys.readouterr()
+        assert "Notice:" in captured.out
+
+
+def test_cli_dispatch_doctor_missing_workspace(capsys) -> None:
+    with (
+        patch.object(sys, "argv", ["governance", "doctor"]),
+        patch.dict(sys.modules, {"workspace_engine.cli.main": None}),
+    ):
+        assert main() == 1
+        captured = capsys.readouterr()
+        assert "Notice:" in captured.out
+
+
+def test_cli_dispatch_audit_missing_sibling(capsys) -> None:
+    with (
+        patch.object(sys, "argv", ["governance", "audit"]),
+        patch.dict(sys.modules, {"spec.cli": None}),
+    ):
+        assert main() == 1
+        captured = capsys.readouterr()
+        assert "Notice:" in captured.out
+        assert "spec" in captured.out

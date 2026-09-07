@@ -63,7 +63,6 @@ packages/spec/
 │   │                          # zero-dependency AST mutation testing (mutate.py)
 │   ├── agents.py              # Universal AGENTS.md governance adapter
 │   └── cli.py                 # Master CLI dispatcher
-├── workbench/                 # Interactive SDD demo with Gemini & Spring Boot
 ├── skills/                    # Agent skills (spec-new, spec-plan, spec-verify, spec-finish)
 └── tests/                     # Unit and end-to-end test suites
 ```

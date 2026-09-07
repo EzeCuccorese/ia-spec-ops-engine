@@ -165,8 +165,33 @@ def test_finish_enforces_scenario_traceability(tmp_path: Path) -> None:
         "# Work Log\n\n- @s2 -> test_second\n- @s3 -> test_third\n",
         encoding="utf-8",
     )
+    _, evidence_path = workflow.record_verification(report)
 
     snapshot = workflow.finish()
     assert snapshot.stage is Stage.COMPLETE
 
     assert snapshot.evidence_path == str(evidence_path.relative_to(tmp_path))
+
+
+def test_finish_rejects_modified_working_tree_after_verification(tmp_path: Path) -> None:
+    workflow = _workflow_at_work(tmp_path)
+    src_file = tmp_path / "src" / "main.py"
+    src_file.parent.mkdir(parents=True, exist_ok=True)
+    src_file.write_text("def hello(): return 'world'\n", encoding="utf-8")
+
+    report = VerificationReport(checks=(CheckResult(id="tests", status=CheckStatus.PASS),))
+    workflow.record_verification(report)
+
+    # Modifying a source file after verification triggers fingerprint mismatch
+    src_file.write_text("def hello(): return 'tampered'\n", encoding="utf-8")
+
+    with pytest.raises(
+        InvalidTransitionError,
+        match="Finish rejected: Working tree was modified after recorded verification \\(fingerprint mismatch\\)",
+    ):
+        workflow.finish()
+
+    # Re-verifying allows finish() to pass
+    workflow.record_verification(report)
+    snapshot = workflow.finish()
+    assert snapshot.stage is Stage.COMPLETE

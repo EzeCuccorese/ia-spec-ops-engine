@@ -37,7 +37,18 @@ LOG_KEEP_BYTES = 20 * 1024 * 1024  # keep last 20 MB after rotation
 _CONFIG_LOADED = False
 
 
-def load_project_config() -> dict:
+def find_project_root(start_dir: Path | None = None) -> Path:
+    """Walks upwards from start_dir (default: Path.cwd()) looking for a directory containing .specops or .git."""
+    current = Path(start_dir or Path.cwd()).resolve()
+    if current.is_file():
+        current = current.parent
+    for parent in [current, *current.parents]:
+        if (parent / ".specops").exists() or (parent / ".git").exists():
+            return parent
+    return current
+
+
+def load_project_config(start_dir: Path | None = None) -> dict:
     global _CONFIG_LOADED
     default_config = {
         "project_name": "generic",
@@ -52,25 +63,32 @@ def load_project_config() -> dict:
         "toolkit_dir_name": "project-toolkit",
         "url_pattern": r"https?://([a-z0-9-]+)\.(?:dev|prod)\.generic\.com(/[\S]*)?",
     }
+    root = find_project_root(start_dir)
     candidate_paths = [
-        Path.cwd() / ".specops" / "config.json",
-        Path.home() / ".config" / "specops" / "config.json",
+        root / ".specops" / "config.json",
     ]
     if "XDG_CONFIG_HOME" in os.environ:
-        candidate_paths.insert(1, Path(os.environ["XDG_CONFIG_HOME"]) / "specops" / "config.json")
-    candidate_paths.append(Path("config.json"))
+        candidate_paths.append(Path(os.environ["XDG_CONFIG_HOME"]) / "specops" / "config.json")
+    candidate_paths.append(Path.home() / ".config" / "specops" / "config.json")
+    candidate_paths.append(root / "config.json")
 
-    config_path = next((p for p in candidate_paths if p.exists()), Path("config.json"))
+    config_path = next((p for p in candidate_paths if p.exists()), None)
 
-    if config_path.exists():
+    if config_path is not None and config_path.exists():
         try:
             with open(config_path, encoding="utf-8") as f:
                 user_config = json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"Invalid JSON in config file '{config_path}': line {e.lineno}, column {e.colno} ({e.msg})"
+            ) from e
+        except Exception:
+            pass
+        else:
+            if isinstance(user_config, dict):
                 for k, v in user_config.items():
                     default_config[k] = v
                 _CONFIG_LOADED = True
-        except Exception:
-            pass
     return default_config
 
 
