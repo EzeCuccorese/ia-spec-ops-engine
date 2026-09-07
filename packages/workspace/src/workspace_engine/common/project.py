@@ -1,5 +1,5 @@
 """
-devscripts_common.project — Detección determinista de tipo de proyecto, stacks y búsqueda de raíz.
+workspace_engine.common.project — Detección determinista de tipo de proyecto, stacks y búsqueda de raíz.
 """
 
 from __future__ import annotations

@@ -7,16 +7,15 @@ from __future__ import annotations
 
 import argparse
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
+from workspace_engine.common import run_command_safe
 from workspace_engine.utils import find_project_root, log_error, log_info, log_success
 
 
 def _run_cmd(cmd: list[str]) -> tuple[int, str, str]:
-    res = subprocess.run(cmd, capture_output=True, text=True)
-    return res.returncode, res.stdout, res.stderr
+    return run_command_safe(cmd, isolated_git=True)
 
 
 def create_worktree(

@@ -69,6 +69,31 @@ class CodexAdapter:
     def render() -> str:
         return """# Spec Governance for Coding Agents
 
+## ⚡ Agent Post-Clone Bootstrap Protocol (Run Once After Git Clone)
+Any AI coding agent (Antigravity, Claude Code, Cursor, Windsurf, Aider, Codex, or custom) that clones this repository MUST execute the following 4-step bootstrap:
+
+1. **Install dependencies in editable mode**:
+   ```bash
+   uv pip install -e ".[dev]"
+   # or: pip install -e ".[dev]"
+   ```
+2. **Initialize project configuration**:
+   ```bash
+   specops config init --local --yes
+   # or: ./bin/specops config init --local --yes
+   ```
+3. **Configure your AI agent governance adapter**:
+   ```bash
+   # Choose your agent: antigravity | claude | cursor | windsurf | aider | custom | all
+   specops agent install <your-agent>
+   # Example: specops agent install antigravity
+   ```
+4. **Verify environment health**:
+   ```bash
+   specops doctor && specops audit
+   # or: ./bin/specops doctor && ./bin/specops audit
+   ```
+
 ## Required Workflow
 1. Read `.spec/state.json` and active artifacts under `.spec/specs/` before changing code.
 2. Keep implementation strictly inside the active spec, plan, and task scope.
@@ -98,10 +123,15 @@ When the user mentions or asks for spec-new, spec-plan, spec-verify, or spec-fin
 - **The Judge (Pruning Over Drafting)**:
   - Generating code is cheap; judgment is the scarce resource. Prune speculative abstractions, dead code, and unrequested scope before requesting verification.
 
-## Platform Support & Priority
-1. **Google Antigravity**: Primary runtime (Skills, subagent teams, interactive question modals `ask_question`).
-2. **Anthropic Claude Code**: Secondary runtime (`CLAUDE.md`, `.claude/agents/`, `AskFollowupQuestion`).
-3. **Codex / Universal Agents**: Tertiary runtime (`AGENTS.md` standard).
+## Universal Multi-Agent Support
+1. **Google Antigravity**: Skills, subagent teams, interactive question modals `ask_question`.
+2. **Anthropic Claude Code**: `CLAUDE.md`, `.claude/agents/`, `AskFollowupQuestion`.
+3. **Cursor IDE**: `.cursorrules`, native `.cursor/rules/*.mdc`.
+4. **Codeium Windsurf**: `.windsurfrules`.
+5. **Aider AI**: `.aider.conf.yml`, `CONVENTIONS.md`.
+6. **GitHub Copilot**: `.github/copilot-instructions.md`.
+7. **Google Gemini CLI**: `GEMINI.md`.
+8. **Universal Codex / Custom**: `AGENTS.md` or custom target files.
 
 ## Agent Tooling for Autonomous TDD Loop
 - Run `spec test-assist --next`: Returns the exact next uncovered `@s` scenario to implement with TDD.

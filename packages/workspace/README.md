@@ -54,7 +54,7 @@ packages/workspace/
 │   │   ├── manage_hooks.py    # Subcommand `ws hooks`
 │   │   ├── generate_workspace.py # Interactive multi-repo workspace generator
 │   │   ├── create_worktree.py # Atomic Git worktree generator
-│   │   ├── kube_env.py        # Subcommand `ws kube`
+│   │   ├── kube/              # Modular Kubernetes pod manager (`ws kube`)
 │   │   └── ...
 │   ├── run_local/             # Local microservices orchestrator
 │   │   ├── discovery.py       # Service auto-discovery and deterministic ports (8000-8999)

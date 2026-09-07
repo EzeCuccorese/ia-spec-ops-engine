@@ -37,8 +37,15 @@ import urllib.request
 
 EMAIL = os.environ.get("ATLASSIAN_EMAIL", "")
 TOKEN = os.environ.get("ATLASSIAN_API_TOKEN", "")
-BASE_URL = os.environ.get("ATLASSIAN_URL", "https://company.atlassian.net").rstrip("/")
-API = f"{BASE_URL}/wiki/rest/api"
+BASE_URL = os.environ.get("ATLASSIAN_URL", "").rstrip("/")
+
+
+def _get_base_url():
+    return os.environ.get("ATLASSIAN_URL", BASE_URL).rstrip("/")
+
+
+def _get_api_url():
+    return f"{_get_base_url()}/wiki/rest/api"
 
 
 def check_env():
@@ -63,7 +70,9 @@ def check_env():
 
 
 def _auth_header():
-    cred = base64.b64encode(f"{EMAIL}:{TOKEN}".encode()).decode()
+    email = os.environ.get("ATLASSIAN_EMAIL", EMAIL)
+    token = os.environ.get("ATLASSIAN_API_TOKEN", TOKEN)
+    cred = base64.b64encode(f"{email}:{token}".encode()).decode()
     return {
         "Authorization": f"Basic {cred}",
         "Content-Type": "application/json",
@@ -91,15 +100,15 @@ def _request(method, url, payload=None):
 
 
 def get(path):
-    return _request("GET", f"{API}{path}")
+    return _request("GET", f"{_get_api_url()}{path}")
 
 
 def post(path, payload):
-    return _request("POST", f"{API}{path}", payload)
+    return _request("POST", f"{_get_api_url()}{path}", payload)
 
 
 def put(path, payload):
-    return _request("PUT", f"{API}{path}", payload)
+    return _request("PUT", f"{_get_api_url()}{path}", payload)
 
 
 def html_to_md(html_str):
@@ -248,7 +257,7 @@ def cmd_read(page_id):
     print(f"# {title}\n")
     print(f"**Space**: {space}  |  **Version**: {ver}  |  **ID**: {page_id}")
     print(
-        f"**URL**: {BASE_URL}/wiki/spaces/{data.get('space', {}).get('key', '')}/pages/{page_id}\n"
+        f"**URL**: {_get_base_url()}/wiki/spaces/{data.get('space', {}).get('key', '')}/pages/{page_id}\n"
     )
     print("---\n")
     print(md)
@@ -305,7 +314,7 @@ def cmd_create(space_key, title, body_md, parent_id=None):
     data = post("/content", payload)
     pid = data.get("id", "")
     print(f"✅ Page created: **{title}** (id: {pid})")
-    print(f"   {BASE_URL}/wiki/spaces/{space_key}/pages/{pid}")
+    print(f"   {_get_base_url()}/wiki/spaces/{space_key}/pages/{pid}")
 
 
 def cmd_update(page_id, body_md):
