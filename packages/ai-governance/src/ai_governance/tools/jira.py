@@ -38,9 +38,19 @@ from datetime import datetime
 
 EMAIL = os.environ.get("ATLASSIAN_EMAIL", "")
 TOKEN = os.environ.get("ATLASSIAN_API_TOKEN", "")
-BASE_URL = os.environ.get("ATLASSIAN_URL", "https://company.atlassian.net").rstrip("/")
-API = f"{BASE_URL}/rest/api/3"
-AGILE = f"{BASE_URL}/rest/agile/1.0"
+BASE_URL = os.environ.get("ATLASSIAN_URL", "").rstrip("/")
+
+
+def _get_base_url():
+    return os.environ.get("ATLASSIAN_URL", BASE_URL).rstrip("/")
+
+
+def _get_api_url():
+    return f"{_get_base_url()}/rest/api/3"
+
+
+def _get_agile_url():
+    return f"{_get_base_url()}/rest/agile/1.0"
 
 
 def check_env():
@@ -65,7 +75,9 @@ def check_env():
 
 
 def _auth_header():
-    cred = base64.b64encode(f"{EMAIL}:{TOKEN}".encode()).decode()
+    email = os.environ.get("ATLASSIAN_EMAIL", EMAIL)
+    token = os.environ.get("ATLASSIAN_API_TOKEN", TOKEN)
+    cred = base64.b64encode(f"{email}:{token}".encode()).decode()
     return {
         "Authorization": f"Basic {cred}",
         "Content-Type": "application/json",
@@ -73,9 +85,10 @@ def _auth_header():
     }
 
 
-def _request(method, path, payload=None, base=API):
+def _request(method, path, payload=None, base=None):
     check_env()
-    url = f"{base}{path}"
+    base_endpoint = base if base is not None else _get_api_url()
+    url = f"{base_endpoint}{path}"
     data = json.dumps(payload).encode() if payload else None
     req = urllib.request.Request(url, data=data, headers=_auth_header(), method=method)
     try:
@@ -106,11 +119,11 @@ def put(path, payload):
 
 
 def agile_get(path):
-    return _request("GET", path, base=AGILE)
+    return _request("GET", path, base=_get_agile_url())
 
 
 def agile_post(path, payload):
-    return _request("POST", path, payload, base=AGILE)
+    return _request("POST", path, payload, base=_get_agile_url())
 
 
 def _adf_to_md(node):
@@ -378,7 +391,7 @@ def cmd_create(project, summary, desc="", issue_type="Task", parent=None):
     data = post("/issue", {"fields": fields})
     key = data.get("key", "")
     print(f"✅ Issue created: **{key}** — {summary}")
-    print(f"   {BASE_URL}/browse/{key}")
+    print(f"   {_get_base_url()}/browse/{key}")
 
 
 def cmd_comment(key, text):

@@ -23,6 +23,7 @@ spec = "spec.cli:main"
 packages = ["src/spec"]
 
 [tool.pytest.ini_options]
+pythonpath = ["src", "../ai-governance/src", "../workspace/src", "."]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 

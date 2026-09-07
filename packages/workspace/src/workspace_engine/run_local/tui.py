@@ -1,5 +1,5 @@
 """
-devscripts.cli.environment.run_local.tui — Interactive terminal selection and monitor screens for run_local.
+workspace_engine.run_local.tui — Interactive terminal selection and monitor screens for run_local.
 """
 
 from __future__ import annotations

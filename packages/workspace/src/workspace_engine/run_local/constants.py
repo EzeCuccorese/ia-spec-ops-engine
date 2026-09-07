@@ -52,11 +52,15 @@ def load_project_config() -> dict:
         "toolkit_dir_name": "project-toolkit",
         "url_pattern": r"https?://([a-z0-9-]+)\.(?:dev|prod)\.generic\.com(/[\S]*)?",
     }
-    config_path = Path.home() / ".config" / "devscripts" / "config.json"
-    if not config_path.exists() and "XDG_CONFIG_HOME" in os.environ:
-        config_path = Path(os.environ["XDG_CONFIG_HOME"]) / "devscripts" / "config.json"
-    if not config_path.exists():
-        config_path = Path("config.json")
+    candidate_paths = [
+        Path.cwd() / ".specops" / "config.json",
+        Path.home() / ".config" / "specops" / "config.json",
+    ]
+    if "XDG_CONFIG_HOME" in os.environ:
+        candidate_paths.insert(1, Path(os.environ["XDG_CONFIG_HOME"]) / "specops" / "config.json")
+    candidate_paths.append(Path("config.json"))
+
+    config_path = next((p for p in candidate_paths if p.exists()), Path("config.json"))
 
     if config_path.exists():
         try:

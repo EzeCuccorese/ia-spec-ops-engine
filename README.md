@@ -37,32 +37,47 @@ Each package is strictly modular, independent, and comes with its own hermetic t
 - [**uv**](https://github.com/astral-sh/uv) (Extremely fast Python package manager)
 - **Git**
 
-### Full Monorepo Editable Installation
+### Post-Clone Quickstart (For Humans & AI Agents)
 
-Clone the repository and install all packages alongside developer dependencies:
+Clone the repository and run the 4-step bootstrap:
 
 ```bash
-# 1. Create and activate a virtual environment
-uv venv
-source .venv/bin/activate
-
-# 2. Install the complete monorepo in editable mode with dev dependencies
+# 1. Create virtualenv and install all packages in editable mode
+uv venv && source .venv/bin/activate
 uv pip install -e ".[dev]"
+
+# 2. Initialize project configuration (.specops/config.json)
+specops config init --local --yes
+# Or directly via repo binary: ./bin/specops config init --local --yes
+
+# 3. Configure your AI agent governance adapter (antigravity, claude, cursor, windsurf, aider, custom, all)
+specops agent install <your-agent>
+# Example: specops agent install antigravity
+
+# 4. Run full health diagnostics and spec audit
+specops doctor && specops audit
 ```
 
-Once installed, you will have **9 global executable CLI commands** registered on your PATH:
+> 📖 **Full AI Agent Guide**: See [docs/AGENTS_GUIDE.md](docs/AGENTS_GUIDE.md) for complete details on autonomous agent operation, SDD lifecycle, and tool references.
 
-| Command | Source Package | Description |
-|---|---|---|
-| `spec` | `packages/spec` | Governance & Spec-Driven Development CLI |
-| `ws` | `packages/workspace` | Workspace, microservices & DevOps manager |
-| `governance`| `packages/ai-governance` | Master AI governance CLI |
-| `rules` | `packages/ai-governance` | 28 software engineering standards catalog & injector |
-| `frugal` | `packages/ai-governance` | Output condenser & context frugality trimmer |
-| `statusline`| `packages/ai-governance` | Real-time ANSI token cost & context telemetry bar |
-| `progreso` | `packages/ai-governance` | Cross-session task tracking (~300 tokens) |
-| `jira` | `packages/ai-governance` | Jira ticket querying and status transitions in Markdown |
-| `confluence`| `packages/ai-governance` | Confluence search and page reader in Markdown |
+---
+
+## 🛠️ CLI Commands & Tool Ecosystem
+
+The monorepo registers executable CLI commands on your PATH (and also provides standalone wrapper scripts under `./bin/`):
+
+| Command | Binary Path | Source Package | Description |
+|---|---|---|---|
+| **`specops`** | `./bin/specops` | Monorepo Master | Master orchestration CLI (`config`, `agent`, `doctor`, `audit`, `rules`, etc.) |
+| **`spec`** | `./bin/spec` | `packages/spec` | Governance & Spec-Driven Development (SDD) CLI |
+| **`ws`** | `./bin/ws` | `packages/workspace` | Workspace, Git worktrees & local microservices manager |
+| **`governance`**| `./bin/specops` | `packages/ai-governance` | AI governance, telemetry & rules CLI |
+| **`rules`** | — | `packages/ai-governance` | 28 software engineering standards catalog & injector |
+| **`frugal`** | — | `packages/ai-governance` | Output condenser & context frugality trimmer |
+| **`statusline`**| — | `packages/ai-governance` | Real-time ANSI token cost & context telemetry bar |
+| **`progreso`** | — | `packages/ai-governance` | Cross-session task tracking (~300 tokens) |
+| **`jira`** | — | `packages/ai-governance` | Jira ticket querying and status transitions in Markdown |
+| **`confluence`**| — | `packages/ai-governance` | Confluence search and page reader in Markdown |
 
 ---
 

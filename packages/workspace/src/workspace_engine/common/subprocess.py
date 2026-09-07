@@ -1,5 +1,5 @@
 """
-devscripts_common.subprocess — Ejecución determinista y segura de subprocesos con timeout estricto.
+workspace_engine.common.subprocess — Ejecución determinista y segura de subprocesos con timeout estricto.
 """
 
 from __future__ import annotations

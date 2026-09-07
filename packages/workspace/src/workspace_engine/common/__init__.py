@@ -1,5 +1,5 @@
 """
-devscripts_common — Paquete base de utilidades y librerías compartidas para Devscripts.
+workspace_engine.common — Paquete base de utilidades y librerías compartidas para Workspace Engine.
 """
 
 from __future__ import annotations
