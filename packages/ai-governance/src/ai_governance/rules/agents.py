@@ -1,25 +1,21 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from pathlib import Path
 
-from ..core.catalog import RuleDefinition
-from ..core.injector import BlockInjector
+from .core.catalog import RuleDefinition
+from .core.injector import BlockInjector
 
 
-class BaseAgentAdapter(ABC):
-    """Base adapter for injecting/removing rules for a specific AI agent."""
+class AgentsRulesAdapter:
+    """Inject and manage engineering standards in the universal AGENTS.md standard."""
 
-    @property
-    @abstractmethod
-    def agent_id(self) -> str: ...
+    agent_id: str = "agents"
+    display_name: str = "Universal AGENTS.md Standard (AGENTS.md)"
 
-    @property
-    @abstractmethod
-    def display_name(self) -> str: ...
-
-    @abstractmethod
-    def get_target_file(self, root: Path, is_global: bool) -> Path: ...
+    def get_target_file(self, root: Path, is_global: bool) -> Path:
+        if is_global:
+            return Path.home() / ".config" / "agents" / "AGENTS.md"
+        return root / "AGENTS.md"
 
     def render_block(self, rules: list[RuleDefinition], storage_path: Path) -> str:
         lines = [
@@ -59,3 +55,8 @@ class BaseAgentAdapter(ABC):
         else:
             target_file.write_text(new_content, encoding="utf-8")
             return target_file
+
+
+AgentsAdapter = AgentsRulesAdapter
+AGENTS_ADAPTER = AgentsRulesAdapter()
+ALL_ADAPTERS = {"agents": AGENTS_ADAPTER}

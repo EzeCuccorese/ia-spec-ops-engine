@@ -37,21 +37,16 @@ specops doctor && specops audit
 
 ---
 
-## 🧭 2. Multi-Agent Adapter Matrix
+## 🧭 2. Universal Agent Architecture (`AGENTS.md`)
 
-SpecOps is **100% agent-agnostic**. It does not enforce a proprietary agent runtime or hardcode platform expectations. Every adapter injects a non-destructive reference to `.spec/governance.md`:
+SpecOps is **100% agent-agnostic** and adheres strictly to the industry open standard: **`AGENTS.md`**. It does not fragment into proprietary files (`CLAUDE.md`, `.cursorrules`, etc.). All AI coding agents read directly from `AGENTS.md`.
 
-| Agent / Runtime | Identifier | Target File | Adapter Behavior |
-|---|---|---|---|
-| **Google Antigravity** | `antigravity` | `AGENTS.md` | Reversibly injects `<!-- spec:governance -->` marker linking `.spec/governance.md`. |
-| **Universal Codex** | `codex` | `AGENTS.md` | Universal Markdown governance standard. |
-| **Anthropic Claude Code** | `claude` | `CLAUDE.md` | Native Claude guidelines file; integrates with `.claude/` tools and `AskFollowupQuestion`. |
-| **Cursor IDE** | `cursor` | `.cursorrules` | Injects root rules; also supports native `.cursor/rules/*.mdc` standards. |
-| **Codeium Windsurf** | `windsurf` | `.windsurfrules` | Injects workspace instructions. |
-| **Aider AI** | `aider` | `.aider.conf.yml` | Injects `read: [.spec/governance.md]` so Aider always retains governance in context. |
-| **GitHub Copilot** | `copilot` | `.github/copilot-instructions.md` | Injects instructions for GitHub Copilot Workspace and VS Code. |
-| **Google Gemini CLI** | `gemini` | `GEMINI.md` | Native instruction file for Google Gemini CLI and Code Assist. |
-| **Custom Agent** | `custom` | Custom `--file` | Allows passing any path, e.g. `specops agent install custom --file INSTRUCTIONS.md`. |
+| Command / Agent Identifier | Target File | Architecture Behavior |
+|---|---|---|
+| `specops agent install` | `AGENTS.md` | Injects non-destructive `<!-- spec:governance -->` marker referencing `.spec/governance.md`. |
+| `specops agent install antigravity` | `AGENTS.md` | Configures universal `AGENTS.md` standard. |
+| `specops agent install <any-agent>` | `AGENTS.md` | All agent aliases configure the single open standard `AGENTS.md`. |
+| `specops agent install custom --file <path>` | Custom Path | Allows passing an alternative target path if explicitly desired. |
 
 To uninstall or clean any adapter:
 ```bash

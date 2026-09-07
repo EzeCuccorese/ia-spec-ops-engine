@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from spec.adapters.codex import CodexAdapter
+from spec.agents import AgentsAdapter
 from spec.core.ownership import FileChangedError, OwnershipManifest
 from spec.governance.project import ProjectGovernance
 
@@ -35,10 +35,10 @@ def test_project_init_is_idempotent_and_preserves_configured_checks(tmp_path: Pa
     assert verification.read_text() == configured
 
 
-def test_codex_adapter_creates_governance_and_injects_agents_file(tmp_path: Path) -> None:
+def test_agents_adapter_creates_governance_and_injects_agents_file(tmp_path: Path) -> None:
     ProjectGovernance(tmp_path).initialize()
 
-    result = CodexAdapter(tmp_path).install()
+    result = AgentsAdapter(tmp_path).install()
 
     agents = tmp_path / "AGENTS.md"
     assert result.path == ".spec/governance.md"
@@ -49,12 +49,12 @@ def test_codex_adapter_creates_governance_and_injects_agents_file(tmp_path: Path
     assert OwnershipManifest(tmp_path).get(".spec/governance.md") is not None
 
 
-def test_codex_adapter_preserves_existing_user_agents_file(tmp_path: Path) -> None:
+def test_agents_adapter_preserves_existing_user_agents_file(tmp_path: Path) -> None:
     agents = tmp_path / "AGENTS.md"
     user_note = "# Custom Project Prompt\n\nUser instructions."
     agents.write_text(user_note)
 
-    CodexAdapter(tmp_path).install()
+    AgentsAdapter(tmp_path).install()
 
     content = agents.read_text()
     assert content.startswith(user_note)
@@ -62,8 +62,8 @@ def test_codex_adapter_preserves_existing_user_agents_file(tmp_path: Path) -> No
     assert "@.spec/governance.md" in content
 
 
-def test_codex_adapter_uninstall_removes_block_preserving_user_notes(tmp_path: Path) -> None:
-    adapter = CodexAdapter(tmp_path)
+def test_agents_adapter_uninstall_removes_block_preserving_user_notes(tmp_path: Path) -> None:
+    adapter = AgentsAdapter(tmp_path)
     adapter.install()
 
     agents = tmp_path / "AGENTS.md"
@@ -79,8 +79,8 @@ def test_codex_adapter_uninstall_removes_block_preserving_user_notes(tmp_path: P
     assert user_note in content
 
 
-def test_codex_adapter_refuses_to_delete_modified_governance_file(tmp_path: Path) -> None:
-    adapter = CodexAdapter(tmp_path)
+def test_agents_adapter_refuses_to_delete_modified_governance_file(tmp_path: Path) -> None:
+    adapter = AgentsAdapter(tmp_path)
     adapter.install()
     (tmp_path / ".spec/governance.md").write_text("user changed this\n")
 

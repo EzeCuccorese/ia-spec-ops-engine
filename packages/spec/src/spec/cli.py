@@ -37,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
         "agent",
         nargs="?",
         default=None,
-        help="Agent to install (agents, antigravity, claude, cursor, windsurf, aider, copilot, gemini, codex, custom, all)",
+        help="Agent to install (agents, antigravity, claude, cursor, windsurf, aider, copilot, gemini, custom, all)",
     )
     agent_install.add_argument("--root", type=Path, default=Path.cwd())
     agent_install.add_argument(
@@ -56,7 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
         "agent",
         nargs="?",
         default=None,
-        help="Agent to uninstall (agents, antigravity, claude, cursor, windsurf, aider, copilot, gemini, codex, custom, all)",
+        help="Agent to uninstall (agents, antigravity, claude, cursor, windsurf, aider, copilot, gemini, custom, all)",
     )
     agent_uninstall.add_argument("--root", type=Path, default=Path.cwd())
     agent_uninstall.add_argument(
@@ -335,16 +335,16 @@ def main(argv: list[str] | None = None) -> None:
             )
             raise SystemExit(0)
         if args.command == "agent" and args.agent_command == "install":
-            from spec.adapters import SPEC_ADAPTERS
+            from spec.agents import RECOGNIZED_AGENTS, AgentsAdapter
 
             if args.agent:
                 target_agent = args.agent.strip().lower()
                 if target_agent == "all":
                     keys_to_install = ["agents"]
-                elif target_agent in SPEC_ADAPTERS:
+                elif target_agent in RECOGNIZED_AGENTS:
                     keys_to_install = [target_agent]
                 else:
-                    valid_keys = ", ".join(SPEC_ADAPTERS.keys())
+                    valid_keys = ", ".join(RECOGNIZED_AGENTS.keys())
                     print(
                         f"error: Unknown agent '{args.agent}'. Choose from: {valid_keys}, all",
                         file=sys.stderr,
@@ -364,22 +364,26 @@ def main(argv: list[str] | None = None) -> None:
                     keys_to_install = ["agents"]
 
             for k in keys_to_install:
-                label, cls = SPEC_ADAPTERS[k]
-                adapter_instance = cls(args.root, target=args.file) if args.file else cls(args.root)
+                label = RECOGNIZED_AGENTS[k]
+                adapter_instance = (
+                    AgentsAdapter(args.root, target=args.file)
+                    if args.file
+                    else AgentsAdapter(args.root)
+                )
                 res = adapter_instance.install()
                 print(f"Configured {label}: {res.path}")
             raise SystemExit(0)
         if args.command == "agent" and args.agent_command == "uninstall":
-            from spec.adapters import SPEC_ADAPTERS
+            from spec.agents import RECOGNIZED_AGENTS, AgentsAdapter
 
             if args.agent:
                 target_agent = args.agent.strip().lower()
                 if target_agent == "all":
                     keys_to_uninstall = ["agents"]
-                elif target_agent in SPEC_ADAPTERS:
+                elif target_agent in RECOGNIZED_AGENTS:
                     keys_to_uninstall = [target_agent]
                 else:
-                    valid_keys = ", ".join(SPEC_ADAPTERS.keys())
+                    valid_keys = ", ".join(RECOGNIZED_AGENTS.keys())
                     print(
                         f"error: Unknown agent '{args.agent}'. Choose from: {valid_keys}, all",
                         file=sys.stderr,
@@ -389,8 +393,12 @@ def main(argv: list[str] | None = None) -> None:
                 keys_to_uninstall = ["agents"]
 
             for k in keys_to_uninstall:
-                label, cls = SPEC_ADAPTERS[k]
-                adapter_instance = cls(args.root, target=args.file) if args.file else cls(args.root)
+                label = RECOGNIZED_AGENTS[k]
+                adapter_instance = (
+                    AgentsAdapter(args.root, target=args.file)
+                    if args.file
+                    else AgentsAdapter(args.root)
+                )
                 res = adapter_instance.uninstall(dry_run=not args.apply)
                 if not args.apply and res.would_delete:
                     print(f"Would delete owned adapter for {label}: {res.path}")

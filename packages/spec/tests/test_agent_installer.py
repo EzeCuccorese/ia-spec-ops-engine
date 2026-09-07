@@ -100,3 +100,11 @@ def test_agent_install_unknown_raises(tmp_path: Path) -> None:
     with pytest.raises(SystemExit) as exc:
         main(["agent", "install", "nonexistent_ai", "--root", str(tmp_path)])
     assert exc.value.code == 1
+
+
+def test_agent_install_agents_default(tmp_path: Path) -> None:
+    ProjectGovernance(tmp_path).initialize()
+    with pytest.raises(SystemExit) as exc:
+        main(["agent", "install", "--root", str(tmp_path), "-y"])
+    assert exc.value.code == 0
+    assert (tmp_path / "AGENTS.md").exists()

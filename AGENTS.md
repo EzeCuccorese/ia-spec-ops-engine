@@ -1,7 +1,7 @@
 # Spec Governance for Coding Agents
 
 ## ⚡ Agent Post-Clone Bootstrap Protocol (Run Once After Git Clone)
-Any AI coding agent (Antigravity, Claude Code, Cursor, Windsurf, Aider, Codex, or custom) that clones this repository MUST execute the following 4-step bootstrap:
+Any AI coding agent (Antigravity, Claude Code, Cursor, Windsurf, Aider, or custom) that clones this repository MUST execute the following 4-step bootstrap:
 
 1. **Install dependencies in editable mode**:
    ```bash

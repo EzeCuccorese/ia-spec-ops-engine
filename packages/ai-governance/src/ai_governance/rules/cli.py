@@ -8,7 +8,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from .adapters import ALL_ADAPTERS
+from .agents import ALL_ADAPTERS
 from .core.catalog import RuleCatalog, RuleDefinition
 from .core.storage import RuleStorage
 from .core.tui import select_multiple, select_one
