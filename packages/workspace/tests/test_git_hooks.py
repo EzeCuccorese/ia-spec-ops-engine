@@ -99,6 +99,8 @@ def test_install_git_hooks_global(monkeypatch):
     with tempfile.TemporaryDirectory() as mock_home:
         home_path = Path(mock_home)
         monkeypatch.setattr(Path, "home", lambda: home_path)
+        monkeypatch.setenv("HOME", str(mock_home))
+        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(home_path / ".gitconfig"))
 
         res = install_git_hooks(is_global=True, force=True)
         assert res["success"] is True

@@ -44,7 +44,12 @@ class PreflightManager:
 
     def _run_git(self, *args: str) -> tuple[int, str, str]:
         cmd = ["git", "-C", str(self.root), *args]
-        res = subprocess.run(cmd, capture_output=True, text=True)
+        git_env = dict(os.environ)
+        if "GIT_CONFIG_GLOBAL" not in git_env:
+            git_env["GIT_CONFIG_GLOBAL"] = "/dev/null"
+        if "GIT_CONFIG_SYSTEM" not in git_env:
+            git_env["GIT_CONFIG_SYSTEM"] = "/dev/null"
+        res = subprocess.run(cmd, capture_output=True, text=True, env=git_env)
         return res.returncode, res.stdout.strip(), res.stderr.strip()
 
     def resolve_branches(self) -> BranchInfo:

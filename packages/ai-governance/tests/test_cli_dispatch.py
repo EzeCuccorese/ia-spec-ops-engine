@@ -54,3 +54,59 @@ def test_cli_dispatch_progress() -> None:
     ):
         assert main() == 0
         mock_session.assert_called_once()
+
+
+def test_cli_dispatch_jira() -> None:
+    with (
+        patch.object(sys, "argv", ["governance", "jira", "help"]),
+        patch("ai_governance.tools.jira.main", return_value=0) as mock_jira,
+    ):
+        assert main() == 0
+        mock_jira.assert_called_once()
+
+
+def test_cli_dispatch_confluence() -> None:
+    with (
+        patch.object(sys, "argv", ["governance", "confluence", "help"]),
+        patch("ai_governance.tools.confluence.main", return_value=0) as mock_confluence,
+    ):
+        assert main() == 0
+        mock_confluence.assert_called_once()
+
+
+def test_cli_dispatch_config() -> None:
+    with (
+        patch.object(sys, "argv", ["governance", "config", "init", "--local", "--yes"]),
+        patch("workspace_engine.config.init_config.run_config_init", return_value=0) as mock_cfg,
+    ):
+        assert main() == 0
+        mock_cfg.assert_called_once_with(["--local", "--yes"])
+
+
+def test_cli_dispatch_agent() -> None:
+    with (
+        patch.object(sys, "argv", ["governance", "agent", "install", "antigravity"]),
+        patch("spec.cli.main", return_value=0) as mock_agent,
+    ):
+        assert main() == 0
+        mock_agent.assert_called_once_with(["agent", "install", "antigravity"])
+
+
+def test_cli_dispatch_doctor() -> None:
+    with (
+        patch.object(sys, "argv", ["governance", "doctor"]),
+        patch("spec.cli.run_doctor", return_value=0) as mock_sdoc,
+        patch("workspace_engine.cli.main.doctor_check") as mock_wdoc,
+    ):
+        assert main() == 0
+        mock_sdoc.assert_called_once()
+        mock_wdoc.assert_called_once()
+
+
+def test_cli_dispatch_audit() -> None:
+    with (
+        patch.object(sys, "argv", ["governance", "audit"]),
+        patch("spec.cli.run_audit", return_value=0) as mock_audit,
+    ):
+        assert main() == 0
+        mock_audit.assert_called_once()

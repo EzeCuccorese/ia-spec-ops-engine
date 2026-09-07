@@ -29,7 +29,7 @@ scratch/*
 .claude/
 .cursor/
 .specify/
-AGENTS.md
+.specops/
 CLAUDE.md
 GEMINI.md
 

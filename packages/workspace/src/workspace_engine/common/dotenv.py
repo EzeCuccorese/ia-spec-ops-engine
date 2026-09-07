@@ -1,5 +1,5 @@
 """
-devscripts_common.dotenv — Parser robusto y determinista de archivos .env y set-env.sh.
+workspace_engine.common.dotenv — Parser robusto y determinista de archivos .env y set-env.sh.
 """
 
 from __future__ import annotations

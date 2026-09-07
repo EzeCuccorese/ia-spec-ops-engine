@@ -55,6 +55,30 @@ def main() -> int:
     sub.add_parser("task", help=argparse.SUPPRESS)
     sub.add_parser("progreso", help=argparse.SUPPRESS)
 
+    # jira
+    sub.add_parser("jira", help="Jira ticket querying and transitions in Markdown")
+
+    # confluence
+    sub.add_parser("confluence", help="Confluence documentation reader and writer in Markdown")
+
+    # config
+    sub.add_parser(
+        "config",
+        help="Initialize and manage SpecOps workspace configuration (.specops/config.json)",
+    )
+
+    # agent
+    sub.add_parser(
+        "agent",
+        help="Manage universal AGENTS.md coding agent adapter",
+    )
+
+    # doctor
+    sub.add_parser("doctor", help="Run environment and system diagnostics")
+
+    # audit
+    sub.add_parser("audit", help="Audit repository against governance checkpoints")
+
     if len(sys.argv) == 1:
         show_banner()
         parser.print_help()
@@ -63,7 +87,35 @@ def main() -> int:
     cmd = sys.argv[1]
     remaining_args = sys.argv[2:]
 
-    if cmd == "rules":
+    if cmd == "config":
+        from workspace_engine.config.init_config import run_config_init
+
+        cfg_args = remaining_args
+        if cfg_args and cfg_args[0] == "init":
+            cfg_args = cfg_args[1:]
+        return run_config_init(cfg_args)
+    elif cmd == "agent":
+        from spec.cli import main as spec_main
+
+        try:
+            spec_main(["agent"] + remaining_args)
+            return 0
+        except SystemExit as e:
+            return e.code if isinstance(e.code, int) else 0
+    elif cmd == "doctor":
+        from spec.cli import run_doctor
+        from workspace_engine.cli.main import doctor_check
+
+        doctor_check()
+        print()
+        return run_doctor()
+    elif cmd == "audit":
+        from pathlib import Path
+
+        from spec.cli import run_audit
+
+        return run_audit(Path.cwd())
+    elif cmd == "rules":
         from .rules.cli import main as rules_main
 
         sys.argv = ["rules"] + remaining_args
@@ -88,6 +140,18 @@ def main() -> int:
 
         sys.argv = ["progress"] + remaining_args
         return session_main()
+    elif cmd == "jira":
+        from .tools.jira import main as jira_main
+
+        sys.argv = ["jira"] + remaining_args
+        jira_main()
+        return 0
+    elif cmd == "confluence":
+        from .tools.confluence import main as confluence_main
+
+        sys.argv = ["confluence"] + remaining_args
+        confluence_main()
+        return 0
     else:
         parser.parse_args()
         return 0

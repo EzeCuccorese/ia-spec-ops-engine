@@ -14,6 +14,7 @@ from workspace_engine.cli.kube.export import (
     export_set_env_sh,
     write_secret_file,
 )
+from workspace_engine.cli.kube.main import main
 from workspace_engine.cli.kube.tui import (
     select_context,
     select_operation,
@@ -30,4 +31,5 @@ __all__ = [
     "export_set_env_sh",
     "select_context",
     "select_operation",
+    "main",
 ]

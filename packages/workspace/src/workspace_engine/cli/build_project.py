@@ -16,10 +16,6 @@ from workspace_engine.utils import log_error, log_info, log_success, log_warning
 def build_project(project_dir: Path | None = None) -> int:
     cwd = project_dir or Path.cwd()
 
-    log_info("🔄 Actualizando repositorio local...")
-    run_command("git pull", cwd=cwd, check=False, show_command=True)
-    run_command("git fetch --tags --quiet", cwd=cwd, check=False)
-
     log_info("🔍 Detectando herramienta de construcción...")
     if (cwd / "pom.xml").is_file():
         build_tool = "mvn"
@@ -41,8 +37,16 @@ def build_project(project_dir: Path | None = None) -> int:
         build_tool = "go"
         build_cmd = "go build ./..."
         version_cmd = "git describe --tags --always"
+    elif (cwd / "Cargo.toml").is_file():
+        build_tool = "cargo"
+        build_cmd = "cargo build"
+        version_cmd = "cargo pkgid"
+    elif (cwd / "pyproject.toml").is_file():
+        build_tool = "python"
+        build_cmd = "python3 -m pip install -e ."
+        version_cmd = "python3 -c \"import tomllib, pathlib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text()).get('project', {}).get('version', 'unknown'))\""
     else:
-        log_error("No se detectó un proyecto compatible (Maven, Gradle, Node o Go).")
+        log_error("No se detectó un proyecto compatible (Maven, Gradle, Node, Go, Rust o Python).")
         return 1
 
     log_info(f"🛠️ Proyecto basado en {build_tool.upper()}.")

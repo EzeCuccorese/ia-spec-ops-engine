@@ -15,14 +15,16 @@ PATTERN = re.compile(
 )
 
 
-class CodexAdapter:
+class AgentsAdapter:
     """Generate and inject the repository-level governance reference into AGENTS.md."""
 
     target = "AGENTS.md"
     governance_file = ".spec/governance.md"
 
-    def __init__(self, root: str | Path) -> None:
+    def __init__(self, root: str | Path, target: str | None = None) -> None:
         self.root = root
+        if target:
+            self.target = target
         self.boundary = PathBoundary(root)
 
     def install(self) -> WriteResult:
@@ -34,8 +36,9 @@ class CodexAdapter:
         )
 
         agents_path = self.boundary.resolve(self.target)
+        agents_path.parent.mkdir(parents=True, exist_ok=True)
         content = agents_path.read_text(encoding="utf-8") if agents_path.exists() else ""
-        block = f"{START_MARKER}\n@.spec/governance.md\n{END_MARKER}\n"
+        block = f"{START_MARKER}\n@{self.governance_file}\n{END_MARKER}\n"
 
         if START_MARKER in content and END_MARKER in content:
             new_content = PATTERN.sub(block, content)
@@ -69,6 +72,30 @@ class CodexAdapter:
     def render() -> str:
         return """# Spec Governance for Coding Agents
 
+## ⚡ Agent Post-Clone Bootstrap Protocol (Run Once After Git Clone)
+Any AI coding agent (Antigravity, Claude Code, Cursor, Windsurf, Aider, or custom) that clones this repository MUST execute the following 4-step bootstrap:
+
+1. **Install dependencies in editable mode**:
+   ```bash
+   uv pip install -e ".[dev]"
+   # or: pip install -e ".[dev]"
+   ```
+2. **Initialize project configuration**:
+   ```bash
+   specops config init --local --yes
+   # or: ./bin/specops config init --local --yes
+   ```
+3. **Configure your AI agent governance adapter**:
+   ```bash
+   specops agent install
+   # or: specops agent install antigravity
+   ```
+4. **Verify environment health**:
+   ```bash
+   specops doctor && specops audit
+   # or: ./bin/specops doctor && ./bin/specops audit
+   ```
+
 ## Required Workflow
 1. Read `.spec/state.json` and active artifacts under `.spec/specs/` before changing code.
 2. Keep implementation strictly inside the active spec, plan, and task scope.
@@ -98,10 +125,8 @@ When the user mentions or asks for spec-new, spec-plan, spec-verify, or spec-fin
 - **The Judge (Pruning Over Drafting)**:
   - Generating code is cheap; judgment is the scarce resource. Prune speculative abstractions, dead code, and unrequested scope before requesting verification.
 
-## Platform Support & Priority
-1. **Google Antigravity**: Primary runtime (Skills, subagent teams, interactive question modals `ask_question`).
-2. **Anthropic Claude Code**: Secondary runtime (`CLAUDE.md`, `.claude/agents/`, `AskFollowupQuestion`).
-3. **Codex / Universal Agents**: Tertiary runtime (`AGENTS.md` standard).
+## Universal Agent Standard (AGENTS.md)
+This repository follows the universal `AGENTS.md` open standard for all AI coding agents (Antigravity, Claude Code, Cursor, Windsurf, Aider, Copilot, Gemini, etc.). All agents read and execute instructions directly from this single file.
 
 ## Agent Tooling for Autonomous TDD Loop
 - Run `spec test-assist --next`: Returns the exact next uncovered `@s` scenario to implement with TDD.
@@ -119,3 +144,25 @@ When the user mentions or asks for spec-new, spec-plan, spec-verify, or spec-fin
 - Do not add AI attribution, robot emojis, or AI-generated mentions to commit messages or PRs.
 - Never modify files outside the agreed specification scope without user confirmation.
 """
+
+
+RECOGNIZED_AGENTS = {
+    "agents": "Universal AGENTS.md Standard (AGENTS.md)",
+    "antigravity": "Universal AGENTS.md Standard (AGENTS.md)",
+    "claude": "Universal AGENTS.md Standard (AGENTS.md)",
+    "cursor": "Universal AGENTS.md Standard (AGENTS.md)",
+    "windsurf": "Universal AGENTS.md Standard (AGENTS.md)",
+    "aider": "Universal AGENTS.md Standard (AGENTS.md)",
+    "copilot": "Universal AGENTS.md Standard (AGENTS.md)",
+    "gemini": "Universal AGENTS.md Standard (AGENTS.md)",
+    "codex": "Universal AGENTS.md Standard (AGENTS.md)",
+    "custom": "Universal AGENTS.md Standard (AGENTS.md)",
+}
+
+CodexAdapter = AgentsAdapter
+
+__all__ = [
+    "RECOGNIZED_AGENTS",
+    "AgentsAdapter",
+    "CodexAdapter",
+]

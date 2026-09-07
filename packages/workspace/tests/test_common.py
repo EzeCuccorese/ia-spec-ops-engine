@@ -37,9 +37,9 @@ Here is the markdown.
 
 
 def test_run_command_safe_echo():
-    code, stdout, stderr = run_command_safe(["echo", "devscripts"])
+    code, stdout, stderr = run_command_safe(["echo", "specops"])
     assert code == 0
-    assert "devscripts" in stdout
+    assert "specops" in stdout
 
 
 def test_run_command_safe_timeout():
