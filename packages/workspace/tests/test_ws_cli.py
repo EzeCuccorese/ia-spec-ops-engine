@@ -37,4 +37,3 @@ def test_ws_main_config():
         main()
     assert exc.value.code == 0
     mock_cfg.assert_called_once_with(["--local", "--yes"])
-

@@ -21,8 +21,10 @@ class CodexAdapter:
     target = "AGENTS.md"
     governance_file = ".spec/governance.md"
 
-    def __init__(self, root: str | Path) -> None:
+    def __init__(self, root: str | Path, target: str | None = None) -> None:
         self.root = root
+        if target:
+            self.target = target
         self.boundary = PathBoundary(root)
 
     def install(self) -> WriteResult:
@@ -34,8 +36,9 @@ class CodexAdapter:
         )
 
         agents_path = self.boundary.resolve(self.target)
+        agents_path.parent.mkdir(parents=True, exist_ok=True)
         content = agents_path.read_text(encoding="utf-8") if agents_path.exists() else ""
-        block = f"{START_MARKER}\n@.spec/governance.md\n{END_MARKER}\n"
+        block = f"{START_MARKER}\n@{self.governance_file}\n{END_MARKER}\n"
 
         if START_MARKER in content and END_MARKER in content:
             new_content = PATTERN.sub(block, content)
@@ -84,9 +87,8 @@ Any AI coding agent (Antigravity, Claude Code, Cursor, Windsurf, Aider, Codex, o
    ```
 3. **Configure your AI agent governance adapter**:
    ```bash
-   # Choose your agent: antigravity | claude | cursor | windsurf | aider | custom | all
-   specops agent install <your-agent>
-   # Example: specops agent install antigravity
+   specops agent install
+   # or: specops agent install antigravity
    ```
 4. **Verify environment health**:
    ```bash
@@ -123,15 +125,8 @@ When the user mentions or asks for spec-new, spec-plan, spec-verify, or spec-fin
 - **The Judge (Pruning Over Drafting)**:
   - Generating code is cheap; judgment is the scarce resource. Prune speculative abstractions, dead code, and unrequested scope before requesting verification.
 
-## Universal Multi-Agent Support
-1. **Google Antigravity**: Skills, subagent teams, interactive question modals `ask_question`.
-2. **Anthropic Claude Code**: `CLAUDE.md`, `.claude/agents/`, `AskFollowupQuestion`.
-3. **Cursor IDE**: `.cursorrules`, native `.cursor/rules/*.mdc`.
-4. **Codeium Windsurf**: `.windsurfrules`.
-5. **Aider AI**: `.aider.conf.yml`, `CONVENTIONS.md`.
-6. **GitHub Copilot**: `.github/copilot-instructions.md`.
-7. **Google Gemini CLI**: `GEMINI.md`.
-8. **Universal Codex / Custom**: `AGENTS.md` or custom target files.
+## Universal Agent Standard (AGENTS.md)
+This repository follows the universal `AGENTS.md` open standard for all AI coding agents (Antigravity, Claude Code, Cursor, Windsurf, Aider, Copilot, Gemini, etc.). All agents read and execute instructions directly from this single file.
 
 ## Agent Tooling for Autonomous TDD Loop
 - Run `spec test-assist --next`: Returns the exact next uncovered `@s` scenario to implement with TDD.
@@ -149,3 +144,6 @@ When the user mentions or asks for spec-new, spec-plan, spec-verify, or spec-fin
 - Do not add AI attribution, robot emojis, or AI-generated mentions to commit messages or PRs.
 - Never modify files outside the agreed specification scope without user confirmation.
 """
+
+
+AgentsAdapter = CodexAdapter

@@ -16,12 +16,22 @@ def _init_git_repo(path: Path) -> None:
     git_env = dict(os.environ)
     git_env["GIT_CONFIG_GLOBAL"] = "/dev/null"
     git_env["GIT_CONFIG_SYSTEM"] = "/dev/null"
-    subprocess.run(["git", "init", "-b", "main", str(path)], check=True, capture_output=True, env=git_env)
-    subprocess.run(["git", "-C", str(path), "config", "user.name", "Test User"], check=True, env=git_env)
-    subprocess.run(["git", "-C", str(path), "config", "user.email", "test@example.com"], check=True, env=git_env)
+    subprocess.run(
+        ["git", "init", "-b", "main", str(path)], check=True, capture_output=True, env=git_env
+    )
+    subprocess.run(
+        ["git", "-C", str(path), "config", "user.name", "Test User"], check=True, env=git_env
+    )
+    subprocess.run(
+        ["git", "-C", str(path), "config", "user.email", "test@example.com"],
+        check=True,
+        env=git_env,
+    )
     (path / "README.md").write_text("Hello", encoding="utf-8")
     subprocess.run(["git", "-C", str(path), "add", "README.md"], check=True, env=git_env)
-    subprocess.run(["git", "-C", str(path), "commit", "-m", "initial commit"], check=True, env=git_env)
+    subprocess.run(
+        ["git", "-C", str(path), "commit", "-m", "initial commit"], check=True, env=git_env
+    )
 
 
 def test_resolve_branches(tmp_path: Path) -> None:

@@ -15,9 +15,8 @@ Any AI coding agent (Antigravity, Claude Code, Cursor, Windsurf, Aider, Codex, o
    ```
 3. **Configure your AI agent governance adapter**:
    ```bash
-   # Choose your agent: antigravity | claude | cursor | windsurf | aider | custom | all
-   specops agent install <your-agent>
-   # Example: specops agent install antigravity
+   specops agent install
+   # or: specops agent install antigravity
    ```
 4. **Verify environment health**:
    ```bash
