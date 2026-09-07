@@ -110,4 +110,3 @@ def test_cli_dispatch_audit() -> None:
     ):
         assert main() == 0
         mock_audit.assert_called_once()
-

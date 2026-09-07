@@ -62,10 +62,16 @@ def main() -> int:
     sub.add_parser("confluence", help="Confluence documentation reader and writer in Markdown")
 
     # config
-    sub.add_parser("config", help="Initialize and manage SpecOps workspace configuration (.specops/config.json)")
+    sub.add_parser(
+        "config",
+        help="Initialize and manage SpecOps workspace configuration (.specops/config.json)",
+    )
 
     # agent
-    sub.add_parser("agent", help="Manage reversible AI coding agent adapters (antigravity, claude, cursor, windsurf, aider, copilot, gemini, custom, all)")
+    sub.add_parser(
+        "agent",
+        help="Manage universal AGENTS.md coding agent adapter",
+    )
 
     # doctor
     sub.add_parser("doctor", help="Run environment and system diagnostics")

@@ -37,25 +37,33 @@ def build_parser() -> argparse.ArgumentParser:
         "agent",
         nargs="?",
         default=None,
-        help="Agent to install (antigravity, codex, claude, cursor, windsurf, aider, copilot, gemini, custom, all)",
+        help="Agent to install (agents, antigravity, claude, cursor, windsurf, aider, copilot, gemini, codex, custom, all)",
     )
     agent_install.add_argument("--root", type=Path, default=Path.cwd())
     agent_install.add_argument(
-        "--file", type=str, default=None, help="Target file for custom agent (defaults to AGENTS.md)"
+        "--file",
+        type=str,
+        default=None,
+        help="Target file for custom agent (defaults to AGENTS.md)",
     )
     agent_install.add_argument(
         "--yes", "-y", action="store_true", help="Non-interactive execution with defaults"
     )
-    agent_uninstall = agent_sub.add_parser("uninstall", help="Remove Spec-owned governance adapters")
+    agent_uninstall = agent_sub.add_parser(
+        "uninstall", help="Remove Spec-owned governance adapters"
+    )
     agent_uninstall.add_argument(
         "agent",
         nargs="?",
         default=None,
-        help="Agent to uninstall (antigravity, codex, claude, cursor, windsurf, aider, copilot, gemini, custom, all)",
+        help="Agent to uninstall (agents, antigravity, claude, cursor, windsurf, aider, copilot, gemini, codex, custom, all)",
     )
     agent_uninstall.add_argument("--root", type=Path, default=Path.cwd())
     agent_uninstall.add_argument(
-        "--file", type=str, default=None, help="Target file for custom agent (defaults to AGENTS.md)"
+        "--file",
+        type=str,
+        default=None,
+        help="Target file for custom agent (defaults to AGENTS.md)",
     )
     agent_uninstall.add_argument(
         "--apply", action="store_true", help="Delete after ownership validation; default is dry-run"
@@ -332,7 +340,7 @@ def main(argv: list[str] | None = None) -> None:
             if args.agent:
                 target_agent = args.agent.strip().lower()
                 if target_agent == "all":
-                    keys_to_install = [k for k in SPEC_ADAPTERS if k not in ("codex", "custom")]
+                    keys_to_install = ["agents"]
                 elif target_agent in SPEC_ADAPTERS:
                     keys_to_install = [target_agent]
                 else:
@@ -346,22 +354,18 @@ def main(argv: list[str] | None = None) -> None:
                 if sys.stdin.isatty() and not args.yes:
                     from spec.core.tui import select_multiple
 
-                    options = [(k, label) for k, (label, _) in SPEC_ADAPTERS.items() if k not in ("codex", "custom")]
+                    options = [("agents", "Universal AGENTS.md Standard (AGENTS.md)")]
                     keys_to_install = select_multiple(
                         "Select AI coding agents to configure with Spec governance:",
                         options,
-                        default_checked=[k for k, _ in options],
+                        default_checked=["agents"],
                     )
                 else:
-                    keys_to_install = ["antigravity"]
+                    keys_to_install = ["agents"]
 
             for k in keys_to_install:
                 label, cls = SPEC_ADAPTERS[k]
-                adapter_instance = (
-                    cls(args.root, target=args.file)
-                    if k == "custom" and args.file
-                    else cls(args.root)
-                )
+                adapter_instance = cls(args.root, target=args.file) if args.file else cls(args.root)
                 res = adapter_instance.install()
                 print(f"Configured {label}: {res.path}")
             raise SystemExit(0)
@@ -371,7 +375,7 @@ def main(argv: list[str] | None = None) -> None:
             if args.agent:
                 target_agent = args.agent.strip().lower()
                 if target_agent == "all":
-                    keys_to_uninstall = [k for k in SPEC_ADAPTERS if k not in ("codex", "custom")]
+                    keys_to_uninstall = ["agents"]
                 elif target_agent in SPEC_ADAPTERS:
                     keys_to_uninstall = [target_agent]
                 else:
@@ -382,15 +386,11 @@ def main(argv: list[str] | None = None) -> None:
                     )
                     raise SystemExit(1)
             else:
-                keys_to_uninstall = [k for k in SPEC_ADAPTERS if k not in ("codex", "custom")]
+                keys_to_uninstall = ["agents"]
 
             for k in keys_to_uninstall:
                 label, cls = SPEC_ADAPTERS[k]
-                adapter_instance = (
-                    cls(args.root, target=args.file)
-                    if k == "custom" and args.file
-                    else cls(args.root)
-                )
+                adapter_instance = cls(args.root, target=args.file) if args.file else cls(args.root)
                 res = adapter_instance.uninstall(dry_run=not args.apply)
                 if not args.apply and res.would_delete:
                     print(f"Would delete owned adapter for {label}: {res.path}")
