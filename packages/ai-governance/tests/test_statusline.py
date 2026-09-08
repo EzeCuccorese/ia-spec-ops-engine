@@ -84,10 +84,10 @@ def test_format_statusline_monthly_spend_resolution() -> None:
     assert "$1.00" in res_nested
     assert "EXCEEDED" in res_nested
 
-    # 4. Fallback to total_cost_usd ($1.00) when no monthly spend is provided (OK/under budget)
+    # 4. No monthly spend provided -> unknown pace reported rather than treating session cost as monthly spend
     payload_fallback = {
         "cost": {"total_cost_usd": 1.0},
     }
     res_fallback = format_statusline(payload_fallback, include_ritmo=True, monthly_budget=100.0)
     assert "$1.00" in res_fallback
-    assert "OK" in res_fallback
+    assert "unknown" in res_fallback

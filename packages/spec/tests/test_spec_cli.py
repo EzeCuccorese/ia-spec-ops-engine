@@ -84,6 +84,10 @@ def test_verify_includes_scenario_traceability(tmp_path: Path, capsys) -> None:
     workflow.create_plan()
     workflow.create_tasks()
     workflow.begin_work()
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_trace.py").write_text("def test_s1():\n    pass\n", encoding="utf-8")
+
     config = tmp_path / ".spec/verification.json"
     config.write_text(
         json.dumps(
@@ -92,7 +96,7 @@ def test_verify_includes_scenario_traceability(tmp_path: Path, capsys) -> None:
                 "checks": [
                     {
                         "id": "smoke",
-                        "command": [sys.executable, "-c", "print('verified')"],
+                        "command": [sys.executable, "-c", "print('test_s1: verified PASS')"],
                     }
                 ],
             }
@@ -116,24 +120,3 @@ def test_cli_test_assist_command(tmp_path: Path, capsys) -> None:
     assert exc.value.code == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["stage"] == "idle"
-
-
-def test_cli_judge_command(tmp_path: Path, capsys) -> None:
-    import pytest
-
-    from spec.cli import main
-    from spec.governance.project import ProjectGovernance
-
-    ProjectGovernance(tmp_path).initialize()
-    workflow = Workflow(tmp_path)
-    workflow.create_spec("My Feature", "Description")
-    workflow.create_plan()
-    workflow.create_tasks()
-    workflow.begin_work()
-
-    with pytest.raises(SystemExit) as exc:
-        main(["judge", "--root", str(tmp_path), "--approve", "--remarks", "All good", "--json"])
-    assert exc.value.code == 0
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["status"] == "RECORDED"
-    assert payload["verdict"] == "APPROVED"

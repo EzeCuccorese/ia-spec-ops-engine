@@ -107,7 +107,31 @@ def resolve_local_env(repo_path: Path | str, repo_name: str) -> Path | None:
     if workspace_env.is_file():
         return workspace_env
 
-    return None
+
+def get_process_cmdline(pid: int) -> str:
+    """Obtiene la línea de comandos de un proceso dado su PID inspeccionando /proc o ps."""
+    if pid <= 1:
+        return ""
+    proc_cmdline = Path(f"/proc/{pid}/cmdline")
+    if proc_cmdline.exists():
+        try:
+            return proc_cmdline.read_text(encoding="utf-8").replace("\x00", " ").strip()
+        except OSError:
+            pass
+
+    try:
+        res = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "command="],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return res.stdout.strip()
+    except Exception:
+        pass
+
+    return ""
 
 
 __all__ = [
@@ -118,6 +142,7 @@ __all__ = [
     "DIM",
     "END",
     "FileLock",
+    "get_process_cmdline",
     "GRAY",
     "GREEN",
     "MAGENTA",

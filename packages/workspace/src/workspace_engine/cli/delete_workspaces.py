@@ -22,42 +22,147 @@ from workspace_engine.utils import (
 )
 
 
-def _git(repo_path: Path, *args) -> subprocess.CompletedProcess:
+def _git(repo_path: Path, *args: str) -> subprocess.CompletedProcess:
     return run_git(repo_path, *args)
 
 
-def delete_single_workspace(workspace_dir: Path, force: bool = False) -> bool:
-    if not workspace_dir.is_dir():
-        log_error(f"Workspace no encontrado en {workspace_dir}")
-        return False
+def _is_owned_workspace(target: Path) -> bool:
+    """Verifica si el directorio contiene marcadores válidos de propiedad de workspace."""
+    if (target / ".workspace_metadata").exists():
+        return True
+    if (target / ".ai-toolkit").is_dir():
+        return True
+    if (target / ".git").is_file():
+        return True
+    repos_dir = target / "repositories"
+    if repos_dir.is_dir():
+        for r in repos_dir.iterdir():
+            if r.is_dir() and ((r / ".git").exists() or (r / ".git").is_file()):
+                return True
+    return False
 
-    workspace_name = workspace_dir.name
-    print(f"\n{Color.BOLD}Eliminando workspace '{workspace_name}'...{Color.RESET}")
 
-    repos_dir = workspace_dir / "repositories"
+def _has_dirty_repos(target: Path) -> list[str]:
+    """Retorna los nombres de repositorios con cambios sin commitear o sin seguimiento."""
+    dirty: list[str] = []
+    repos_dir = target / "repositories"
     if repos_dir.is_dir():
         for r_dir in repos_dir.iterdir():
             if r_dir.is_dir() and ((r_dir / ".git").exists() or (r_dir / ".git").is_file()):
+                status = _git(r_dir, "status", "--porcelain")
+                if status.stdout.strip():
+                    dirty.append(r_dir.name)
+    if (target / ".git").exists() or (target / ".git").is_file():
+        status = _git(target, "status", "--porcelain")
+        if status.stdout.strip():
+            dirty.append(target.name)
+    return dirty
+
+
+def delete_single_workspace(
+    workspace_dir: Path, force: bool = False, workspaces_dir: Path | None = None
+) -> bool:
+    # 1. Resolver workspaces_dir base
+    if workspaces_dir is not None:
+        base_dir = Path(workspaces_dir).resolve()
+    else:
+        root = find_project_root()
+        base_dir = (
+            root / "workspaces" if (root / "workspaces").exists() else root.parent / "workspaces"
+        ).resolve()
+
+    # 2. Confinamiento de rutas: validar que target esté estrictamente contenido en base_dir
+    target = Path(workspace_dir).resolve()
+    if not (target.is_relative_to(base_dir) and target != base_dir):
+        raise ValueError(
+            f"Workspace path '{workspace_dir}' escapes managed workspaces directory '{base_dir}'."
+        )
+
+    if not target.is_dir():
+        log_error(f"Workspace no encontrado en {target}")
+        return False
+
+    # 3. Verificación de ownership marker
+    if not _is_owned_workspace(target):
+        raise ValueError(
+            f"Directory '{target}' is not an owned workspace: missing ownership marker "
+            f"(.workspace_metadata, .ai-toolkit, or git worktree)."
+        )
+
+    workspace_name = target.name
+
+    # 4. Comprobación de estado dirty de repositorios
+    dirty_repos = _has_dirty_repos(target)
+    if dirty_repos and not force:
+        log_error(
+            f"Workspace '{workspace_name}' contiene cambios sin commitear en: "
+            f"{', '.join(dirty_repos)}. Use force=True para forzar la eliminación."
+        )
+        return False
+
+    print(f"\n{Color.BOLD}Eliminando workspace '{workspace_name}'...{Color.RESET}")
+
+    # 5. Desregistro limpio de Git worktrees si aplica
+    repos_dir = target / "repositories"
+    if repos_dir.is_dir():
+        for r_dir in repos_dir.iterdir():
+            if r_dir.is_dir() and ((r_dir / ".git").exists() or (r_dir / ".git").is_file()):
+                is_worktree = (r_dir / ".git").is_file()
                 git_common = _git(r_dir, "rev-parse", "--git-common-dir")
                 if git_common.returncode == 0 and git_common.stdout.strip():
                     common_path = Path(git_common.stdout.strip())
                     if not common_path.is_absolute():
                         common_path = (r_dir / common_path).resolve()
-                    _git(common_path, "worktree", "remove", "--force", str(r_dir))
-                    _git(common_path, "worktree", "prune")
+                    # Solo intentar git worktree remove si es efectivamente un worktree vinculado
+                    if is_worktree or (
+                        common_path != (r_dir / ".git").resolve() and common_path != r_dir
+                    ):
+                        cmd = ["worktree", "remove"]
+                        if force:
+                            cmd.append("--force")
+                        cmd.append(str(r_dir))
+                        remove_res = _git(common_path, *cmd)
+                        if (
+                            remove_res.returncode != 0
+                            and "is a main working tree" not in remove_res.stderr
+                        ):
+                            log_error(
+                                f"Error al remover worktree para '{r_dir.name}': {remove_res.stderr.strip()}"
+                            )
+                            return False
 
-    shutil.rmtree(workspace_dir, ignore_errors=True)
+                        _git(common_path, "worktree", "prune")
+
+    # 6. Borrado honesto en el sistema de archivos (sin ignore_errors silencioso)
+    try:
+        shutil.rmtree(target)
+    except OSError as e:
+        log_error(f"Error al eliminar workspace '{workspace_name}': {e}")
+        return False
+
+    if target.exists():
+        log_error(f"El directorio de workspace '{target}' no se pudo eliminar completamente.")
+        return False
+
     log_success(f"Workspace '{workspace_name}' eliminado.")
     return True
 
 
-def delete_workspaces(workspaces: list[str] | None = None, force: bool = False) -> int:
-    root = find_project_root()
-    workspaces_root = (
-        root / "workspaces" if (root / "workspaces").exists() else root.parent / "workspaces"
-    )
+def delete_workspaces(
+    workspaces: list[str] | None = None,
+    force: bool = False,
+    workspaces_dir: Path | None = None,
+) -> int:
+    if workspaces_dir is not None:
+        workspaces_root = Path(workspaces_dir).resolve()
+    else:
+        root = find_project_root()
+        workspaces_root = (
+            root / "workspaces" if (root / "workspaces").exists() else root.parent / "workspaces"
+        ).resolve()
 
     # Si se ejecuta desde adentro de un workspace
+    root = find_project_root()
     if (root / "repositories").is_dir() and root.name != "workspaces":
         if not force:
             print(
@@ -67,8 +172,8 @@ def delete_workspaces(workspaces: list[str] | None = None, force: bool = False) 
             if resp not in ("y", "yes", "s", "si"):
                 log_warning("Operación cancelada.")
                 return 0
-        delete_single_workspace(root, force=True)
-        return 0
+        ok = delete_single_workspace(root, force=True, workspaces_dir=workspaces_dir)
+        return 0 if ok else 1
 
     if not workspaces:
         if not workspaces_root.exists():
@@ -92,7 +197,9 @@ def delete_workspaces(workspaces: list[str] | None = None, force: bool = False) 
 
     for ws_name in workspaces:
         ws_path = workspaces_root / ws_name
-        delete_single_workspace(ws_path, force=force)
+        ok = delete_single_workspace(ws_path, force=force, workspaces_dir=workspaces_root)
+        if not ok:
+            return 1
 
     return 0
 
@@ -103,7 +210,11 @@ def main() -> None:
     parser.add_argument("workspaces", nargs="*", help="Nombres de los workspaces a eliminar")
     args = parser.parse_args()
 
-    sys.exit(delete_workspaces(workspaces=args.workspaces, force=args.force))
+    try:
+        sys.exit(delete_workspaces(workspaces=args.workspaces, force=args.force))
+    except ValueError as e:
+        log_error(str(e))
+        sys.exit(1)
 
 
 if __name__ == "__main__":

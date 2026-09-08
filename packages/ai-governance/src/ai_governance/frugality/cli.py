@@ -83,16 +83,15 @@ def run_post_bash(cfg: dict) -> None:
         return
 
     resp = payload.get("tool_response")
-    if isinstance(resp, dict):
+    is_dict = isinstance(resp, dict)
+    if is_dict:
         stdout = resp.get("stdout") or ""
-        interrupted = bool(resp.get("interrupted"))
         persisted = resp.get("persistedOutputPath")
     else:
-        stdout = payload.get("tool_output") or ""
-        interrupted = False
+        stdout = payload.get("tool_output") or (resp if isinstance(resp, str) else "") or ""
         persisted = None
 
-    if interrupted or not stdout:
+    if not stdout:
         return
 
     is_test = TestTrimmer.is_test_command(command)
@@ -111,12 +110,20 @@ def run_post_bash(cfg: dict) -> None:
         new_output = OutputTrimmer.trim_listing(stdout, cfg, ref)
 
     if new_output and len(new_output) < len(stdout):
+        if is_dict:
+            updated_val = dict(resp)
+            updated_val["stdout"] = new_output
+            if persisted and "persistedOutputPath" not in updated_val:
+                updated_val["persistedOutputPath"] = persisted
+        else:
+            updated_val = new_output
+
         print(
             json.dumps(
                 {
                     "hookSpecificOutput": {
                         "hookEventName": "PostToolUse",
-                        "updatedToolOutput": new_output,
+                        "updatedToolOutput": updated_val,
                     }
                 }
             )

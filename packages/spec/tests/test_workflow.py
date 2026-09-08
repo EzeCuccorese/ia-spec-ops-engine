@@ -152,14 +152,28 @@ def test_finish_enforces_scenario_traceability(tmp_path: Path) -> None:
     workflow.create_plan()
     workflow.create_tasks()
     workflow.begin_work()
-    report = VerificationReport(checks=(CheckResult(id="tests", status=CheckStatus.PASS),))
+    report = VerificationReport(
+        checks=(
+            CheckResult(
+                id="tests",
+                status=CheckStatus.PASS,
+                evidence={"stdout": "test_second PASSED\ntest_third PASSED\n"},
+            ),
+        )
+    )
     _, evidence_path = workflow.record_verification(report)
 
     # Missing mappings: should fail
     with pytest.raises(InvalidTransitionError, match="Scenarios lacking test mapping: @s2, @s3"):
         workflow.finish()
 
-    # Map the scenarios in work.md
+    # Map the scenarios in work.md and provide actual test file
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir(parents=True, exist_ok=True)
+    (tests_dir / "test_cases.py").write_text(
+        "def test_second():\n    pass\n\ndef test_third():\n    pass\n",
+        encoding="utf-8",
+    )
     work_md = workflow.feature_dir("trace-feature") / "work.md"
     work_md.write_text(
         "# Work Log\n\n- @s2 -> test_second\n- @s3 -> test_third\n",

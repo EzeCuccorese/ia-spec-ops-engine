@@ -41,6 +41,38 @@ def test_find_project_root_fallback(tmp_path: Path) -> None:
     assert find_project_root(nested) == nested.resolve()
 
 
+def test_find_project_root_with_boundary(tmp_path: Path) -> None:
+    outer_git = tmp_path / "outer"
+    outer_git.mkdir()
+    (outer_git / ".git").mkdir()
+
+    boundary_dir = outer_git / "boundary"
+    boundary_dir.mkdir()
+
+    nested = boundary_dir / "sub" / "deep"
+    nested.mkdir(parents=True)
+
+    # Without boundary, it would find outer_git
+    assert find_project_root(nested) == outer_git
+
+    # With boundary, it must not escape past boundary_dir
+    assert find_project_root(nested, boundary=boundary_dir) == nested.resolve()
+
+
+def test_find_project_root_stops_at_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_home = tmp_path / "fake_home"
+    fake_home.mkdir()
+    (fake_home / ".git").mkdir()  # Dotfiles in home
+
+    nested = fake_home / "projects" / "untracked_dir"
+    nested.mkdir(parents=True)
+
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+
+    # Walking upwards from nested must stop before treating fake_home as project root
+    assert find_project_root(nested) == nested.resolve()
+
+
 def test_load_project_config_deep_subdirectory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

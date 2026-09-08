@@ -22,14 +22,24 @@ class RuleCatalog:
 
     def __init__(self, catalog_root: Path | None = None) -> None:
         if catalog_root:
-            self.root = catalog_root
+            self.root = Path(catalog_root)
         else:
             found = None
-            for p in Path(__file__).resolve().parents:
-                cand = p / "catalog"
-                if cand.is_dir() and (cand / "manifest.json").exists():
-                    found = cand
-                    break
+            try:
+                import importlib.resources as pkg_resources
+
+                res = Path(str(pkg_resources.files("ai_governance").joinpath("catalog")))
+                if res.is_dir() and (res / "manifest.json").exists():
+                    found = res
+            except Exception:
+                found = None
+
+            if not found:
+                for p in Path(__file__).resolve().parents:
+                    cand = p / "catalog"
+                    if cand.is_dir() and (cand / "manifest.json").exists():
+                        found = cand
+                        break
             self.root = found or (Path(__file__).resolve().parents[4] / "catalog")
         self._rules: dict[str, RuleDefinition] = {}
         self._load()

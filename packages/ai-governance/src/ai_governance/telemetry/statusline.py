@@ -85,7 +85,7 @@ def format_statusline(
         from .ritmo import RitmoCalculator
 
         if monthly_spend_usd is not None:
-            ritmo_spend = float(monthly_spend_usd)
+            ritmo_spend: float | None = float(monthly_spend_usd)
         elif payload.get("monthly_spend_usd") is not None:
             ritmo_spend = float(payload["monthly_spend_usd"])
         elif (
@@ -94,13 +94,18 @@ def format_statusline(
         ):
             ritmo_spend = float(payload["cost"]["monthly_cost_usd"])
         else:
-            ritmo_spend = cost
+            ritmo_spend = None
 
         ritmo_stat = RitmoCalculator.calculate_pace(monthly_budget, actual_spend_usd=ritmo_spend)
-        ritmo_color = GRN if ritmo_stat.is_under_budget else RED
-        parts.append(
-            f"{sep}{LBL}ritmo:{RST} {ritmo_color}d{ritmo_stat.elapsed_business_days}/{ritmo_stat.total_business_days} ({ritmo_stat.status_label}){RST}"
-        )
+        if ritmo_spend is not None:
+            ritmo_color = GRN if ritmo_stat.is_under_budget else RED
+            parts.append(
+                f"{sep}{LBL}ritmo:{RST} {ritmo_color}d{ritmo_stat.elapsed_business_days}/{ritmo_stat.total_business_days} ({ritmo_stat.status_label}){RST}"
+            )
+        else:
+            parts.append(
+                f"{sep}{LBL}ritmo:{RST} {YLW}d{ritmo_stat.elapsed_business_days}/{ritmo_stat.total_business_days} (unknown){RST}"
+            )
 
     # Join the first two parts cleanly, then add subsequent parts
     if len(parts) >= 2:

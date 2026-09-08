@@ -108,3 +108,108 @@ def test_stop_all_clean_pids():
             # Los archivos .pid y state.json deben haberse borrado
             assert len(list(pids_dir.glob("*.pid"))) == 0
             assert not state_file.exists()
+
+
+@patch("os.kill")
+def test_graceful_kill_pid_safety_guards(mock_kill):
+    """Rechazar inmediatamente pids <= 1 o pid del proceso actual sin enviar señales."""
+    graceful_kill_pid(0)
+    graceful_kill_pid(1)
+    graceful_kill_pid(os.getpid())
+    mock_kill.assert_not_called()
+
+
+@patch("os.kill")
+def test_graceful_kill_pid_pid_reuse_prevention(mock_kill):
+    """W05: Proteger contra PID reutilizado por un proceso ajeno al servicio."""
+    with patch(
+        "workspace_engine.utils.get_process_cmdline",
+        return_value="postgres: background worker",
+    ):
+        graceful_kill_pid(12345, service_name="auth-service")
+        mock_kill.assert_not_called()
+
+
+@patch("os.kill")
+def test_graceful_kill_pid_does_not_kill_own_group(mock_kill):
+    """No enviar señal a -pid si pid coincide con el grupo del proceso actual."""
+    current_pgid = os.getpgrp()
+    with (
+        patch("workspace_engine.run_local.process_manager._pid_alive", return_value=False),
+        patch("os.getpid", return_value=99999),  # diferente al pid testeado
+    ):
+        stopped = graceful_kill_pid(current_pgid)
+        # Verify that os.kill was NOT called with -current_pgid
+        for call in mock_kill.call_args_list:
+            assert call[0][0] != -current_pgid
+        assert stopped is True
+
+
+@patch("os.kill")
+def test_graceful_kill_pid_rejects_disallowed_tools(mock_kill):
+    """Rechazar procesos de herramientas como grep, cat o vim que contienen el nombre del servicio como argumento."""
+    with patch(
+        "workspace_engine.utils.get_process_cmdline",
+        return_value="grep -r auth-service .",
+    ):
+        stopped = graceful_kill_pid(12345, service_name="auth-service")
+        assert stopped is False
+        mock_kill.assert_not_called()
+
+
+@patch("os.kill")
+def test_graceful_kill_pid_rejects_foreign_workspace_matching_service_name(mock_kill):
+    """Verifica que si la ruta del servicio (service_path) no coincide con cmdline,
+
+    NO se acepte el proceso aunque service_name coincida en otro workspace
+    (e.g. buscando proyecto-a/api contra node /workspaces/proyecto-b/api/server.js).
+    """
+    with patch(
+        "workspace_engine.utils.get_process_cmdline",
+        return_value="node /workspaces/proyecto-b/api/server.js",
+    ):
+        # Buscando proyecto-a/api con service_name="api" y service_path="proyecto-a/api"
+        stopped = graceful_kill_pid(
+            12345,
+            service_name="api",
+            service_path="proyecto-a/api",
+        )
+        assert stopped is False
+        mock_kill.assert_not_called()
+
+
+@patch("os.kill")
+def test_graceful_kill_pid_rejects_foreign_workspace_when_service_name_has_path(mock_kill):
+    """Verifica que si service_name incluye ruta (e.g. 'proyecto-a/api'),
+
+    se rechace si cmdline apunta a otro workspace ('proyecto-b/api').
+    """
+    with patch(
+        "workspace_engine.utils.get_process_cmdline",
+        return_value="node /workspaces/proyecto-b/api/server.js",
+    ):
+        stopped = graceful_kill_pid(
+            12345,
+            service_name="proyecto-a/api",
+        )
+        assert stopped is False
+        mock_kill.assert_not_called()
+
+
+@patch("os.kill")
+def test_graceful_kill_pid_accepts_matching_service_path(mock_kill):
+    """Verifica que si service_path coincide en cmdline, el proceso es aceptado."""
+    with (
+        patch(
+            "workspace_engine.utils.get_process_cmdline",
+            return_value="node /workspaces/proyecto-a/api/server.js",
+        ),
+        patch("workspace_engine.run_local.process_manager._pid_alive", return_value=False),
+    ):
+        stopped = graceful_kill_pid(
+            12345,
+            service_name="api",
+            service_path="proyecto-a/api",
+        )
+        assert stopped is True
+        mock_kill.assert_called()

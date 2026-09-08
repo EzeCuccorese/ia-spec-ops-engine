@@ -33,17 +33,80 @@ import textwrap
 import urllib.error
 import urllib.request
 from datetime import datetime
+from pathlib import Path
 
-# ── Configuration ─────────────────────────────────────────────────────────────
+# ── Configuration & Profiles ──────────────────────────────────────────────────
 
 EMAIL = os.environ.get("ATLASSIAN_EMAIL", "")
 TOKEN = os.environ.get("ATLASSIAN_API_TOKEN", "")
 BASE_URL = os.environ.get("ATLASSIAN_URL", "").rstrip("/")
 ATLASSIAN_TIMEOUT = float(os.environ.get("ATLASSIAN_TIMEOUT", "30.0"))
 
+_CURRENT_PROFILE: str | None = None
+_PROFILE_OVERRIDES: dict[str, dict[str, str]] = {}
+
+
+def set_profile(name: str | None) -> None:
+    """Sets the active configuration profile for Jira operations."""
+    global _CURRENT_PROFILE
+    _CURRENT_PROFILE = name
+
+
+def load_profile_config(profile_name: str | None = None) -> dict[str, str]:
+    """Loads configuration for the requested profile from memory, config files, or environment."""
+    target = profile_name or _CURRENT_PROFILE or os.environ.get("ATLASSIAN_PROFILE")
+    if not target or target.lower() == "default":
+        return {
+            "email": os.environ.get("ATLASSIAN_EMAIL", EMAIL),
+            "token": os.environ.get("ATLASSIAN_API_TOKEN", TOKEN),
+            "url": os.environ.get("ATLASSIAN_URL", BASE_URL).rstrip("/"),
+        }
+
+    # 1. Check in-memory overrides
+    if target in _PROFILE_OVERRIDES:
+        return dict(_PROFILE_OVERRIDES[target])
+
+    # 2. Check profiles file
+    profiles_paths = []
+    if os.environ.get("ATLASSIAN_PROFILES_FILE"):
+        profiles_paths.append(Path(os.environ["ATLASSIAN_PROFILES_FILE"]))
+    profiles_paths.append(Path.home() / ".config" / "atlassian" / "profiles.json")
+    profiles_paths.append(Path.home() / ".specops" / "atlassian.json")
+
+    for p in profiles_paths:
+        if p.is_file():
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+                if target in data and isinstance(data[target], dict):
+                    prof = data[target]
+                    return {
+                        "email": prof.get("email", ""),
+                        "token": prof.get("token", prof.get("api_token", "")),
+                        "url": prof.get("url", "").rstrip("/"),
+                    }
+            except Exception:
+                continue
+
+    # 3. Check environment variables: ATLASSIAN_{PROFILE}_EMAIL, etc.
+    p_upper = target.upper().replace("-", "_")
+    email = os.environ.get(f"ATLASSIAN_{p_upper}_EMAIL") or os.environ.get(
+        f"ATLASSIAN_EMAIL_{p_upper}"
+    )
+    token = os.environ.get(f"ATLASSIAN_{p_upper}_API_TOKEN") or os.environ.get(
+        f"ATLASSIAN_API_TOKEN_{p_upper}"
+    )
+    url = os.environ.get(f"ATLASSIAN_{p_upper}_URL") or os.environ.get(f"ATLASSIAN_URL_{p_upper}")
+
+    return {
+        "email": email or os.environ.get("ATLASSIAN_EMAIL", EMAIL),
+        "token": token or os.environ.get("ATLASSIAN_API_TOKEN", TOKEN),
+        "url": (url or os.environ.get("ATLASSIAN_URL", BASE_URL)).rstrip("/"),
+    }
+
 
 def _get_base_url():
-    return os.environ.get("ATLASSIAN_URL", BASE_URL).rstrip("/")
+    cfg = load_profile_config()
+    return cfg.get("url") or os.environ.get("ATLASSIAN_URL", BASE_URL).rstrip("/")
 
 
 def _get_api_url():
@@ -55,35 +118,65 @@ def _get_agile_url():
 
 
 def check_env():
-    """Validates required environment variables."""
-    missing = [
-        v
-        for v in ["ATLASSIAN_EMAIL", "ATLASSIAN_API_TOKEN", "ATLASSIAN_URL"]
-        if not os.environ.get(v)
-    ]
+    """Validates required environment variables or profile settings."""
+    cfg = load_profile_config()
+    missing = []
+    if not cfg.get("email"):
+        missing.append("ATLASSIAN_EMAIL")
+    if not cfg.get("token"):
+        missing.append("ATLASSIAN_API_TOKEN")
+    if not cfg.get("url"):
+        missing.append("ATLASSIAN_URL")
     if missing:
-        print("Error: Missing required environment variables:")
-        for v in missing:
-            print(f'  export {v}="..."')
-        print("\nTo configure them in ~/.zshrc:")
-        print('  export ATLASSIAN_EMAIL="your-email@company.com"')
-        print('  export ATLASSIAN_URL="https://company.atlassian.net"')
         print(
-            '  ATLASSIAN_API_TOKEN="$(security find-generic-password -s atlassian-api-token -w 2>/dev/null)"'
+            "Error: Missing required environment variables or profile configuration:",
+            file=sys.stderr,
         )
-        print("  export ATLASSIAN_API_TOKEN")
+        for v in missing:
+            print(f'  export {v}="..."', file=sys.stderr)
         sys.exit(1)
 
 
 def _auth_header():
-    email = os.environ.get("ATLASSIAN_EMAIL", EMAIL)
-    token = os.environ.get("ATLASSIAN_API_TOKEN", TOKEN)
+    cfg = load_profile_config()
+    email = cfg.get("email") or os.environ.get("ATLASSIAN_EMAIL", EMAIL)
+    token = cfg.get("token") or os.environ.get("ATLASSIAN_API_TOKEN", TOKEN)
     cred = base64.b64encode(f"{email}:{token}".encode()).decode()
     return {
         "Authorization": f"Basic {cred}",
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
+
+
+def sanitize_secrets(msg: str) -> str:
+    """Sanitizes sensitive tokens, auth headers, and secrets from error messages."""
+    cfg = load_profile_config()
+    tokens = [
+        cfg.get("token"),
+        os.environ.get("ATLASSIAN_API_TOKEN"),
+        TOKEN,
+    ]
+    for t in tokens:
+        if t and len(t) >= 4:
+            msg = msg.replace(t, "[REDACTED_TOKEN]")
+    msg = re.sub(r"Basic\s+[A-Za-z0-9+/=]+", "Basic [REDACTED]", msg)
+    msg = re.sub(r"Bearer\s+[A-Za-z0-9._~+/-]+", "Bearer [REDACTED]", msg)
+    return msg
+
+
+def read_input_text(source: str) -> str:
+    """Reads text from literal string, stdin ('-'), or file path ('@path' or path if exists)."""
+    if source == "-":
+        return sys.stdin.read()
+    if source.startswith("@"):
+        path = Path(source[1:])
+        if path.is_file():
+            return path.read_text(encoding="utf-8")
+    p = Path(source)
+    if p.is_file():
+        return p.read_text(encoding="utf-8")
+    return source
 
 
 def _request(method, path, payload=None, base=None):
@@ -103,10 +196,16 @@ def _request(method, path, payload=None, base=None):
             err = json.dumps(msg, indent=2)
         except Exception:
             pass
-        print(f"HTTP {e.code} Error calling {method} {path}:\n{err}", file=sys.stderr)
+        sanitized = sanitize_secrets(err)
+        print(f"HTTP {e.code} Error calling {method} {path}:\n{sanitized}", file=sys.stderr)
         sys.exit(1)
     except urllib.error.URLError as e:
-        print(f"Network error calling {method} {path}: {e.reason}", file=sys.stderr)
+        sanitized = sanitize_secrets(str(e.reason))
+        print(f"Network error calling {method} {path}: {sanitized}", file=sys.stderr)
+        sys.exit(1)
+    except TimeoutError as e:
+        sanitized = sanitize_secrets(str(e))
+        print(f"Timeout error calling {method} {path}: {sanitized}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -302,13 +401,16 @@ def _md_to_adf(text):
 # ── Commands ──────────────────────────────────────────────────────────────────
 
 
-def cmd_issue(key):
-    """Displays issue in clean Markdown."""
+def cmd_issue(key, as_json=False):
+    """Displays issue in clean Markdown or JSON."""
     data = get(
         f"/issue/{key}?fields=summary,status,assignee,reporter,priority,issuetype,description,created,updated,labels,comment"
     )
-    f = data.get("fields", {})
+    if as_json:
+        print(json.dumps(data, indent=2))
+        return
 
+    f = data.get("fields", {})
     assignee = (f.get("assignee") or {}).get("displayName", "Unassigned")
     reporter = (f.get("reporter") or {}).get("displayName", "—")
     status = f.get("status", {}).get("name", "—")
@@ -337,23 +439,29 @@ def cmd_issue(key):
             print(f"**{author}** — {date}\n{body}\n")
 
 
-def cmd_search(jql):
-    """Searches issues using JQL."""
+def cmd_search(jql, start_at=0, max_results=30, as_json=False):
+    """Searches issues using JQL with pagination support."""
     data = post(
         "/search/jql",
         {
             "jql": jql,
-            "maxResults": 30,
+            "startAt": start_at,
+            "maxResults": max_results,
             "fields": ["key", "summary", "status", "assignee", "priority", "issuetype"],
         },
     )
+    if as_json:
+        print(json.dumps(data, indent=2))
+        return
+
     issues = data.get("issues", [])
-    total = data.get("total", 0)
+    total = data.get("total", len(issues))
+    start = data.get("startAt", start_at)
     if not issues:
         print("_No results found._")
         return
 
-    print(f"## Results ({len(issues)} of {total})\n")
+    print(f"## Results ({start + 1}-{start + len(issues)} of {total})\n")
     print("| Key | Type | Status | Assignee | Title |")
     print("|---|---|---|---|---|")
     for i in issues:
@@ -363,10 +471,19 @@ def cmd_search(jql):
         itype = f.get("issuetype", {}).get("name", "—")
         print(f"| {i['key']} | {itype} | {status} | {assignee} | {f.get('summary', '')} |")
 
+    if total > start + len(issues):
+        print(
+            f"\n_More results exist ({start + len(issues)} of {total} shown). Use --start-at {start + len(issues)} to view next page._"
+        )
 
-def cmd_comments(key):
+
+def cmd_comments(key, as_json=False):
     """Displays all comments on an issue."""
     data = get(f"/issue/{key}/comment?orderBy=created")
+    if as_json:
+        print(json.dumps(data, indent=2))
+        return
+
     comments = data.get("comments", [])
     if not comments:
         print("_No comments._")
@@ -391,7 +508,8 @@ def cmd_create(project, summary, desc="", issue_type="Task", parent=None):
     if parent:
         fields["parent"] = {"key": parent}
     if desc:
-        fields["description"] = _md_to_adf(desc)
+        desc_text = read_input_text(desc)
+        fields["description"] = _md_to_adf(desc_text)
     data = post("/issue", {"fields": fields})
     key = data.get("key", "")
     print(f"✅ Issue created: **{key}** — {summary}")
@@ -400,42 +518,90 @@ def cmd_create(project, summary, desc="", issue_type="Task", parent=None):
 
 def cmd_comment(key, text):
     """Adds a comment to an issue."""
-    data = post(f"/issue/{key}/comment", {"body": _md_to_adf(text)})
+    comment_text = read_input_text(text)
+    data = post(f"/issue/{key}/comment", {"body": _md_to_adf(comment_text)})
     print(f"✅ Comment added to {key}")
     print(f"   id: {data.get('id', '')}")
 
 
 def cmd_comment_edit(key, comment_id, text):
     """Replaces the body of an existing comment."""
-    put(f"/issue/{key}/comment/{comment_id}", {"body": _md_to_adf(text)})
+    comment_text = read_input_text(text)
+    put(f"/issue/{key}/comment/{comment_id}", {"body": _md_to_adf(comment_text)})
     print(f"✅ Comment {comment_id} edited on {key}")
 
 
 def cmd_transition(key, state_name):
-    """Moves an issue to target status."""
+    """Moves an issue to target status with strict ambiguous match protection."""
     data = get(f"/issue/{key}/transitions")
     transitions = data.get("transitions", [])
-    match = next((t for t in transitions if state_name.lower() in t["name"].lower()), None)
-    if not match:
-        available = [t["name"] for t in transitions]
-        print(f"❌ Status '{state_name}' not found.")
-        print(f"   Available: {', '.join(available)}")
-        sys.exit(1)
+
+    # 1. Exact case-insensitive match takes precedence
+    exact_matches = [
+        t for t in transitions if state_name.strip().lower() == t.get("name", "").strip().lower()
+    ]
+    if len(exact_matches) == 1:
+        match = exact_matches[0]
+    else:
+        # 2. Substring matching
+        matches = [
+            t
+            for t in transitions
+            if state_name.strip().lower() in t.get("name", "").strip().lower()
+        ]
+        if not matches:
+            available = [t.get("name", "") for t in transitions]
+            print(f"❌ Status '{state_name}' not found.", file=sys.stderr)
+            print(f"   Available: {', '.join(available)}", file=sys.stderr)
+            sys.exit(1)
+        elif len(matches) > 1:
+            available = [t.get("name", "") for t in matches]
+            print(
+                f"❌ Ambiguous status '{state_name}': multiple transitions match.", file=sys.stderr
+            )
+            print(f"   Available choices: {', '.join(available)}", file=sys.stderr)
+            sys.exit(1)
+        else:
+            match = matches[0]
+
     post(f"/issue/{key}/transitions", {"transition": {"id": match["id"]}})
     print(f"✅ {key} → {match['name']}")
 
 
 def cmd_assign(key, who):
-    """Assigns an issue. Use 'me' to assign to yourself."""
+    """Assigns an issue. Use 'me' to assign to yourself. Strictly rejects ambiguous user matches."""
     if who == "me":
         me = get("/myself")
         account_id = me.get("accountId")
     else:
         results = get(f"/user/search?query={who}")
         if not results:
-            print(f"❌ User '{who}' not found.")
+            print(f"❌ User '{who}' not found.", file=sys.stderr)
             sys.exit(1)
-        account_id = results[0].get("accountId")
+
+        # Exact match on email or displayName
+        exact_matches = [
+            u
+            for u in results
+            if who.strip().lower()
+            in (
+                u.get("emailAddress", "").strip().lower(),
+                u.get("displayName", "").strip().lower(),
+            )
+        ]
+        if len(exact_matches) == 1:
+            account_id = exact_matches[0].get("accountId")
+        elif len(results) > 1:
+            choices = [
+                f"{u.get('displayName', 'Unknown')} ({u.get('emailAddress', 'no email')})"
+                for u in results
+            ]
+            print(f"❌ Ambiguous user '{who}': multiple matches found.", file=sys.stderr)
+            print(f"   Available choices: {', '.join(choices)}", file=sys.stderr)
+            sys.exit(1)
+        else:
+            account_id = results[0].get("accountId")
+
     put(f"/issue/{key}/assignee", {"accountId": account_id})
     print(f"✅ {key} assigned to {'you' if who == 'me' else who}")
 
@@ -445,7 +611,7 @@ def cmd_sprint(key, name):
     project = key.split("-")[0]
     boards = agile_get(f"/board?projectKeyOrId={project}").get("values", [])
     if not boards:
-        print(f"❌ Project '{project}' has no boards.")
+        print(f"❌ Project '{project}' has no boards.", file=sys.stderr)
         sys.exit(1)
     board_id = boards[0]["id"]
 
@@ -454,15 +620,22 @@ def cmd_sprint(key, name):
     if name.lower() == "active":
         match = next((s for s in sprints if s.get("state") == "active"), None)
         if not match:
-            print(f"❌ No active sprint found on board {board_id}.")
+            print(f"❌ No active sprint found on board {board_id}.", file=sys.stderr)
             sys.exit(1)
     else:
-        match = next((s for s in sprints if name.lower() in s.get("name", "").lower()), None)
-        if not match:
+        matches = [s for s in sprints if name.lower() in s.get("name", "").lower()]
+        if not matches:
             available = [f"'{s['name']}' ({s.get('state')})" for s in sprints]
-            print(f"❌ Sprint '{name}' not found on board {board_id}.")
-            print(f"   Available sprints: {', '.join(available) or 'none'}")
+            print(f"❌ Sprint '{name}' not found on board {board_id}.", file=sys.stderr)
+            print(f"   Available sprints: {', '.join(available) or 'none'}", file=sys.stderr)
             sys.exit(1)
+        elif len(matches) > 1:
+            available = [f"'{s['name']}' (id: {s.get('id')})" for s in matches]
+            print(f"❌ Ambiguous sprint '{name}': multiple sprints match.", file=sys.stderr)
+            print(f"   Available choices: {', '.join(available)}", file=sys.stderr)
+            sys.exit(1)
+        else:
+            match = matches[0]
 
     sprint_id = match["id"]
     sprint_name = match["name"]
@@ -478,67 +651,96 @@ def cmd_help():
         ===========================================
 
         READ:
-          jira issue  <KEY>                       Display issue in clean Markdown
-          jira search "<JQL>"                     Search issues using JQL
-          jira comments <KEY>                     Display issue comments
+          jira issue  <KEY> [--json]              Display issue in clean Markdown or JSON
+          jira search "<JQL>" [--start-at <N>]    Search issues using JQL with pagination
+            [--limit <N>] [--json]
+          jira comments <KEY> [--json]            Display issue comments
 
         WRITE:
           jira create <PROJECT> "<Title>"         Create issue (default: Task)
-            [--desc "<text>"]                     Description (supports basic Markdown)
+            [--desc "<text>|@file|-"]             Description (supports Markdown)
             [--type Bug|Task|Story|Sub-task]
             [--parent <KEY>]                      Parent issue for Sub-task
-          jira comment <KEY> "<text>"             Add comment (supports basic Markdown)
+          jira comment <KEY> "<text>|@file|-"     Add comment (supports Markdown)
           jira comment-edit <KEY> <ID> "<text>"   Replace body of an existing comment
-          jira transition <KEY> "<Status>"        Move issue to status
-          jira assign <KEY> me|<email>            Assign issue
-          jira sprint <KEY> active|<name>         Move issue to active sprint or by name
+          jira transition <KEY> "<Status>"        Move issue to status (strictly checked)
+          jira assign <KEY> me|<email>            Assign issue (strictly checked)
+          jira sprint <KEY> active|<name>         Move issue to sprint
 
-        EXAMPLES:
-          jira issue ONB-1125
-          jira search "project=ONB AND sprint in openSprints()"
-          jira create ONB "Title of bug" --type Bug --desc "Steps to reproduce"
-          jira create ONB "Sub-task X" --type Sub-task --parent ONB-1154
-          jira comment ONB-1125 "Investigated code, root cause identified"
-          jira transition ONB-1125 "In Progress"
-          jira assign ONB-1125 me
-          jira sprint ONB-1230 active
+        GLOBAL OPTIONS:
+          --profile <NAME>                        Use named configuration profile
     """).strip()
     )
 
 
 def main():
-    args = sys.argv[1:]
-    if not args or args[0] in ("-h", "--help", "help"):
+    raw_args = sys.argv[1:]
+    if not raw_args or raw_args[0] in ("-h", "--help", "help"):
+        cmd_help()
+        return
+
+    # Extract global flags
+    args = []
+    i = 0
+    as_json = False
+    start_at = 0
+    max_results = 30
+    file_input = None
+
+    while i < len(raw_args):
+        if raw_args[i] == "--profile" and i + 1 < len(raw_args):
+            set_profile(raw_args[i + 1])
+            i += 2
+        elif raw_args[i] == "--json":
+            as_json = True
+            i += 1
+        elif raw_args[i] == "--start-at" and i + 1 < len(raw_args):
+            start_at = int(raw_args[i + 1])
+            i += 2
+        elif raw_args[i] in ("--limit", "--max-results") and i + 1 < len(raw_args):
+            max_results = int(raw_args[i + 1])
+            i += 2
+        elif raw_args[i] == "--file" and i + 1 < len(raw_args):
+            file_input = raw_args[i + 1]
+            i += 2
+        else:
+            args.append(raw_args[i])
+            i += 1
+
+    if not args:
         cmd_help()
         return
 
     cmd = args[0]
     if cmd == "issue" and len(args) >= 2:
-        cmd_issue(args[1])
+        cmd_issue(args[1], as_json=as_json)
     elif cmd == "search" and len(args) >= 2:
-        cmd_search(args[1])
+        cmd_search(args[1], start_at=start_at, max_results=max_results, as_json=as_json)
     elif cmd == "comments" and len(args) >= 2:
-        cmd_comments(args[1])
+        cmd_comments(args[1], as_json=as_json)
     elif cmd == "create" and len(args) >= 3:
-        desc, itype, parent = "", "Task", None
-        i = 3
-        while i < len(args):
-            if args[i] == "--desc" and i + 1 < len(args):
-                desc = args[i + 1]
-                i += 2
-            elif args[i] == "--type" and i + 1 < len(args):
-                itype = args[i + 1]
-                i += 2
-            elif args[i] == "--parent" and i + 1 < len(args):
-                parent = args[i + 1]
-                i += 2
+        desc = file_input or ""
+        itype, parent = "Task", None
+        j = 3
+        while j < len(args):
+            if args[j] == "--desc" and j + 1 < len(args):
+                desc = args[j + 1]
+                j += 2
+            elif args[j] == "--type" and j + 1 < len(args):
+                itype = args[j + 1]
+                j += 2
+            elif args[j] == "--parent" and j + 1 < len(args):
+                parent = args[j + 1]
+                j += 2
             else:
-                i += 1
+                j += 1
         cmd_create(args[1], args[2], desc=desc, issue_type=itype, parent=parent)
-    elif cmd == "comment" and len(args) >= 3:
-        cmd_comment(args[1], args[2])
-    elif cmd == "comment-edit" and len(args) >= 4:
-        cmd_comment_edit(args[1], args[2], args[3])
+    elif cmd == "comment" and (len(args) >= 3 or file_input):
+        text = file_input if file_input else args[2]
+        cmd_comment(args[1], text)
+    elif cmd == "comment-edit" and (len(args) >= 4 or file_input):
+        text = file_input if file_input else args[3]
+        cmd_comment_edit(args[1], args[2], text)
     elif cmd == "transition" and len(args) >= 3:
         cmd_transition(args[1], args[2])
     elif cmd == "assign" and len(args) >= 3:
@@ -546,7 +748,10 @@ def main():
     elif cmd == "sprint" and len(args) >= 3:
         cmd_sprint(args[1], args[2])
     else:
-        print(f"Unknown command or invalid arguments: {' '.join(args)}\nRun 'jira help'.")
+        print(
+            f"Unknown command or invalid arguments: {' '.join(args)}\nRun 'jira help'.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
@@ -14,7 +15,7 @@ from uuid import uuid4
 
 from spec.core.ownership import sha256_file
 from spec.core.paths import PathBoundary
-from spec.core.result import CheckStatus, VerificationReport
+from spec.core.result import CheckResult, CheckStatus, VerificationReport
 
 
 class WorkflowError(RuntimeError):
@@ -87,7 +88,7 @@ def compute_tree_fingerprint(root: str | Path) -> str:
             full_path = Path(dirpath, f)
             rel_file = full_path.relative_to(root_path).as_posix()
             if rel_file == ".spec/state.json" or (
-                rel_dir == Path(".spec") and f.startswith(".state-")
+                rel_dir == Path(".spec") and (f.startswith(".state-") or f.startswith(".state."))
             ):
                 continue
             if rel_file == ".spec/evidence" or rel_file.startswith(".spec/evidence/"):
@@ -216,7 +217,7 @@ class Workflow:
 
     def begin_work(self) -> WorkflowSnapshot:
         current = self.status()
-        if current is None or current.stage is not Stage.TASKS:
+        if current is None or current.stage not in {Stage.TASKS, Stage.COMPLETE}:
             actual = current.stage if current else "none"
             raise InvalidTransitionError(f"Work requires active tasks; current stage is {actual}")
         directory = self.feature_dir(current.feature)
@@ -233,35 +234,66 @@ class Workflow:
             self._create_artifact(work_path, content)
         return self._persist(current.feature, Stage.WORK)
 
-    def record_verification(self, report: VerificationReport) -> tuple[WorkflowSnapshot, Path]:
+    def validate_can_verify(self) -> None:
         current = self.status()
         allowed = {Stage.WORK, Stage.VERIFY}
         if current is None or current.stage not in allowed:
-            actual = current.stage if current else "none"
+            actual = current.stage.value if current else "none"
             raise InvalidTransitionError(
                 f"Verification requires active work; current stage is {actual}"
             )
+
+    def record_verification(
+        self,
+        report: VerificationReport,
+        *,
+        tree_fingerprint: str | None = None,
+        verification_status: CheckStatus | None = None,
+        trace_info: dict | None = None,
+    ) -> tuple[WorkflowSnapshot, Path]:
+        self.validate_can_verify()
+        current = self.status()
+        assert current is not None
         recorded_at = datetime.now(UTC)
         relative_path = Path(
             ".spec",
             "evidence",
             current.feature,
-            f"{recorded_at.strftime('%Y%m%dT%H%M%S.%fZ')}-{uuid4().hex[:8]}.json",
+            f"verification-{recorded_at.strftime('%Y%m%d-%H%M%S')}-{uuid4().hex[:8]}.json",
         )
         evidence_path = self.boundary.resolve(relative_path)
-        tree_fingerprint = compute_tree_fingerprint(self.boundary.root)
+        actual_tree_fingerprint = (
+            tree_fingerprint
+            if tree_fingerprint is not None
+            else compute_tree_fingerprint(self.boundary.root)
+        )
+        config_path = self.boundary.resolve(".spec/verification.json")
+        config_hash = sha256_file(config_path) if config_path.is_file() else None
+
+        effective_status = verification_status if verification_status is not None else report.status
+        report_payload = report.to_dict()
+        if verification_status is not None:
+            report_payload["status"] = effective_status.value
+            report_payload["passed"] = effective_status is CheckStatus.PASS
+
         payload = {
             "schema_version": 1,
             "feature": current.feature,
             "recorded_at": recorded_at.isoformat(),
-            "tree_fingerprint": tree_fingerprint,
-            "report": report.to_dict(),
+            "tree_fingerprint": actual_tree_fingerprint,
+            "verification_config_hash": config_hash,
+            "status": effective_status.value,
+            "passed": (effective_status is CheckStatus.PASS),
+            "report": report_payload,
         }
+        if trace_info is not None:
+            payload["traceability"] = trace_info
+
         self._create_artifact(evidence_path, json.dumps(payload, indent=2) + "\n")
         snapshot = self._persist(
             current.feature,
             Stage.VERIFY,
-            verification_status=report.status,
+            verification_status=effective_status,
             evidence_path=str(relative_path),
         )
         return snapshot, evidence_path
@@ -281,15 +313,46 @@ class Workflow:
         self._require_nonempty(evidence_file, "verification evidence")
         try:
             evidence_data = json.loads(evidence_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            evidence_data = {}
+        except (json.JSONDecodeError, OSError) as exc:
+            raise InvalidTransitionError(
+                f"Corrupt or invalid verification evidence: {evidence_file}"
+            ) from exc
+        if not isinstance(evidence_data, dict):
+            raise InvalidTransitionError(
+                f"Verification evidence must be a JSON object, got {type(evidence_data).__name__}"
+            )
+        if evidence_data.get("schema_version") != 1:
+            raise InvalidTransitionError(
+                f"Unsupported verification evidence schema version: {evidence_data.get('schema_version')}"
+            )
+        if evidence_data.get("feature") != current.feature:
+            raise InvalidTransitionError(
+                f"Verification evidence feature mismatch: expected {current.feature}, got {evidence_data.get('feature')}"
+            )
         recorded_fingerprint = evidence_data.get("tree_fingerprint")
-        if recorded_fingerprint:
-            current_fingerprint = compute_tree_fingerprint(self.boundary.root)
-            if current_fingerprint != recorded_fingerprint:
-                raise InvalidTransitionError(
-                    "Finish rejected: Working tree was modified after recorded verification (fingerprint mismatch)"
-                )
+        if not isinstance(recorded_fingerprint, str) or not recorded_fingerprint.strip():
+            raise InvalidTransitionError(
+                "Verification evidence missing required valid tree_fingerprint"
+            )
+        current_fingerprint = compute_tree_fingerprint(self.boundary.root)
+        if current_fingerprint != recorded_fingerprint:
+            raise InvalidTransitionError(
+                "Finish rejected: Working tree was modified after recorded verification (fingerprint mismatch)"
+            )
+        report_data = evidence_data.get("report")
+        if not isinstance(report_data, dict) or report_data.get("status") != CheckStatus.PASS.value:
+            raise InvalidTransitionError(
+                "Verification evidence report is missing, invalid, or did not PASS"
+            )
+
+        recorded_config_hash = evidence_data.get("verification_config_hash")
+        config_path = self.boundary.resolve(".spec/verification.json")
+        current_config_hash = sha256_file(config_path) if config_path.is_file() else None
+        if recorded_config_hash is not None and recorded_config_hash != current_config_hash:
+            raise InvalidTransitionError(
+                "Finish rejected: Verification configuration was modified after recorded verification (config hash mismatch)"
+            )
+
         feature_dir = self.feature_dir(current.feature)
         spec_file = feature_dir / "spec.md"
         if spec_file.is_file():
@@ -297,12 +360,29 @@ class Workflow:
 
             scenarios = extract_scenarios(spec_file.read_text(encoding="utf-8"))
             if scenarios:
-                report = find_test_mappings(scenarios, self.boundary.root, feature_dir=feature_dir)
+                check_objs = [
+                    CheckResult(
+                        id=c.get("id", ""),
+                        status=CheckStatus(c.get("status", CheckStatus.FAIL.value)),
+                        required=c.get("required", True),
+                        summary=c.get("summary", ""),
+                        evidence=c.get("evidence", {}),
+                    )
+                    for c in report_data.get("checks", [])
+                    if isinstance(c, dict)
+                ]
+                report = find_test_mappings(
+                    scenarios,
+                    self.boundary.root,
+                    feature_dir=feature_dir,
+                    check_results=check_objs,
+                )
                 if not report.is_complete:
                     missing = ", ".join(report.uncovered)
                     raise InvalidTransitionError(
                         f"Finish rejected: Scenarios lacking test mapping: {missing}"
                     )
+
         return self._persist(
             current.feature,
             Stage.COMPLETE,
@@ -329,6 +409,37 @@ class Workflow:
             stream.flush()
             os.fsync(stream.fileno())
 
+    def save_state(self, snapshot: WorkflowSnapshot) -> None:
+        payload = {
+            "schema_version": self.schema_version,
+            "active_feature": snapshot.feature,
+            "stage": snapshot.stage.value,
+            "updated_at": snapshot.updated_at,
+            "verification_status": (
+                snapshot.verification_status.value if snapshot.verification_status else None
+            ),
+            "evidence_path": snapshot.evidence_path,
+        }
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_file_path = self.state_path.parent / ".state.lock"
+        with open(lock_file_path, "a+", encoding="utf-8") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                fd, temporary_name = tempfile.mkstemp(prefix=".state-", dir=self.state_path.parent)
+                temporary = Path(temporary_name)
+                try:
+                    with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                        json.dump(payload, stream, indent=2)
+                        stream.write("\n")
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    os.chmod(temporary, 0o600)
+                    os.replace(temporary, self.state_path)
+                finally:
+                    temporary.unlink(missing_ok=True)
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
     def _persist(
         self,
         feature: str,
@@ -344,27 +455,5 @@ class Workflow:
             verification_status=verification_status,
             evidence_path=evidence_path,
         )
-        payload = {
-            "schema_version": self.schema_version,
-            "active_feature": snapshot.feature,
-            "stage": snapshot.stage.value,
-            "updated_at": snapshot.updated_at,
-            "verification_status": (
-                snapshot.verification_status.value if snapshot.verification_status else None
-            ),
-            "evidence_path": snapshot.evidence_path,
-        }
-        self.state_path.parent.mkdir(parents=True, exist_ok=True)
-        fd, temporary_name = tempfile.mkstemp(prefix=".state-", dir=self.state_path.parent)
-        temporary = Path(temporary_name)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as stream:
-                json.dump(payload, stream, indent=2)
-                stream.write("\n")
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.chmod(temporary, 0o600)
-            temporary.replace(self.state_path)
-        finally:
-            temporary.unlink(missing_ok=True)
+        self.save_state(snapshot)
         return snapshot

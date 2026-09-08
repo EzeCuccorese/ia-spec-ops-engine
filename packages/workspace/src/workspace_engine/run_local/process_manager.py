@@ -343,7 +343,13 @@ def _launch_one(
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
             )
-        (constants.PIDS_DIR / f"{name}.pid").write_text(str(proc.pid), encoding="utf-8")
+        pid_payload = {
+            "pid": proc.pid,
+            "name": name,
+            "path": str(cfg["path"]),
+            "cmd": " ".join(cmd_list),
+        }
+        (constants.PIDS_DIR / f"{name}.pid").write_text(json.dumps(pid_payload), encoding="utf-8")
         return proc.pid, None, time.time(), wired_map
     except Exception as exc:
         return None, str(exc), None, {}
@@ -470,10 +476,95 @@ def load_state() -> tuple[list, list]:
     return results, launch_configs
 
 
-def graceful_kill_pid(pid: int, timeout: float = 2.5) -> None:
-    """Intenta terminar el proceso con SIGTERM y escala a SIGKILL si persiste."""
+def graceful_kill_pid(
+    pid: int,
+    timeout: float = 2.5,
+    service_name: str | None = None,
+    expected_cmd: str | None = None,
+    service_path: Path | str | None = None,
+) -> bool:
+    """Intenta terminar el proceso con SIGTERM y escala a SIGKILL si persiste, verificando identidad para evitar PID reuse.
+
+    Retorna True si el proceso fue detenido/terminado; False si fue rechazado o sigue vivo.
+    """
+    if pid <= 1 or pid == os.getpid():
+        return False
+
+    # Process identity verification against PID reuse
+    if service_name or expected_cmd or service_path:
+        import re
+
+        from workspace_engine.utils import get_process_cmdline
+
+        cmdline = get_process_cmdline(pid)
+        if not cmdline:
+            return False
+
+        # Reject obvious false positives where service_name is just an argument to a tool
+        first_token = cmdline.split()[0].lower() if cmdline.split() else ""
+        disallowed_binaries = {
+            "grep",
+            "ripgrep",
+            "rg",
+            "cat",
+            "vim",
+            "vi",
+            "nano",
+            "less",
+            "more",
+            "ps",
+            "kill",
+            "pkill",
+            "top",
+            "htop",
+            "tail",
+            "head",
+            "sed",
+            "awk",
+        }
+        binary_name = Path(first_token).name
+        if binary_name in disallowed_binaries:
+            return False
+
+        matched = False
+        if expected_cmd and (expected_cmd in cmdline or cmdline in expected_cmd):
+            matched = True
+        elif service_path:
+            svc_path_str = str(service_path)
+            svc_path_resolved = str(Path(service_path).resolve())
+            if svc_path_str in cmdline or svc_path_resolved in cmdline:
+                matched = True
+            else:
+                # El servicio tiene una ruta específica (service_path).
+                # Si la ruta no coincide con cmdline, NUNCA debemos aceptar
+                # el proceso por mera coincidencia de service_name en otro
+                # workspace o directorio (e.g. proyecto-a/api vs proyecto-b/api).
+                return False
+        elif service_name:
+            if "/" in service_name or "\\" in service_name:
+                name_path = Path(service_name)
+                if str(name_path) in cmdline or str(name_path.resolve()) in cmdline:
+                    matched = True
+                else:
+                    return False
+            else:
+                pattern = (
+                    rf"(?:/|^|\b){re.escape(service_name)}(?:/|\.py|\.ts|\.js|\.json|\.jar|:|\s|$)"
+                )
+                if re.search(pattern, cmdline):
+                    matched = True
+
+        if not matched:
+            # PID reused by a foreign process: do not signal foreign process
+            return False
+
+    current_pgid = os.getpgrp()
+    targets = [pid]
+    if pid != current_pgid:
+        targets.insert(0, -pid)
+
     # 1. Enviar SIGTERM
-    for target in (-pid, pid):
+    for target in targets:
         with contextlib.suppress(ProcessLookupError, PermissionError):
             os.kill(target, 15)  # SIGTERM
 
@@ -481,14 +572,17 @@ def graceful_kill_pid(pid: int, timeout: float = 2.5) -> None:
     start_time = time.time()
     while time.time() - start_time < timeout:
         if not _pid_alive(pid):
-            return
+            return True
         time.sleep(0.2)
 
     # 3. Escalar a SIGKILL si aún sigue vivo
     if _pid_alive(pid):
-        for target in (-pid, pid):
+        for target in targets:
             with contextlib.suppress(ProcessLookupError, PermissionError):
                 os.kill(target, 9)  # SIGKILL
+
+    time.sleep(0.1)
+    return not _pid_alive(pid)
 
 
 def stop_all():
@@ -496,15 +590,61 @@ def stop_all():
     if not pid_files:
         print("No hay servicios activos.")
         return
+
+    # Load recorded state if available to retrieve service path
+    state_map: dict[str, str] = {}
+    if constants.STATE_FILE.is_file():
+        try:
+            entries = json.loads(constants.STATE_FILE.read_text(encoding="utf-8"))
+            if isinstance(entries, list):
+                for e in entries:
+                    if isinstance(e, dict) and "name" in e and "path" in e:
+                        state_map[e["name"]] = e["path"]
+        except Exception:
+            pass
+
     for pid_file in pid_files:
         name = pid_file.stem
+        raw_text = ""
         try:
-            pid = int(pid_file.read_text(encoding="utf-8").strip())
+            raw_text = pid_file.read_text(encoding="utf-8").strip()
         except Exception:
             pid_file.unlink(missing_ok=True)
             continue
-        graceful_kill_pid(pid)
+
+        pid: int | None = None
+        expected_cmd: str | None = None
+        file_path: str | None = None
+
+        if raw_text.startswith("{"):
+            try:
+                meta = json.loads(raw_text)
+                pid = int(meta.get("pid", 0))
+                expected_cmd = meta.get("cmd") or meta.get("command") or meta.get("cmdline")
+                file_path = meta.get("path")
+            except Exception:
+                pass
+
+        if pid is None or pid <= 0:
+            try:
+                pid = int(raw_text.splitlines()[0].strip())
+            except Exception:
+                pid_file.unlink(missing_ok=True)
+                continue
+
+        svc_path = state_map.get(name) or file_path
+        stopped = graceful_kill_pid(
+            pid,
+            service_name=name,
+            expected_cmd=expected_cmd,
+            service_path=svc_path,
+        )
         pid_file.unlink(missing_ok=True)
-        print(f"  {RED}●{RESET} {name} (PID {pid}) detenido")
+        if stopped:
+            print(f"  {RED}●{RESET} {name} (PID {pid}) detenido")
+        else:
+            print(
+                f"  {YELLOW}⚠{RESET} {name} (PID {pid}) no detenido o proceso ajeno (PID reutilizado)"
+            )
     constants.STATE_FILE.unlink(missing_ok=True)
     print()
