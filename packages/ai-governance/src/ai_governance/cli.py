@@ -24,7 +24,7 @@ def show_banner() -> None:
     )
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="governance",
         description="SpecOps AI Governance — Engineering Standards, Token Frugality & Telemetry Engine.",
@@ -79,13 +79,14 @@ def main() -> int:
     # audit
     sub.add_parser("audit", help="Audit repository against governance checkpoints")
 
-    if len(sys.argv) == 1:
+    args_list = sys.argv[1:] if argv is None else list(argv)
+    if not args_list:
         show_banner()
         parser.print_help()
         return 0
 
-    cmd = sys.argv[1]
-    remaining_args = sys.argv[2:]
+    cmd = args_list[0]
+    remaining_args = args_list[1:]
 
     if cmd == "config":
         try:
@@ -93,7 +94,7 @@ def main() -> int:
         except ImportError:
             console.print(
                 "[bold yellow]Notice:[/bold yellow] 'workspace_engine' is not installed or available.\n"
-                "Install sibling package 'workspace-engine' to use 'governance config'."
+                "Install sibling package 'cucco-workspace' to use 'governance config'."
             )
             return 1
 
@@ -122,13 +123,15 @@ def main() -> int:
             from workspace_engine.cli.main import doctor_check
         except ImportError:
             console.print(
-                "[bold yellow]Notice:[/bold yellow] 'spec' or 'workspace_engine' is not installed or available.\n"
-                "Install sibling packages to use 'governance doctor'."
+                "[bold yellow]Notice:[/bold yellow] 'spec' or 'cucco-workspace' is not installed or available.\n"
+                "Install sibling packages ('spec', 'cucco-workspace') to use 'governance doctor'."
             )
             return 1
 
-        doctor_check()
-        print()
+        is_json = "--json" in remaining_args
+        if not is_json:
+            doctor_check()
+            print()
         try:
             spec_main(["doctor"] + remaining_args)
             return 0

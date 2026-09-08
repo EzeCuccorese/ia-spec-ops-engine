@@ -8,7 +8,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from .agents import ALL_ADAPTERS
+from .agents import ALL_ADAPTERS, filter_rules_by_tech
 from .core.catalog import RuleCatalog, RuleDefinition
 from .core.storage import RuleStorage
 from .core.tui import select_multiple, select_one
@@ -127,7 +127,7 @@ def run_uninstaller(root: Path) -> None:
     is_global = scope_idx == 0
 
     storage = RuleStorage.global_storage() if is_global else RuleStorage.local_storage(root)
-    storage.delete_all()
+    storage.delete_owned()
 
     for adapter in ALL_ADAPTERS.values():
         res = adapter.uninstall(root, is_global)
@@ -158,6 +158,21 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--local", dest="is_local", action="store_true", help="Force local scope")
     parser.add_argument("--all", dest="all_rules", action="store_true", help="Select all rules")
+    parser.add_argument(
+        "--tech",
+        dest="tech",
+        type=str,
+        default=None,
+        help="Filter rules by technology stack (e.g. python, java, all)",
+    )
+    parser.add_argument(
+        "--agent",
+        dest="agent",
+        type=str,
+        default="agents",
+        choices=["agents", "claude", "cursor", "all"],
+        help="Target AI coding agent adapter to configure (default: agents)",
+    )
     args = parser.parse_args(argv or sys.argv[1:])
 
     catalog = RuleCatalog()
@@ -173,24 +188,49 @@ def main(argv: list[str] | None = None) -> None:
                 if args.is_global
                 else RuleStorage.local_storage(args.root)
             )
-            storage.delete_all()
-            for adapter in ALL_ADAPTERS.values():
+            storage.delete_owned()
+
+            # Select adapters to uninstall
+            if args.agent == "all":
+                adapters_to_uninstall = list(ALL_ADAPTERS.values())
+            elif args.agent in ALL_ADAPTERS:
+                # If explicitly specified (or default), uninstall for all if default, or specific if non-default
+                if "--agent" in (argv or sys.argv[1:]):
+                    adapters_to_uninstall = [ALL_ADAPTERS[args.agent]]
+                else:
+                    adapters_to_uninstall = list(ALL_ADAPTERS.values())
+            else:
+                adapters_to_uninstall = list(ALL_ADAPTERS.values())
+
+            for adapter in adapters_to_uninstall:
                 adapter.uninstall(args.root, args.is_global)
             return
         run_uninstaller(args.root)
         return
 
     if args.action == "install":
-        if args.is_global or args.is_local:
+        if args.is_global or args.is_local or args.tech:
             storage = (
                 RuleStorage.global_storage()
                 if args.is_global
                 else RuleStorage.local_storage(args.root)
             )
-            rules_to_save = catalog.rules if args.all_rules else catalog.rules
+            rules_to_save = catalog.rules
+            if args.tech:
+                rules_to_save = filter_rules_by_tech(rules_to_save, args.tech)
+
             saved = storage.save_rules(rules_to_save)
-            for adapter in ALL_ADAPTERS.values():
-                adapter.install(rules_to_save, saved, args.root, args.is_global)
+
+            # Target selected adapters
+            if args.agent == "all":
+                selected_adapters = list(ALL_ADAPTERS.values())
+            elif args.agent in ALL_ADAPTERS:
+                selected_adapters = [ALL_ADAPTERS[args.agent]]
+            else:
+                selected_adapters = [ALL_ADAPTERS["agents"]]
+
+            for adapter in selected_adapters:
+                adapter.install(rules_to_save, saved, args.root, args.is_global, tech=args.tech)
             return
         run_interactive_installer(catalog, args.root)
         return

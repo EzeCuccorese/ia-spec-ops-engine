@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 SCENARIO_PATTERN = re.compile(
     r"@(?P<tag>s[0-9]+)\s*\n\s*(?:Scenario|Escenario):\s*(?P<title>[^\n]+)",
@@ -58,6 +59,7 @@ def find_test_mappings(
     scenarios: list[Scenario],
     root: Path,
     feature_dir: Path | None = None,
+    check_results: tuple[Any, ...] | list[Any] | None = None,
 ) -> TraceabilityReport:
     report = TraceabilityReport(feature=feature_dir.name if feature_dir else "active")
     report.scenarios = list(scenarios)
@@ -65,49 +67,140 @@ def find_test_mappings(
     if not scenarios:
         return report
 
-    # Collect search locations: tests directory and feature work/tasks files
-    search_files: list[Path] = []
-    tests_dir = root / "tests"
-    if tests_dir.is_dir():
-        search_files.extend(tests_dir.rglob("*.py"))
-        search_files.extend(tests_dir.rglob("*.ts"))
-        search_files.extend(tests_dir.rglob("*.js"))
+    # 1. Collect test files across root test dirs and monorepo packages
+    test_files: list[Path] = []
 
-    if feature_dir and feature_dir.is_dir():
-        work_md = feature_dir / "work.md"
-        tasks_md = feature_dir / "tasks.md"
-        if work_md.is_file():
-            search_files.append(work_md)
-        if tasks_md.is_file():
-            search_files.append(tasks_md)
+    # Common test directories at root
+    for dname in ("tests", "tests_acceptance", "test"):
+        d = root / dname
+        if d.is_dir():
+            test_files.extend(d.rglob("*.py"))
+            test_files.extend(d.rglob("*.ts"))
+            test_files.extend(d.rglob("*.js"))
 
-    # Read contents of all potential test and mapping files
-    file_contents: list[tuple[Path, str]] = []
-    for f in search_files:
+    # Monorepo packages: packages/*/tests*
+    packages_dir = root / "packages"
+    if packages_dir.is_dir():
+        for pkg in packages_dir.iterdir():
+            if pkg.is_dir() and not pkg.name.startswith("."):
+                for dname in ("tests", "tests_acceptance", "tests_integration", "test"):
+                    d = pkg / dname
+                    if d.is_dir():
+                        test_files.extend(d.rglob("*.py"))
+                        test_files.extend(d.rglob("*.ts"))
+                        test_files.extend(d.rglob("*.js"))
+
+    # Exclude files in volatile or non-source directories
+    excluded_parts = {
+        ".git",
+        ".venv",
+        ".spec",
+        ".specops",
+        "node_modules",
+        ".pytest_cache",
+        ".ruff_cache",
+    }
+    test_files = [f for f in test_files if not any(part in excluded_parts for part in f.parts)]
+    test_files = sorted(set(test_files))
+
+    # Read contents of all test files
+    test_contents: list[tuple[Path, str]] = []
+    for f in test_files:
         try:
-            file_contents.append((f, f.read_text(encoding="utf-8", errors="replace")))
+            test_contents.append((f, f.read_text(encoding="utf-8", errors="replace")))
         except OSError:
             continue
+
+    # Inspect work.md / tasks.md to resolve scenario-to-test references if documented
+    work_mappings: dict[str, list[str]] = {}
+    if feature_dir and feature_dir.is_dir():
+        work_md = feature_dir / "work.md"
+        if work_md.is_file():
+            try:
+                work_text = work_md.read_text(encoding="utf-8", errors="replace")
+                # Parse lines like: - @s1 -> test_foo or @s1: test_bar
+                for line in work_text.splitlines():
+                    for s in scenarios:
+                        tag_bare = s.tag.lstrip("@")
+                        if f"@{tag_bare}" in line or f" {tag_bare} " in line:
+                            words = re.findall(r"\btest_[a-zA-Z0-9_]+\b", line)
+                            if words:
+                                work_mappings.setdefault(s.tag, []).extend(words)
+            except OSError:
+                pass
 
     for scenario in scenarios:
         tag = scenario.tag  # e.g. "@s1"
         tag_bare = tag.lstrip("@")  # e.g. "s1"
-        # Match pattern: @s1, test_s1, test_<name>_s1, or mention of @s1 in work.md/tasks.md
+        # Match pattern in test files: @s1, test_s1, test_<name>_s1, or explicit referenced test function
         pattern = re.compile(
             rf"(?:@?{re.escape(tag_bare)}\b|test_[a-zA-Z0-9_]*{re.escape(tag_bare)}\b)",
             re.IGNORECASE,
         )
+        referenced_names = work_mappings.get(tag, [])
 
         matching_files: list[str] = []
-        for path, text in file_contents:
-            if pattern.search(text):
-                matching_files.append(
-                    str(path.relative_to(root) if path.is_relative_to(root) else path)
-                )
+        for path, text in test_contents:
+            matched = bool(pattern.search(text))
+            if not matched and referenced_names:
+                matched = any(ref in text for ref in referenced_names)
+            if matched:
+                rel = str(path.relative_to(root) if path.is_relative_to(root) else path)
+                matching_files.append(rel)
 
+        # STRICT CONTRACT: A scenario MUST be implemented by an actual test file.
+        # References in tasks.md or work.md alone NEVER credit a scenario.
         if matching_files:
             report.covered[tag] = matching_files
         else:
             report.uncovered.append(tag)
+
+    if check_results is not None:
+        execution_text = "\n".join(
+            f"{c.evidence.get('stdout', '') if isinstance(getattr(c, 'evidence', None), dict) else ''}\n"
+            f"{c.evidence.get('stderr', '') if isinstance(getattr(c, 'evidence', None), dict) else ''}"
+            for c in check_results
+        )
+        if not execution_text.strip():
+            # If verification checks produced no output or execution evidence,
+            # no tests are proven executed: all scenarios are uncovered.
+            for tag in list(report.covered.keys()):
+                del report.covered[tag]
+                if tag not in report.uncovered:
+                    report.uncovered.append(tag)
+        else:
+            is_zero_collected = bool(
+                re.search(
+                    r"\bcollected\s+0\s+items\b|\b0\s+passed\b", execution_text, re.IGNORECASE
+                )
+            )
+            for scenario in scenarios:
+                tag = scenario.tag
+                if tag in report.covered:
+                    tag_bare = tag.lstrip("@")
+                    has_executed_tag = bool(
+                        re.search(
+                            rf"(?:@|\b){re.escape(tag_bare)}\b|test_[a-zA-Z0-9_]*{re.escape(tag_bare)}\b",
+                            execution_text,
+                            re.IGNORECASE,
+                        )
+                    )
+                    if not has_executed_tag and tag in work_mappings:
+                        has_executed_tag = any(
+                            bool(re.search(rf"\b{re.escape(ref)}\b", execution_text))
+                            for ref in work_mappings[tag]
+                        )
+
+                    is_skipped = bool(
+                        re.search(
+                            rf"{re.escape(tag_bare)}[^\n]*\bSKIPPED\b|\bSKIPPED\b[^\n]*{re.escape(tag_bare)}",
+                            execution_text,
+                            re.IGNORECASE,
+                        )
+                    )
+                    if is_zero_collected or is_skipped or not has_executed_tag:
+                        del report.covered[tag]
+                        if tag not in report.uncovered:
+                            report.uncovered.append(tag)
 
     return report

@@ -91,7 +91,10 @@ def resolve_config_target(
 
     current_dir = cwd or Path.cwd()
     if is_local:
-        return current_dir / ".specops" / "config.json"
+        from workspace_engine.run_local.constants import find_project_root
+
+        root = find_project_root(current_dir)
+        return root / ".specops" / "config.json"
 
     # Default to global configuration unless local was explicitly requested
     xdg_home = os.environ.get("XDG_CONFIG_HOME")
@@ -135,7 +138,10 @@ def init_config(
 
     # Resolve project name
     if not project_name:
-        default_name = current_dir.name or "specops-project"
+        from workspace_engine.run_local.constants import find_project_root
+
+        resolved_root = find_project_root(current_dir) if is_local else current_dir
+        default_name = resolved_root.name or current_dir.name or "specops-project"
         if non_interactive or not sys.stdin.isatty():
             project_name = default_name
         else:

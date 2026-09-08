@@ -58,7 +58,7 @@ def main() -> int:
     sub.add_parser("list", help="List active tasks")
     sub.add_parser("listar", help=argparse.SUPPRESS)
 
-    # show / ver
+    # show / ver / view
     for cmd_name in ("show", "ver", "view"):
         p_show = sub.add_parser(cmd_name, help="View task state")
         p_show.add_argument("task_id", nargs="?", help="Task ID or Jira ticket")
@@ -78,11 +78,42 @@ def main() -> int:
             "--summary", "--resumen", dest="summary", default="", help="Initial summary"
         )
 
+    # close / cerrar
+    for cmd_name in ("close", "cerrar"):
+        p_close = sub.add_parser(cmd_name, help="Close active task")
+        p_close.add_argument("task_id", help="Task ID or Jira ticket")
+        p_close.add_argument(
+            "--reason", "--razon", dest="reason", default="", help="Closing reason"
+        )
+
+    # reopen / reabrir
+    for cmd_name in ("reopen", "reabrir"):
+        p_reopen = sub.add_parser(cmd_name, help="Reopen closed task")
+        p_reopen.add_argument("task_id", help="Task ID or Jira ticket")
+        p_reopen.add_argument(
+            "--reason", "--razon", dest="reason", default="", help="Reopening reason"
+        )
+
+    # resume / reanudar
+    for cmd_name in ("resume", "reanudar"):
+        p_resume = sub.add_parser(cmd_name, help="Resume task work")
+        p_resume.add_argument("task_id", nargs="?", help="Task ID or Jira ticket")
+        p_resume.add_argument("--full", action="store_true", help="Show complete log")
+
     args = parser.parse_args()
-    tracker = SessionTracker()
+
+    try:
+        tracker = SessionTracker()
+    except OSError as e:
+        console.print(f"[red]Error initializing session tracker: {e}[/red]")
+        return 1
 
     if args.cmd in ("list", "listar") or not args.cmd:
-        tasks = tracker.list_active_tasks()
+        try:
+            tasks = tracker.list_active_tasks()
+        except (ValueError, OSError) as e:
+            console.print(f"[red]Error listing active tasks: {e}[/red]")
+            return 1
         if not tasks:
             console.print("[yellow]No active tasks found.[/yellow]")
             return 0
@@ -100,7 +131,11 @@ def main() -> int:
         if not resolved:
             console.print("[yellow]No Jira ticket detected on current branch.[/yellow]")
             return 1
-        t = tracker.get_task(resolved)
+        try:
+            t = tracker.get_task(resolved)
+        except (ValueError, OSError) as e:
+            console.print(f"[red]Error retrieving task '{resolved}': {e}[/red]")
+            return 1
         if not t:
             console.print(
                 f"[yellow]Ticket detected ({resolved}), but no task has been created yet.[/yellow]"
@@ -130,12 +165,45 @@ def main() -> int:
     elif args.cmd in ("new", "nueva"):
         try:
             t = TaskState(id=args.task_id, title=args.title, summary=args.summary)
-            tracker.save_task(t)
+            tracker.create_task(t)
             console.print(f"[green]✓ Task '{args.task_id}' created successfully.[/green]")
             return 0
         except (ValueError, OSError) as e:
             console.print(f"[red]Error creating task '{args.task_id}': {e}[/red]")
             return 1
+
+    elif args.cmd in ("close", "cerrar"):
+        try:
+            t = tracker.close_task(args.task_id, reason=args.reason)
+            console.print(f"[green]✓ Task '{t.id}' closed successfully.[/green]")
+            return 0
+        except (ValueError, OSError) as e:
+            console.print(f"[red]Error closing task '{args.task_id}': {e}[/red]")
+            return 1
+
+    elif args.cmd in ("reopen", "reabrir"):
+        try:
+            t = tracker.reopen_task(args.task_id, reason=args.reason)
+            console.print(f"[green]✓ Task '{t.id}' reopened successfully.[/green]")
+            return 0
+        except (ValueError, OSError) as e:
+            console.print(f"[red]Error reopening task '{args.task_id}': {e}[/red]")
+            return 1
+
+    elif args.cmd in ("resume", "reanudar"):
+        target = args.task_id or TaskResolver.resolve_from_git()
+        if not target:
+            console.print(
+                "[red]Specify a task_id or run within a branch containing a ticket.[/red]"
+            )
+            return 1
+        try:
+            t = tracker.resume_task(target)
+        except (ValueError, OSError) as e:
+            console.print(f"[red]Error resuming task '{target}': {e}[/red]")
+            return 1
+        show_task(t, full_log=args.full, tracker=tracker)
+        return 0
 
     return 0
 

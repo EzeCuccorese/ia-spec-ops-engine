@@ -34,7 +34,13 @@ def test_assist_with_uncovered_scenario():
         workflow.create_tasks()
         workflow.begin_work()
 
-        # In begin_work, work.md has Cycle 1 (@s1), so @s2 should be next!
+        tests_dir = root / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_auth.py").write_text(
+            "def test_login_s1():\n    pass\n", encoding="utf-8"
+        )
+
+        # @s1 is covered by test_login_s1, so @s2 should be next!
         ctx = TestAssistant(root).inspect()
         assert ctx.feature == "login-feature"
         assert ctx.stage == "work"
@@ -59,6 +65,12 @@ def test_assist_all_scenarios_covered():
         workflow.create_plan()
         workflow.create_tasks()
         workflow.begin_work()
+
+        tests_dir = root / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_auth.py").write_text(
+            "def test_login_success():\n    pass\n", encoding="utf-8"
+        )
 
         work_md = workflow.feature_dir("login-feature") / "work.md"
         work_md.write_text("# Work Log\n\n- @s1 -> test_login_success\n", encoding="utf-8")

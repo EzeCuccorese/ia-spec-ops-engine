@@ -39,3 +39,4 @@ packages/sdd-workbench/test-sdd/.spec/state.json
 packages/sdd-workbench/test-sdd/.spec/evidence/
 packages/sdd-workbench/test-sdd/.gradle/
 packages/sdd-workbench/test-sdd/build/
+.spec/.state.lock

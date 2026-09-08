@@ -2,9 +2,9 @@ name: CI Quality Gate
 
 on:
   push:
-    branches: [ main, master, develop, codex/**, feature/** ]
+    branches: [ main, master, develop, "codex/**", "feature/**", "feat/**" ]
   pull_request:
-    branches: [ main, master, develop ]
+    branches: [ main, master, develop, "feat/**" ]
 
 jobs:
   test:
@@ -33,23 +33,42 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          uv pip install --system -e ".[dev]"
+          uv venv
+          uv pip install -e ".[dev]" -e ./packages/ai-governance -e ./packages/spec -e ./packages/workspace
 
       - name: Run Ruff Lint
         run: |
-          uv run --with ruff ruff check packages/
+          uv run --with ruff ruff check packages/ tests_acceptance/
 
       - name: Run Ruff Format Check
         run: |
-          uv run --with ruff ruff format --check packages/
+          uv run --with ruff ruff format --check packages/ tests_acceptance/
 
       - name: Run Pytest Suite with Coverage
         run: |
-          uv run pytest -v --cov=ai_governance --cov=spec --cov=workspace_engine --cov-report=term-missing
+          uv run pytest -v --cov=ai_governance --cov=spec --cov=workspace_engine --cov-report=term-missing packages/ tests_acceptance/
 
       - name: Verify CLI Tools & Diagnostics
         run: |
+          uv run specops doctor
+          uv run spec doctor
           uv run ws doctor
           uv run ws hooks status
+
+      - name: Build Monorepo Wheels
+        run: |
+          uv build packages/ai-governance
+          uv build packages/spec
+          uv build packages/workspace
+          uv build
+
+      - name: Verify Wheel Hermeticity & CLI in Isolated Environment
+        run: |
+          python -m venv /tmp/isolated_wheel_env
+          /tmp/isolated_wheel_env/bin/pip install dist/*.whl packages/*/dist/*.whl
+          /tmp/isolated_wheel_env/bin/specops --help
+          /tmp/isolated_wheel_env/bin/spec --help
+          /tmp/isolated_wheel_env/bin/ws --help
+          rm -rf /tmp/isolated_wheel_env
 
 

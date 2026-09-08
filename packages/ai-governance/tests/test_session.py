@@ -86,14 +86,12 @@ def test_session_tracker_directory_traversal(tmp_path: Path) -> None:
 
     tracker = SessionTracker(root_dir=tmp_path)
 
-    # Path traversal patterns are sanitized and confined
-    json_path = tracker._json_path("../../etc/passwd")
-    assert json_path == (tmp_path / "tasks" / "etcpasswd.json").resolve()
-    assert json_path.is_relative_to(tracker.tasks_dir.resolve())
+    # Path traversal patterns are strictly rejected with ValueError (P01)
+    with pytest.raises(ValueError):
+        tracker._json_path("../../etc/passwd")
 
-    md_path = tracker._md_path("../sub/task")
-    assert md_path == (tmp_path / "tasks" / "subtask.md").resolve()
-    assert md_path.is_relative_to(tracker.tasks_dir.resolve())
+    with pytest.raises(ValueError):
+        tracker._md_path("../sub/task")
 
     # Empty or pure traversal identifiers raise ValueError
     with pytest.raises(ValueError):
@@ -105,8 +103,8 @@ def test_session_tracker_directory_traversal(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         tracker._sanitize_task_id("")
 
-    # If an attacker somehow bypasses _sanitize_task_id, relative_to check catches it
-    tracker._sanitize_task_id = lambda tid: "../../outside"
+    # If an attacker somehow bypasses _validate_task_id, relative_to check catches it
+    tracker._validate_task_id = lambda tid: "../../outside"
     with pytest.raises(ValueError, match="traverses outside"):
         tracker._json_path("malicious")
     with pytest.raises(ValueError, match="traverses outside"):
@@ -114,6 +112,8 @@ def test_session_tracker_directory_traversal(tmp_path: Path) -> None:
 
 
 def test_session_tracker_write_failure_raises_oserror(tmp_path: Path, monkeypatch) -> None:
+    import os
+
     import pytest
 
     tracker = SessionTracker(root_dir=tmp_path)
@@ -122,7 +122,7 @@ def test_session_tracker_write_failure_raises_oserror(tmp_path: Path, monkeypatc
     def mock_write_fail(*args, **kwargs):
         raise OSError("Permission denied")
 
-    monkeypatch.setattr(Path, "write_text", mock_write_fail)
+    monkeypatch.setattr(os, "replace", mock_write_fail)
     with pytest.raises(OSError, match="Failed to save task"):
         tracker.save_task(task)
 

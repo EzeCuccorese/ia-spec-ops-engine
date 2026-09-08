@@ -37,18 +37,65 @@ LOG_KEEP_BYTES = 20 * 1024 * 1024  # keep last 20 MB after rotation
 _CONFIG_LOADED = False
 
 
-def find_project_root(start_dir: Path | None = None) -> Path:
-    """Walks upwards from start_dir (default: Path.cwd()) looking for a directory containing .specops or .git."""
+def find_project_root(
+    start_dir: Path | None = None,
+    boundary: Path | None = None,
+) -> Path:
+    """Walks upwards from start_dir (default: Path.cwd()) looking for a directory containing .specops or .git.
+
+    Does not escape into Path.home() or root filesystem when boundary is reached or when .git in $HOME is encountered.
+    """
     current = Path(start_dir or Path.cwd()).resolve()
     if current.is_file():
         current = current.parent
+
+    boundary_path = Path(boundary).resolve() if boundary is not None else None
+    try:
+        home_path = Path.home().resolve()
+    except Exception:
+        home_path = None
+    try:
+        import pwd
+
+        real_home = Path(pwd.getpwuid(os.getuid()).pw_dir).resolve()
+    except Exception:
+        real_home = None
+
+    def _is_home_or_root(p: Path) -> bool:
+        if p == Path("/"):
+            return True
+        if home_path is not None and p == home_path:
+            return True
+        if real_home is not None and p == real_home:
+            return True
+        return p.parent in (Path("/Users"), Path("/home"), Path("/root"), Path("/var/root"))
+
     for parent in [current, *current.parents]:
+        # If boundary is set, do not search beyond boundary
+        if boundary_path is not None and (
+            parent != boundary_path and not parent.is_relative_to(boundary_path)
+        ):
+            break
+
+        # Stop before escaping user home or filesystem root if not starting directory
+        if current != parent and _is_home_or_root(parent):
+            break
+
         if (parent / ".specops").exists() or (parent / ".git").exists():
             return parent
+
+        if boundary_path is not None and parent == boundary_path:
+            break
+
     return current
 
 
-def load_project_config(start_dir: Path | None = None) -> dict:
+def load_project_config(
+    start_dir: Path | None = None,
+    *,
+    config_path: Path | None = None,
+    custom_path: Path | None = None,
+) -> dict:
     global _CONFIG_LOADED
     default_config = {
         "project_name": "generic",
@@ -63,24 +110,31 @@ def load_project_config(start_dir: Path | None = None) -> dict:
         "toolkit_dir_name": "project-toolkit",
         "url_pattern": r"https?://([a-z0-9-]+)\.(?:dev|prod)\.generic\.com(/[\S]*)?",
     }
-    root = find_project_root(start_dir)
-    candidate_paths = [
-        root / ".specops" / "config.json",
-    ]
-    if "XDG_CONFIG_HOME" in os.environ:
-        candidate_paths.append(Path(os.environ["XDG_CONFIG_HOME"]) / "specops" / "config.json")
-    candidate_paths.append(Path.home() / ".config" / "specops" / "config.json")
-    candidate_paths.append(root / "config.json")
 
-    config_path = next((p for p in candidate_paths if p.exists()), None)
+    explicit_path = config_path or custom_path
+    if explicit_path is not None:
+        target_path = Path(explicit_path).resolve()
+        if not target_path.exists():
+            raise FileNotFoundError(f"Config file not found: {target_path}")
+    else:
+        root = find_project_root(start_dir)
+        candidate_paths = [
+            root / ".specops" / "config.json",
+        ]
+        if "XDG_CONFIG_HOME" in os.environ:
+            candidate_paths.append(Path(os.environ["XDG_CONFIG_HOME"]) / "specops" / "config.json")
+        candidate_paths.append(Path.home() / ".config" / "specops" / "config.json")
+        candidate_paths.append(root / "config.json")
 
-    if config_path is not None and config_path.exists():
+        target_path = next((p for p in candidate_paths if p.exists()), None)
+
+    if target_path is not None and target_path.exists():
         try:
-            with open(config_path, encoding="utf-8") as f:
+            with open(target_path, encoding="utf-8") as f:
                 user_config = json.load(f)
         except json.JSONDecodeError as e:
             raise ValueError(
-                f"Invalid JSON in config file '{config_path}': line {e.lineno}, column {e.colno} ({e.msg})"
+                f"Invalid JSON in config file '{target_path}': line {e.lineno}, column {e.colno} ({e.msg})"
             ) from e
         except Exception:
             pass

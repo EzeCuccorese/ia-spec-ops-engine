@@ -40,8 +40,16 @@ def test_audit_with_active_spec_traceability():
         workflow.create_tasks()
         workflow.begin_work()
 
-        # Before mapping @s1 in tests or work.md: C4 should be failed
+        # Before mapping @s1 in test files: C4 should be failed
         report = ProjectAuditor(root).audit()
         c4 = next(item for item in report.items if item.id == "C4")
-        # In begin_work, default work.md has Cycle 1 (@s1), so let's check
-        assert c4.passed is True
+        assert c4.passed is False
+
+        # Now add actual test file
+        tests_dir = root / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_one.py").write_text("def test_one_s1():\n    pass\n", encoding="utf-8")
+
+        report2 = ProjectAuditor(root).audit()
+        c4_after = next(item for item in report2.items if item.id == "C4")
+        assert c4_after.passed is True

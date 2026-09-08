@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -99,9 +100,10 @@ class PreflightManager:
             if code_diff == 0 and not diff_out:
                 self._run_git("pull", "--ff-only", "origin", base_branch)
 
-    def run_baseline_gate(self) -> BaselineGateResult:
+    def run_baseline_gate(self, target_root: Path | None = None) -> BaselineGateResult:
         """Runs verification checks configured in .spec/verification.json on the base repository."""
-        config_path = self.root / ".spec" / "verification.json"
+        check_root = target_root or self.root
+        config_path = check_root / ".spec" / "verification.json"
         if not config_path.is_file():
             return BaselineGateResult(
                 passed=False,
@@ -112,7 +114,7 @@ class PreflightManager:
                 checks_passed=0,
             )
 
-        checks = load_checks(self.root)
+        checks = load_checks(check_root)
         if not checks:
             return BaselineGateResult(
                 passed=False,
@@ -123,7 +125,7 @@ class PreflightManager:
                 checks_passed=0,
             )
 
-        engine = VerificationEngine(self.root)
+        engine = VerificationEngine(check_root)
         report = engine.run(checks)
 
         # Save structured baseline evidence on disk non-destructively
@@ -143,8 +145,19 @@ class PreflightManager:
 
         timestamped_file.write_text(content, encoding="utf-8")
 
+        latest_baseline = evidence_dir / "latest_baseline.json"
+        latest_baseline.unlink(missing_ok=True)
+        try:
+            latest_baseline.symlink_to(timestamped_file.name)
+        except OSError:
+            latest_baseline.write_text(content, encoding="utf-8")
+
         evidence_file = evidence_dir / "baseline.json"
-        evidence_file.write_text(content, encoding="utf-8")
+        evidence_file.unlink(missing_ok=True)
+        try:
+            evidence_file.symlink_to(timestamped_file.name)
+        except OSError:
+            evidence_file.write_text(content, encoding="utf-8")
 
         passed_count = sum(1 for c in report.checks if c.status is CheckStatus.PASS)
         total_count = len(report.checks)
@@ -160,7 +173,7 @@ class PreflightManager:
             passed=passed,
             status=report.status.value,
             summary=summary,
-            evidence_path=str(evidence_file),
+            evidence_path=str(timestamped_file),
             checks_total=total_count,
             checks_passed=passed_count,
         )
@@ -240,8 +253,34 @@ class PreflightManager:
         # 2. Sync base branch
         self.sync_base_branch(base)
 
-        # 3. Baseline verification gate
-        baseline = self.run_baseline_gate()
+        # 3. Baseline verification gate on selected base
+        if base != branch_info.current_branch:
+            tmp_base = tempfile.mkdtemp(prefix="spec-baseline-")
+            base_dir = Path(tmp_base)
+            try:
+                code, stdout, stderr = self._run_git(
+                    "worktree", "add", "--detach", str(base_dir), base
+                )
+                if code == 0:
+                    try:
+                        for pattern in [".spec", ".specops", ".agents"]:
+                            src = self.root / pattern
+                            dest = base_dir / pattern
+                            if src.exists() and not dest.exists():
+                                if src.is_dir():
+                                    shutil.copytree(src, dest, dirs_exist_ok=True)
+                                else:
+                                    shutil.copy2(src, dest)
+                        baseline = self.run_baseline_gate(target_root=base_dir)
+                    finally:
+                        self._run_git("worktree", "remove", "--force", str(base_dir))
+                else:
+                    baseline = self.run_baseline_gate(target_root=self.root)
+            finally:
+                shutil.rmtree(base_dir, ignore_errors=True)
+        else:
+            baseline = self.run_baseline_gate(target_root=self.root)
+
         if not baseline.passed:
             return {
                 "status": "FAIL",

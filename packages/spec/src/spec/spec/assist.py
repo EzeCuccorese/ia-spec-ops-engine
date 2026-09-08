@@ -91,7 +91,7 @@ class TestAssistant:
                 f"then implement minimal code, verify green, and record in work.md."
             )
         else:
-            instruction = "All scenarios are covered by tests! Run 'spec verify' and 'spec judge' before finish."
+            instruction = "All scenarios are covered by tests! Run 'spec verify' before finish."
 
         return AssistContext(
             feature=status.feature,

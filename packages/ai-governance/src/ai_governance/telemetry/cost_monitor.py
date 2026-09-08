@@ -5,6 +5,7 @@ Scans ~/.claude/projects/**/*.jsonl without external network calls, computing ex
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
@@ -18,8 +19,10 @@ class CostMonitor:
     def __init__(self, projects_dir: Path | None = None) -> None:
         self.projects_dir = projects_dir or (Path.home() / ".claude" / "projects")
 
-    def scan_transcripts(self, since_iso_date: str | None = None) -> dict[str, Any]:
-        """Scans JSONL transcripts and aggregates tokens and cost per day."""
+    def scan_transcripts(
+        self, since_iso_date: str | None = None, until_iso_date: str | None = None
+    ) -> dict[str, Any]:
+        """Scans JSONL transcripts and aggregates tokens and cost per day, deduplicating events."""
         totals = {
             "total_cost_usd": 0.0,
             "total_tokens": 0,
@@ -29,13 +32,16 @@ class CostMonitor:
         if not self.projects_dir.exists():
             return totals
 
-        for jsonl_file in self.projects_dir.glob("**/*.jsonl"):
+        seen_events: set[str] = set()
+
+        for jsonl_file in sorted(self.projects_dir.glob("**/*.jsonl")):
             try:
                 with open(jsonl_file, encoding="utf-8") as f:
                     for line in f:
-                        if not line.strip():
+                        line_stripped = line.strip()
+                        if not line_stripped:
                             continue
-                        entry = json.loads(line)
+                        entry = json.loads(line_stripped)
                         msg = entry.get("message") or entry
                         usage = msg.get("usage") or {}
                         in_tok = usage.get("input_tokens", 0)
@@ -45,6 +51,20 @@ class CostMonitor:
 
                         if not (in_tok or out_tok or c_read or c_write):
                             continue
+
+                        # Deduplication by event id, message id, uuid, or content hash
+                        event_id = (
+                            entry.get("id")
+                            or (msg.get("id") if isinstance(msg, dict) else None)
+                            or entry.get("uuid")
+                            or entry.get("event_id")
+                        )
+                        if not event_id:
+                            event_id = hashlib.sha256(line_stripped.encode("utf-8")).hexdigest()
+
+                        if event_id in seen_events:
+                            continue
+                        seen_events.add(event_id)
 
                         model = msg.get("model", "claude-sonnet-4-6")
                         p_in, p_out = PriceCatalog.get_price(model)
@@ -61,6 +81,8 @@ class CostMonitor:
                         day = ts_str[:10] if ts_str else datetime.now().strftime("%Y-%m-%d")
 
                         if since_iso_date and day < since_iso_date:
+                            continue
+                        if until_iso_date and day > until_iso_date:
                             continue
 
                         totals["total_cost_usd"] += cost

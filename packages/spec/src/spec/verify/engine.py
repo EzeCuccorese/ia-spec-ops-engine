@@ -59,11 +59,19 @@ class SubprocessRunner:
 
 
 class VerificationEngine:
-    max_output_chars = 8_000
+    max_output_chars = 250_000
 
-    def __init__(self, root: str | Path, *, runner: Runner | None = None) -> None:
+    def __init__(
+        self,
+        root: str | Path,
+        *,
+        runner: Runner | None = None,
+        max_output_chars: int | None = None,
+    ) -> None:
         self.root = PathBoundary(root).root
         self.runner = runner or SubprocessRunner()
+        if max_output_chars is not None:
+            self.max_output_chars = max_output_chars
 
     def run(self, checks: tuple[CommandCheck, ...]) -> VerificationReport:
         if not checks:

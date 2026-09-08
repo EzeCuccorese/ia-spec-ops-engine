@@ -21,9 +21,9 @@ class RitmoStatus:
     days_remaining: int
     pace_ratio: float
     expected_spend_usd: float
-    actual_spend_usd: float
-    variance_usd: float
-    is_under_budget: bool
+    actual_spend_usd: float | None
+    variance_usd: float | None
+    is_under_budget: bool | None
     status_label: str
 
 
@@ -52,7 +52,7 @@ class RitmoCalculator:
     def calculate_pace(
         cls,
         monthly_budget_usd: float,
-        actual_spend_usd: float = 0.0,
+        actual_spend_usd: float | None = None,
         target_date: date | None = None,
     ) -> RitmoStatus:
         target = target_date or datetime.now().date()
@@ -62,6 +62,23 @@ class RitmoCalculator:
 
         pace_ratio = elapsed_b_days / total_b_days if total_b_days > 0 else 0.0
         expected_spend = monthly_budget_usd * pace_ratio
+
+        if actual_spend_usd is None:
+            return RitmoStatus(
+                year=target.year,
+                month=target.month,
+                day=target.day,
+                total_business_days=total_b_days,
+                elapsed_business_days=elapsed_b_days,
+                days_remaining=days_remaining,
+                pace_ratio=pace_ratio,
+                expected_spend_usd=expected_spend,
+                actual_spend_usd=None,
+                variance_usd=None,
+                is_under_budget=None,
+                status_label="unknown",
+            )
+
         variance = actual_spend_usd - expected_spend
         is_under = variance <= 0.0
 

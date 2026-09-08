@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from spec.core.ownership import DeleteResult, FileChangedError, OwnershipManifest, sha256_file
+from spec.core.ownership import DeleteResult, OwnershipManifest, sha256_file
 from spec.core.paths import PathBoundary
 from spec.core.write import SafeWriter, WriteResult
 
@@ -50,12 +50,10 @@ This repository follows the universal `AGENTS.md` open standard for all AI codin
 
 ## Agent Tooling for Autonomous TDD Loop
 - Run `spec test-assist --next`: Returns the exact next uncovered `@s` scenario to implement with TDD.
-- Run `spec mutate <file>`: Validates that unit tests detect bugs (killing mutants) without false positives.
-- Run `spec judge`: Prepares the craftsmanship audit context for reviewing code bloat and scenario coverage.
 
-## Mandatory Human Gates & Inquiry (Modal Popups)
-- Spec Phase: Conduct the requirements interview using the platform's interactive modal tool (`ask_question` / `AskFollowupQuestion`). Never dump open questions as chat text or assume default designs. Wait for modal submission before drafting spec.md.
-- Plan Phase: Detail architecture, affected files, and test-first strategy. Resolve technical tradeoffs via interactive modal. Never start coding without explicit user sign-off.
+## Human Gates & User Alignment
+- Spec Phase: Clarify ambiguities, user intent, and design requirements using the host agent's standard question or interaction mechanism. Never proceed on unclear assumptions; obtain explicit user alignment before drafting `spec.md`.
+- Plan Phase: Detail architecture, affected files, and test-first strategy. Resolve technical tradeoffs with the user. Never start coding without explicit user sign-off.
 - Verify & Finish: Never seal features without recorded PASS status and user authorization.
 
 ## Safety & Invariants
@@ -103,6 +101,29 @@ def render_contributor() -> str:
     return f"{header}{_CONTRIBUTOR_BOOTSTRAP}\n{remainder}"
 
 
+def get_bundled_skills() -> dict[str, str]:
+    """Retrieve bundled skill name -> content mapping."""
+    skills: dict[str, str] = {}
+    names = ["spec-new", "spec-plan", "spec-verify", "spec-finish"]
+    try:
+        from importlib.resources import files
+
+        base = files("spec").joinpath("skills")
+        for name in names:
+            skill_file = base.joinpath(name, "SKILL.md")
+            if skill_file.is_file():
+                skills[name] = skill_file.read_text(encoding="utf-8")
+    except Exception:
+        pass
+    if not skills:
+        skills_dir = Path(__file__).parent / "skills"
+        for name in names:
+            skill_file = skills_dir / name / "SKILL.md"
+            if skill_file.is_file():
+                skills[name] = skill_file.read_text(encoding="utf-8")
+    return skills
+
+
 class AgentsAdapter:
     """Generate and inject the repository-level governance reference into AGENTS.md."""
 
@@ -121,6 +142,47 @@ class AgentsAdapter:
             self.target = target
         self.agent = agent.lower().strip() if agent else None
         self.boundary = PathBoundary(root)
+
+    def _skill_destinations(self) -> list[str]:
+        """Return relative directory paths where skills should be installed for this agent."""
+        dests = [".agents/skills"]
+        if self.agent == "claude":
+            dests.append(".claude/skills")
+        elif self.agent == "antigravity":
+            dests.append(".gemini/skills")
+        elif self.agent == "codex":
+            dests.append(".codex/skills")
+        return dests
+
+    def install_skills(self) -> list[WriteResult]:
+        manifest = OwnershipManifest(self.root)
+        writer = SafeWriter(self.root, manifest)
+        bundled = get_bundled_skills()
+        results: list[WriteResult] = []
+        for dest_base in self._skill_destinations():
+            for name, content in bundled.items():
+                rel_path = f"{dest_base}/{name}/SKILL.md"
+                results.append(writer.write(rel_path, content, mode=0o644))
+        return results
+
+    def uninstall_skills(self, *, dry_run: bool = True) -> list[DeleteResult]:
+        manifest = OwnershipManifest(self.root)
+        bundled = get_bundled_skills()
+        results: list[DeleteResult] = []
+        for dest_base in self._skill_destinations():
+            for name in bundled:
+                rel_path = f"{dest_base}/{name}/SKILL.md"
+                if manifest.get(rel_path) is not None:
+                    res = manifest.delete_owned(rel_path, dry_run=dry_run)
+                    results.append(res)
+                    if not dry_run:
+                        skill_dir = self.boundary.resolve(f"{dest_base}/{name}")
+                        if skill_dir.is_dir() and not any(skill_dir.iterdir()):
+                            skill_dir.rmdir()
+                        base_dir = self.boundary.resolve(dest_base)
+                        if base_dir.is_dir() and not any(base_dir.iterdir()):
+                            base_dir.rmdir()
+        return results
 
     def install(self) -> WriteResult:
         manifest = OwnershipManifest(self.root)
@@ -146,6 +208,8 @@ class AgentsAdapter:
         if self.agent == "claude":
             self.install_claude_pointer()
 
+        self.install_skills()
+
         return writer_res
 
     def uninstall(self, *, dry_run: bool = True) -> DeleteResult:
@@ -168,7 +232,9 @@ class AgentsAdapter:
         if self.agent == "claude":
             claude_res = self.uninstall_claude_pointer(dry_run=dry_run)
             if not del_res.deleted and not del_res.would_delete:
-                return claude_res
+                del_res = claude_res
+
+        self.uninstall_skills(dry_run=dry_run)
 
         return del_res
 
@@ -179,10 +245,21 @@ class AgentsAdapter:
         pointer_ref = f"@{self.target}"
         block = f"{START_MARKER}\n{pointer_ref}\n{END_MARKER}\n"
 
-        if not claude_path.exists() or manifest.get(self.claude_target) is not None:
+        if not claude_path.exists():
             return SafeWriter(self.root, manifest).write(self.claude_target, block, mode=0o644)
 
         content = claude_path.read_text(encoding="utf-8")
+        is_owned = manifest.get(self.claude_target) is not None
+        cleaned = PATTERN.sub("", content).strip()
+        has_user_content = bool(cleaned)
+
+        if is_owned and not has_user_content:
+            return SafeWriter(self.root, manifest).write(self.claude_target, block, mode=0o644)
+
+        if is_owned:
+            del manifest._records[manifest.boundary.relative(self.claude_target)]
+            manifest._save()
+
         if START_MARKER in content and END_MARKER in content:
             new_content = PATTERN.sub(block, content)
         else:
@@ -190,12 +267,11 @@ class AgentsAdapter:
             new_content = f"{stripped}\n\n{block}" if stripped else block
 
         claude_path.write_text(new_content, encoding="utf-8")
-        record = manifest.record(self.claude_target, sha256_file(claude_path))
         return WriteResult(
             path=self.claude_target,
-            sha256=record.sha256,
+            sha256=sha256_file(claude_path),
             created=False,
-            updated=True,
+            updated=(new_content != content),
         )
 
     def uninstall_claude_pointer(self, *, dry_run: bool = True) -> DeleteResult:
@@ -208,34 +284,43 @@ class AgentsAdapter:
             return DeleteResult(path=self.claude_target, deleted=False, would_delete=False)
 
         content = claude_path.read_text(encoding="utf-8")
+        is_owned = manifest.get(self.claude_target) is not None
+
         if START_MARKER in content and END_MARKER in content:
+            match = PATTERN.search(content)
+            if match and not is_owned:
+                inner = match.group(0)
+                extracted = inner.replace(START_MARKER, "").replace(END_MARKER, "").strip()
+                valid_pointers = {
+                    f"@{self.target}",
+                    f"@{self.governance_file}",
+                    f"@{self.boundary.relative(self.target)}",
+                    f"@{self.boundary.relative(self.governance_file)}",
+                    f"@{self.boundary.root / self.governance_file}",
+                }
+                if extracted not in valid_pointers:
+                    from spec.core.ownership import FileChangedError
+
+                    raise FileChangedError(
+                        f"Uninstall aborted: Block in '{self.claude_target}' was modified by user. File preserved."
+                    )
+
             cleaned = PATTERN.sub("", content)
             if not cleaned.strip():
-                if manifest.get(self.claude_target) is not None:
-                    try:
-                        return manifest.delete_owned(self.claude_target, dry_run=dry_run)
-                    except FileChangedError:
-                        if not dry_run:
-                            claude_path.unlink(missing_ok=True)
-                            del manifest._records[manifest.boundary.relative(self.claude_target)]
-                            manifest._save()
-                        return DeleteResult(
-                            path=self.claude_target,
-                            deleted=not dry_run,
-                            would_delete=dry_run,
-                        )
+                if is_owned:
+                    return manifest.delete_owned(self.claude_target, dry_run=dry_run)
                 else:
                     if not dry_run:
-                        claude_path.unlink(missing_ok=True)
+                        claude_path.write_text("", encoding="utf-8")
                     return DeleteResult(
                         path=self.claude_target,
-                        deleted=not dry_run,
-                        would_delete=dry_run,
+                        deleted=False,
+                        would_delete=False,
                     )
             else:
                 if not dry_run:
                     claude_path.write_text(cleaned.rstrip() + "\n", encoding="utf-8")
-                    if manifest.get(self.claude_target) is not None:
+                    if is_owned:
                         del manifest._records[manifest.boundary.relative(self.claude_target)]
                         manifest._save()
                 return DeleteResult(path=self.claude_target, deleted=False, would_delete=False)
@@ -262,15 +347,24 @@ class AgentsAdapter:
         elif root is not None:
             target_root = root
 
-        if target_root is not None and (Path(target_root) / "packages" / "spec").exists():
-            return render_contributor()
+        if target_root is not None:
+            root_path = Path(target_root)
+            spec_init = root_path / "packages" / "spec" / "src" / "spec" / "__init__.py"
+            pyproject = root_path / "pyproject.toml"
+            if spec_init.is_file() and pyproject.is_file():
+                try:
+                    pyproject_content = pyproject.read_text(encoding="utf-8")
+                    if "specops-engine" in pyproject_content:
+                        return render_contributor()
+                except OSError:
+                    pass
         return render_consumer()
 
 
 class ClaudeAdapter(AgentsAdapter):
     """Adapter for Claude Code configuring AGENTS.md and discovery pointer CLAUDE.md."""
 
-    def __init__(self, root: str | Path, target: str | None = None) -> None:
+    def __init__(self, root: str | Path, target: str | None = None, **kwargs) -> None:
         super().__init__(root, target=target, agent="claude")
 
 

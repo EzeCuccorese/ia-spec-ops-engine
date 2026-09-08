@@ -28,6 +28,9 @@ def test_agent_install_single_claude(tmp_path: Path) -> None:
 
     manifest = OwnershipManifest(tmp_path)
     assert manifest.get("CLAUDE.md") is not None
+    assert (tmp_path / ".claude" / "skills" / "spec-new" / "SKILL.md").exists()
+    assert (tmp_path / ".agents" / "skills" / "spec-new" / "SKILL.md").exists()
+    assert manifest.get(".claude/skills/spec-new/SKILL.md") is not None
 
 
 def test_agent_uninstall_single_claude(tmp_path: Path) -> None:
@@ -36,12 +39,14 @@ def test_agent_uninstall_single_claude(tmp_path: Path) -> None:
         main(["agent", "install", "claude", "--root", str(tmp_path)])
     assert (tmp_path / "AGENTS.md").exists()
     assert (tmp_path / "CLAUDE.md").exists()
+    assert (tmp_path / ".claude" / "skills" / "spec-new" / "SKILL.md").exists()
 
     with pytest.raises(SystemExit) as exc:
         main(["agent", "uninstall", "claude", "--apply", "--root", str(tmp_path)])
     assert exc.value.code == 0
     assert not (tmp_path / "AGENTS.md").exists()
     assert not (tmp_path / "CLAUDE.md").exists()
+    assert not (tmp_path / ".claude" / "skills" / "spec-new" / "SKILL.md").exists()
     assert OwnershipManifest(tmp_path).get("CLAUDE.md") is None
 
 
@@ -87,7 +92,11 @@ def test_agent_install_mock_consumer_repo_renders_consumer(tmp_path: Path) -> No
 
 def test_agent_install_contributor_repo_renders_contributor(tmp_path: Path) -> None:
     # Simulate contributor SpecOps repository
-    (tmp_path / "packages" / "spec").mkdir(parents=True)
+    (tmp_path / "packages" / "spec" / "src" / "spec").mkdir(parents=True)
+    (tmp_path / "packages" / "spec" / "src" / "spec" / "__init__.py").touch()
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "specops-engine"\n', encoding="utf-8"
+    )
     ProjectGovernance(tmp_path).initialize()
 
     with pytest.raises(SystemExit) as exc:

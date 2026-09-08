@@ -33,7 +33,7 @@ confluence = "ai_governance.tools.confluence:main"
 packages = ["src/ai_governance"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src", "../spec/src", "../workspace/src", "."]
+pythonpath = ["src", "."]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 
