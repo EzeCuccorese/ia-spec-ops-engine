@@ -50,6 +50,9 @@ def main(argv: list[str] | None = None) -> int:
     p_usage = sub.add_parser("usage", help="Scan local Claude transcripts & monitor budget")
     p_usage.add_argument("--budget", type=float, default=100.0, help="Monthly budget in USD")
 
+    # telemetry
+    sub.add_parser("telemetry", help="Usage estimates, prices, pacing, and thresholds")
+
     # progress (with aliases task, progreso)
     sub.add_parser("progress", help="Lightweight cross-session task tracker (~300 tokens)")
     sub.add_parser("task", help=argparse.SUPPRESS)
@@ -167,11 +170,14 @@ def main(argv: list[str] | None = None) -> int:
 
         sys.argv = ["statusline"] + remaining_args
         return status_main()
+    elif cmd == "telemetry":
+        from .telemetry.cli import main as telemetry_main
+
+        return telemetry_main(remaining_args)
     elif cmd in ("ritmo", "usage"):
         from .telemetry.cli import main as telemetry_main
 
-        sys.argv = ["telemetry", cmd] + remaining_args
-        return telemetry_main()
+        return telemetry_main([cmd] + remaining_args)
     elif cmd in ("progress", "task", "progreso"):
         from .session.cli import main as session_main
 
