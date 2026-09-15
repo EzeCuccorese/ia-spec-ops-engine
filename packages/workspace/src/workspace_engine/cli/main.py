@@ -83,7 +83,7 @@ def doctor_check() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="ws",
-        description="Cucco SpecOps Engine — Deterministic Workspace, Git Worktree & Local Microservices Manager.",
+        description="ia-spec-ops-engine — deterministic workspace, Git worktree & local microservices manager.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     subparsers = parser.add_subparsers(dest="command", help="Available Workspace Engine commands")

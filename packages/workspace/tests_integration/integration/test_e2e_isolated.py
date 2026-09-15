@@ -1,5 +1,5 @@
 """
-Tests de Integración End-to-End Aislados e Idempotentes para SpecOps Engine.
+Tests de Integración End-to-End Aislados e Idempotentes para ia-spec-ops-engine.
 
 Crea repositorios Git y workspaces temporales para verificar:
 1. Ciclo completo de Workspace Engine: generate -> worktree -> build -> clean -> delete.

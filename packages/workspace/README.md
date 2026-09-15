@@ -1,4 +1,4 @@
-# cucco-workspace — Deterministic Workspace & Microservices Engine
+# ia-spec-ops-engine workspace — Deterministic Workspace & Microservices Engine
 
 **Workspace Engine (`ws`)** is the deterministic orchestrator for local development environments, multi-repository Git worktree isolation, multi-stack builds and dependency management, local/global pre-push Quality Gates, and microservices runtime supervision with an interactive TUI.
 
@@ -198,4 +198,3 @@ ws kube env
 ws kube logs
 ws kube shell
 ```
-

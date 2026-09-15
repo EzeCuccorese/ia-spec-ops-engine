@@ -1,3 +1,3 @@
 """
-Configuration management for SpecOps Engine workspaces and runtimes.
+Configuration management for ia-spec-ops-engine workspaces and runtimes.
 """
