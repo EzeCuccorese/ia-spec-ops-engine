@@ -1,11 +1,11 @@
-"""
-cli.py — CLI for `progress`: lightweight cross-session task tracking.
-"""
+"""CLI for compact, durable cross-session task tracking."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+from pathlib import Path
 
 from rich.console import Console
 from rich.table import Table
@@ -19,193 +19,249 @@ console = Console()
 def show_task(
     task: TaskState, full_log: bool = False, tracker: SessionTracker | None = None
 ) -> None:
-    table = Table(title=f"📌 Task: {task.id} — {task.title}", border_style="cyan")
+    table = Table(title=f"Task: {task.id} — {task.title}", border_style="cyan")
     table.add_column("Property", style="bold green")
     table.add_column("Details", style="white")
-
     table.add_row("Status", task.status)
     table.add_row("Summary", task.summary or "[dim]No summary[/dim]")
-
     if task.steps:
-        steps_str = "\n".join(
-            f"{'[green]✓[/green]' if s.get('done') else '[red]□[/red]'} {s.get('text')}"
-            for s in task.steps
+        table.add_row(
+            "Steps",
+            "\n".join(f"{'✓' if s.get('done') else '□'} {s.get('text', '')}" for s in task.steps),
         )
-        table.add_row("Steps", steps_str)
-
+    if task.facts:
+        table.add_row("Facts", "\n".join(f"• {fact.get('text', '')}" for fact in task.facts))
     if task.repos:
-        repos_str = "\n".join(
-            f"• {r.get('path', '')} (branch: {r.get('branch', 'main')})" for r in task.repos
+        table.add_row(
+            "Repositories",
+            "\n".join(
+                f"• {r.get('path', '')} (branch: {r.get('branch') or '?'})" for r in task.repos
+            ),
         )
-        table.add_row("Repositories", repos_str)
-
+    if task.links:
+        table.add_row(
+            "Links",
+            "\n".join(f"• {link.get('title', '')}: {link.get('url', '')}" for link in task.links),
+        )
+    if task.references:
+        table.add_row(
+            "References",
+            "\n".join(
+                f"• {ref.get('kind', '')}: {ref.get('value', '')}" for ref in task.references
+            ),
+        )
     console.print(table)
-
     if full_log and tracker:
         log = tracker.read_log(task.id)
         if log:
-            console.print("\n[bold cyan]📖 Complete Log:[/bold cyan]")
+            console.print("\n[bold cyan]Complete Log:[/bold cyan]")
             console.print(log)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        prog="progress", description="SpecOps Lightweight Session Tracking"
-    )
+def _add_json_flag(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="progress", description="SpecOps task tracking")
     sub = parser.add_subparsers(dest="cmd")
 
-    # list / listar
-    sub.add_parser("list", help="List active tasks")
-    sub.add_parser("listar", help=argparse.SUPPRESS)
+    item = sub.add_parser("list", aliases=["listar"], help="List tasks")
+    item.add_argument("--all", action="store_true", help="Include closed tasks")
+    _add_json_flag(item)
 
-    # show / ver / view
-    for cmd_name in ("show", "ver", "view"):
-        p_show = sub.add_parser(cmd_name, help="View task state")
-        p_show.add_argument("task_id", nargs="?", help="Task ID or Jira ticket")
-        p_show.add_argument("--full", action="store_true", help="Show complete log")
+    for name in ("show", "ver", "view"):
+        item = sub.add_parser(name, help="View task state")
+        item.add_argument("task_id", nargs="?")
+        item.add_argument("--full", action="store_true")
+        _add_json_flag(item)
 
-    # here / aqui
-    for cmd_name in ("here", "aqui"):
-        p_here = sub.add_parser(cmd_name, help="Resolve active task by current branch/directory")
-        p_here.add_argument("--full", action="store_true", help="Show complete log")
+    for name in ("here", "aqui"):
+        item = sub.add_parser(name, help="Resolve task by branch or registered repository")
+        item.add_argument("--full", action="store_true")
+        _add_json_flag(item)
 
-    # new / nueva
-    for cmd_name in ("new", "nueva"):
-        p_new = sub.add_parser(cmd_name, help="Create new task")
-        p_new.add_argument("task_id", help="Task ID or Jira ticket")
-        p_new.add_argument("--title", "--titulo", dest="title", required=True, help="Task title")
-        p_new.add_argument(
-            "--summary", "--resumen", dest="summary", default="", help="Initial summary"
-        )
+    for name in ("new", "nueva"):
+        item = sub.add_parser(name, help="Create task")
+        item.add_argument("task_id")
+        item.add_argument("--title", "--titulo", required=True)
+        item.add_argument("--summary", "--resumen", default="")
 
-    # close / cerrar
-    for cmd_name in ("close", "cerrar"):
-        p_close = sub.add_parser(cmd_name, help="Close active task")
-        p_close.add_argument("task_id", help="Task ID or Jira ticket")
-        p_close.add_argument(
-            "--reason", "--razon", dest="reason", default="", help="Closing reason"
-        )
+    for name in ("close", "cerrar", "reopen", "reabrir", "pause", "pausar"):
+        item = sub.add_parser(name)
+        item.add_argument("task_id")
+        item.add_argument("--reason", "--razon", default="")
 
-    # reopen / reabrir
-    for cmd_name in ("reopen", "reabrir"):
-        p_reopen = sub.add_parser(cmd_name, help="Reopen closed task")
-        p_reopen.add_argument("task_id", help="Task ID or Jira ticket")
-        p_reopen.add_argument(
-            "--reason", "--razon", dest="reason", default="", help="Reopening reason"
-        )
+    for name in ("resume", "reanudar"):
+        item = sub.add_parser(name)
+        item.add_argument("task_id", nargs="?")
+        item.add_argument("--full", action="store_true")
 
-    # resume / reanudar
-    for cmd_name in ("resume", "reanudar"):
-        p_resume = sub.add_parser(cmd_name, help="Resume task work")
-        p_resume.add_argument("task_id", nargs="?", help="Task ID or Jira ticket")
-        p_resume.add_argument("--full", action="store_true", help="Show complete log")
+    item = sub.add_parser("summary", help="Replace the compact summary")
+    item.add_argument("task_id")
+    item.add_argument("text")
 
-    args = parser.parse_args()
+    item = sub.add_parser("step", help="Add, complete, or remove a step")
+    item.add_argument("task_id")
+    item.add_argument("action", choices=("add", "done", "remove"))
+    item.add_argument("value")
 
+    item = sub.add_parser("fact", help="Record a verified fact")
+    item.add_argument("task_id")
+    item.add_argument("text")
+
+    item = sub.add_parser("link", help="Add a titled URL")
+    item.add_argument("task_id")
+    item.add_argument("title")
+    item.add_argument("url")
+
+    item = sub.add_parser("reference", help="Add an external reference")
+    item.add_argument("task_id")
+    item.add_argument("kind")
+    item.add_argument("value")
+    item.add_argument("--url", default="")
+
+    item = sub.add_parser("repo", help="Add or remove a repository")
+    item.add_argument("task_id")
+    item.add_argument("action", choices=("add", "remove"))
+    item.add_argument("path", nargs="?", default=".")
+    item.add_argument("--branch", default="")
+    item.add_argument("--pr", default="")
+    item.add_argument("--worktree", default="")
+
+    item = sub.add_parser("sync", help="Refresh registered repository branches")
+    item.add_argument("task_id", nargs="?")
+
+    item = sub.add_parser("note", help="Append to the long log")
+    item.add_argument("task_id")
+    item.add_argument("text")
+
+    item = sub.add_parser("digest", help="Render compact task context")
+    item.add_argument("--id", dest="task_id")
+    item.add_argument("--max-chars", type=int, default=1600)
+    _add_json_flag(item)
+
+    item = sub.add_parser("migrate-legacy", help="Import old progress-to-md state once")
+    item.add_argument("path", type=Path)
+    _add_json_flag(item)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
     try:
         tracker = SessionTracker()
-    except OSError as e:
-        console.print(f"[red]Error initializing session tracker: {e}[/red]")
+        if args.cmd in ("list", "listar") or not args.cmd:
+            tasks = tracker.list_tasks(include_closed=getattr(args, "all", False))
+            if getattr(args, "json", False):
+                print(json.dumps([task.to_dict() for task in tasks], indent=2, ensure_ascii=False))
+            else:
+                table = Table(title="Tasks", border_style="cyan")
+                table.add_column("Task ID")
+                table.add_column("Title")
+                table.add_column("Status")
+                table.add_column("Summary")
+                for task in tasks:
+                    table.add_row(task.id, task.title, task.status, task.summary)
+                console.print(table)
+            return 0
+
+        if args.cmd in ("here", "aqui"):
+            target = TaskResolver.resolve_from_context(tracker.list_tasks(), Path.cwd())
+        elif args.cmd in ("show", "ver", "view", "resume", "reanudar"):
+            target = args.task_id or TaskResolver.resolve_from_context(
+                tracker.list_tasks(), Path.cwd()
+            )
+        else:
+            target = None
+
+        if args.cmd in ("show", "ver", "view", "here", "aqui"):
+            if not target or not (task := tracker.get_task(target)):
+                raise FileNotFoundError("No task matches the current context")
+            if args.json:
+                data = task.to_dict()
+                if args.full:
+                    data["log"] = tracker.read_log(task.id)
+                print(json.dumps(data, indent=2, ensure_ascii=False))
+            else:
+                show_task(task, args.full, tracker)
+            return 0
+
+        if args.cmd in ("new", "nueva"):
+            task = tracker.create_task(
+                TaskState(id=args.task_id, title=args.title, summary=args.summary)
+            )
+        elif args.cmd in ("close", "cerrar"):
+            task = tracker.close_task(args.task_id, args.reason)
+        elif args.cmd in ("reopen", "reabrir"):
+            task = tracker.reopen_task(args.task_id, args.reason)
+        elif args.cmd in ("pause", "pausar"):
+            task = tracker.pause_task(args.task_id, args.reason)
+        elif args.cmd in ("resume", "reanudar"):
+            if not target:
+                raise FileNotFoundError("No task matches the current context")
+            task = tracker.resume_task(target)
+        elif args.cmd == "summary":
+            task = tracker.update_summary(args.task_id, args.text)
+        elif args.cmd == "step":
+            operation = {
+                "add": tracker.add_step,
+                "done": tracker.complete_step,
+                "remove": tracker.remove_step,
+            }[args.action]
+            task = operation(args.task_id, args.value)
+        elif args.cmd == "fact":
+            task = tracker.add_fact(args.task_id, args.text)
+        elif args.cmd == "link":
+            task = tracker.add_link(args.task_id, args.title, args.url)
+        elif args.cmd == "reference":
+            task = tracker.add_reference(args.task_id, args.kind, args.value, args.url)
+        elif args.cmd == "repo":
+            if args.action == "add":
+                task = tracker.add_repository(
+                    args.task_id,
+                    Path(args.path),
+                    branch=args.branch,
+                    pr=args.pr,
+                    worktree=args.worktree,
+                )
+            else:
+                task = tracker.remove_repository(args.task_id, Path(args.path))
+        elif args.cmd == "sync":
+            ids = [args.task_id] if args.task_id else [item.id for item in tracker.list_tasks()]
+            for task_id in ids:
+                tracker.sync_repositories(task_id, TaskResolver._git_branch)
+            console.print(f"[green]Synced {len(ids)} task(s).[/green]")
+            return 0
+        elif args.cmd == "note":
+            task = tracker.add_note(args.task_id, args.text)
+        elif args.cmd == "digest":
+            text = tracker.digest(args.task_id, args.max_chars)
+            print(json.dumps({"digest": text}) if args.json else text)
+            return 0
+        elif args.cmd == "migrate-legacy":
+            report = tracker.import_legacy_directory(args.path)
+            if args.json:
+                print(json.dumps(report, indent=2))
+            else:
+                print(
+                    f"Imported {report['imported']}; skipped {report['skipped']}; "
+                    f"invalid {report['invalid']}"
+                )
+            return 0
+        else:
+            parser.print_help()
+            return 0
+
+        console.print(f"[green]Updated task '{task.id}' ({task.status}).[/green]")
+        return 0
+    except (ValueError, OSError) as exc:
+        prefix = (
+            "Error creating task" if getattr(args, "cmd", None) in ("new", "nueva") else "Error"
+        )
+        console.print(f"[red]{prefix}: {exc}[/red]")
         return 1
-
-    if args.cmd in ("list", "listar") or not args.cmd:
-        try:
-            tasks = tracker.list_active_tasks()
-        except (ValueError, OSError) as e:
-            console.print(f"[red]Error listing active tasks: {e}[/red]")
-            return 1
-        if not tasks:
-            console.print("[yellow]No active tasks found.[/yellow]")
-            return 0
-        table = Table(title="📋 Active Tasks", border_style="cyan")
-        table.add_column("Task ID", style="bold green")
-        table.add_column("Title", style="white")
-        table.add_column("Status", style="yellow")
-        for t in tasks:
-            table.add_row(t.id, t.title, t.status)
-        console.print(table)
-        return 0
-
-    elif args.cmd in ("here", "aqui"):
-        resolved = TaskResolver.resolve_from_git()
-        if not resolved:
-            console.print("[yellow]No Jira ticket detected on current branch.[/yellow]")
-            return 1
-        try:
-            t = tracker.get_task(resolved)
-        except (ValueError, OSError) as e:
-            console.print(f"[red]Error retrieving task '{resolved}': {e}[/red]")
-            return 1
-        if not t:
-            console.print(
-                f"[yellow]Ticket detected ({resolved}), but no task has been created yet.[/yellow]"
-            )
-            return 1
-        show_task(t, full_log=args.full, tracker=tracker)
-        return 0
-
-    elif args.cmd in ("show", "ver", "view"):
-        target = args.task_id or TaskResolver.resolve_from_git()
-        if not target:
-            console.print(
-                "[red]Specify a task_id or run within a branch containing a ticket.[/red]"
-            )
-            return 1
-        try:
-            t = tracker.get_task(target)
-        except (ValueError, OSError) as e:
-            console.print(f"[red]Error retrieving task '{target}': {e}[/red]")
-            return 1
-        if not t:
-            console.print(f"[red]Task '{target}' not found.[/red]")
-            return 1
-        show_task(t, full_log=args.full, tracker=tracker)
-        return 0
-
-    elif args.cmd in ("new", "nueva"):
-        try:
-            t = TaskState(id=args.task_id, title=args.title, summary=args.summary)
-            tracker.create_task(t)
-            console.print(f"[green]✓ Task '{args.task_id}' created successfully.[/green]")
-            return 0
-        except (ValueError, OSError) as e:
-            console.print(f"[red]Error creating task '{args.task_id}': {e}[/red]")
-            return 1
-
-    elif args.cmd in ("close", "cerrar"):
-        try:
-            t = tracker.close_task(args.task_id, reason=args.reason)
-            console.print(f"[green]✓ Task '{t.id}' closed successfully.[/green]")
-            return 0
-        except (ValueError, OSError) as e:
-            console.print(f"[red]Error closing task '{args.task_id}': {e}[/red]")
-            return 1
-
-    elif args.cmd in ("reopen", "reabrir"):
-        try:
-            t = tracker.reopen_task(args.task_id, reason=args.reason)
-            console.print(f"[green]✓ Task '{t.id}' reopened successfully.[/green]")
-            return 0
-        except (ValueError, OSError) as e:
-            console.print(f"[red]Error reopening task '{args.task_id}': {e}[/red]")
-            return 1
-
-    elif args.cmd in ("resume", "reanudar"):
-        target = args.task_id or TaskResolver.resolve_from_git()
-        if not target:
-            console.print(
-                "[red]Specify a task_id or run within a branch containing a ticket.[/red]"
-            )
-            return 1
-        try:
-            t = tracker.resume_task(target)
-        except (ValueError, OSError) as e:
-            console.print(f"[red]Error resuming task '{target}': {e}[/red]")
-            return 1
-        show_task(t, full_log=args.full, tracker=tracker)
-        return 0
-
-    return 0
 
 
 if __name__ == "__main__":

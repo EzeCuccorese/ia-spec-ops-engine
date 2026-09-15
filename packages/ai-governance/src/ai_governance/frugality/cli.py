@@ -7,14 +7,22 @@ Fail-open: never breaks agent execution.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import sys
+import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .output_trimmer import OutputTrimmer
 from .pre_check import PreCheck
 from .test_trimmer import TestTrimmer
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # type: ignore
 
 DEFAULT_CONFIG = {
     "umbral_chars": 12000,
@@ -48,6 +56,52 @@ def load_config() -> dict:
         with contextlib.suppress(Exception):
             cfg.update(json.loads(cfg_file.read_text(encoding="utf-8")))
     return cfg
+
+
+def _atomic_output_copy(runtime: Path, identifier: str, stdout: str) -> Path | None:
+    output_dir = runtime / "outputs"
+    safe_name = hashlib.sha256(identifier.encode("utf-8")).hexdigest()[:24] + ".txt"
+    temporary: Path | None = None
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        destination = output_dir / safe_name
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=output_dir, delete=False
+        ) as handle:
+            handle.write(stdout)
+            handle.flush()
+            os.fsync(handle.fileno())
+            temporary = Path(handle.name)
+        temporary.replace(destination)
+        return destination
+    except OSError:
+        return None
+    finally:
+        if temporary and temporary.exists():
+            temporary.unlink(missing_ok=True)
+
+
+def _audit_trim(runtime: Path, command: str, original: int, trimmed: int) -> None:
+    record = {
+        "timestamp": datetime.now(UTC).isoformat(),
+        "command_sha256": hashlib.sha256(command.encode("utf-8")).hexdigest(),
+        "original_chars": original,
+        "trimmed_chars": trimmed,
+    }
+    try:
+        runtime.mkdir(parents=True, exist_ok=True)
+        with open(runtime / "trim-audit.jsonl", "a", encoding="utf-8") as handle:
+            if fcntl:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                handle.write(json.dumps(record, sort_keys=True) + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            finally:
+                if fcntl:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        pass
 
 
 def run_pre_bash(cfg: dict) -> None:
@@ -102,18 +156,30 @@ def run_post_bash(cfg: dict) -> None:
     if not is_test and OutputTrimmer.should_skip(command):
         return
 
-    ref = f"full output: {persisted}" if persisted else ""
-
     if is_test:
-        new_output = TestTrimmer.trim(stdout, cfg, ref)
+        candidate = TestTrimmer.trim(stdout, cfg)
     else:
-        new_output = OutputTrimmer.trim_listing(stdout, cfg, ref)
+        candidate = OutputTrimmer.trim_listing(stdout, cfg)
 
-    if new_output and len(new_output) < len(stdout):
+    if candidate and len(candidate) < len(stdout):
+        runtime = get_runtime_dir()
+        generated = None
+        if not persisted:
+            identifier = str(payload.get("tool_use_id") or payload.get("session_id") or command)
+            generated = _atomic_output_copy(runtime, identifier, stdout)
+            persisted = str(generated) if generated else None
+        ref = f"full output: {persisted}" if persisted else "full output unavailable"
+        if is_test:
+            new_output = TestTrimmer.trim(stdout, cfg, ref)
+        else:
+            new_output = OutputTrimmer.trim_listing(stdout, cfg, ref)
+        if not new_output or len(new_output) >= len(stdout):
+            return
+        _audit_trim(runtime, command, len(stdout), len(new_output))
         if is_dict:
             updated_val = dict(resp)
             updated_val["stdout"] = new_output
-            if persisted and "persistedOutputPath" not in updated_val:
+            if persisted:
                 updated_val["persistedOutputPath"] = persisted
         else:
             updated_val = new_output
