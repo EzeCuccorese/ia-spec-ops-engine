@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "cucco-workspace"
+name = "ia-spec-ops-workspace"
 version = "0.2.0"
 description = "Deterministic workspace manager, Git worktree isolation, local environment orchestrator, builds and Kubernetes manager."
 readme = "README.md"

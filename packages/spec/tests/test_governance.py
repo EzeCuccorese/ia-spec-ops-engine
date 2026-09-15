@@ -96,12 +96,12 @@ def test_agents_adapter_render_detects_contributor_vs_consumer(tmp_path: Path) -
     assert adapter.render() == render_consumer()
     assert "uv pip install -e" not in adapter.render()
 
-    # Contributor repo (genuine cucco-specops-engine repository)
+    # Contributor repo (genuine ia-spec-ops-engine repository)
     contributor_dir = tmp_path / "contributor_repo"
     (contributor_dir / "packages" / "spec" / "src" / "spec").mkdir(parents=True)
     (contributor_dir / "packages" / "spec" / "src" / "spec" / "__init__.py").touch()
     (contributor_dir / "pyproject.toml").write_text(
-        '[project]\nname = "specops-engine"\n', encoding="utf-8"
+        '[project]\nname = "ia-spec-ops-engine"\n', encoding="utf-8"
     )
     contributor_adapter = AgentsAdapter(contributor_dir)
     assert contributor_adapter.render() == render_contributor()

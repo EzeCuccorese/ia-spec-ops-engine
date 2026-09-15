@@ -95,7 +95,7 @@ def test_agent_install_contributor_repo_renders_contributor(tmp_path: Path) -> N
     (tmp_path / "packages" / "spec" / "src" / "spec").mkdir(parents=True)
     (tmp_path / "packages" / "spec" / "src" / "spec" / "__init__.py").touch()
     (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "specops-engine"\n', encoding="utf-8"
+        '[project]\nname = "ia-spec-ops-engine"\n', encoding="utf-8"
     )
     ProjectGovernance(tmp_path).initialize()
 

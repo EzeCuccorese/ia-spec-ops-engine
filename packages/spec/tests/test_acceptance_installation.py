@@ -283,9 +283,9 @@ def test_module_blocks_coexist(tmp_path: Path) -> None:
 def test_consumer_role_is_not_layout_guess(tmp_path: Path) -> None:
     """A06: A third-party consumer project that happens to have a folder packages/spec
 
-    (e.g. mock layout) must NOT be guessed as Cucco contributor unless it's genuinely
-    the cucco-specops-engine repository (e.g. check for packages/spec/src/spec/__init__.py
-    AND root pyproject.toml containing "specops-engine" or similar robust check).
+    (e.g. mock layout) must NOT be guessed as an ia-spec-ops-engine contributor unless it's genuinely
+    the ia-spec-ops-engine repository (e.g. check for packages/spec/src/spec/__init__.py
+    AND root pyproject.toml containing "ia-spec-ops-engine" or similar robust check).
     """
     # 1. Consumer project with packages/spec directory (mock layout)
     consumer_dir = tmp_path / "consumer_project"
@@ -304,12 +304,12 @@ def test_consumer_role_is_not_layout_guess(tmp_path: Path) -> None:
     assert "Agent Post-Clone Bootstrap Protocol" not in rendered_consumer
     assert "specops config init" not in rendered_consumer
 
-    # 2. Genuine cucco-specops-engine contributor project
+    # 2. Genuine ia-spec-ops-engine contributor project
     contributor_dir = tmp_path / "contributor_project"
     (contributor_dir / "packages" / "spec" / "src" / "spec").mkdir(parents=True)
     (contributor_dir / "packages" / "spec" / "src" / "spec" / "__init__.py").touch()
     (contributor_dir / "pyproject.toml").write_text(
-        '[project]\nname = "specops-engine"\n', encoding="utf-8"
+        '[project]\nname = "ia-spec-ops-engine"\n', encoding="utf-8"
     )
 
     contributor_adapter = AgentsAdapter(contributor_dir)
