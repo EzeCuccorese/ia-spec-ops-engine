@@ -97,7 +97,7 @@ def main(argv: list[str] | None = None) -> int:
         except ImportError:
             console.print(
                 "[bold yellow]Notice:[/bold yellow] 'workspace_engine' is not installed or available.\n"
-                "Install sibling package 'cucco-workspace' to use 'governance config'."
+                "Install sibling package 'ia-spec-ops-workspace' to use 'governance config'."
             )
             return 1
 
@@ -126,8 +126,8 @@ def main(argv: list[str] | None = None) -> int:
             from workspace_engine.cli.main import doctor_check
         except ImportError:
             console.print(
-                "[bold yellow]Notice:[/bold yellow] 'spec' or 'cucco-workspace' is not installed or available.\n"
-                "Install sibling packages ('spec', 'cucco-workspace') to use 'governance doctor'."
+                "[bold yellow]Notice:[/bold yellow] 'spec' or 'ia-spec-ops-workspace' is not installed or available.\n"
+                "Install sibling packages ('spec', 'ia-spec-ops-workspace') to use 'governance doctor'."
             )
             return 1
 

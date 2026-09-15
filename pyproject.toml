@@ -3,9 +3,9 @@ requires = ["hatchling>=1.26"]
 build-backend = "hatchling.build"
 
 [project]
-name = "specops-engine"
+name = "ia-spec-ops-engine"
 version = "0.4.0"
-description = "SpecOps Engine — Decoupled Monorepo for AI Governance & Spec-Driven Development (spec) and Workspace DevOps Tools (ws)."
+description = "ia-spec-ops-engine — personal tooling for coding agents, workspaces, and Spec-Driven Development."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -22,10 +22,11 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/specops_engine"]
+packages = ["src/ia_spec_ops_engine"]
 
 [project.scripts]
-specops = "specops_engine.cli:main"
+ia-spec-ops-engine = "ia_spec_ops_engine.cli:main"
+specops = "ia_spec_ops_engine.cli:main"
 
 [tool.ruff]
 line-length = 100
@@ -39,7 +40,7 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 pythonpath = ["packages/ai-governance/src", "packages/spec/src", "packages/workspace/src", "src", "."]
 python_files = ["test_*.py", "*_test.py"]
-testpaths = ["packages/ai-governance/tests", "packages/spec/tests", "packages/workspace/tests"]
+testpaths = ["packages/ai-governance/tests", "packages/spec/tests", "packages/workspace/tests", "tests_acceptance"]
 addopts = "-ra --strict-markers"
 markers = [
     "integration: end-to-end integration tests",

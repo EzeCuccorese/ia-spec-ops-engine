@@ -95,7 +95,7 @@ def render_consumer() -> str:
 
 
 def render_contributor() -> str:
-    """Contains the 4-step bootstrap protocol for contributors to cucco-specops-engine."""
+    """Contains the 4-step bootstrap protocol for ia-spec-ops-engine contributors."""
     header = "# Spec Governance for Coding Agents\n\n"
     remainder = _CONSUMER_WORKFLOW[len(header) :]
     return f"{header}{_CONTRIBUTOR_BOOTSTRAP}\n{remainder}"
@@ -354,7 +354,7 @@ class AgentsAdapter:
             if spec_init.is_file() and pyproject.is_file():
                 try:
                     pyproject_content = pyproject.read_text(encoding="utf-8")
-                    if "specops-engine" in pyproject_content:
+                    if "ia-spec-ops-engine" in pyproject_content:
                         return render_contributor()
                 except OSError:
                     pass

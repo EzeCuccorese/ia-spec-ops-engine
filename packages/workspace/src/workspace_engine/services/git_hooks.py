@@ -51,6 +51,9 @@ if [ -z "$REPO_ROOT" ]; then
   exit 0
 fi
 cd "$REPO_ROOT" || exit 1
+# Git exports repository-local variables to hooks. They would otherwise leak
+# into test subprocesses that create or inspect a different temporary repo.
+unset $(git rev-parse --local-env-vars)
 
 abspath() { (cd "$(dirname "$1")" 2>/dev/null && printf '%s/%s\n' "$(pwd -P)" "$(basename "$1")"); }
 SELF_ABS="$(abspath "$0")"
@@ -461,10 +464,10 @@ else
 
   # --- Python ---
   PYTEST_EXE=""
-  if command -v pytest >/dev/null 2>&1; then
-    PYTEST_EXE="pytest"
-  elif [ -x "$REPO_ROOT/.venv/bin/pytest" ]; then
+  if [ -x "$REPO_ROOT/.venv/bin/pytest" ]; then
     PYTEST_EXE="$REPO_ROOT/.venv/bin/pytest"
+  elif command -v pytest >/dev/null 2>&1; then
+    PYTEST_EXE="pytest"
   elif command -v uv >/dev/null 2>&1; then
     PYTEST_EXE="uv run pytest"
   fi

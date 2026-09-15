@@ -57,6 +57,18 @@ def test_generate_canonical_pre_push_script():
     assert "cargo test" in script
 
 
+def test_python_runner_prefers_repository_virtualenv():
+    script = generate_canonical_pre_push_script()
+    assert script.index('[ -x "$REPO_ROOT/.venv/bin/pytest" ]') < script.index("command -v pytest")
+
+
+def test_hook_clears_inherited_git_environment_after_finding_root():
+    script = generate_canonical_pre_push_script()
+    assert script.index('cd "$REPO_ROOT" || exit 1') < script.index(
+        "unset $(git rev-parse --local-env-vars)"
+    )
+
+
 def test_install_git_hooks_local():
     with tempfile.TemporaryDirectory() as tmp:
         project_dir = Path(tmp)
