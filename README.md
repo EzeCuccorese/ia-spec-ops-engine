@@ -78,6 +78,7 @@ The monorepo registers executable CLI commands on your PATH (and also provides s
 | **`progreso`** | — | `packages/ai-governance` | Cross-session task tracking (~300 tokens) |
 | **`jira`** | — | `packages/ai-governance` | Jira ticket querying and status transitions in Markdown |
 | **`confluence`**| — | `packages/ai-governance` | Confluence search and page reader in Markdown |
+| **`telemetry`**| — | `packages/ai-governance` | Local Claude usage estimates, prices, thresholds and calibration |
 
 ---
 
@@ -91,6 +92,8 @@ ws worktree /path/to/base-repo /path/to/worktree feature/order-checkout
 
 # 2. AI-Governance: Register the task and inject standards into agent config
 progreso nueva ONB-2050 --titulo "Order checkout refactor"
+progress step ONB-2050 add "Run acceptance tests"
+progress fact ONB-2050 "Baseline verified"
 rules install --local --all
 
 # 3. Spec: Validate baseline and initialize the formal specification
@@ -121,7 +124,6 @@ Run all hermetic test suites across all packages:
 ```bash
 pytest
 ```
-
 
 
 

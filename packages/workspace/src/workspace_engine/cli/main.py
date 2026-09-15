@@ -189,6 +189,11 @@ def main() -> None:
         "hook_args", nargs=argparse.REMAINDER, help="Subcommand and options for ws hooks"
     )
 
+    # ws hook (host integration hooks)
+    p_host_hook = subparsers.add_parser("hook", help="Run a coding-agent integration hook")
+    p_host_hook.add_argument("hook_name", choices=["claude-worktree-create"])
+    p_host_hook.add_argument("hook_args", nargs=argparse.REMAINDER)
+
     # ws doctor
     subparsers.add_parser(
         "doctor", help="Verify system tools, compilers, and development environment"
@@ -222,6 +227,11 @@ def main() -> None:
         from workspace_engine.cli.manage_hooks import main as hooks_main
 
         sys.exit(hooks_main(args.hook_args))
+    elif args.command == "hook":
+        if args.hook_name == "claude-worktree-create":
+            from workspace_engine.integrations.claude.worktree_hook import main as hook_main
+
+            sys.exit(hook_main(args.hook_args))
     elif args.command == "generate":
         from workspace_engine.cli.generate_workspace import main as gen_main
 
