@@ -30,7 +30,11 @@ class RitmoStatus:
 class RitmoCalculator:
     @staticmethod
     def count_business_days(
-        year: int, month: int, start_day: int = 1, end_day: int | None = None
+        year: int,
+        month: int,
+        start_day: int = 1,
+        end_day: int | None = None,
+        holidays: set[date] | None = None,
     ) -> int:
         """Counts Monday-Friday days within [start_day, end_day] of the given year/month."""
         num_days = calendar.monthrange(year, month)[1]
@@ -44,7 +48,7 @@ class RitmoCalculator:
         count = 0
         for d in range(effective_start, last_day + 1):
             dt = date(year, month, d)
-            if dt.weekday() < 5:  # 0=Monday, 4=Friday
+            if dt.weekday() < 5 and dt not in (holidays or set()):  # 0=Monday, 4=Friday
                 count += 1
         return count
 
@@ -54,10 +58,13 @@ class RitmoCalculator:
         monthly_budget_usd: float,
         actual_spend_usd: float | None = None,
         target_date: date | None = None,
+        holidays: set[date] | None = None,
     ) -> RitmoStatus:
         target = target_date or datetime.now().date()
-        total_b_days = cls.count_business_days(target.year, target.month)
-        elapsed_b_days = cls.count_business_days(target.year, target.month, end_day=target.day)
+        total_b_days = cls.count_business_days(target.year, target.month, holidays=holidays)
+        elapsed_b_days = cls.count_business_days(
+            target.year, target.month, end_day=target.day, holidays=holidays
+        )
         days_remaining = max(0, total_b_days - elapsed_b_days)
 
         pace_ratio = elapsed_b_days / total_b_days if total_b_days > 0 else 0.0

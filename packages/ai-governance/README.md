@@ -33,11 +33,12 @@ pip install -e packages/ai-governance
 ```
 
 ### 2. Global Executable CLI Commands
-Installation immediately registers 7 commands on your PATH:
+Installation registers these commands on your PATH:
 - `governance`: Unified master CLI orchestrator.
 - `rules`: Engineering standards catalog and reversible multi-agent injector.
 - `frugal`: Context condenser and runtime trimmer.
 - `statusline`: Real-time ANSI telemetry statusline.
+- `telemetry`: Local usage estimates, price-cache maintenance, calibration, and thresholds.
 - `progreso`: Lightweight cross-session task tracking.
 - `jira`: Fast, lightweight Jira CLI client in Markdown.
 - `confluence`: Fast, lightweight Confluence CLI client in Markdown.
@@ -154,7 +155,20 @@ ritmo --budget 150 --spent 42.50
 
 # Scan Claude Code transcripts for consumption breakdown
 governance usage --budget 150
+
+# Detailed machine-readable estimate with cache tiers and server tools
+telemetry report --json
+
+# Explicit maintenance operations (the statusline never uses the network)
+telemetry prices update
+telemetry calibrate --from 2026-09-01 --to 2026-09-07 --actual 42.50
+telemetry thresholds --notify
 ```
+
+Telemetry reads local Claude transcripts, so every cost is an estimate. Provider billing
+remains authoritative. Configuration is stored under `~/.specops/usage-monitor/config.json`;
+`holiday_dates` accepts explicit ISO dates for a local business-day calendar. Price refresh
+is manual and validates the remote schema before atomically replacing the local cache.
 
 ---
 
@@ -177,13 +191,32 @@ progreso ver ONB-1164
 # View full narrative markdown log
 progreso ver ONB-1164 --full
 
-# Update steps and linked repositories
-progreso paso ONB-1164 "Write unit tests for PaymentGateway" --done
-progreso repo ONB-1164 "/path/to/payment-service" --branch "feature/gateway"
-
-# Archive and close a completed task
+# Close a completed task (state remains reopenable)
 progreso cerrar ONB-1164
+
+# Explicit lifecycle and structured compact state
+progress pause ONB-1164 --reason "Waiting for review"
+progress resume ONB-1164
+progress reopen ONB-1164
+progress step ONB-1164 add "Run native acceptance"
+progress step ONB-1164 done 1
+progress fact ONB-1164 "Remote CI passed at SHA abc123"
+progress repo ONB-1164 add . --branch feature/onb-1164 --pr 42
+progress reference ONB-1164 jira ONB-1164
+progress link ONB-1164 "PR" https://example.test/pr/42
+progress note ONB-1164 "Decision and rationale"
+progress digest --id ONB-1164
+progress list --all --json
 ```
+
+`progress here` resolves a Jira-like key from the branch first, then falls back to an
+unambiguous registered repository. Compact arrays are bounded; older entries move to the
+long log instead of growing the default task payload indefinitely. A one-time
+`progress migrate-legacy <directory>` command imports the former `progress-to-md` layout.
+
+Portable Claude command prompts are packaged under
+`ai_governance/resources/claude/commands/`. They are optional resources and do not modify
+global Claude configuration automatically.
 
 ---
 
@@ -203,4 +236,3 @@ confluence get 84920492
 # Search Confluence pages
 confluence search "Authentication Architecture"
 ```
-

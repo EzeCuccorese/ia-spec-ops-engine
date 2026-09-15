@@ -35,6 +35,7 @@ def format_statusline(
     include_ritmo: bool = False,
     monthly_budget: float = 0.0,
     monthly_spend_usd: float | None = None,
+    context_warning_pct: float | None = None,
 ) -> str:
     cost = float((payload.get("cost") or {}).get("total_cost_usd") or 0.0)
     ctx = payload.get("context_window") or {}
@@ -57,7 +58,12 @@ def format_statusline(
     if used_pct is not None:
         try:
             pct_val = round(float(used_pct))
-            parts.append(f"{LBL}({RST}{YLW}{pct_val}% ctx{RST}{LBL}){RST}")
+            warning = (
+                " compact"
+                if context_warning_pct is not None and pct_val >= context_warning_pct
+                else ""
+            )
+            parts.append(f"{LBL}({RST}{YLW}{pct_val}% ctx{warning}{RST}{LBL}){RST}")
         except (ValueError, TypeError):
             pass
 
@@ -125,7 +131,7 @@ def main() -> int:
         if not raw.strip():
             return 0
         payload = json.loads(raw)
-        res = format_statusline(payload)
+        res = format_statusline(payload, context_warning_pct=60.0)
         if res:
             print(res)
     except Exception:

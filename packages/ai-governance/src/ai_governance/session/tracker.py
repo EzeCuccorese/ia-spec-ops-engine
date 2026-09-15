@@ -10,6 +10,8 @@ import json
 import os
 import re
 import tempfile
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -47,6 +49,9 @@ class TaskState:
         default_factory=list
     )  # [{"path": "...", "branch": "...", "pr": "..."}]
     links: list[dict[str, str]] = field(default_factory=list)  # [{"title": "...", "url": "..."}]
+    facts: list[dict[str, str]] = field(default_factory=list)
+    references: list[dict[str, str]] = field(default_factory=list)
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def to_dict(self) -> dict[str, Any]:
@@ -66,7 +71,16 @@ class TaskState:
             steps=data.get("steps", []),
             repos=data.get("repos", []),
             links=data.get("links", []),
-            updated_at=data.get("updated_at", ""),
+            facts=data.get("facts", data.get("done", [])),
+            references=data.get(
+                "references",
+                [
+                    {"kind": "jira", "value": str(value), "url": ""}
+                    for value in data.get("jira", [])
+                ],
+            ),
+            created_at=data.get("created_at", data.get("created", "")),
+            updated_at=data.get("updated_at", data.get("updated", "")),
         )
 
 
@@ -119,7 +133,17 @@ class SessionTracker:
     _validate_task_id = staticmethod(_validate_task_id)
     _sanitize_task_id = staticmethod(_validate_task_id)
 
-    def __init__(self, root_dir: Path | None = None) -> None:
+    DEFAULT_COMPACT_LIMITS = {
+        "steps": 8,
+        "facts": 12,
+        "links": 10,
+        "references": 10,
+        "repos": 10,
+    }
+
+    def __init__(
+        self, root_dir: Path | None = None, compact_limits: dict[str, int] | None = None
+    ) -> None:
         if root_dir is not None:
             self.root_dir = root_dir
         else:
@@ -153,6 +177,9 @@ class SessionTracker:
             raise OSError(
                 f"Configured progress directory {self.root_dir} is inaccessible or cannot be created: {e}"
             ) from e
+        self.compact_limits = dict(self.DEFAULT_COMPACT_LIMITS)
+        if compact_limits:
+            self.compact_limits.update(compact_limits)
 
     def _json_path(self, task_id: str) -> Path:
         safe_id = self._validate_task_id(task_id)
@@ -197,11 +224,40 @@ class SessionTracker:
         except OSError as e:
             raise OSError(f"Failed to read task '{task_id}' from {p}: {e}") from e
 
+    @contextmanager
+    def _task_lock(self, task_id: str) -> Iterator[Path]:
+        p = self._json_path(task_id)
+        lock_file = p.with_suffix(".lock")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(lock_file, "a", encoding="utf-8") as lf:
+            if fcntl:
+                fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
+            try:
+                yield p
+            finally:
+                if fcntl:
+                    fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
+
+    @staticmethod
+    def _read_task_path(path: Path, task_id: str) -> TaskState:
+        if not path.exists():
+            raise FileNotFoundError(f"Task '{task_id}' does not exist")
+        try:
+            return TaskState.from_dict(json.loads(path.read_text(encoding="utf-8")))
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError, TypeError) as e:
+            raise CorruptTaskError(f"Task state file for '{task_id}' is corrupted: {e}") from e
+
+    @staticmethod
+    def _write_task_path(path: Path, task: TaskState) -> TaskState:
+        task.updated_at = datetime.now(UTC).isoformat()
+        _atomic_write_text(path, json.dumps(task.to_dict(), indent=2, ensure_ascii=False))
+        return task
+
     def create_task(self, task: TaskState) -> TaskState:
-        p = self._json_path(task.id)
-        if p.exists():
-            raise FileExistsError(f"Task '{task.id}' already exists")
-        return self.save_task(task)
+        with self._task_lock(task.id) as p:
+            if p.exists():
+                raise FileExistsError(f"Task '{task.id}' already exists")
+            return self._write_task_path(p, task)
 
     def update_task(self, task: TaskState) -> TaskState:
         p = self._json_path(task.id)
@@ -210,23 +266,149 @@ class SessionTracker:
         return self.save_task(task)
 
     def save_task(self, task: TaskState) -> TaskState:
-        task.updated_at = datetime.now(UTC).isoformat()
-        p = self._json_path(task.id)
         try:
-            p.parent.mkdir(parents=True, exist_ok=True)
-            lock_file = p.with_suffix(".lock")
-            with open(lock_file, "a", encoding="utf-8") as lf:
-                if fcntl:
-                    fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
-                try:
-                    payload = json.dumps(task.to_dict(), indent=2)
-                    _atomic_write_text(p, payload)
-                finally:
-                    if fcntl:
-                        fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
+            with self._task_lock(task.id) as p:
+                return self._write_task_path(p, task)
         except OSError as e:
-            raise OSError(f"Failed to save task '{task.id}' to {p}: {e}") from e
+            raise OSError(f"Failed to save task '{task.id}': {e}") from e
+
+    def _mutate_task(
+        self,
+        task_id: str,
+        mutation: Callable[[TaskState], None],
+        *,
+        log_entry: str | None = None,
+    ) -> TaskState:
+        archived: list[str] = []
+        try:
+            with self._task_lock(task_id) as p:
+                task = self._read_task_path(p, task_id)
+                mutation(task)
+                for field_name, limit in self.compact_limits.items():
+                    values = getattr(task, field_name)
+                    while limit >= 0 and len(values) > limit:
+                        old = values.pop(0)
+                        text = (
+                            old.get("text")
+                            or old.get("title")
+                            or old.get("value")
+                            or old.get("path")
+                        )
+                        archived.append(f"Archived {field_name}: {text}")
+                self._write_task_path(p, task)
+        except OSError as e:
+            raise OSError(f"Failed to update task '{task_id}': {e}") from e
+        for entry in archived:
+            self.append_log(task_id, entry)
+        if log_entry:
+            self.append_log(task_id, log_entry)
         return task
+
+    def update_summary(self, task_id: str, summary: str) -> TaskState:
+        return self._mutate_task(task_id, lambda task: setattr(task, "summary", summary[:500]))
+
+    def add_step(self, task_id: str, text: str) -> TaskState:
+        if not text.strip():
+            raise ValueError("Step text must not be empty")
+        return self._mutate_task(
+            task_id,
+            lambda task: task.steps.append({"text": text.strip(), "done": False}),
+        )
+
+    @staticmethod
+    def _find_item(items: list[dict[str, Any]], selector: str | int) -> int:
+        if isinstance(selector, int) or str(selector).isdigit():
+            index = int(selector) - 1
+            if 0 <= index < len(items):
+                return index
+        else:
+            for index, item in enumerate(items):
+                if item.get("text") == selector:
+                    return index
+        raise ValueError(f"Item not found: {selector}")
+
+    def complete_step(self, task_id: str, selector: str | int) -> TaskState:
+        def mutate(task: TaskState) -> None:
+            task.steps[self._find_item(task.steps, selector)]["done"] = True
+
+        return self._mutate_task(task_id, mutate)
+
+    def remove_step(self, task_id: str, selector: str | int) -> TaskState:
+        def mutate(task: TaskState) -> None:
+            task.steps.pop(self._find_item(task.steps, selector))
+
+        return self._mutate_task(task_id, mutate)
+
+    def add_fact(self, task_id: str, text: str) -> TaskState:
+        if not text.strip():
+            raise ValueError("Fact text must not be empty")
+        return self._mutate_task(task_id, lambda task: task.facts.append({"text": text.strip()}))
+
+    def add_link(self, task_id: str, title: str, url: str) -> TaskState:
+        if not title.strip() or not url.strip():
+            raise ValueError("Link title and URL must not be empty")
+        return self._mutate_task(
+            task_id, lambda task: task.links.append({"title": title.strip(), "url": url.strip()})
+        )
+
+    def add_reference(self, task_id: str, kind: str, value: str, url: str = "") -> TaskState:
+        if not kind.strip() or not value.strip():
+            raise ValueError("Reference kind and value must not be empty")
+        reference = {"kind": kind.strip(), "value": value.strip(), "url": url.strip()}
+        return self._mutate_task(task_id, lambda task: task.references.append(reference))
+
+    def add_repository(
+        self,
+        task_id: str,
+        path: Path,
+        *,
+        branch: str = "",
+        pr: str = "",
+        worktree: str = "",
+    ) -> TaskState:
+        normalized = str(path.expanduser().resolve())
+
+        def mutate(task: TaskState) -> None:
+            existing = next((repo for repo in task.repos if repo.get("path") == normalized), None)
+            value = existing if existing is not None else {"path": normalized}
+            if branch:
+                value["branch"] = branch
+            if pr:
+                value["pr"] = str(pr)
+            if worktree:
+                value["worktree"] = worktree
+            if existing is None:
+                task.repos.append(value)
+
+        return self._mutate_task(task_id, mutate)
+
+    def remove_repository(self, task_id: str, path: Path) -> TaskState:
+        normalized = str(path.expanduser().resolve())
+
+        def mutate(task: TaskState) -> None:
+            original = len(task.repos)
+            task.repos = [repo for repo in task.repos if repo.get("path") != normalized]
+            if len(task.repos) == original:
+                raise ValueError(f"Repository not found: {normalized}")
+
+        return self._mutate_task(task_id, mutate)
+
+    def sync_repositories(
+        self, task_id: str, branch_resolver: Callable[[Path], str | None]
+    ) -> TaskState:
+        def mutate(task: TaskState) -> None:
+            for repository in task.repos:
+                path = Path(repository.get("path", ""))
+                branch = branch_resolver(path) if path.is_dir() else None
+                if branch:
+                    repository["branch"] = branch
+
+        return self._mutate_task(task_id, mutate)
+
+    def add_note(self, task_id: str, text: str) -> TaskState:
+        if not text.strip():
+            raise ValueError("Note text must not be empty")
+        return self._mutate_task(task_id, lambda _task: None, log_entry=text.strip())
 
     def append_log(self, task_id: str, entry: str) -> None:
         md_file = self._md_path(task_id)
@@ -265,50 +447,89 @@ class SessionTracker:
             raise OSError(f"Failed to read log for task '{task_id}' from {md_file}: {e}") from e
 
     def close_task(self, task_id: str, reason: str = "") -> TaskState:
-        task = self.get_task(task_id)
-        if task is None:
-            raise FileNotFoundError(f"Task '{task_id}' does not exist")
-        task.status = "closed"
-        if reason:
-            self.append_log(task_id, f"Closed task: {reason}")
-        return self.save_task(task)
+        return self._mutate_task(
+            task_id,
+            lambda task: setattr(task, "status", "closed"),
+            log_entry=f"Closed task: {reason}" if reason else None,
+        )
 
     def reopen_task(self, task_id: str, reason: str = "") -> TaskState:
-        task = self.get_task(task_id)
-        if task is None:
-            raise FileNotFoundError(f"Task '{task_id}' does not exist")
-        task.status = "active"
-        if reason:
-            self.append_log(task_id, f"Reopened task: {reason}")
-        return self.save_task(task)
+        return self._mutate_task(
+            task_id,
+            lambda task: setattr(task, "status", "active"),
+            log_entry=f"Reopened task: {reason}" if reason else None,
+        )
 
     def pause_task(self, task_id: str, reason: str = "") -> TaskState:
-        task = self.get_task(task_id)
-        if task is None:
-            raise FileNotFoundError(f"Task '{task_id}' does not exist")
-        task.status = "paused"
-        if reason:
-            self.append_log(task_id, f"Paused task: {reason}")
-        return self.save_task(task)
+        return self._mutate_task(
+            task_id,
+            lambda task: setattr(task, "status", "paused"),
+            log_entry=f"Paused task: {reason}" if reason else None,
+        )
 
     def resume_task(self, task_id: str) -> TaskState:
-        task = self.get_task(task_id)
-        if task is None:
-            raise FileNotFoundError(f"Task '{task_id}' does not exist")
-        if task.status == "paused":
-            task.status = "active"
-            self.save_task(task)
-        return task
+        return self._mutate_task(
+            task_id,
+            lambda task: setattr(task, "status", "active") if task.status == "paused" else None,
+        )
 
     def list_active_tasks(self) -> list[TaskState]:
-        res = []
+        return self.list_tasks()
+
+    def list_tasks(self, include_closed: bool = False) -> list[TaskState]:
+        res: list[TaskState] = []
         if not self.tasks_dir.exists():
             return res
         for p in sorted(self.tasks_dir.glob("*.json")):
             try:
                 task = TaskState.from_dict(json.loads(p.read_text(encoding="utf-8")))
-                if task.status not in ("closed", "cerrado"):
+                if include_closed or task.status not in ("closed", "cerrado"):
                     res.append(task)
             except Exception:
                 continue
-        return res
+        return sorted(res, key=lambda task: task.updated_at, reverse=True)
+
+    def digest(self, focus_id: str | None = None, max_chars: int = 1600) -> str:
+        tasks = self.list_tasks()
+        focus = next((task for task in tasks if task.id == focus_id), None) if focus_id else None
+        if focus is None and tasks:
+            focus = tasks[0]
+        lines = [f"PROGRESS ({len(tasks)} open)"]
+        if focus:
+            lines.append(f"- {focus.id} [{focus.status}]: {focus.summary or focus.title}")
+            pending = [step["text"] for step in focus.steps if not step.get("done")][:5]
+            if pending:
+                lines.append("  next: " + "; ".join(pending))
+        others = [task.id for task in tasks if focus is None or task.id != focus.id]
+        if others:
+            lines.append("  others: " + ", ".join(others[:8]))
+        text = "\n".join(lines)
+        if max_chars > 0 and len(text) > max_chars:
+            return text[: max(0, max_chars - 1)].rstrip() + "…"
+        return text
+
+    def import_legacy_directory(self, legacy_root: Path) -> dict[str, int]:
+        report = {"imported": 0, "skipped": 0, "invalid": 0}
+        sources = [legacy_root / "tasks", legacy_root / "archived"]
+        for source in sources:
+            if not source.exists():
+                continue
+            for path in sorted(source.glob("*.json")):
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                    task = TaskState.from_dict(data)
+                    self._validate_task_id(task.id)
+                    if self.get_task(task.id) is not None:
+                        report["skipped"] += 1
+                        continue
+                    self.create_task(task)
+                    legacy_log = path.with_suffix(".md")
+                    if legacy_log.exists():
+                        self.append_log(
+                            task.id,
+                            "Imported legacy log:\n\n" + legacy_log.read_text(encoding="utf-8"),
+                        )
+                    report["imported"] += 1
+                except (OSError, ValueError, TypeError):
+                    report["invalid"] += 1
+        return report
