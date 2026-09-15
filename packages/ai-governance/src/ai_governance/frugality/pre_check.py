@@ -5,9 +5,11 @@ Warns agents when executing blatantly wasteful terminal commands without blockin
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
+import tempfile
 from pathlib import Path
 
 LOCKFILES = (
@@ -77,7 +79,8 @@ class PreCheck:
         warned: set[str] = set()
         warnings_file = None
         if runtime_dir and session_id:
-            warnings_file = runtime_dir / "sessions" / f"{session_id}.json"
+            safe_session = hashlib.sha256(str(session_id).encode("utf-8")).hexdigest()[:24]
+            warnings_file = runtime_dir / "sessions" / f"{safe_session}.json"
             if warnings_file.exists():
                 try:
                     warned = set(json.loads(warnings_file.read_text(encoding="utf-8")))
@@ -92,7 +95,22 @@ class PreCheck:
                     try:
                         warnings_file.parent.mkdir(parents=True, exist_ok=True)
                         warned.add(pid)
-                        warnings_file.write_text(json.dumps(sorted(warned)), encoding="utf-8")
+                        temporary: Path | None = None
+                        try:
+                            with tempfile.NamedTemporaryFile(
+                                mode="w",
+                                encoding="utf-8",
+                                dir=warnings_file.parent,
+                                delete=False,
+                            ) as handle:
+                                json.dump(sorted(warned), handle)
+                                handle.flush()
+                                os.fsync(handle.fileno())
+                                temporary = Path(handle.name)
+                            temporary.replace(warnings_file)
+                        finally:
+                            if temporary and temporary.exists():
+                                temporary.unlink(missing_ok=True)
                     except Exception:
                         pass
                 return advice

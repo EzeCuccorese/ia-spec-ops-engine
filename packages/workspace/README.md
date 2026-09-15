@@ -86,6 +86,10 @@ ws generate my-feature
 # Create an isolated Git worktree for a specific branch
 ws worktree /path/to/base-repo /path/to/target-worktree feature/new-api
 
+# Claude WorktreeCreate hook: suggest a confined central location (never creates files)
+export SPECOPS_WORKTREES_DIR="$HOME/projects/worktree"
+ws hook claude-worktree-create
+
 # Modify repositories linked in an active workspace
 ws edit my-feature
 
@@ -98,6 +102,11 @@ ws reset my-feature --force
 # Delete a workspace and unregister its worktrees cleanly
 ws delete my-feature
 ```
+
+The Claude hook consumes the native JSON payload on stdin and is fail-open: malformed,
+unsafe, or colliding inputs emit no suggestion and exit successfully. Suggested names are
+sanitized and confined to `SPECOPS_WORKTREES_DIR`; the hook itself never creates or removes
+a worktree.
 
 ---
 
@@ -189,5 +198,4 @@ ws kube env
 ws kube logs
 ws kube shell
 ```
-
 
