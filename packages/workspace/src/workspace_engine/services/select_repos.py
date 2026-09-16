@@ -12,8 +12,8 @@ import tty
 from pathlib import Path
 from typing import IO, Any
 
+from workspace_engine.common import Color
 from workspace_engine.services.tui_utils import _read_key, _resolve_cursor
-from workspace_engine.utils import Color
 
 TOOLKIT_NAME = "ia-spec-ops-engine"
 ADD_NEW_LABEL = "[+ Add repository by name]"
@@ -51,7 +51,6 @@ def select_repos(
     repos_root: Path | None,
     show_toolkit: bool = False,
     preselected: list[str] | None = None,
-    allow_custom: bool = False,
     locked: list[str] | None = None,
 ) -> list[str] | None:
     """Runs the interactive TUI repository selector and returns the selected ones."""

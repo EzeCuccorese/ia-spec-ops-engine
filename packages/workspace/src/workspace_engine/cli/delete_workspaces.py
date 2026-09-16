@@ -7,11 +7,10 @@ from __future__ import annotations
 
 import argparse
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
-from workspace_engine.utils import (
+from workspace_engine.common import (
     Color,
     find_project_root,
     log_error,
@@ -20,10 +19,6 @@ from workspace_engine.utils import (
     log_warning,
     run_git,
 )
-
-
-def _git(repo_path: Path, *args: str) -> subprocess.CompletedProcess:
-    return run_git(repo_path, *args)
 
 
 def _is_owned_workspace(target: Path) -> bool:
@@ -49,11 +44,11 @@ def _has_dirty_repos(target: Path) -> list[str]:
     if repos_dir.is_dir():
         for r_dir in repos_dir.iterdir():
             if r_dir.is_dir() and ((r_dir / ".git").exists() or (r_dir / ".git").is_file()):
-                status = _git(r_dir, "status", "--porcelain")
+                status = run_git(r_dir, "status", "--porcelain")
                 if status.stdout.strip():
                     dirty.append(r_dir.name)
     if (target / ".git").exists() or (target / ".git").is_file():
-        status = _git(target, "status", "--porcelain")
+        status = run_git(target, "status", "--porcelain")
         if status.stdout.strip():
             dirty.append(target.name)
     return dirty
@@ -108,7 +103,7 @@ def delete_single_workspace(
         for r_dir in repos_dir.iterdir():
             if r_dir.is_dir() and ((r_dir / ".git").exists() or (r_dir / ".git").is_file()):
                 is_worktree = (r_dir / ".git").is_file()
-                git_common = _git(r_dir, "rev-parse", "--git-common-dir")
+                git_common = run_git(r_dir, "rev-parse", "--git-common-dir")
                 if git_common.returncode == 0 and git_common.stdout.strip():
                     common_path = Path(git_common.stdout.strip())
                     if not common_path.is_absolute():
@@ -121,7 +116,7 @@ def delete_single_workspace(
                         if force:
                             cmd.append("--force")
                         cmd.append(str(r_dir))
-                        remove_res = _git(common_path, *cmd)
+                        remove_res = run_git(common_path, *cmd)
                         if (
                             remove_res.returncode != 0
                             and "is a main working tree" not in remove_res.stderr
@@ -131,7 +126,7 @@ def delete_single_workspace(
                             )
                             return False
 
-                        _git(common_path, "worktree", "prune")
+                        run_git(common_path, "worktree", "prune")
 
     # 6. Honest filesystem deletion (no silent ignore_errors)
     try:

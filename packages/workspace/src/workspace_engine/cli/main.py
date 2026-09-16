@@ -203,9 +203,9 @@ def main() -> None:
     p_config = subparsers.add_parser(
         "config", help="Initialize and manage SpecOps workspace configuration"
     )
-    p_config.add_argument(
-        "config_args", nargs=argparse.REMAINDER, help="Subcommand and options for ws config"
-    )
+    from workspace_engine.config.init_config import add_config_arguments
+
+    add_config_arguments(p_config)
 
     args = parser.parse_args()
 
@@ -215,12 +215,9 @@ def main() -> None:
 
     # Delegate to corresponding modules
     if args.command == "config":
-        from workspace_engine.config.init_config import run_config_init
+        from workspace_engine.config.init_config import run_config
 
-        cfg_args = args.config_args
-        if cfg_args and cfg_args[0] == "init":
-            cfg_args = cfg_args[1:]
-        sys.exit(run_config_init(cfg_args))
+        sys.exit(run_config(args))
     elif args.command == "doctor":
         doctor_check()
     elif args.command == "hooks":

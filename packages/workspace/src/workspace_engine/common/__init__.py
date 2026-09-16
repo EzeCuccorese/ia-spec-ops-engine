@@ -29,6 +29,7 @@ from workspace_engine.common.colors import (
 )
 from workspace_engine.common.dotenv import parse_dotenv
 from workspace_engine.common.frontmatter import parse_frontmatter
+from workspace_engine.common.process import get_process_cmdline
 from workspace_engine.common.project import (
     ProjectType,
     detect_fe_framework,
@@ -43,6 +44,7 @@ from workspace_engine.common.subprocess import (
     DEFAULT_COMMAND_TIMEOUT,
     run_command,
     run_command_safe,
+    run_git,
 )
 
 __all__ = [
@@ -80,4 +82,6 @@ __all__ = [
     "DEFAULT_COMMAND_TIMEOUT",
     "run_command",
     "run_command_safe",
+    "run_git",
+    "get_process_cmdline",
 ]

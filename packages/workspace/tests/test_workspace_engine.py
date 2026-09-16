@@ -4,23 +4,12 @@ from pathlib import Path
 from workspace_engine.cli.clean_workspace import clean_workspace
 from workspace_engine.cli.set_java import detect_required_java_version
 from workspace_engine.cli.stop_workspace import stop_workspace
-from workspace_engine.services.render_agents import render_agents_md, update_workspace_agents
-from workspace_engine.utils import (
-    FileLock,
+from workspace_engine.common import (
     ProjectType,
     detect_project_type,
     parse_dotenv,
 )
-
-
-def test_file_lock():
-    with tempfile.TemporaryDirectory() as tmpdir:
-        lock_file = Path(tmpdir) / "test.lock"
-        with FileLock(lock_file):
-            assert lock_file.exists()
-        # El archivo queda como descriptor de kernel, pero el lock se libera
-        with FileLock(lock_file):
-            assert lock_file.exists()
+from workspace_engine.services.render_agents import render_agents_md, update_workspace_agents
 
 
 def test_detect_project_type():

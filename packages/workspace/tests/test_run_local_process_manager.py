@@ -123,7 +123,7 @@ def test_graceful_kill_pid_safety_guards(mock_kill):
 def test_graceful_kill_pid_pid_reuse_prevention(mock_kill):
     """W05: Guard against a PID reused by a process unrelated to the service."""
     with patch(
-        "workspace_engine.utils.get_process_cmdline",
+        "workspace_engine.common.get_process_cmdline",
         return_value="postgres: background worker",
     ):
         graceful_kill_pid(12345, service_name="auth-service")
@@ -149,7 +149,7 @@ def test_graceful_kill_pid_does_not_kill_own_group(mock_kill):
 def test_graceful_kill_pid_rejects_disallowed_tools(mock_kill):
     """Reject tool processes like grep, cat, or vim that contain the service name as an argument."""
     with patch(
-        "workspace_engine.utils.get_process_cmdline",
+        "workspace_engine.common.get_process_cmdline",
         return_value="grep -r auth-service .",
     ):
         stopped = graceful_kill_pid(12345, service_name="auth-service")
@@ -165,7 +165,7 @@ def test_graceful_kill_pid_rejects_foreign_workspace_matching_service_name(mock_
     (e.g. looking for project-a/api against node /workspaces/project-b/api/server.js).
     """
     with patch(
-        "workspace_engine.utils.get_process_cmdline",
+        "workspace_engine.common.get_process_cmdline",
         return_value="node /workspaces/project-b/api/server.js",
     ):
         # Looking for project-a/api with service_name="api" and service_path="project-a/api"
@@ -185,7 +185,7 @@ def test_graceful_kill_pid_rejects_foreign_workspace_when_service_name_has_path(
     it is rejected if cmdline points to another workspace ('project-b/api').
     """
     with patch(
-        "workspace_engine.utils.get_process_cmdline",
+        "workspace_engine.common.get_process_cmdline",
         return_value="node /workspaces/project-b/api/server.js",
     ):
         stopped = graceful_kill_pid(
@@ -201,7 +201,7 @@ def test_graceful_kill_pid_accepts_matching_service_path(mock_kill):
     """Verifies that when service_path matches in cmdline, the process is accepted."""
     with (
         patch(
-            "workspace_engine.utils.get_process_cmdline",
+            "workspace_engine.common.get_process_cmdline",
             return_value="node /workspaces/project-a/api/server.js",
         ),
         patch("workspace_engine.run_local.process_manager._pid_alive", return_value=False),

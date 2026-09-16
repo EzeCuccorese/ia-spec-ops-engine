@@ -17,8 +17,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
+from workspace_engine.common import Color, run_git
 from workspace_engine.services.tui_utils import _read_key, _resolve_cursor
-from workspace_engine.utils import Color, run_git
 
 
 @dataclass
@@ -27,9 +27,6 @@ class RepoConfig:
     mode: str  # "new" or "existing"
     branch: str
     parent: str | None = None
-    from_date: str | None = None
-    from_commit: str | None = None
-    reset_to_parent: bool = False
 
     @property
     def is_remote_only(self) -> bool:
@@ -75,10 +72,6 @@ def fetch_branches(repo_path: Path, skip_fetch: bool = False) -> list[str]:
     return sorted(branches)
 
 
-def _git(repo_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return run_git(repo_path, *args)
-
-
 def _parse_worktrees(porcelain: str) -> list[tuple[Path, str]]:
     """Parses the output of 'git worktree list --porcelain'."""
     result = []
@@ -112,7 +105,7 @@ def pre_validate(configs: list[RepoConfig], repo_paths: dict[str, Path]) -> list
             continue
 
         if cfg.mode == "existing":
-            wt_result = _git(repo_path, "worktree", "list", "--porcelain")
+            wt_result = run_git(repo_path, "worktree", "list", "--porcelain")
             branch_ref = f"refs/heads/{cfg.branch}"
             worktrees = _parse_worktrees(wt_result.stdout)
             for wt_path, wt_branch in worktrees:
@@ -121,18 +114,18 @@ def pre_validate(configs: list[RepoConfig], repo_paths: dict[str, Path]) -> list
                         f"{cfg.name}: branch '{cfg.branch}' is already active in another worktree: {wt_path}"
                     )
 
-            local = _git(repo_path, "rev-parse", "--verify", f"refs/heads/{cfg.branch}")
+            local = run_git(repo_path, "rev-parse", "--verify", f"refs/heads/{cfg.branch}")
             if local.returncode != 0:
-                remote = _git(
+                remote = run_git(
                     repo_path, "rev-parse", "--verify", f"refs/remotes/origin/{cfg.branch}"
                 )
                 if remote.returncode == 0:
                     cfg.mark_remote_only()
 
         elif cfg.mode == "new" and cfg.parent:
-            local = _git(repo_path, "rev-parse", "--verify", cfg.parent)
+            local = run_git(repo_path, "rev-parse", "--verify", cfg.parent)
             if local.returncode != 0:
-                remote = _git(
+                remote = run_git(
                     repo_path, "rev-parse", "--verify", f"refs/remotes/origin/{cfg.parent}"
                 )
                 if remote.returncode != 0:

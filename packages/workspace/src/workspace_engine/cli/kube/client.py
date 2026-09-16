@@ -47,19 +47,6 @@ def get_contexts() -> list[dict[str, Any]]:
     return contexts
 
 
-def get_namespaces(context: str | None = None) -> list[str]:
-    """Obtiene los namespaces disponibles en un contexto determinado."""
-    cmd = ["kubectl"]
-    if context:
-        cmd.extend(["--context", context])
-    cmd.extend(["get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}"])
-
-    code, stdout, _ = run_command_safe(cmd, timeout=KUBECTL_TIMEOUT)
-    if code != 0 or not stdout.strip():
-        return []
-    return stdout.split()
-
-
 def find_pod(
     service_name: str, namespace: str | None = None, context: str | None = None
 ) -> str | None:
