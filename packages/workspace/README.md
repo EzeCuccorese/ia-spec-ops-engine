@@ -49,13 +49,17 @@ The engine is modularly structured across 4 subsystems:
 ```
 packages/workspace/
 ├── src/workspace_engine/
-│   ├── cli/                   # 16 subcommands unified by main.py
+│   ├── cli/                   # 19 subcommands unified by main.py
 │   │   ├── main.py            # Master CLI dispatcher (`ws`)
 │   │   ├── manage_hooks.py    # Subcommand `ws hooks`
 │   │   ├── generate_workspace.py # Interactive multi-repo workspace generator
 │   │   ├── create_worktree.py # Atomic Git worktree generator
 │   │   ├── kube/              # Modular Kubernetes pod manager (`ws kube`)
 │   │   └── ...
+│   ├── config/                # `ws config` — SpecOps config.json bootstrapping
+│   │   └── init_config.py     # Local/global/custom config generation
+│   ├── integrations/claude/   # Coding-agent integration hooks (`ws hook ...`)
+│   │   └── worktree_hook.py   # Claude WorktreeCreate destination suggestion
 │   ├── run_local/             # Local microservices orchestrator
 │   │   ├── discovery.py       # Service auto-discovery and deterministic ports (8000-8999)
 │   │   ├── service_wiring.py  # Dynamic URL re-writing (wire_urls)
@@ -67,9 +71,37 @@ packages/workspace/
 │   │   ├── configure_repos.py # Repository synchronization and worktree binding
 │   │   └── benchmark_display.py # Concurrent test suite benchmarking
 │   ├── common/                # Safe subprocess, .env manipulation, and colors
-│   └── resources/             # Packaged workspace templates and canonical Git hooks
+│   └── resources/             # Packaged workspace resources
+│       ├── templates/         # .env.example / boilerplate templates for `ws env-init`
+│       └── hooks/             # Canonical Git hooks (e.g. pre-push Quality Gate)
 └── tests/                     # Automated test suites
 ```
+
+---
+
+## 📋 Subcommand Reference
+
+| Command | Purpose |
+| --- | --- |
+| `ws generate` | Generate a new multi-repo workspace from Git worktrees |
+| `ws edit` | Edit and add/remove repositories in an active workspace |
+| `ws worktree` | Create an isolated Git worktree |
+| `ws clean` | Clean dependencies, caches, and build artifacts in workspace |
+| `ws stop` | Stop all running processes and services in workspace |
+| `ws reset` | Reset workspace repositories to clean upstream state |
+| `ws delete` | Delete workspaces and unregister associated worktrees |
+| `ws build` | Build project auto-detecting the technology stack |
+| `ws deps` | Install project dependencies (Gradle, Maven, NPM, uv, etc.) |
+| `ws java` | Configure local Java JDK version via SDKMAN |
+| `ws env-init` | Initialize repository environment files from templates |
+| `ws env-load` | Load and inspect environment variables |
+| `ws benchmark` | Execute parallel unit test benchmarks with visual reports |
+| `ws run-local` | Orchestrate and launch local microservices with live TUI |
+| `ws kube` | Kubernetes pod manager for environment extraction and shells |
+| `ws hooks` | Multi-stack Git Hooks & Quality Gates manager |
+| `ws hook` | Run a coding-agent integration hook |
+| `ws doctor` | Verify system tools, compilers, and development environment |
+| `ws config` | Initialize and manage SpecOps workspace configuration |
 
 ---
 
@@ -206,3 +238,49 @@ ws kube env
 ws kube logs
 ws kube shell
 ```
+
+---
+
+### 5. SpecOps Configuration (`ws config`)
+
+Bootstraps the `config.json` that `ws` reads for project naming, namespaces, and
+(optionally) enterprise environments/VPN settings. Written project-locally
+(`.specops/config.json`) or user-globally (under `XDG_CONFIG_HOME`, see below).
+
+```bash
+# Interactively initialize project-local configuration
+ws config init --local
+
+# Non-interactive, user-global configuration
+ws config init --global --yes --name my-project --domain my-domain.io
+
+# Full enterprise profile (environments, VPN, ArtifactRegistry placeholders)
+ws config init --local --enterprise --yes
+
+# Write to a custom path instead
+ws config init --path ./custom-config.json --yes
+
+# Overwrite an existing configuration without confirmation
+ws config init --local --force --yes
+```
+
+`ws config` currently exposes a single subcommand, `init`; run `ws config --help`
+or `ws config init --help` for the full, up-to-date list of subcommands and flags.
+
+---
+
+## ⚙️ Configuration & Environment Variables
+
+| Variable | Used by | Description | Default |
+| --- | --- | --- | --- |
+| `AI_REPOSITORIES_DIR` | `ws generate`, `ws edit` | Directory containing local project repositories used when wiring up a new/edited workspace. | none (falls back to values already present in the workspace's `.env`) |
+| `SPECOPS_WORKTREES_DIR` | `ws hook claude-worktree-create` | Confines suggested Git worktree destinations for the Claude WorktreeCreate integration hook; suggestions are sanitized and never leave this directory, and the hook never creates the worktree itself. | `~/projects/worktree` |
+| `XDG_CONFIG_HOME` | `ws config init` (global scope), config discovery | Base directory for the user-global SpecOps configuration file. | `~/.config` (i.e. config lives at `~/.config/specops/config.json`) |
+| `JAVA_HOME` | `ws run-local` (process manager) | JDK home used when launching Java-based services locally. | whatever is already set in the environment; unset means the system default `java` is used |
+| `QG_OUTPUT` | `ws hooks run` / the installed `pre-push` Quality Gate hook | Controls verbosity of Quality Gate output: `errors` hides successful command output, `verbose` streams every command live. | `errors` |
+
+Package-manager cache locations (`YARN_CACHE_DIR`, `GRADLE_CACHE_DIR`, `M2_CACHE_DIR`,
+`NPM_CACHE_DIR`) and AWS/ArtifactRegistry placeholders (`AWS_PROFILE`, `AWS_CONFIG_FILE`,
+`AWS_DEFAULT_REGION`, `ARTIFACT_REGISTRY_DOMAIN`, `ARTIFACT_REGISTRY_DOMAIN_OWNER`) are
+project-level conventions read from generated `.env` files rather than by the
+`workspace_engine` package itself — see `config/.env.example` at the repo root.

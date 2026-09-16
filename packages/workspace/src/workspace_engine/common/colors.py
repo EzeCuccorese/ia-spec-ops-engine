@@ -31,14 +31,6 @@ class Color:
     RESET = "\033[0m"
     END = "\033[0m"
 
-    HIGH_RED = "\033[91m"
-    HIGH_GREEN = "\033[92m"
-    HIGH_YELLOW = "\033[93m"
-    HIGH_BLUE = "\033[94m"
-    HIGH_MAGENTA = "\033[95m"
-    HIGH_CYAN = "\033[96m"
-    HIGH_WHITE = "\033[97m"
-
 
 # Direct global aliases
 RED = Color.RED

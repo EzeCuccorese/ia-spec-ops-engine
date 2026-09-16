@@ -20,17 +20,11 @@ def _completed(
     return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
 
 
-def test_git_delegates_to_run_git(tmp_path: Path) -> None:
-    with patch.object(add_repos, "run_git", return_value=_completed()) as mock_run_git:
-        add_repos._git(tmp_path, "status")
-    mock_run_git.assert_called_once_with(tmp_path, "status")
-
-
 def test_setup_repo_worktree_already_exists(tmp_path: Path) -> None:
     target = tmp_path / "wt"
     cfg = RepoConfig(name="svc", mode="new", branch="feature", parent="main")
     listing = _completed(stdout=f"worktree {target}\n")
-    with patch.object(add_repos, "_git", return_value=listing) as mock_git:
+    with patch.object(add_repos, "run_git", return_value=listing) as mock_git:
         add_repos.setup_repo_worktree(tmp_path, target, cfg)
     mock_git.assert_called_once()
 
@@ -49,7 +43,7 @@ def test_setup_repo_worktree_new_mode_uses_remote_ref(tmp_path: Path) -> None:
             return _completed(returncode=0)
         return _completed(returncode=0)
 
-    with patch.object(add_repos, "_git", side_effect=fake_git):
+    with patch.object(add_repos, "run_git", side_effect=fake_git):
         add_repos.setup_repo_worktree(tmp_path, target, cfg)
 
     worktree_add_calls = [c for c in calls if c[:2] == ("worktree", "add")]
@@ -67,7 +61,7 @@ def test_setup_repo_worktree_new_mode_raises_on_failure(tmp_path: Path) -> None:
         return _completed(returncode=0)
 
     with (
-        patch.object(add_repos, "_git", side_effect=fake_git),
+        patch.object(add_repos, "run_git", side_effect=fake_git),
         pytest.raises(RuntimeError, match="Failed to create worktree"),
     ):
         add_repos.setup_repo_worktree(tmp_path, target, cfg)
@@ -84,7 +78,7 @@ def test_setup_repo_worktree_existing_remote_only(tmp_path: Path) -> None:
         calls.append(args)
         return _completed(returncode=0)
 
-    with patch.object(add_repos, "_git", side_effect=fake_git):
+    with patch.object(add_repos, "run_git", side_effect=fake_git):
         add_repos.setup_repo_worktree(tmp_path, target, cfg)
 
     assert any(c[:2] == ("worktree", "add") and "--track" in c for c in calls)
@@ -97,7 +91,7 @@ def test_setup_repo_worktree_existing_local_branch(tmp_path: Path) -> None:
     def fake_git(repo_path, *args):
         return _completed(returncode=0)
 
-    with patch.object(add_repos, "_git", side_effect=fake_git) as mock_git:
+    with patch.object(add_repos, "run_git", side_effect=fake_git) as mock_git:
         add_repos.setup_repo_worktree(tmp_path, target, cfg)
     assert mock_git.call_count == 2  # listing + worktree add
 
@@ -112,7 +106,7 @@ def test_setup_repo_worktree_existing_raises_on_failure(tmp_path: Path) -> None:
         return _completed(returncode=0)
 
     with (
-        patch.object(add_repos, "_git", side_effect=fake_git),
+        patch.object(add_repos, "run_git", side_effect=fake_git),
         pytest.raises(RuntimeError, match="Failed to create worktree"),
     ):
         add_repos.setup_repo_worktree(tmp_path, target, cfg)

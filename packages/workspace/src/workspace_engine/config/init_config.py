@@ -169,13 +169,19 @@ def init_config(
     return target
 
 
-def run_config_init(argv: list[str] | None = None) -> int:
-    """CLI runner for `ws config init`."""
-    parser = argparse.ArgumentParser(
-        prog="ws config init",
-        description="Initialize SpecOps configuration (.specops/config.json or ~/.config/specops/config.json).",
+def add_config_arguments(parser: argparse.ArgumentParser) -> None:
+    """Registers the real `ws config` subcommands and options on the given parser.
+
+    Called from `cli.main` so that `ws config --help` / `ws config init --help`
+    show the actual accepted arguments instead of an opaque REMAINDER blob.
+    """
+    config_subparsers = parser.add_subparsers(dest="config_command", help="Config subcommands")
+
+    p_init = config_subparsers.add_parser(
+        "init",
+        help="Initialize SpecOps configuration (.specops/config.json or ~/.config/specops/config.json)",
     )
-    scope_group = parser.add_mutually_exclusive_group()
+    scope_group = p_init.add_mutually_exclusive_group()
     scope_group.add_argument(
         "--local",
         action="store_true",
@@ -187,59 +193,80 @@ def run_config_init(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Initialize user-global configuration (~/.config/specops/config.json)",
     )
-    parser.add_argument(
+    p_init.add_argument(
         "--enterprise",
         "--devops",
         dest="enterprise",
         action="store_true",
         help="Generate full enterprise configuration with environments, VPN, and ArtifactRegistry",
     )
-    parser.add_argument(
+    p_init.add_argument(
         "--path",
         type=Path,
         default=None,
         help="Explicit custom destination path for config.json",
     )
-    parser.add_argument(
+    p_init.add_argument(
         "--name",
         type=str,
         default=None,
         help="Project name (defaults to current directory name)",
     )
-    parser.add_argument(
+    p_init.add_argument(
         "--domain",
         type=str,
         default=None,
         help="Project base domain (defaults to local.dev)",
     )
-    parser.add_argument(
+    p_init.add_argument(
         "--yes",
         "-y",
         dest="non_interactive",
         action="store_true",
         help="Run non-interactively using defaults",
     )
-    parser.add_argument(
+    p_init.add_argument(
         "--force",
         "-f",
         action="store_true",
         help="Overwrite existing configuration file without confirmation",
     )
 
-    args = parser.parse_args(argv)
 
-    try:
-        init_config(
-            is_local=args.local,
-            is_global=args.is_global,
-            custom_path=args.path,
-            project_name=args.name,
-            domain=args.domain,
-            force=args.force,
-            non_interactive=args.non_interactive,
-            enterprise=args.enterprise,
-        )
-        return 0
-    except (OSError, ValueError) as exc:
-        console.print(f"[bold red]Error initializing configuration:[/bold red] {exc}")
-        return 1
+def run_config(args: argparse.Namespace) -> int:
+    """Executes the `ws config` command from parsed CLI arguments.
+
+    `args.config_command` is `None` when `ws config` is invoked with no
+    subcommand (defaults to `init` for backward-compatible behaviour).
+    """
+    config_command = getattr(args, "config_command", None) or "init"
+
+    if config_command == "init":
+        try:
+            init_config(
+                is_local=getattr(args, "local", False),
+                is_global=getattr(args, "is_global", False),
+                custom_path=getattr(args, "path", None),
+                project_name=getattr(args, "name", None),
+                domain=getattr(args, "domain", None),
+                force=getattr(args, "force", False),
+                non_interactive=getattr(args, "non_interactive", False),
+                enterprise=getattr(args, "enterprise", False),
+            )
+            return 0
+        except (OSError, ValueError) as exc:
+            console.print(f"[bold red]Error initializing configuration:[/bold red] {exc}")
+            return 1
+
+    console.print(f"[bold red]Unknown config subcommand:[/bold red] {config_command}")
+    return 1
+
+
+def run_config_init(argv: list[str] | None = None) -> int:
+    """Backward-compatible CLI runner kept for callers/tests invoking `ws config init`
+    directly with a raw argv list (e.g. ``["init", "--local", "--yes"]``).
+    """
+    parser = argparse.ArgumentParser(prog="ws config")
+    add_config_arguments(parser)
+    args = parser.parse_args(argv)
+    return run_config(args)

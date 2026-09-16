@@ -14,7 +14,7 @@ import sys
 import time
 from pathlib import Path
 
-from workspace_engine.utils import (
+from workspace_engine.common import (
     find_project_root,
     get_process_cmdline,
     log_info,

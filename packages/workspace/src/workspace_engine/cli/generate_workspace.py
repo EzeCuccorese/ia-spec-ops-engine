@@ -8,14 +8,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 
-from workspace_engine.services.configure_repos import RepoConfig, configure_repos
-from workspace_engine.services.render_agents import render_agents_md
-from workspace_engine.services.select_repos import select_repos
-from workspace_engine.utils import (
+from workspace_engine.common import (
     Color,
     find_project_root,
     log_error,
@@ -24,32 +20,31 @@ from workspace_engine.utils import (
     parse_dotenv,
     run_git,
 )
-
-
-def _git(repo_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return run_git(repo_path, *args)
+from workspace_engine.services.configure_repos import RepoConfig, configure_repos
+from workspace_engine.services.render_agents import render_agents_md
+from workspace_engine.services.select_repos import select_repos
 
 
 def setup_repo_worktree(repo_path: Path, target_path: Path, config: RepoConfig) -> None:
     """Deterministically creates a git worktree."""
-    wt_list = _git(repo_path, "worktree", "list", "--porcelain")
+    wt_list = run_git(repo_path, "worktree", "list", "--porcelain")
     for line in wt_list.stdout.splitlines():
         if line == f"worktree {target_path}":
             return
 
     if config.mode == "new":
         parent = config.parent or "main"
-        _git(repo_path, "fetch", "origin", parent)
+        run_git(repo_path, "fetch", "origin", parent)
         remote_ref = f"origin/{parent}"
-        remote_check = _git(repo_path, "rev-parse", "--verify", remote_ref)
+        remote_check = run_git(repo_path, "rev-parse", "--verify", remote_ref)
         start = remote_ref if remote_check.returncode == 0 else parent
-        result = _git(repo_path, "worktree", "add", "-b", config.branch, str(target_path), start)
+        result = run_git(repo_path, "worktree", "add", "-b", config.branch, str(target_path), start)
         if result.returncode != 0:
             raise RuntimeError(f"Failed to create worktree for {config.name}: {result.stderr}")
     elif config.mode == "existing":
         if getattr(config, "is_remote_only", False):
-            _git(repo_path, "fetch", "origin", config.branch)
-            result = _git(
+            run_git(repo_path, "fetch", "origin", config.branch)
+            result = run_git(
                 repo_path,
                 "worktree",
                 "add",
@@ -60,7 +55,7 @@ def setup_repo_worktree(repo_path: Path, target_path: Path, config: RepoConfig) 
                 f"origin/{config.branch}",
             )
         else:
-            result = _git(repo_path, "worktree", "add", str(target_path), config.branch)
+            result = run_git(repo_path, "worktree", "add", str(target_path), config.branch)
         if result.returncode != 0:
             raise RuntimeError(f"Failed to create worktree for {config.name}: {result.stderr}")
 

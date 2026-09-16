@@ -9,7 +9,7 @@ import argparse
 import os
 from pathlib import Path
 
-from workspace_engine.utils import log_error, log_info, log_success
+from workspace_engine.common import log_error, log_info, log_success
 
 
 def update_env_in_yaml(yaml_path: Path, services: list[str], key: str, value: str) -> bool:

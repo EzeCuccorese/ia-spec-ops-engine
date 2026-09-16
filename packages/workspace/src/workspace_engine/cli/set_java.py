@@ -13,7 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from workspace_engine.utils import log_info, log_success, log_warning, run_command
+from workspace_engine.common import log_info, log_success, log_warning, run_command
 
 
 def detect_required_java_version(project_dir: Path | None = None) -> str | None:

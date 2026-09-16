@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from workspace_engine.utils import (
+from workspace_engine.common import (
     detect_project_type,
     find_project_root,
     log_error,

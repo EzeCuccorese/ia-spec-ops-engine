@@ -9,7 +9,7 @@ from __future__ import annotations
 import builtins
 import subprocess
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from workspace_engine.services import configure_repos as cr
@@ -99,7 +99,7 @@ def test_pre_validate_existing_branch_active_elsewhere(tmp_path: Path) -> None:
             )
         return subprocess.CompletedProcess(args=list(args), returncode=0, stdout="", stderr="")
 
-    with patch.object(cr, "_git", side_effect=fake_git):
+    with patch.object(cr, "run_git", side_effect=fake_git):
         errors = pre_validate([cfg], {"svc": repo_path})
     assert any("already active in another worktree" in e for e in errors)
 
@@ -116,7 +116,7 @@ def test_pre_validate_existing_branch_remote_only(tmp_path: Path) -> None:
             return subprocess.CompletedProcess(args=list(args), returncode=1, stdout="", stderr="")
         return subprocess.CompletedProcess(args=list(args), returncode=0, stdout="", stderr="")
 
-    with patch.object(cr, "_git", side_effect=fake_git):
+    with patch.object(cr, "run_git", side_effect=fake_git):
         errors = pre_validate([cfg], {"svc": repo_path})
     assert errors == []
     assert cfg.is_remote_only is True
@@ -130,7 +130,7 @@ def test_pre_validate_new_missing_parent(tmp_path: Path) -> None:
     def fake_git(rp: Path, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(args=list(args), returncode=1, stdout="", stderr="")
 
-    with patch.object(cr, "_git", side_effect=fake_git):
+    with patch.object(cr, "run_git", side_effect=fake_git):
         errors = pre_validate([cfg], {"svc": repo_path})
     assert any("does not exist locally or on origin" in e for e in errors)
 
@@ -143,7 +143,7 @@ def test_pre_validate_new_parent_ok(tmp_path: Path) -> None:
     def fake_git(rp: Path, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(args=list(args), returncode=0, stdout="", stderr="")
 
-    with patch.object(cr, "_git", side_effect=fake_git):
+    with patch.object(cr, "run_git", side_effect=fake_git):
         errors = pre_validate([cfg], {"svc": repo_path})
     assert errors == []
 
@@ -355,9 +355,3 @@ def test_tty_write_encodes() -> None:
     fake_fd = FakeTty()
     cr._tty_write(fake_fd, "hello")
     assert fake_fd.written == [b"hello"]
-
-
-def test_git_delegates_to_run_git(tmp_path: Path) -> None:
-    with patch.object(cr, "run_git", return_value=MagicMock()) as mock_run_git:
-        cr._git(tmp_path, "status")
-    mock_run_git.assert_called_once_with(tmp_path, "status")
