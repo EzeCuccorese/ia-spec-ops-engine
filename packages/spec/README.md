@@ -55,15 +55,13 @@ packages/spec/
 ├── src/spec/
 │   ├── core/                  # Path boundaries, atomic writes, SHA-256 ownership,
 │   │                          # TUI, and PreflightManager (Git worktree isolation)
-│   ├── governance/            # Repository policy, formal audit (audit.py),
-│   │                          # and craftsmanship evaluation (judge.py)
+│   ├── governance/            # Repository policy, formal audit (audit.py)
 │   ├── spec/                  # SDD state machine (workflow.py), @s scenario
 │   │                          # traceability (trace.py), and TDD assist (assist.py)
-│   ├── verify/                # Deterministic verification engine (engine.py) and
-│   │                          # zero-dependency AST mutation testing (mutate.py)
+│   ├── verify/                # Deterministic verification engine (engine.py)
 │   ├── agents.py              # Universal AGENTS.md governance adapter
-│   └── cli.py                 # Master CLI dispatcher
-├── skills/                    # Agent skills (spec-new, spec-plan, spec-verify, spec-finish)
+│   ├── cli.py                 # Master CLI dispatcher
+│   └── skills/                # Packaged agent skills (spec-new, spec-plan, spec-verify, spec-finish)
 └── tests/                     # Unit and end-to-end test suites
 ```
 
@@ -172,27 +170,11 @@ Each run produces an immutable audit report in `.spec/evidence/<feature>/`.
 
 ---
 
-### Step 7: Advanced Quality (Mutation Testing, Audit & Judge)
+### Step 7: Repository Audit (`spec audit`)
 
-#### Zero-Dependency Mutation Testing (`spec mutate`)
-Evaluates test suite rigor by injecting syntax mutations into the Python AST:
-```bash
-spec mutate src/auth/token.py --test-cmd "pytest -q" --max 50 --threshold 90.0
-```
-
-#### Repository Audit (`spec audit`)
 Verifies scenario traceability, untracked files, and artifact completeness:
 ```bash
 spec audit
-```
-
-#### Craftsmanship Evaluation & Verdict ("The Judge")
-```bash
-# Record an approval verdict
-spec judge --approve --remarks "Clean architecture, zero over-engineering"
-
-# Or request modifications
-spec judge --reject --remarks "Missing tests for token expiration scenario"
 ```
 
 ---
@@ -214,5 +196,4 @@ spec agent uninstall
 # Apply deletion after SHA-256 ownership digest validation
 spec agent uninstall --apply
 ```
-
 

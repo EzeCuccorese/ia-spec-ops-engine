@@ -185,21 +185,15 @@ def test_selected_host_is_only_target(tmp_path: Path) -> None:
     assert not (root_agents / "CLAUDE.md").exists()
     assert not (root_agents / ".cursorrules").exists()
 
-    # 2. Target: Claude Code
-    root_claude = tmp_path / "target_claude"
-    root_claude.mkdir()
-    rules_cli_main(["install", "--local", "--all", "--agent", "claude", "--root", str(root_claude)])
-    assert (root_claude / "CLAUDE.md").exists()
-    assert not (root_claude / "AGENTS.md").exists()
-    assert not (root_claude / ".cursorrules").exists()
-
-    # 3. Target: Cursor
-    root_cursor = tmp_path / "target_cursor"
-    root_cursor.mkdir()
-    rules_cli_main(["install", "--local", "--all", "--agent", "cursor", "--root", str(root_cursor)])
-    assert (root_cursor / ".cursorrules").exists()
-    assert not (root_cursor / "AGENTS.md").exists()
-    assert not (root_cursor / "CLAUDE.md").exists()
+    # Provider-specific writes belong to the agent installer, not rules.
+    for provider in ("claude", "cursor"):
+        target = tmp_path / provider
+        with pytest.raises(SystemExit) as exc:
+            rules_cli_main(
+                ["install", "--local", "--all", "--agent", provider, "--root", str(target)]
+            )
+        assert exc.value.code == 2
+        assert not target.exists()
 
 
 def test_context_index_points_to_bundled_rules(

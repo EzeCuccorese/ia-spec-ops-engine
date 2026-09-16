@@ -5,8 +5,8 @@ Any AI coding agent (Antigravity, Claude Code, Cursor, Windsurf, Aider, or custo
 
 1. **Install dependencies in editable mode**:
    ```bash
-   uv pip install -e ".[dev]"
-   # or: pip install -e ".[dev]"
+   ./install.sh
+   source .venv/bin/activate
    ```
 2. **Initialize project configuration**:
    ```bash

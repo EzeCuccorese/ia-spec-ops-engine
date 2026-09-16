@@ -46,13 +46,11 @@ Installation registers these commands on your PATH:
 ### 3. Environment Variables (Optional)
 To enable Jira and Confluence tools, configure in your environment (`~/.zshrc` or `.env`):
 ```bash
-export JIRA_URL="https://company.atlassian.net"
-export JIRA_EMAIL="your-user@company.com"
-export JIRA_API_TOKEN="your-api-token"
-
-export CONFLUENCE_URL="https://company.atlassian.net/wiki"
-export CONFLUENCE_EMAIL="your-user@company.com"
-export CONFLUENCE_API_TOKEN="your-api-token"
+export ATLASSIAN_URL="https://company.atlassian.net"
+export ATLASSIAN_EMAIL="your-user@company.com"
+export ATLASSIAN_API_TOKEN="your-api-token"
+# Optional timeout in seconds (default: 30.0)
+# export ATLASSIAN_TIMEOUT=30.0
 ```
 
 ---
@@ -63,12 +61,9 @@ The package is organized around 6 decoupled pillars:
 
 ```
 packages/ai-governance/
-├── catalog/                   # 28 canonical rules in Markdown (SSOT)
-│   ├── 1-core/                # SOLID, DDD, Clean Architecture, Testing, Security...
-│   ├── 2-stacks/              # Python, TypeScript, React, Java, Go, Rust, Kotlin...
-│   ├── 3-infrastructure/      # K8s, Docker, Migrations, CI/CD, Observability...
-│   └── 4-docs/                # Architecture diagrams & technical docs
 ├── src/ai_governance/
+│   ├── catalog/               # Packaged canonical rules (28 Markdown files)
+│   ├── resources/workflows/   # Agent-neutral progress protocol
 │   ├── cli.py                 # Master unified CLI dispatcher (`governance`)
 │   ├── rules/                 # Standards catalog engine and injector (`rules`)
 │   │   ├── agents.py          # Universal AGENTS.md rules injector & manager
@@ -83,7 +78,7 @@ packages/ai-governance/
 ### Component Data Flow
 1. **Standards & Agents**: `rules` reads Markdown definitions from `catalog/` and injects delimited sections with safe markers (`<!-- rules:start -->`) directly into `AGENTS.md`. Uninstalling cleanly removes only the injected block without touching user configurations.
 2. **Context Frugality Engine**: Intercepts Bash command outputs via stdin/stdout (`--post-bash`). It detects test runners, elides green passed lines, and surfaces exclusively failure blocks (`FAILURES`), broken assertions, and the summary line.
-3. **Session Persistence**: Stores the active state in `~/.specops/progreso/<id>.json` (compact) and extended logs in `<id>.md`. Enables any agent to resolve the active task from the current git repository and branch via `progreso aqui`.
+3. **Session Persistence**: Stores compact task state in `~/.specops/progress/tasks/<id>.json` and extended logs in `~/.specops/progress/tasks/<id>.md`. Enables any agent to resolve the active task from the current git repository and branch via `progreso aqui`.
 
 ---
 
@@ -214,9 +209,9 @@ unambiguous registered repository. Compact arrays are bounded; older entries mov
 long log instead of growing the default task payload indefinitely. A one-time
 `progress migrate-legacy <directory>` command imports the former `progress-to-md` layout.
 
-Portable Claude command prompts are packaged under
-`ai_governance/resources/claude/commands/`. They are optional resources and do not modify
-global Claude configuration automatically.
+A portable neutral progress workflow is packaged under
+`ai_governance/resources/workflows/progress.md`. It provides standard, agent-agnostic
+patterns for saving, resuming, and completing tasks across sessions.
 
 ---
 

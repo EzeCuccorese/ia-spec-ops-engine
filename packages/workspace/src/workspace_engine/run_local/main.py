@@ -130,7 +130,7 @@ def main():
             f"{RED}Error: No se encontró la configuración en ~/.config/specops/config.json ni config.json en el directorio actual.{RESET}"
         )
         print(
-            f"Por favor, copia config.json.template a ~/.config/specops/config.json y edita sus valores.{RESET}"
+            f"Ejecutá 'ws config init --global' o 'ws config init --local' y revisá los valores generados.{RESET}"
         )
         sys.exit(1)
 

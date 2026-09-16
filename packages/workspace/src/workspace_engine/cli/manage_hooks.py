@@ -130,6 +130,12 @@ def main(argv: list[str] | None = None) -> int:
         choices=["conventional"],
         help="Commit message style validation",
     )
+    p_run.add_argument(
+        "--output",
+        choices=["errors", "verbose"],
+        default="errors",
+        help="Output mode: show failed commands only, or stream everything (default: errors)",
+    )
     p_run.add_argument("--dir", "-d", help="Repository root directory")
 
     # test
@@ -170,6 +176,7 @@ def main(argv: list[str] | None = None) -> int:
             skip=args.skip,
             timeout=args.timeout,
             commit_style=args.style,
+            output=args.output,
         )
 
     elif args.action == "test":

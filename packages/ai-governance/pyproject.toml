@@ -20,6 +20,7 @@ dev = [
 ]
 
 [project.scripts]
+specops = "ai_governance.cli:main"
 governance = "ai_governance.cli:main"
 rules = "ai_governance.rules.cli:main"
 frugal = "ai_governance.frugality.cli:main"

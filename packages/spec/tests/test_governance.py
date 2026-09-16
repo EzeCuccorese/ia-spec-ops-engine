@@ -105,7 +105,8 @@ def test_agents_adapter_render_detects_contributor_vs_consumer(tmp_path: Path) -
     )
     contributor_adapter = AgentsAdapter(contributor_dir)
     assert contributor_adapter.render() == render_contributor()
-    assert "uv pip install -e" in contributor_adapter.render()
+    assert "./install.sh" in contributor_adapter.render()
+    assert "source .venv/bin/activate" in contributor_adapter.render()
 
 
 def test_claude_adapter_installs_and_uninstalls_reversibly(tmp_path: Path) -> None:
