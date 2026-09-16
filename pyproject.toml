@@ -1,32 +1,7 @@
-[build-system]
-requires = ["hatchling>=1.26"]
-build-backend = "hatchling.build"
-
-[project]
-name = "ia-spec-ops-engine"
-version = "0.4.0"
-description = "ia-spec-ops-engine — personal tooling for coding agents, workspaces, and Spec-Driven Development."
-readme = "README.md"
-requires-python = ">=3.11"
-dependencies = [
-    "rich>=13.0.0",
-    "psutil>=5.9",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.0",
-    "pytest-cov",
-    "pytest-asyncio",
-    "ruff>=0.9",
-]
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/ia_spec_ops_engine"]
-
-[project.scripts]
-ia-spec-ops-engine = "ia_spec_ops_engine.cli:main"
-specops = "ia_spec_ops_engine.cli:main"
+# ia-spec-ops-engine: checkout configuration, not a fourth Python distribution.
+# Install the three packages using ./install.sh.
+[tool.uv]
+managed = false
 
 [tool.ruff]
 line-length = 100
@@ -38,9 +13,9 @@ ignore = ["E501"]
 
 
 [tool.pytest.ini_options]
-pythonpath = ["packages/ai-governance/src", "packages/spec/src", "packages/workspace/src", "src", "."]
+pythonpath = ["packages/ai-governance/src", "packages/spec/src", "packages/workspace/src", "."]
 python_files = ["test_*.py", "*_test.py"]
-testpaths = ["packages/ai-governance/tests", "packages/spec/tests", "packages/workspace/tests", "tests_acceptance"]
+testpaths = ["packages/ai-governance/tests", "packages/spec/tests", "packages/workspace/tests", "packages/workspace/tests_integration", "tests_acceptance"]
 addopts = "-ra --strict-markers"
 markers = [
     "integration: end-to-end integration tests",

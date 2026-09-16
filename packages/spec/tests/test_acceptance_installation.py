@@ -317,5 +317,6 @@ def test_consumer_role_is_not_layout_guess(tmp_path: Path) -> None:
 
     assert rendered_contributor == AgentsAdapter.render_contributor()
     assert "Agent Post-Clone Bootstrap Protocol" in rendered_contributor
-    assert "uv pip install -e" in rendered_contributor
+    assert "./install.sh" in rendered_contributor
+    assert "source .venv/bin/activate" in rendered_contributor
     assert "specops config init" in rendered_contributor

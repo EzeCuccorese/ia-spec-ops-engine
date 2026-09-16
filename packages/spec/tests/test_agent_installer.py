@@ -109,7 +109,8 @@ def test_agent_install_contributor_repo_renders_contributor(tmp_path: Path) -> N
 
     # Contains 4-step bootstrap protocol
     assert "Agent Post-Clone Bootstrap Protocol" in content
-    assert "uv pip install -e" in content
+    assert "./install.sh" in content
+    assert "source .venv/bin/activate" in content
     assert "specops config init" in content
     assert "specops doctor && specops audit" in content
 

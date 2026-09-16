@@ -67,7 +67,7 @@ packages/workspace/
 │   │   ├── configure_repos.py # Repository synchronization and worktree binding
 │   │   └── benchmark_display.py # Concurrent test suite benchmarking
 │   ├── common/                # Safe subprocess, .env manipulation, and colors
-│   └── templates/             # Workspace and agent configuration templates
+│   └── resources/             # Packaged workspace templates and canonical Git hooks
 └── tests/                     # Automated test suites
 ```
 
@@ -137,6 +137,11 @@ ws stop my-feature
 
 An automated, deterministic quality gate executed locally prior to every `git push` to catch issues before CI.
 
+Command output is compact by default: successful subprocess output is hidden,
+while a failed command prints its diagnostic and retains the full transcript at
+`.git/specops/quality-gate/latest.log`. Use `QG_OUTPUT=verbose git push` or
+`ws hooks run --output verbose` to stream every command as it runs.
+
 #### The 5 Quality Gate Stages
 1. 🔒 **Security & Secrets**: Fast diff scan with `gitleaks` to block private keys, API tokens, JWTs, or accidental `.env` files.
 2. 📝 **Git Policies**: Conventional Commits enforcement in imperative English and **ZERO AI mentions or robot emojis (🤖)**.
@@ -149,7 +154,7 @@ An automated, deterministic quality gate executed locally prior to every `git pu
 # Diagnose local and global hook status
 ws hooks status
 
-# Install Quality Gate into local repository (.git/hooks/pre-push)
+# Install Quality Gate into local repository (.githooks/pre-push)
 ws hooks install
 
 # Install Quality Gate GLOBALLY across entire machine
@@ -161,6 +166,9 @@ ws hooks run
 # Run on changed files only or skip specific stages
 ws hooks run --scope changed
 ws hooks run --skip gitleaks,commits
+
+# Restore full live output for diagnosis
+ws hooks run --output verbose
 
 # Test hook execution
 ws hooks test

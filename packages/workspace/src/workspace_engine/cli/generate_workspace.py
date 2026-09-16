@@ -105,14 +105,7 @@ def create_workspace_structure(
     # Renderizar AGENTS.md
     repos = [cfg.name for cfg in repo_configs]
     template_file = (template_dir / "workspace-agents.md.template") if template_dir else None
-    if template_file and template_file.exists():
-        content = render_agents_md(template_file, workspace_name, "repositories", repos)
-    else:
-        content = (
-            f"# Workspace: {workspace_name}\n\n"
-            f"Los repositorios para este workspace se ubican en `repositories/`.\n\n"
-            f"## Repositorios\n\n" + "\n".join(f"- {r}" for r in repos) + "\n"
-        )
+    content = render_agents_md(template_file, workspace_name, "repositories", repos)
 
     (workspace_dir / "AGENTS.md").write_text(content, encoding="utf-8")
     log_success(f"Workspace '{workspace_name}' generado exitosamente en {workspace_dir}")
@@ -177,16 +170,11 @@ def main():
             log_warning("Configuración cancelada.")
             sys.exit(0)
 
-    template_dir = toolkit_dir / "packages" / "workspace" / "templates"
-    if not template_dir.exists():
-        template_dir = toolkit_dir / "templates" / "agents"
-
     create_workspace_structure(
         workspace_name=workspace_name,
         workspaces_root=workspaces_root,
         repo_configs=repo_configs,
         repo_paths=repo_paths,
-        template_dir=template_dir,
     )
 
 

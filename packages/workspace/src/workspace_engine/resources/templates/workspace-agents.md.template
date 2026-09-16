@@ -1,0 +1,44 @@
+# Workspace: {workspace_name}
+
+## Structure
+
+| Path | Purpose |
+|------|---------|
+| `{repos_dir}/` | Git repositories (worktrees) — all code work happens here |
+| `docs/` | Workspace-scoped artifacts (plans, architecture, specs) |
+| `config/` | Shared configuration and environment variables |
+| `.ai-toolkit/` | Toolkit state: workspace manifest, run logs, local caches |
+
+## Rules
+
+**1. Repo Boundary:**
+All file edits and git operations must happen inside `{repos_dir}/<repo-name>/`.
+The only root exception is `docs/` for workspace-level plans, notes, and specs.
+
+Before working on any repo:
+```bash
+cd {repos_dir}/<repo-name>
+```
+
+**2. Dedicated Worktrees & Branch Discipline:**
+Never switch branches (`git checkout <branch>`, `git switch`, `git checkout -b` are forbidden).
+Each repository has its dedicated worktree created for this workspace's feature/task.
+Work on the active branch as-is. If a plan step asks to create a branch, ignore it.
+
+**3. Subagent Dispatch:**
+Never dispatch subagents with nested worktree isolation (`isolation: "worktree"`).
+The workspace already provides full repository-level worktree isolation.
+
+**4. Precedence:**
+If a repository-level instruction file (`AGENTS.md`, `CLAUDE.md`, etc.) contradicts this file
+on multi-repo workflow rules (branch handling, dispatch behavior, repo boundary), this workspace
+file takes precedence. Repo-level instructions remain authoritative for local code conventions,
+stack specifics, and domain logic.
+
+**5. Language:**
+Plans, task summaries, and user communications are written in Spanish.
+Technical code artifacts (identifiers, variables, commits, comments, branch names) stay in English.
+
+## Repositories
+
+{repo_list}

@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 from workspace_engine.services.configure_repos import configure_repos, pre_validate
-from workspace_engine.services.render_agents import render_agents_md
+from workspace_engine.services.render_agents import update_workspace_agents
 from workspace_engine.services.select_repos import select_repos
 from workspace_engine.utils import log_error, log_success, log_warning, parse_dotenv, run_git
 
@@ -124,15 +124,11 @@ def add_repositories_to_workspace(
         log_error(f"No se pudo actualizar el manifiesto del workspace: {exc}")
         sys.exit(1)
 
-    if template_path and template_path.exists():
-        try:
-            repos = current_repo_names + [cfg.name for cfg in added]
-            agents_content = render_agents_md(
-                str(template_path), workspace_name, "repositories", repos
-            )
-            (workspace_dir / "AGENTS.md").write_text(agents_content, encoding="utf-8")
-        except Exception as exc:
-            log_warning(f"No se pudo regenerar AGENTS.md: {exc}")
+    try:
+        repos = current_repo_names + [cfg.name for cfg in added]
+        update_workspace_agents(workspace_dir, repos, template_path)
+    except OSError as exc:
+        log_warning(f"No se pudo actualizar AGENTS.md: {exc}")
 
     log_success(f"Repositorios agregados correctamente: {', '.join(c.name for c in added)}")
 
