@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "specops-ai-governance"
 version = "0.1.0"
-description = "SpecOps AI Governance — Engineering Standards, Token Frugality, Telemetry, Ritmo Pacing & Light Session Management."
+description = "AI Governance — Engineering Standards, Token Frugality, Telemetry, Ritmo Pacing & Light Session Management."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

@@ -1,6 +1,6 @@
 # Progress Workflow — Portable Task State Management
 
-This document defines the universal protocol for tracking and restoring task state across coding sessions using the `progress` CLI (`specops progress`). It works across any AI coding agent (Antigravity, Codex, Claude Code, Cursor, Windsurf, Aider, terminal).
+This document defines the universal protocol for tracking and restoring task state across coding sessions using the `progress` CLI. It works across any AI coding agent (Antigravity, Codex, Claude Code, Cursor, Windsurf, Aider, terminal).
 
 ## Core Principles
 1. **Zero Provider Coupling:** Operates strictly via the deterministic `progress` CLI and disk state (`~/.specops/progress/` or local repository state).

@@ -1,5 +1,5 @@
-# ia-spec-ops-engine: checkout configuration, not a fourth Python distribution.
-# Install the three packages using ./install.sh.
+# ia-spec-ops-engine: checkout configuration, not a Python distribution.
+# Install the supported checkout packages using ./install.sh.
 [tool.uv]
 managed = false
 
@@ -15,9 +15,9 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 pythonpath = ["packages/ai-governance/src", "packages/spec/src", "packages/workspace/src", "."]
 python_files = ["test_*.py", "*_test.py"]
-testpaths = ["packages/ai-governance/tests", "packages/spec/tests", "packages/workspace/tests", "packages/workspace/tests_integration", "tests_acceptance"]
+testpaths = ["packages/ai-governance/tests", "packages/spec/tests", "packages/workspace/tests", "packages/workspace/tests_integration", "tests"]
 addopts = "-ra --strict-markers"
 markers = [
     "integration: end-to-end integration tests",
 ]
-norecursedirs = ["node_modules", ".venv", "venv", ".git", ".pytest_cache", ".claude", ".spec", ".specops"]
+norecursedirs = ["node_modules", ".venv", "venv", ".git", ".pytest_cache", ".claude", ".specops"]
