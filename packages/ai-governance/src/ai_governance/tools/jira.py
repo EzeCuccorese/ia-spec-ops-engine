@@ -24,89 +24,33 @@ Usage:
     jira help                                        Display this help message
 """
 
-import base64
 import json
-import os
 import re
 import sys
 import textwrap
-import urllib.error
-import urllib.request
 from datetime import datetime
-from pathlib import Path
 
-# ── Configuration & Profiles ──────────────────────────────────────────────────
+# ── Configuration & Profiles (Shared with Atlassian Common) ─────────────────
+from ai_governance.tools.atlassian_common import (
+    ATLASSIAN_TIMEOUT,
+    auth_header,
+    execute_request,
+    get_base_url,
+    read_input_text,
+    set_profile,
+)
+from ai_governance.tools.atlassian_common import (
+    check_env as check_env,
+)
+from ai_governance.tools.atlassian_common import (
+    load_profile_config as load_profile_config,
+)
+from ai_governance.tools.atlassian_common import (
+    sanitize_secrets as sanitize_secrets,
+)
 
-EMAIL = os.environ.get("ATLASSIAN_EMAIL", "")
-TOKEN = os.environ.get("ATLASSIAN_API_TOKEN", "")
-BASE_URL = os.environ.get("ATLASSIAN_URL", "").rstrip("/")
-ATLASSIAN_TIMEOUT = float(os.environ.get("ATLASSIAN_TIMEOUT", "30.0"))
-
-_CURRENT_PROFILE: str | None = None
-_PROFILE_OVERRIDES: dict[str, dict[str, str]] = {}
-
-
-def set_profile(name: str | None) -> None:
-    """Sets the active configuration profile for Jira operations."""
-    global _CURRENT_PROFILE
-    _CURRENT_PROFILE = name
-
-
-def load_profile_config(profile_name: str | None = None) -> dict[str, str]:
-    """Loads configuration for the requested profile from memory, config files, or environment."""
-    target = profile_name or _CURRENT_PROFILE or os.environ.get("ATLASSIAN_PROFILE")
-    if not target or target.lower() == "default":
-        return {
-            "email": os.environ.get("ATLASSIAN_EMAIL", EMAIL),
-            "token": os.environ.get("ATLASSIAN_API_TOKEN", TOKEN),
-            "url": os.environ.get("ATLASSIAN_URL", BASE_URL).rstrip("/"),
-        }
-
-    # 1. Check in-memory overrides
-    if target in _PROFILE_OVERRIDES:
-        return dict(_PROFILE_OVERRIDES[target])
-
-    # 2. Check profiles file
-    profiles_paths = []
-    if os.environ.get("ATLASSIAN_PROFILES_FILE"):
-        profiles_paths.append(Path(os.environ["ATLASSIAN_PROFILES_FILE"]))
-    profiles_paths.append(Path.home() / ".config" / "atlassian" / "profiles.json")
-    profiles_paths.append(Path.home() / ".specops" / "atlassian.json")
-
-    for p in profiles_paths:
-        if p.is_file():
-            try:
-                data = json.loads(p.read_text(encoding="utf-8"))
-                if target in data and isinstance(data[target], dict):
-                    prof = data[target]
-                    return {
-                        "email": prof.get("email", ""),
-                        "token": prof.get("token", prof.get("api_token", "")),
-                        "url": prof.get("url", "").rstrip("/"),
-                    }
-            except Exception:
-                continue
-
-    # 3. Check environment variables: ATLASSIAN_{PROFILE}_EMAIL, etc.
-    p_upper = target.upper().replace("-", "_")
-    email = os.environ.get(f"ATLASSIAN_{p_upper}_EMAIL") or os.environ.get(
-        f"ATLASSIAN_EMAIL_{p_upper}"
-    )
-    token = os.environ.get(f"ATLASSIAN_{p_upper}_API_TOKEN") or os.environ.get(
-        f"ATLASSIAN_API_TOKEN_{p_upper}"
-    )
-    url = os.environ.get(f"ATLASSIAN_{p_upper}_URL") or os.environ.get(f"ATLASSIAN_URL_{p_upper}")
-
-    return {
-        "email": email or os.environ.get("ATLASSIAN_EMAIL", EMAIL),
-        "token": token or os.environ.get("ATLASSIAN_API_TOKEN", TOKEN),
-        "url": (url or os.environ.get("ATLASSIAN_URL", BASE_URL)).rstrip("/"),
-    }
-
-
-def _get_base_url():
-    cfg = load_profile_config()
-    return cfg.get("url") or os.environ.get("ATLASSIAN_URL", BASE_URL).rstrip("/")
+_auth_header = auth_header
+_get_base_url = get_base_url
 
 
 def _get_api_url():
@@ -117,96 +61,10 @@ def _get_agile_url():
     return f"{_get_base_url()}/rest/agile/1.0"
 
 
-def check_env():
-    """Validates required environment variables or profile settings."""
-    cfg = load_profile_config()
-    missing = []
-    if not cfg.get("email"):
-        missing.append("ATLASSIAN_EMAIL")
-    if not cfg.get("token"):
-        missing.append("ATLASSIAN_API_TOKEN")
-    if not cfg.get("url"):
-        missing.append("ATLASSIAN_URL")
-    if missing:
-        print(
-            "Error: Missing required environment variables or profile configuration:",
-            file=sys.stderr,
-        )
-        for v in missing:
-            print(f'  export {v}="..."', file=sys.stderr)
-        sys.exit(1)
-
-
-def _auth_header():
-    cfg = load_profile_config()
-    email = cfg.get("email") or os.environ.get("ATLASSIAN_EMAIL", EMAIL)
-    token = cfg.get("token") or os.environ.get("ATLASSIAN_API_TOKEN", TOKEN)
-    cred = base64.b64encode(f"{email}:{token}".encode()).decode()
-    return {
-        "Authorization": f"Basic {cred}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
-
-
-def sanitize_secrets(msg: str) -> str:
-    """Sanitizes sensitive tokens, auth headers, and secrets from error messages."""
-    cfg = load_profile_config()
-    tokens = [
-        cfg.get("token"),
-        os.environ.get("ATLASSIAN_API_TOKEN"),
-        TOKEN,
-    ]
-    for t in tokens:
-        if t and len(t) >= 4:
-            msg = msg.replace(t, "[REDACTED_TOKEN]")
-    msg = re.sub(r"Basic\s+[A-Za-z0-9+/=]+", "Basic [REDACTED]", msg)
-    msg = re.sub(r"Bearer\s+[A-Za-z0-9._~+/-]+", "Bearer [REDACTED]", msg)
-    return msg
-
-
-def read_input_text(source: str) -> str:
-    """Reads text from literal string, stdin ('-'), or file path ('@path' or path if exists)."""
-    if source == "-":
-        return sys.stdin.read()
-    if source.startswith("@"):
-        path = Path(source[1:])
-        if path.is_file():
-            return path.read_text(encoding="utf-8")
-    p = Path(source)
-    if p.is_file():
-        return p.read_text(encoding="utf-8")
-    return source
-
-
 def _request(method, path, payload=None, base=None):
-    check_env()
     base_endpoint = base if base is not None else _get_api_url()
     url = f"{base_endpoint}{path}"
-    data = json.dumps(payload).encode() if payload else None
-    req = urllib.request.Request(url, data=data, headers=_auth_header(), method=method)
-    try:
-        with urllib.request.urlopen(req, timeout=ATLASSIAN_TIMEOUT) as resp:
-            body = resp.read().decode()
-            return json.loads(body) if body else {}
-    except urllib.error.HTTPError as e:
-        err = e.read().decode()
-        try:
-            msg = json.loads(err)
-            err = json.dumps(msg, indent=2)
-        except Exception:
-            pass
-        sanitized = sanitize_secrets(err)
-        print(f"HTTP {e.code} Error calling {method} {path}:\n{sanitized}", file=sys.stderr)
-        sys.exit(1)
-    except urllib.error.URLError as e:
-        sanitized = sanitize_secrets(str(e.reason))
-        print(f"Network error calling {method} {path}: {sanitized}", file=sys.stderr)
-        sys.exit(1)
-    except TimeoutError as e:
-        sanitized = sanitize_secrets(str(e))
-        print(f"Timeout error calling {method} {path}: {sanitized}", file=sys.stderr)
-        sys.exit(1)
+    return execute_request(method, url, payload=payload, timeout=ATLASSIAN_TIMEOUT)
 
 
 def get(path):

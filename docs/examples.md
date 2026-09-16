@@ -10,6 +10,7 @@ progress view payment --json
 ```bash
 ws hooks install
 ws hooks run --scope changed
+ws hooks run --output verbose
 ```
 
 ```bash

@@ -14,6 +14,8 @@ docs/plans/
 .claude/worktrees/
 .venv/
 .pytest_cache/
+.ruff_cache/
+dist/
 .ai-toolkit/
 .idea/
 .coverage
@@ -33,10 +35,4 @@ scratch/*
 CLAUDE.md
 GEMINI.md
 
-packages/sdd-workbench/.env
-packages/sdd-workbench/test-sdd/.spec/specs/
-packages/sdd-workbench/test-sdd/.spec/state.json
-packages/sdd-workbench/test-sdd/.spec/evidence/
-packages/sdd-workbench/test-sdd/.gradle/
-packages/sdd-workbench/test-sdd/build/
 .spec/.state.lock

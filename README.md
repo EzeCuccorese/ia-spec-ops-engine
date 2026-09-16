@@ -17,25 +17,23 @@ mínimo que contiene `@AGENTS.md`, sin duplicar reglas ni borrar contenido perso
 Instalá solo lo que uses:
 
 ```bash
+uv venv
+source .venv/bin/activate
 uv pip install -e packages/ai-governance
 uv pip install -e packages/spec
 uv pip install -e packages/workspace
 ```
 
-Para usar todo desde este checkout:
+Para instalar los tres paquetes y las herramientas de desarrollo:
 
 ```bash
-uv venv
-uv pip install -e '.[dev]' -e packages/ai-governance -e packages/spec -e packages/workspace
-ia-spec-ops-engine install --all --yes
+./install.sh
+source .venv/bin/activate
 ```
 
-Revisá una selección antes de confirmarla:
-
-```bash
-ia-spec-ops-engine install --components governance,spec
-ia-spec-ops-engine install --components governance,spec --yes
-```
+El instalador crea `.venv` si falta y puede ejecutarse otra vez para actualizarla.
+Los wrappers `./bin/specops`, `./bin/spec` y `./bin/ws` usan ese mismo entorno.
+La raíz es un checkout de desarrollo; los paquetes instalables viven en `packages/`.
 
 ## Ejemplos
 
@@ -57,6 +55,7 @@ Ver [instalación](docs/installation.md), [agentes](docs/AGENTS_GUIDE.md),
 ## Verificación
 
 ```bash
-python3 -m pytest -c pyproject.toml -v
-ruff check packages tests_acceptance
+.venv/bin/python -m pytest -c pyproject.toml -v
+.venv/bin/ruff check packages tests_acceptance scripts
+.venv/bin/ruff format --check packages tests_acceptance scripts
 ```

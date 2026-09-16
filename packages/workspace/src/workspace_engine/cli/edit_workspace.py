@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 from workspace_engine.services.add_repos import add_repositories_to_workspace
+from workspace_engine.services.render_agents import update_workspace_agents
 from workspace_engine.utils import (
     Color,
     find_project_root,
@@ -85,12 +86,7 @@ def remove_repositories_from_workspace(workspace_dir: Path):
     ]
     manifest_path.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
 
-    # Actualizar AGENTS.md si existe
-    agents_file = workspace_dir / "AGENTS.md"
-    if agents_file.exists():
-        content = f"# Workspace: {workspace_name}\n\nLos repositorios están en `repositories/`.\n\n## Repositorios\n\n"
-        content += "\n".join(f"- {r}" for r in remaining_repos) + "\n"
-        agents_file.write_text(content, encoding="utf-8")
+    update_workspace_agents(workspace_dir, remaining_repos)
 
     log_success(f"Repositorios removidos con éxito: {', '.join(to_remove)}")
 
