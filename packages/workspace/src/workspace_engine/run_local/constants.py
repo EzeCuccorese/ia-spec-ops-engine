@@ -8,7 +8,7 @@ import json
 import os
 from pathlib import Path
 
-from workspace_engine.utils import Color
+from workspace_engine.common import Color
 
 # ── ANSI Colors ───────────────────────────────────────────────────────────────
 RED = Color.RED

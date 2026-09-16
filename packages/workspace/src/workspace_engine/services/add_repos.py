@@ -12,36 +12,32 @@ import subprocess
 import sys
 from pathlib import Path
 
+from workspace_engine.common import log_error, log_success, log_warning, parse_dotenv, run_git
 from workspace_engine.services.configure_repos import RepoConfig, configure_repos, pre_validate
 from workspace_engine.services.render_agents import update_workspace_agents
 from workspace_engine.services.select_repos import select_repos
-from workspace_engine.utils import log_error, log_success, log_warning, parse_dotenv, run_git
-
-
-def _git(repo_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return run_git(repo_path, *args)
 
 
 def setup_repo_worktree(repo_path: Path, target_path: Path, config: RepoConfig) -> None:
     """Creates a git worktree at target_path according to config's settings."""
-    wt_list = _git(repo_path, "worktree", "list", "--porcelain")
+    wt_list = run_git(repo_path, "worktree", "list", "--porcelain")
     for line in wt_list.stdout.splitlines():
         if line == f"worktree {target_path}":
             return
 
     if config.mode == "new":
         parent = config.parent or "main"
-        _git(repo_path, "fetch", "origin", parent)
+        run_git(repo_path, "fetch", "origin", parent)
         remote_ref = f"origin/{parent}"
-        remote_check = _git(repo_path, "rev-parse", "--verify", remote_ref)
+        remote_check = run_git(repo_path, "rev-parse", "--verify", remote_ref)
         start = remote_ref if remote_check.returncode == 0 else parent
-        result = _git(repo_path, "worktree", "add", "-b", config.branch, str(target_path), start)
+        result = run_git(repo_path, "worktree", "add", "-b", config.branch, str(target_path), start)
         if result.returncode != 0:
             raise RuntimeError(f"Failed to create worktree for {config.name}: {result.stderr}")
     elif config.mode == "existing":
         if getattr(config, "is_remote_only", False):
-            _git(repo_path, "fetch", "origin", config.branch)
-            result = _git(
+            run_git(repo_path, "fetch", "origin", config.branch)
+            result = run_git(
                 repo_path,
                 "worktree",
                 "add",
@@ -52,7 +48,7 @@ def setup_repo_worktree(repo_path: Path, target_path: Path, config: RepoConfig) 
                 f"origin/{config.branch}",
             )
         else:
-            result = _git(repo_path, "worktree", "add", str(target_path), config.branch)
+            result = run_git(repo_path, "worktree", "add", str(target_path), config.branch)
         if result.returncode != 0:
             raise RuntimeError(f"Failed to create worktree for {config.name}: {result.stderr}")
 
@@ -77,7 +73,6 @@ def add_repositories_to_workspace(
             toolkit_dir=workspace_dir,
             repos_root=repos_root,
             show_toolkit=False,
-            allow_custom=False,
             locked=current_repo_names,
             preselected=prev_selected,
         )

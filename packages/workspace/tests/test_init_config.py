@@ -62,7 +62,7 @@ def test_init_config_mutually_exclusive() -> None:
 
 def test_run_config_init_mutually_exclusive_cli() -> None:
     with pytest.raises(SystemExit):
-        run_config_init(["--local", "--global"])
+        run_config_init(["init", "--local", "--global"])
 
 
 def test_init_config_local_creation(tmp_path: Path) -> None:
@@ -137,7 +137,9 @@ def test_init_config_force_overwrites(tmp_path: Path) -> None:
 
 def test_run_config_init_cli(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
-    exit_code = run_config_init(["--local", "--yes", "--name", "cli-proj", "--domain", "cli.test"])
+    exit_code = run_config_init(
+        ["init", "--local", "--yes", "--name", "cli-proj", "--domain", "cli.test"]
+    )
     assert exit_code == 0
 
     target = tmp_path / ".specops" / "config.json"
@@ -151,7 +153,7 @@ def test_run_config_init_cli(tmp_path: Path, monkeypatch) -> None:
 def test_run_config_init_enterprise_cli(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     exit_code = run_config_init(
-        ["--local", "--yes", "--enterprise", "--name", "ent-proj", "--domain", "ent.test"]
+        ["init", "--local", "--yes", "--enterprise", "--name", "ent-proj", "--domain", "ent.test"]
     )
     assert exit_code == 0
 
@@ -166,7 +168,7 @@ def test_run_config_init_enterprise_cli(tmp_path: Path, monkeypatch) -> None:
 def test_run_config_init_devops_cli(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     exit_code = run_config_init(
-        ["--local", "--yes", "--devops", "--name", "devops-proj", "--domain", "devops.test"]
+        ["init", "--local", "--yes", "--devops", "--name", "devops-proj", "--domain", "devops.test"]
     )
     assert exit_code == 0
 

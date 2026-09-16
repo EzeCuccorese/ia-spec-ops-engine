@@ -7,11 +7,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 from pathlib import Path
 
-from workspace_engine.utils import (
+from workspace_engine.common import (
     Color,
     find_project_root,
     log_error,
@@ -19,10 +18,6 @@ from workspace_engine.utils import (
     log_warning,
     run_git,
 )
-
-
-def _git(repo_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return run_git(repo_path, *args)
 
 
 def _parent_branch(workspace_dir: Path, repo_name: str) -> str | None:
@@ -42,16 +37,16 @@ def _parent_branch(workspace_dir: Path, repo_name: str) -> str | None:
 def _branch_point(repo_path: Path, parent: str | None) -> str | None:
     if not parent:
         return None
-    remote_check = _git(repo_path, "rev-parse", "--verify", "--quiet", f"origin/{parent}")
+    remote_check = run_git(repo_path, "rev-parse", "--verify", "--quiet", f"origin/{parent}")
     if remote_check.returncode == 0:
         base = f"origin/{parent}"
     else:
-        local_check = _git(repo_path, "rev-parse", "--verify", "--quiet", parent)
+        local_check = run_git(repo_path, "rev-parse", "--verify", "--quiet", parent)
         if local_check.returncode == 0:
             base = parent
         else:
             return None
-    res = _git(repo_path, "merge-base", "HEAD", base)
+    res = run_git(repo_path, "merge-base", "HEAD", base)
     if res.returncode == 0 and res.stdout.strip():
         return res.stdout.strip()
     return None
@@ -94,18 +89,18 @@ def reset_repositories(
     dirty_repos: list[tuple[Path, str | None]] = []
     for r in repos:
         repo_name = r.name
-        branch_res = _git(r, "branch", "--show-current")
+        branch_res = run_git(r, "branch", "--show-current")
         branch = branch_res.stdout.strip() or "(detached)"
         parent = _parent_branch(workspace_dir, repo_name)
         b_point = _branch_point(r, parent)
 
         local_commits = []
         if b_point:
-            log_res = _git(r, "log", "--oneline", f"{b_point}..HEAD")
+            log_res = run_git(r, "log", "--oneline", f"{b_point}..HEAD")
             if log_res.returncode == 0 and log_res.stdout.strip():
                 local_commits = log_res.stdout.strip().splitlines()
 
-        status_res = _git(r, "status", "--porcelain")
+        status_res = run_git(r, "status", "--porcelain")
         dirty = [line for line in status_res.stdout.splitlines() if line.strip()]
         tracked_dirty = [line for line in dirty if not line.startswith("??")]
         untracked = [line for line in dirty if line.startswith("??")]
@@ -154,7 +149,7 @@ def reset_repositories(
     for r, b_point in dirty_repos:
         print(f"{Color.BOLD}[{r.name}]{Color.RESET} resetting...")
         target_ref = b_point if b_point else "HEAD"
-        res = _git(r, "reset", "--hard", target_ref)
+        res = run_git(r, "reset", "--hard", target_ref)
         if res.returncode == 0:
             log_success(f"[{r.name}] reset successfully.")
         else:

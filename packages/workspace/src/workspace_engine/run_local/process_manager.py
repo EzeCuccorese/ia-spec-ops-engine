@@ -495,7 +495,7 @@ def graceful_kill_pid(
     if service_name or expected_cmd or service_path:
         import re
 
-        from workspace_engine.utils import get_process_cmdline
+        from workspace_engine.common import get_process_cmdline
 
         cmdline = get_process_cmdline(pid)
         if not cmdline:

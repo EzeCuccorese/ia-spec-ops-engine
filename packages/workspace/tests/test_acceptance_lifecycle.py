@@ -38,7 +38,7 @@ from workspace_engine.cli.clean_workspace import clean_workspace
 from workspace_engine.cli.delete_workspaces import delete_single_workspace, delete_workspaces
 from workspace_engine.cli.reset_repos import reset_repositories
 from workspace_engine.cli.stop_workspace import stop_workspace
-from workspace_engine.utils import run_git
+from workspace_engine.common import run_git
 
 
 def _init_test_git_repo(path: Path) -> None:
@@ -223,7 +223,7 @@ def test_failed_delete_never_reports_success(
             return mock
         return run_git(repo_path, *args)
 
-    monkeypatch.setattr("workspace_engine.cli.delete_workspaces._git", failing_git)
+    monkeypatch.setattr("workspace_engine.cli.delete_workspaces.run_git", failing_git)
     res_git_err = delete_single_workspace(ws_dir, force=True, workspaces_dir=workspaces_dir)
     assert res_git_err is False
     assert ws_dir.exists()
@@ -396,7 +396,7 @@ def test_owned_process_stop_is_bounded(tmp_path: Path, monkeypatch: pytest.Monke
         )
 
         # In sandboxed environments where macOS seatbelt blocks 'ps', provide cmdline via monkeypatch
-        from workspace_engine.utils import get_process_cmdline
+        from workspace_engine.common import get_process_cmdline
 
         if not get_process_cmdline(proc.pid):
             monkeypatch.setattr(

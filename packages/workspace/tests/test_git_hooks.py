@@ -109,11 +109,11 @@ def _write_fake_pytest(project_dir: Path, *, exit_code: int, detail_lines: int =
 def test_generate_canonical_pre_push_script():
     script = generate_canonical_pre_push_script()
     assert "#!/usr/bin/env bash" in script
-    assert "[1/5] Verificando secretos" in script
-    assert "[2/5] Verificando políticas de commit" in script
-    assert "[3/5] Ejecutando análisis estático" in script
-    assert "[4/5] Ejecutando suites de tests" in script
-    assert "[5/5] Delegando al hook pre-push" in script
+    assert "[1/5] Checking for secrets" in script
+    assert "[2/5] Checking commit policies" in script
+    assert "[3/5] Running static analysis" in script
+    assert "[4/5] Running test suites" in script
+    assert "[5/5] Delegating to the repository's pre-push hook" in script
     assert "ruff" in script
     assert "npm test" in script
     assert "go test" in script
@@ -143,7 +143,7 @@ def test_compact_output_hides_successful_command_output():
         proc = _run_generated_hook(project_dir)
 
         assert proc.returncode == 0
-        assert "Suites de Tests: PASS" in proc.stdout
+        assert "Test Suites: PASS" in proc.stdout
         assert "PYTEST_STDOUT_SENTINEL" not in proc.stdout
         assert "PYTEST_STDERR_SENTINEL" not in proc.stderr
 
@@ -162,7 +162,7 @@ def test_compact_output_shows_failed_command_and_preserves_full_log():
         combined = proc.stdout + proc.stderr
         assert "PYTEST_STDOUT_SENTINEL" in combined
         assert "PYTEST_STDERR_SENTINEL" in combined
-        assert "Suites de Tests: FAIL" in combined
+        assert "Test Suites: FAIL" in combined
         failure_log = project_dir / ".git" / "specops" / "quality-gate" / "latest.log"
         assert failure_log.is_file()
         assert stat.S_IMODE(failure_log.stat().st_mode) == 0o600
@@ -183,7 +183,7 @@ def test_compact_failure_is_bounded_while_full_log_is_complete():
 
         combined = proc.stdout + proc.stderr
         assert proc.returncode == 1
-        assert "salida truncada:" in combined
+        assert "output truncated:" in combined
         assert "DETAIL_100" not in combined
         failure_log = project_dir / ".git" / "specops" / "quality-gate" / "latest.log"
         assert "DETAIL_100" in failure_log.read_text(encoding="utf-8")

@@ -10,7 +10,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from workspace_engine.utils import find_project_root, log_info, log_success
+from workspace_engine.common import find_project_root, log_info, log_success
 
 
 def clean_workspace(start_dir: Path | None = None) -> int:

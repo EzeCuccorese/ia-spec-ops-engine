@@ -10,7 +10,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from workspace_engine.utils import (
+from workspace_engine.common import (
     Color,
     find_project_root,
     log_error,

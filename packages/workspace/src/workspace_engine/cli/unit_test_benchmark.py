@@ -14,14 +14,14 @@ from pathlib import Path
 from typing import Any
 
 from workspace_engine.cli import set_java
-from workspace_engine.services.benchmark_display import run_final
-from workspace_engine.utils import (
+from workspace_engine.common import (
     Color,
     detect_project_type,
     find_project_root,
     log_error,
     log_warning,
 )
+from workspace_engine.services.benchmark_display import run_final
 
 
 def run_repo_tests(repo_path: Path) -> dict[str, Any]:

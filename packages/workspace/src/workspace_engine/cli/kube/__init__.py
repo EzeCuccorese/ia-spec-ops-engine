@@ -5,7 +5,6 @@ workspace_engine.cli.kube — Paquete modular de Kubernetes para Workspace Engin
 from workspace_engine.cli.kube.client import (
     find_pod,
     get_contexts,
-    get_namespaces,
     get_pod_env,
     is_kubectl_available,
 )
@@ -23,7 +22,6 @@ from workspace_engine.cli.kube.tui import (
 __all__ = [
     "is_kubectl_available",
     "get_contexts",
-    "get_namespaces",
     "find_pod",
     "get_pod_env",
     "write_secret_file",

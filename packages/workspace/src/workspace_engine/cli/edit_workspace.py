@@ -8,13 +8,10 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
-from workspace_engine.services.add_repos import add_repositories_to_workspace
-from workspace_engine.services.render_agents import update_workspace_agents
-from workspace_engine.utils import (
+from workspace_engine.common import (
     Color,
     find_project_root,
     log_error,
@@ -24,10 +21,8 @@ from workspace_engine.utils import (
     parse_dotenv,
     run_git,
 )
-
-
-def _git(repo_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return run_git(repo_path, *args)
+from workspace_engine.services.add_repos import add_repositories_to_workspace
+from workspace_engine.services.render_agents import update_workspace_agents
 
 
 def remove_repositories_from_workspace(workspace_dir: Path) -> None:
@@ -68,13 +63,13 @@ def remove_repositories_from_workspace(workspace_dir: Path) -> None:
     for rname in to_remove:
         target_wt = repos_dir / rname
         if target_wt.exists():
-            git_common = _git(target_wt, "rev-parse", "--git-common-dir")
+            git_common = run_git(target_wt, "rev-parse", "--git-common-dir")
             if git_common.returncode == 0 and git_common.stdout.strip():
                 common_path = Path(git_common.stdout.strip())
                 if not common_path.is_absolute():
                     common_path = (target_wt / common_path).resolve()
-                _git(common_path, "worktree", "remove", "--force", str(target_wt))
-                _git(common_path, "worktree", "prune")
+                run_git(common_path, "worktree", "remove", "--force", str(target_wt))
+                run_git(common_path, "worktree", "prune")
             shutil.rmtree(target_wt, ignore_errors=True)
             log_info(f"  Removed worktree: {rname}")
 
