@@ -3,7 +3,7 @@ requires = ["hatchling>=1.26"]
 build-backend = "hatchling.build"
 
 [project]
-name = "specops-ai-governance"
+name = "ai-governance"
 version = "0.1.0"
 description = "AI Governance — Engineering Standards, Token Frugality, Telemetry, Ritmo Pacing & Light Session Management."
 readme = "README.md"
