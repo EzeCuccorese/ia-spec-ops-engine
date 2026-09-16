@@ -1,5 +1,5 @@
 """
-workspace_engine.common — Paquete base de utilidades y librerías compartidas para Workspace Engine.
+workspace_engine.common — Base package of shared utilities and libraries for Workspace Engine.
 """
 
 from __future__ import annotations

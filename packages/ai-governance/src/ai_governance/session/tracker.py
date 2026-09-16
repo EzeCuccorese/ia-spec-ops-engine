@@ -62,7 +62,10 @@ class TaskState:
         if not isinstance(data, dict):
             raise CorruptTaskError(f"Task data must be a dictionary, got {type(data).__name__}")
         raw_status = data.get("status", "active")
-        normalized_status = STATUS_MAP.get(str(raw_status).lower(), raw_status)
+        normalized_status = str(STATUS_MAP.get(str(raw_status).lower(), raw_status))
+        facts = data.get("facts", data.get("done", []))
+        created_at = data.get("created_at", data.get("created", "")) or ""
+        updated_at = data.get("updated_at", data.get("updated", "")) or ""
         return cls(
             id=data.get("id", "task"),
             title=data.get("title", ""),
@@ -71,7 +74,7 @@ class TaskState:
             steps=data.get("steps", []),
             repos=data.get("repos", []),
             links=data.get("links", []),
-            facts=data.get("facts", data.get("done", [])),
+            facts=facts if isinstance(facts, list) else [],
             references=data.get(
                 "references",
                 [
@@ -79,8 +82,8 @@ class TaskState:
                     for value in data.get("jira", [])
                 ],
             ),
-            created_at=data.get("created_at", data.get("created", "")),
-            updated_at=data.get("updated_at", data.get("updated", "")),
+            created_at=str(created_at),
+            updated_at=str(updated_at),
         )
 
 
@@ -123,7 +126,7 @@ def _atomic_write_text(path: Path, content: str) -> None:
             os.fsync(tf.fileno())
             temp_path = Path(tf.name)
         temp_path.replace(path)
-    except Exception:
+    except OSError:
         if temp_path and temp_path.exists():
             temp_path.unlink(missing_ok=True)
         raise
@@ -485,7 +488,7 @@ class SessionTracker:
                 task = TaskState.from_dict(json.loads(p.read_text(encoding="utf-8")))
                 if include_closed or task.status not in ("closed", "cerrado"):
                     res.append(task)
-            except Exception:
+            except (json.JSONDecodeError, UnicodeDecodeError, OSError, ValueError, TypeError):
                 continue
         return sorted(res, key=lambda task: task.updated_at, reverse=True)
 

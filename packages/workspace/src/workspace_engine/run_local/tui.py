@@ -12,9 +12,13 @@ import sys
 import termios
 import threading
 import time
+from types import ModuleType
+from typing import Any
 
 try:
-    import tty
+    import tty as _tty
+
+    tty: ModuleType | None = _tty
 except ImportError:
     tty = None  # Non-Unix platform fallback
 
@@ -81,7 +85,7 @@ _TAIL_COLORS = [GREEN, CYAN, YELLOW, "\033[0;35m", "\033[0;34m", "\033[0;31m"]
 _PROJECT_URL_RE = re.compile(PROJECT_CONFIG["url_pattern"])
 
 
-def _read_line(tty_fd, prompt: str, max_len: int = 40) -> str | None:
+def _read_line(tty_fd: Any, prompt: str, max_len: int = 40) -> str | None:
     buf = ""
     while True:
         display = f"\r{prompt}{buf}  \r{prompt}{buf}"
@@ -104,14 +108,14 @@ def _read_line(tty_fd, prompt: str, max_len: int = 40) -> str | None:
                 pass
 
 
-def _multi_tail(entries: list, filter_errors: bool, cooked_attrs, tty_fd) -> None:
+def _multi_tail(entries: list, filter_errors: bool, cooked_attrs: Any, tty_fd: Any) -> None:
     _w(tty_fd, "\033[?1049l\033[?25h")
     if cooked_attrs is not None and tty is not None:
         termios.tcsetattr(tty_fd.fileno(), termios.TCSADRAIN, cooked_attrs)
 
     error_re = re.compile(r"ERROR|FATAL|Exception|error:", re.IGNORECASE) if filter_errors else None
-    suffix = " — solo errores" if filter_errors else ""
-    print(f"\n  Tail combinado{suffix}  |  Ctrl-C para volver al monitor\n")
+    suffix = " — errors only" if filter_errors else ""
+    print(f"\n  Combined tail{suffix}  |  Ctrl-C to return to the monitor\n")
 
     max_name = max((len(e["name"]) for e in entries), default=10)
 
@@ -158,7 +162,7 @@ def _multi_tail(entries: list, filter_errors: bool, cooked_attrs, tty_fd) -> Non
         _w(tty_fd, "\033[?25l\033[?1049h")
 
 
-def panel_source_picker(tty_fd, sources: list) -> dict | None:
+def panel_source_picker(tty_fd: Any, sources: list) -> dict | None:
     cursor = 0
     while True:
         cols, rows = shutil.get_terminal_size(fallback=(80, 24))
@@ -166,10 +170,10 @@ def panel_source_picker(tty_fd, sources: list) -> dict | None:
 
         out = ["\033[H\033[J"]
         out.append(_sep(cols) + "\r\n")
-        out.append(f"{BOLD}  run-local.py — Seleccionar fuente{RESET}\r\n")
+        out.append(f"{BOLD}  run-local.py — Select source{RESET}\r\n")
         out.append(_sep(cols) + "\r\n")
-        out.append(f"  {DIM}↑↓ navegar   Enter seleccionar   ESC salir{RESET}\r\n\r\n")
-        out.append(f"  {DIM}{'':2} {'Fuente':<40} {'Tipo'}{RESET}\r\n")
+        out.append(f"  {DIM}up/down navigate   Enter select   ESC exit{RESET}\r\n\r\n")
+        out.append(f"  {DIM}{'':2} {'Source':<40} {'Type'}{RESET}\r\n")
         out.append(_sep(cols, "─", bold=False) + "\r\n")
 
         for i, src in enumerate(sources):
@@ -177,7 +181,7 @@ def panel_source_picker(tty_fd, sources: list) -> dict | None:
             mark = f"{BOLD}{CYAN}▶{RESET}" if is_cur else " "
             nc = BOLD if is_cur else ""
             kind_col = CYAN if src["kind"] == "repos" else DIM
-            kind_lbl = "repositorios" if src["kind"] == "repos" else "workspace"
+            kind_lbl = "repositories" if src["kind"] == "repos" else "workspace"
             label = src["label"]
             if len(label) > 39:
                 label = label[:36] + "..."
@@ -200,7 +204,7 @@ def panel_source_picker(tty_fd, sources: list) -> dict | None:
             return sources[cursor]
 
 
-def panel_profiles(tty_fd) -> dict | None:
+def panel_profiles(tty_fd: Any) -> dict | None:
     cursor = 0
     msg = ""
 
@@ -213,13 +217,13 @@ def panel_profiles(tty_fd) -> dict | None:
 
         out = ["\033[H\033[J"]
         out.append(_sep(cols) + "\r\n")
-        out.append(f"{BOLD}  Perfiles guardados{RESET}\r\n")
+        out.append(f"{BOLD}  Saved profiles{RESET}\r\n")
         out.append(_sep(cols) + "\r\n")
-        out.append(f"  {DIM}↑↓ navegar   Enter cargar   x borrar   ESC volver{RESET}\r\n\r\n")
+        out.append(f"  {DIM}up/down navigate   Enter load   x delete   ESC back{RESET}\r\n\r\n")
 
         if not names:
             out.append(
-                f"  {DIM}Sin perfiles. En la selección, usá g (con filtro vacío) para guardar uno.{RESET}\r\n"
+                f"  {DIM}No profiles. In the selection, use g (with an empty filter) to save one.{RESET}\r\n"
             )
         else:
             for i, name in enumerate(names):
@@ -227,7 +231,7 @@ def panel_profiles(tty_fd) -> dict | None:
                 count = len(profiles[name].get("services", []))
                 mark = f"{BOLD}{CYAN}▶{RESET}" if is_cur else " "
                 nc = BOLD if is_cur else ""
-                out.append(f"  {mark} {nc}{name:<30}{RESET}  {DIM}{count} servicio(s){RESET}\r\n")
+                out.append(f"  {mark} {nc}{name:<30}{RESET}  {DIM}{count} service(s){RESET}\r\n")
 
         out.append(_sep(cols, "─", bold=False) + "\r\n")
         if msg:
@@ -248,20 +252,20 @@ def panel_profiles(tty_fd) -> dict | None:
             return profiles[names[cursor]]
         elif key in (b"x", b"X") and names:
             name_to_del = names[cursor]
-            _w(tty_fd, f'\r\n  {YELLOW}Borrar "{name_to_del}"? [y/N] {RESET}')
+            _w(tty_fd, f'\r\n  {YELLOW}Delete "{name_to_del}"? [y/N] {RESET}')
             confirm = _read_key(tty_fd)
             if confirm in (b"y", b"Y"):
                 del profiles[name_to_del]
                 save_profiles(profiles)
                 cursor = min(cursor, max(0, len(profiles) - 1))
-                msg = f'Perfil "{name_to_del}" borrado.'
+                msg = f'Profile "{name_to_del}" deleted.'
 
 
-def panel_run_config(tty_fd, repos: list, db_cfg: dict) -> list | None:
+def panel_run_config(tty_fd: Any, repos: list, db_cfg: dict) -> list | None:
     env_ids = [e["id"] for e in ENVIRONMENTS]
     kubectl_ok = _kubectl_available() and bool(_get_kubectl_contexts())
 
-    def _cycle_env(idx, step):
+    def _cycle_env(idx: int, step: int) -> int:
         for _ in range(len(ENVIRONMENTS)):
             idx = (idx + step) % len(ENVIRONMENTS)
             if ENVIRONMENTS[idx]["cluster"] is not None and not kubectl_ok:
@@ -272,7 +276,7 @@ def panel_run_config(tty_fd, repos: list, db_cfg: dict) -> list | None:
     _rres, _rlcs = load_state()
     running_cfgs = {c["name"]: c for c in _rlcs}
 
-    def _idx(lst, val, default=0):
+    def _idx(lst: list, val: object, default: int = 0) -> int:
         return lst.index(val) if val in lst else default
 
     all_state: dict = {}
@@ -294,7 +298,7 @@ def panel_run_config(tty_fd, repos: list, db_cfg: dict) -> list | None:
     error = ""
     filt = ""
 
-    def _apply_global(field):
+    def _apply_global(field: str) -> None:
         for s in all_state.values():
             s[field] = glob[field]
 
@@ -313,7 +317,7 @@ def panel_run_config(tty_fd, repos: list, db_cfg: dict) -> list | None:
         elif svc_cur >= scroll + lh:
             scroll = svc_cur - lh + 1
 
-        def cell(text, width, color=""):
+        def cell(text: str, width: int, color: str = "") -> str:
             pad = " " * max(0, width - len(text))
             return (f"{color}{text}{RESET}" if color else text) + pad
 
@@ -355,22 +359,22 @@ def panel_run_config(tty_fd, repos: list, db_cfg: dict) -> list | None:
 
         out = ["\033[H\033[J"]
         out.append(_sep(cols) + "\r\n")
-        out.append(f"{BOLD}  run-local.py — Configurar servicios{RESET}\r\n")
+        out.append(f"{BOLD}  run-local.py — Configure services{RESET}\r\n")
         out.append(_sep(cols) + "\r\n")
         out.append(
-            f"  {DIM}↑↓ navegar   ←→ Ambiente   d DB Local   m Ms Locales   SPACE toggle   Enter   ESC{RESET}\r\n"
+            f"  {DIM}up/down navigate   left/right Env   d Local DB   m Local MS   SPACE toggle   Enter   ESC{RESET}\r\n"
         )
-        out.append(f"  {DIM}p  perfiles   g  guardar perfil  (solo con filtro vacío){RESET}\r\n")
+        out.append(f"  {DIM}p  profiles   g  save profile  (only with an empty filter){RESET}\r\n")
         out.append(
-            f"  {DIM}Ambiente Env = de dónde sale toda la config   ·   DB Local = usa tu mongo local{RESET}\r\n"
+            f"  {DIM}Env = where all config comes from   ·   Local DB = uses your local mongo{RESET}\r\n"
         )
         out.append(
-            f"  {DIM}Ms Locales = pega a los MS que levantaste (si no, al ambiente){RESET}\r\n"
+            f"  {DIM}Local MS = wires to the microservices you started (otherwise, to the environment){RESET}\r\n"
         )
         if not kubectl_ok:
-            out.append(f'  {YELLOW}⚠ kubectl no disponible — solo ambiente "local"{RESET}\r\n')
+            out.append(f'  {YELLOW}⚠ kubectl not available — "local" environment only{RESET}\r\n')
 
-        filt_display = filt if filt else f"{DIM}escribe para filtrar…{RESET}"
+        filt_display = filt if filt else f"{DIM}type to filter…{RESET}"
         out.append(f"  {DIM}Filtro:{RESET} {filt_display}{'█' if filt else ''}\r\n\r\n")
         out.append(
             "  "
@@ -378,21 +382,21 @@ def panel_run_config(tty_fd, repos: list, db_cfg: dict) -> list | None:
             + " "
             + cell("", 3)
             + " "
-            + cell("Servicio", 28, DIM)
+            + cell("Service", 28, DIM)
             + " "
-            + cell("Ambientes Env", 14, DIM)
+            + cell("Env", 14, DIM)
             + " "
-            + cell("DB Local", 10, DIM)
+            + cell("Local DB", 10, DIM)
             + " "
-            + cell("Ms Locales", 11, DIM)
+            + cell("Local MS", 11, DIM)
             + " "
-            + cell("Puerto", 7, DIM)
+            + cell("Port", 7, DIM)
             + " "
-            + f"{DIM}Tipo{RESET}\r\n"
+            + f"{DIM}Type{RESET}\r\n"
         )
         out.append(_sep(cols, "─", bold=False) + "\r\n")
 
-        def chk(b):
+        def chk(b: object) -> str:
             return "[x]" if b else "[ ]"
 
         gcur = cursor == 0
@@ -402,7 +406,7 @@ def panel_run_config(tty_fd, repos: list, db_cfg: dict) -> list | None:
                 CYAN if gcur else "",
                 "···",
                 DIM,
-                "(todos)",
+                "(all)",
                 BOLD if gcur else DIM,
                 env_ids[glob["env_idx"]],
                 CYAN,
@@ -417,7 +421,7 @@ def panel_run_config(tty_fd, repos: list, db_cfg: dict) -> list | None:
         out.append(f"  {DIM}{'─' * 30}{RESET}\r\n")
 
         if not view:
-            out.append(f'  {DIM}Sin resultados para "{filt}"{RESET}\r\n')
+            out.append(f'  {DIM}No results for "{filt}"{RESET}\r\n')
         else:
             for j, s in enumerate(view[scroll : scroll + lh]):
                 abs_i = scroll + j
@@ -458,9 +462,9 @@ def panel_run_config(tty_fd, repos: list, db_cfg: dict) -> list | None:
 
         enabled = [s["name"] for s in all_state.values() if s["enabled"]]
         total = len(all_state)
-        footer = f"Seleccionados: {len(enabled)}"
+        footer = f"Selected: {len(enabled)}"
         if filt:
-            footer += f"  |  Mostrando {len(view)}/{total}"
+            footer += f"  |  Showing {len(view)}/{total}"
         if enabled:
             out.append(
                 f"\r\n  {BOLD}{footer}{RESET}  {GREEN}{', '.join(enabled[:5])}{'…' if len(enabled) > 5 else ''}{RESET}\r\n"
@@ -542,16 +546,14 @@ def panel_run_config(tty_fd, repos: list, db_cfg: dict) -> list | None:
                     db_env = svc_cfg.get("db_env", "local")
                     s["db_local"] = db_env == "local"
                     s["ms_local"] = svc_cfg.get("up_mode", "auto") == "auto"
-                error = "✔ Perfil cargado." + (
-                    f" Ignorados: {', '.join(skipped)}" if skipped else ""
-                )
+                error = "✔ Profile loaded." + (f" Skipped: {', '.join(skipped)}" if skipped else "")
         elif key in (b"g", b"G") and not filt:
             sel = [s for s in all_state.values() if s["enabled"]]
             if not sel:
-                error = "❌ Seleccioná al menos un servicio para guardar."
+                error = "❌ Select at least one service to save."
             else:
                 cols2, rows2 = shutil.get_terminal_size(fallback=(80, 24))
-                _w(tty_fd, f"\033[{rows2};0H  {DIM}Nombre del perfil:{RESET} ")
+                _w(tty_fd, f"\033[{rows2};0H  {DIM}Profile name:{RESET} ")
                 pname = _read_line(tty_fd, "")
                 if pname:
                     profiles = load_profiles()
@@ -567,21 +569,21 @@ def panel_run_config(tty_fd, repos: list, db_cfg: dict) -> list | None:
                         ]
                     }
                     save_profiles(profiles)
-                    error = f'✔ Perfil "{pname}" guardado ({len(sel)} servicios).'
+                    error = f'✔ Profile "{pname}" saved ({len(sel)} services).'
                 else:
-                    error = "Guardado cancelado."
+                    error = "Save cancelled."
         elif key in (b"\r", b"\n", b""):
             sel = [s for s in all_state.values() if s["enabled"]]
             if not sel:
-                error = "❌ Seleccioná al menos un servicio."
+                error = "❌ Select at least one service."
                 continue
             problems = []
             for s in sel:
                 env_id = env_ids[s["env_idx"]]
                 if env_id == "local" and not s["has_set_env"]:
-                    problems.append(f"{s['name']}: sin set-env (ambiente local)")
+                    problems.append(f"{s['name']}: no set-env (local environment)")
                 elif env_id != "local" and not kubectl_ok:
-                    problems.append(f"{s['name']}: kubectl no disp. ({env_id})")
+                    problems.append(f"{s['name']}: kubectl not avail. ({env_id})")
             if problems:
                 error = "⚠ " + " | ".join(problems[:2]) + (" …" if len(problems) > 2 else "")
                 continue
@@ -606,18 +608,18 @@ def panel_run_config(tty_fd, repos: list, db_cfg: dict) -> list | None:
                 pass
 
 
-def panel_confirm(tty_fd, configs: list) -> bool:
+def panel_confirm(tty_fd: Any, configs: list) -> bool:
     while True:
         cols, _ = shutil.get_terminal_size(fallback=(80, 24))
         cols = max(80, cols)
 
         out = ["\033[H\033[J"]
         out.append(_sep(cols) + "\r\n")
-        out.append(f"{BOLD}  Confirmar inicio{RESET}\r\n")
+        out.append(f"{BOLD}  Confirm startup{RESET}\r\n")
         out.append(_sep(cols) + "\r\n")
-        out.append(f"  {DIM}Enter iniciar   ESC volver{RESET}\r\n\r\n")
+        out.append(f"  {DIM}Enter start   ESC back{RESET}\r\n\r\n")
         out.append(
-            f"  {DIM}{'Servicio':<28} {'Ambientes Env':<14} {'DB Local':<10} {'Ms Locales':<11} {'Puerto':<7} {'Comando'}{RESET}\r\n"
+            f"  {DIM}{'Service':<28} {'Env':<14} {'Local DB':<10} {'Local MS':<11} {'Port':<7} {'Command'}{RESET}\r\n"
         )
         out.append(_sep(cols, "─", bold=False) + "\r\n")
 
@@ -635,7 +637,7 @@ def panel_confirm(tty_fd, configs: list) -> bool:
             )
 
         out.append(_sep(cols, "─", bold=False) + "\r\n")
-        out.append(f"\r\n  {BOLD}{GREEN}▶ [ Enter para iniciar ]{RESET}\r\n")
+        out.append(f"\r\n  {BOLD}{GREEN}▶ [ Enter to start ]{RESET}\r\n")
         _w(tty_fd, "".join(out))
 
         key = _read_key(tty_fd)
@@ -648,7 +650,7 @@ def panel_confirm(tty_fd, configs: list) -> bool:
 
 
 def panel_monitor(
-    tty_fd, results: list, launch_configs: list, db_cfg: dict, cooked_attrs=None
+    tty_fd: Any, results: list, launch_configs: list, db_cfg: dict, cooked_attrs: Any = None
 ) -> str:
     cursor = 0
     marked: set = set()
@@ -657,7 +659,7 @@ def panel_monitor(
     def _is_running(r: dict) -> bool:
         return _pid_alive(r.get("pid"))
 
-    def _stop_service(r: dict):
+    def _stop_service(r: dict) -> None:
         if r.get("pid"):
             for target in (-r["pid"], r["pid"]):
                 with contextlib.suppress(ProcessLookupError):
@@ -666,10 +668,10 @@ def panel_monitor(
             r["pid"] = None
             _HEALTH.pop(r["name"], None)
 
-    def _restart_service(r: dict):
+    def _restart_service(r: dict) -> None:
         _stop_service(r)
         if not _wait_port_free(r["port"]):
-            r["error"] = f"Puerto {r['port']} no se liberó a tiempo"
+            r["error"] = f"Port {r['port']} was not freed in time"
             return
         cfg = next((c for c in launch_configs if c["name"] == r["name"]), None)
         if not cfg:
@@ -704,17 +706,17 @@ def panel_monitor(
 
             out = ["\033[H\033[J"]
             out.append(_sep(cols) + "\r\n")
-            out.append(f"{BOLD}  Monitor de servicios{RESET}\r\n")
+            out.append(f"{BOLD}  Service monitor{RESET}\r\n")
             out.append(_sep(cols) + "\r\n")
             out.append(
-                f"  {DIM}↑↓ nav   SPACE marcar   t tail   T tail-err   Enter logs   l err   e envs   o browser{RESET}\r\n"
+                f"  {DIM}up/down nav   SPACE mark   t tail   T tail-err   Enter logs   l err   e envs   o browser{RESET}\r\n"
             )
             out.append(
-                f"  {DIM}s stop   r restart   a agregar   q salir  (servicios siguen al salir){RESET}\r\n\r\n"
+                f"  {DIM}s stop   r restart   a add   q quit  (services keep running on exit){RESET}\r\n\r\n"
             )
 
             hdr = (
-                f"  {' '} {'✓'} {'Servicio':<28} " + _pad("Estado", 13, f"{DIM}Estado{RESET}") + " "
+                f"  {' '} {'✓'} {'Service':<28} " + _pad("Status", 13, f"{DIM}Status{RESET}") + " "
             )
             if show_uptime:
                 hdr += f"{DIM}{'Uptime':<8}{RESET}"
@@ -769,9 +771,9 @@ def panel_monitor(
                     up_mode = cfg.get("up_mode", "auto")
                     if wiring:
                         local_s = ", ".join(f"{n}:{p}" for n, p in wiring.items())
-                        wiring_detail = f"→ local: {local_s} · resto: {env_id}"
+                        wiring_detail = f"→ local: {local_s} · rest: {env_id}"
                     elif up_mode != "auto":
-                        wiring_detail = f"→ todo a: {up_mode}"
+                        wiring_detail = f"→ all to: {up_mode}"
                     else:
                         wiring_detail = ""
 
@@ -782,11 +784,9 @@ def panel_monitor(
 
             if ask_cascade:
                 out.append(
-                    f"\r\n  {BOLD}Dependientes detectados:{RESET} {DIM}{', '.join(ask_cascade)}{RESET}\r\n"
+                    f"\r\n  {BOLD}Dependents detected:{RESET} {DIM}{', '.join(ask_cascade)}{RESET}\r\n"
                 )
-                out.append(
-                    f"  {YELLOW}¿Reiniciarlos también? [y/s = sí · cualquier otra = no]{RESET} "
-                )
+                out.append(f"  {YELLOW}Restart them too? [y = yes · any other key = no]{RESET} ")
 
             out.append(f"\r\n  {DIM}Logs: {LOGS_DIR}/{RESET}\r\n")
             _w(tty_fd, "".join(out))
@@ -872,7 +872,7 @@ def panel_monitor(
                         termios.tcsetattr(tty_fd.fileno(), termios.TCSADRAIN, cooked_attrs)
                     else:
                         subprocess.run(["stty", "sane"], stdin=tty_fd)
-                    print("\n  (Ctrl-C para volver al monitor)\n")
+                    print("\n  (Ctrl-C to return to the monitor)\n")
                     try:
                         subprocess.run(["tail", "-n", "+1", "-f", str(log_path)])
                     except KeyboardInterrupt:
@@ -890,7 +890,7 @@ def panel_monitor(
                         termios.tcsetattr(tty_fd.fileno(), termios.TCSADRAIN, cooked_attrs)
                     else:
                         subprocess.run(["stty", "sane"], stdin=tty_fd)
-                    print("\n  (Ctrl-C para volver — mostrando solo errores)\n")
+                    print("\n  (Ctrl-C to go back — showing errors only)\n")
                     try:
                         error_re = re.compile(r"ERROR|FATAL|Exception|error:", re.IGNORECASE)
                         with open(log_path, errors="replace", encoding="utf-8") as fh:
@@ -926,7 +926,7 @@ def panel_monitor(
                         subprocess.run(["stty", "sane"], stdin=tty_fd)
                     try:
                         subprocess.run(["less", str(dump)])
-                    except Exception:
+                    except (OSError, subprocess.SubprocessError):
                         pass
                     finally:
                         if tty is not None:
@@ -936,7 +936,7 @@ def panel_monitor(
         stop_health.set()
 
 
-def _run_selection_tui(sources: list, force_repos_dir, db_cfg: dict) -> list | None:
+def _run_selection_tui(sources: list, force_repos_dir: Any, db_cfg: dict) -> list | None:
     tty_fd = _open_tty()
     old_attrs = (
         termios.tcgetattr(tty_fd) if (tty is not None and hasattr(termios, "tcgetattr")) else None
@@ -971,16 +971,19 @@ def _run_selection_tui(sources: list, force_repos_dir, db_cfg: dict) -> list | N
                     break
                 step = "confirm"
             elif step == "confirm":
+                assert configs is not None  # only reached once "config" has set it
                 if panel_confirm(tty_fd, configs):
                     break
                 step = "config"
     finally:
+        # Terminal restore is best-effort: the tty state must never be left raw
+        # even if closing/writing to the descriptor fails for any reason.
         try:
             _w(tty_fd, "\033[?1049l\033[?25h")
             if old_attrs is not None and tty is not None:
                 termios.tcsetattr(tty_fd.fileno(), termios.TCSADRAIN, old_attrs)
             tty_fd.close()
-        except Exception:
+        except (OSError, termios.error):
             pass
     return configs or None
 
@@ -997,11 +1000,13 @@ def _run_monitor_tui(results: list, launch_configs: list, db_cfg: dict) -> str:
         _w(tty_fd, "\033[?25l\033[?1049h")
         action = panel_monitor(tty_fd, results, launch_configs, db_cfg, cooked_attrs=old_attrs)
     finally:
+        # Terminal restore is best-effort: the tty state must never be left raw
+        # even if closing/writing to the descriptor fails for any reason.
         try:
             _w(tty_fd, "\033[?1049l\033[?25h")
             if old_attrs is not None and tty is not None:
                 termios.tcsetattr(tty_fd.fileno(), termios.TCSADRAIN, old_attrs)
             tty_fd.close()
-        except Exception:
+        except (OSError, termios.error):
             pass
     return action or "quit"

@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-
 from spec.core.ownership import FileChangedError, OwnershipManifest, UnownedPathError
 from spec.core.write import SafeWriter, TargetExistsError
 

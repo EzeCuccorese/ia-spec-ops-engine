@@ -1,5 +1,5 @@
 """
-Tests unitarios para select_repos, configure_repos, tui_utils y benchmark_display.
+Unit tests for select_repos, configure_repos, tui_utils, and benchmark_display.
 """
 
 import tempfile
@@ -52,7 +52,7 @@ def test_select_repos_load_and_filter():
         assert "auth-service" in repos
         assert "payment-gateway" in repos
 
-        # Filtro de búsqueda
+        # Search filter
         filtered = apply_filter(repos, "auth")
         assert filtered == ["auth-service"]
 

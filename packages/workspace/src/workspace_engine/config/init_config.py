@@ -19,7 +19,7 @@ console = Console()
 
 def generate_default_config(project_name: str, domain: str, *, enterprise: bool = False) -> dict:
     """Returns a SpecOps configuration dictionary (minimal by default, or full enterprise profile)."""
-    cfg = {
+    cfg: dict[str, object] = {
         "project_name": project_name,
         "domain": domain,
         "namespaces": ["core", "services", "tools"],
@@ -240,6 +240,6 @@ def run_config_init(argv: list[str] | None = None) -> int:
             enterprise=args.enterprise,
         )
         return 0
-    except Exception as exc:
+    except (OSError, ValueError) as exc:
         console.print(f"[bold red]Error initializing configuration:[/bold red] {exc}")
         return 1

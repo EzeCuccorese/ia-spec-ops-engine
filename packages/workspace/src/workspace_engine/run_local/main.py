@@ -1,5 +1,5 @@
 """
-workspace_engine.run_local.main — Punto de entrada principal para run_local.
+workspace_engine.run_local.main — Main entry point for run_local.
 """
 
 from __future__ import annotations
@@ -103,22 +103,22 @@ def _restart_named(names: list, results: list, launch_configs: list, db_cfg: dic
         r["pid"], r["error"], r["started_at"] = pid, err, started_at
         cfg["wiring"] = wired_map
         print(
-            f"  {('✔ ' + nm + ' reiniciado (PID ' + str(pid) + ')') if pid else ('✖ ' + nm + ': ' + str(err))}"
+            f"  {('✔ ' + nm + ' restarted (PID ' + str(pid) + ')') if pid else ('✖ ' + nm + ': ' + str(err))}"
         )
 
 
 def _launch_and_report(configs: list, db_cfg: dict) -> tuple:
-    print(f"\n{BOLD}Iniciando {len(configs)} servicio(s)...{RESET}\n")
+    print(f"\n{BOLD}Starting {len(configs)} service(s)...{RESET}\n")
     results, launch_configs = launch_services(configs, db_cfg)
     ok = [r for r in results if r["ok"]]
     fail = [r for r in results if not r["ok"]]
     if ok:
-        print(f"\n{BOLD}Corriendo:{RESET}")
+        print(f"\n{BOLD}Running:{RESET}")
         for r in ok:
             link = _service_link(r["type"], r["port"])
             print(f"  {GREEN}●{RESET} {BOLD}{r['name']:<32}{RESET}  {CYAN}{link}{RESET}")
     if fail:
-        print(f"\n{BOLD}{RED}Fallaron:{RESET}")
+        print(f"\n{BOLD}{RED}Failed:{RESET}")
         for r in fail:
             print(f"  {RED}✖{RESET} {BOLD}{r['name']}{RESET}  {r['error']}")
     return results, launch_configs
@@ -127,27 +127,27 @@ def _launch_and_report(configs: list, db_cfg: dict) -> tuple:
 def main():
     if not _CONFIG_LOADED and "pytest" not in sys.modules:
         print(
-            f"{RED}Error: No se encontró la configuración en ~/.config/specops/config.json ni config.json en el directorio actual.{RESET}"
+            f"{RED}Error: no configuration found at ~/.config/specops/config.json or config.json in the current directory.{RESET}"
         )
         print(
-            f"Ejecutá 'ws config init --global' o 'ws config init --local' y revisá los valores generados.{RESET}"
+            f"Run 'ws config init --global' or 'ws config init --local' and review the generated values.{RESET}"
         )
         sys.exit(1)
 
     parser = argparse.ArgumentParser(
-        description="Launcher genérico de servicios para desarrollo local.",
+        description="Generic service launcher for local development.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--dir", metavar="PATH", help="Directorio de repos (auto-detectado si no se especifica)"
+        "--dir", metavar="PATH", help="Repos directory (auto-detected if not specified)"
     )
-    parser.add_argument("--stop", action="store_true", help="Detener todos los servicios corriendo")
+    parser.add_argument("--stop", action="store_true", help="Stop all running services")
     parser.add_argument(
         "--start",
         nargs="?",
         const="",
         metavar="REPOS",
-        help="Relanzar la última config sin TUI. REPOS: lista separada por comas.",
+        help="Relaunch the last config without the TUI. REPOS: comma-separated list.",
     )
     args = parser.parse_args()
 
@@ -176,39 +176,37 @@ def main():
         workspaces_dir = PROJECT_CONFIG["workspaces_dir_name"]
         if not sources:
             print(
-                f"{RED}Error: no se encontraron fuentes (repositories/ ni {workspaces_dir}/) en {root}.{RESET}"
+                f"{RED}Error: no sources found (repositories/ or {workspaces_dir}/) in {root}.{RESET}"
             )
             sys.exit(1)
     else:
         workspaces_dir = PROJECT_CONFIG["workspaces_dir_name"]
         print(
-            f"{RED}Error: no se encontró un proyecto con repositories/ o {workspaces_dir}/ desde {start}.{RESET}"
+            f"{RED}Error: no project found with repositories/ or {workspaces_dir}/ from {start}.{RESET}"
         )
-        print("Pasá --dir <path> apuntando a un directorio con repositorios git.")
+        print("Pass --dir <path> pointing to a directory with git repositories.")
         sys.exit(1)
 
     results, launch_configs = load_state()
     if results:
         names = ", ".join(r["name"] for r in results)
-        print(
-            f"{BOLD}Reenganchando {len(results)} servicio(s) en curso:{RESET} {DIM}{names}{RESET}"
-        )
+        print(f"{BOLD}Reattaching {len(results)} running service(s):{RESET} {DIM}{names}{RESET}")
 
     if args.start is not None:
         specific = [r.strip() for r in args.start.split(",") if r.strip()] if args.start else []
         last_cfgs = load_last_configs()
         if not last_cfgs:
-            print(f"{RED}No hay config guardada. Ejecutá run-local.py sin --start primero.{RESET}")
+            print(f"{RED}No saved config. Run run-local.py without --start first.{RESET}")
             sys.exit(1)
         if specific:
             last_cfgs = [c for c in last_cfgs if c["name"] in specific]
         if not last_cfgs:
-            print(f"{RED}Ningún repo encontrado en la última config guardada.{RESET}")
+            print(f"{RED}No repo found in the last saved config.{RESET}")
             sys.exit(1)
         alive_names = {r["name"] for r in results if _pid_alive(r.get("pid"))}
         to_launch = [c for c in last_cfgs if c["name"] not in alive_names]
         if not to_launch:
-            print(f"{DIM}Todos los servicios ya están corriendo.{RESET}")
+            print(f"{DIM}All services are already running.{RESET}")
             return
         new_results, new_lc = _launch_and_report(to_launch, db_cfg)
         results += [r for r in new_results if r["ok"]]
@@ -273,20 +271,20 @@ def main():
 
         deps = _dependents_to_rewire(results, launch_configs, new_names)
         if deps:
-            print(f"\n{BOLD}Levantaste:{RESET} {', '.join(sorted(new_names))}")
+            print(f"\n{BOLD}Started:{RESET} {', '.join(sorted(new_names))}")
             print(
-                f"{DIM}Estos servicios (upstream=auto) pueden re-apuntar a la nueva instancia local:{RESET} {', '.join(deps)}"
+                f"{DIM}These services (upstream=auto) can re-point to the new local instance:{RESET} {', '.join(deps)}"
             )
             try:
-                ans = input("¿Reiniciarlos para apuntar a local? [y/N] ").strip().lower()
+                ans = input("Restart them to point to local? [y/N] ").strip().lower()
             except EOFError:
                 ans = ""
-            if ans in ("y", "s", "yes", "si"):
+            if ans in ("y", "yes"):
                 _restart_named(deps, results, launch_configs, db_cfg)
                 save_state(results, launch_configs)
 
     print(
-        f"{DIM}Servicios siguen corriendo en background. Usá run-local.py --stop para detenerlos.{RESET}\n"
+        f"{DIM}Services keep running in the background. Use run-local.py --stop to stop them.{RESET}\n"
     )
 
 

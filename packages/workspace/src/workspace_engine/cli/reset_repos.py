@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-workspace_engine.cli.reset_repos — Reseteo determinista de repositorios Git al commit base o HEAD limpio.
+workspace_engine.cli.reset_repos — Deterministic reset of Git repositories to the base commit or a clean HEAD.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from workspace_engine.utils import (
 )
 
 
-def _git(repo_path: Path, *args) -> subprocess.CompletedProcess:
+def _git(repo_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return run_git(repo_path, *args)
 
 
@@ -34,7 +34,7 @@ def _parent_branch(workspace_dir: Path, repo_name: str) -> str | None:
         for r in data.get("repositories", []):
             if r.get("name") == repo_name:
                 return r.get("parent_branch")
-    except Exception:
+    except (OSError, json.JSONDecodeError, KeyError):
         pass
     return None
 
@@ -66,7 +66,7 @@ def reset_repositories(
     workspace_dir = find_project_root(start_dir)
     repos_dir = workspace_dir / "repositories"
     if not repos_dir.is_dir():
-        log_error(f"No se encontró directorio repositories/ en {workspace_dir}")
+        log_error(f"repositories/ directory not found in {workspace_dir}")
         return 1
 
     repos: list[Path] = []
@@ -74,7 +74,7 @@ def reset_repositories(
         for name in repo_filter:
             p = repos_dir / name
             if not p.is_dir() or not ((p / ".git").exists() or (p / ".git").is_file()):
-                log_error(f"No es un repositorio git: {name}")
+                log_error(f"Not a git repository: {name}")
                 return 1
             repos.append(p)
     else:
@@ -83,12 +83,12 @@ def reset_repositories(
                 repos.append(p)
 
     if not repos:
-        log_warning(f"No se encontraron repositorios git en {repos_dir}")
+        log_warning(f"No git repositories found in {repos_dir}")
         return 0
 
     print(f"\n{Color.BOLD}Workspace:{Color.RESET} {workspace_dir}")
     if dry_run:
-        print(f"{Color.YELLOW}[MODO SIMULACIÓN — no se realizarán cambios]{Color.RESET}")
+        print(f"{Color.YELLOW}[DRY RUN — no changes will be made]{Color.RESET}")
     print("")
 
     dirty_repos: list[tuple[Path, str | None]] = []
@@ -114,30 +114,28 @@ def reset_repositories(
         print(f"{Color.BOLD}{repo_name}{Color.RESET} {Color.DIM}({branch}){Color.RESET}")
 
         if not has_changes:
-            print(f"  {Color.DIM}limpio — nada para resetear{Color.RESET}")
+            print(f"  {Color.DIM}clean — nothing to reset{Color.RESET}")
             continue
 
         if local_commits:
             short = b_point[:7] if b_point else ""
             print(
-                f"  {Color.DIM}{len(local_commits)} commit(s) local(es) serán descartados (→ {short}):{Color.RESET}"
+                f"  {Color.DIM}{len(local_commits)} local commit(s) will be discarded (-> {short}):{Color.RESET}"
             )
             for c in local_commits[:5]:
                 print(f"    {Color.DIM}{c}{Color.RESET}")
         if tracked_dirty:
             print(
-                f"  {Color.DIM}{len(tracked_dirty)} archivo(s) modificado(s) serán restaurados{Color.RESET}"
+                f"  {Color.DIM}{len(tracked_dirty)} modified file(s) will be restored{Color.RESET}"
             )
         if untracked:
-            print(
-                f"  {Color.DIM}{len(untracked)} archivo(s) sin seguimiento (se conservan){Color.RESET}"
-            )
+            print(f"  {Color.DIM}{len(untracked)} untracked file(s) (kept){Color.RESET}")
 
         dirty_repos.append((r, b_point))
         print("")
 
     if not dirty_repos:
-        log_success("Todos los repositorios están limpios.")
+        log_success("All repositories are clean.")
         return 0
 
     if dry_run:
@@ -145,22 +143,22 @@ def reset_repositories(
 
     if not force:
         print(
-            f"{Color.RED}{Color.BOLD}Se descartarán permanentemente cambios en {len(dirty_repos)} repositorio(s).{Color.RESET}"
+            f"{Color.RED}{Color.BOLD}Changes in {len(dirty_repos)} repository(ies) will be permanently discarded.{Color.RESET}"
         )
-        resp = input(f"{Color.BOLD}¿Continuar? [y/N]: {Color.RESET}").strip().lower()
-        if resp not in ("y", "yes", "s", "si"):
-            log_warning("Operación cancelada.")
+        resp = input(f"{Color.BOLD}Continue? [y/N]: {Color.RESET}").strip().lower()
+        if resp not in ("y", "yes"):
+            log_warning("Operation cancelled.")
             return 0
 
     failed = False
     for r, b_point in dirty_repos:
-        print(f"{Color.BOLD}[{r.name}]{Color.RESET} reseteando...")
+        print(f"{Color.BOLD}[{r.name}]{Color.RESET} resetting...")
         target_ref = b_point if b_point else "HEAD"
         res = _git(r, "reset", "--hard", target_ref)
         if res.returncode == 0:
-            log_success(f"[{r.name}] reseteado correctamente.")
+            log_success(f"[{r.name}] reset successfully.")
         else:
-            log_error(f"[{r.name}] error al resetear: {res.stderr}")
+            log_error(f"[{r.name}] error resetting: {res.stderr}")
             failed = True
 
     return 1 if failed else 0
@@ -168,11 +166,11 @@ def reset_repositories(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Resetea los repositorios del workspace al commit origen o HEAD limpio."
+        description="Resets the workspace repositories to the source commit or a clean HEAD."
     )
-    parser.add_argument("--force", action="store_true", help="Omitir confirmación interactiva")
-    parser.add_argument("--dry-run", action="store_true", help="Simular sin modificar archivos")
-    parser.add_argument("repos", nargs="*", help="Repositorios específicos a resetear")
+    parser.add_argument("--force", action="store_true", help="Skip interactive confirmation")
+    parser.add_argument("--dry-run", action="store_true", help="Simulate without modifying files")
+    parser.add_argument("repos", nargs="*", help="Specific repositories to reset")
     args = parser.parse_args()
 
     sys.exit(reset_repositories(force=args.force, dry_run=args.dry_run, repo_filter=args.repos))

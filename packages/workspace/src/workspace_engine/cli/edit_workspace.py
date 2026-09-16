@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-workspace_engine.cli.edit_workspace — Edición interactiva de repositorios en un workspace existente (agregar o remover).
+workspace_engine.cli.edit_workspace — Interactive editing of repositories in an existing workspace (add or remove).
 """
 
 from __future__ import annotations
@@ -26,14 +26,14 @@ from workspace_engine.utils import (
 )
 
 
-def _git(repo_path: Path, *args) -> subprocess.CompletedProcess:
+def _git(repo_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return run_git(repo_path, *args)
 
 
-def remove_repositories_from_workspace(workspace_dir: Path):
+def remove_repositories_from_workspace(workspace_dir: Path) -> None:
     manifest_path = workspace_dir / ".ai-toolkit" / "workspace.json"
     if not manifest_path.exists():
-        log_error(f"Manifiesto de workspace no encontrado en {manifest_path}")
+        log_error(f"Workspace manifest not found at {manifest_path}")
         sys.exit(1)
 
     existing_data = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -41,20 +41,18 @@ def remove_repositories_from_workspace(workspace_dir: Path):
     current_repo_names: list[str] = [r["name"] for r in existing_data.get("repositories", [])]
 
     if not current_repo_names:
-        log_info("No hay repositorios en este workspace.")
+        log_info("No repositories in this workspace.")
         return
 
-    print(
-        f"\n{Color.BOLD}Selecciona los repositorios a remover de '{workspace_name}':{Color.RESET}"
-    )
+    print(f"\n{Color.BOLD}Select the repositories to remove from '{workspace_name}':{Color.RESET}")
     for idx, name in enumerate(current_repo_names, 1):
         print(f"  {idx}. {name}")
 
     choice = input(
-        f"\n{Color.BOLD}Ingresa números separados por coma o 'q' para cancelar: {Color.RESET}"
+        f"\n{Color.BOLD}Enter comma-separated numbers or 'q' to cancel: {Color.RESET}"
     ).strip()
     if not choice or choice.lower() == "q":
-        log_warning("Operación cancelada.")
+        log_warning("Operation cancelled.")
         return
 
     selected_indices = [int(x.strip()) for x in choice.split(",") if x.strip().isdigit()]
@@ -63,7 +61,7 @@ def remove_repositories_from_workspace(workspace_dir: Path):
     ]
 
     if not to_remove:
-        log_warning("Ningún repositorio seleccionado.")
+        log_warning("No repository selected.")
         return
 
     repos_dir = workspace_dir / "repositories"
@@ -78,7 +76,7 @@ def remove_repositories_from_workspace(workspace_dir: Path):
                 _git(common_path, "worktree", "remove", "--force", str(target_wt))
                 _git(common_path, "worktree", "prune")
             shutil.rmtree(target_wt, ignore_errors=True)
-            log_info(f"  Removido worktree: {rname}")
+            log_info(f"  Removed worktree: {rname}")
 
     remaining_repos = [r for r in current_repo_names if r not in to_remove]
     existing_data["repositories"] = [
@@ -88,19 +86,19 @@ def remove_repositories_from_workspace(workspace_dir: Path):
 
     update_workspace_agents(workspace_dir, remaining_repos)
 
-    log_success(f"Repositorios removidos con éxito: {', '.join(to_remove)}")
+    log_success(f"Repositories removed successfully: {', '.join(to_remove)}")
 
 
-def main():
+def main() -> None:
     workspace_dir = find_project_root()
     if not (workspace_dir / "repositories").is_dir():
-        log_error("edit-workspace debe ejecutarse desde adentro de un workspace.")
+        log_error("edit-workspace must be run from inside a workspace.")
         sys.exit(1)
 
-    print(f"\n{Color.BOLD}Editar Workspace:{Color.RESET} {workspace_dir.name}\n")
-    print("  1) Agregar repositorios")
-    print("  2) Remover repositorios")
-    choice = input(f"\n{Color.BOLD}Opción [1/2]: {Color.RESET}").strip()
+    print(f"\n{Color.BOLD}Edit Workspace:{Color.RESET} {workspace_dir.name}\n")
+    print("  1) Add repositories")
+    print("  2) Remove repositories")
+    choice = input(f"\n{Color.BOLD}Option [1/2]: {Color.RESET}").strip()
 
     env_vars = parse_dotenv(workspace_dir / "config" / ".env")
     repos_dir_str = env_vars.get("AI_REPOSITORIES_DIR", os.environ.get("AI_REPOSITORIES_DIR", ""))
@@ -115,7 +113,7 @@ def main():
     elif choice == "2":
         remove_repositories_from_workspace(workspace_dir)
     else:
-        log_warning("Operación cancelada.")
+        log_warning("Operation cancelled.")
 
 
 if __name__ == "__main__":

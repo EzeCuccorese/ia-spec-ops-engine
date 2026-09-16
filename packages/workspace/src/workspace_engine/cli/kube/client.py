@@ -1,5 +1,5 @@
 """
-workspace_engine.cli.kube.client — Interfaz determinista y cliente kubectl para Kubernetes.
+workspace_engine.cli.kube.client — Deterministic kubectl interface and client for Kubernetes.
 """
 
 from __future__ import annotations
@@ -9,11 +9,11 @@ from typing import Any
 
 from workspace_engine.common import log_warning, run_command_safe
 
-KUBECTL_TIMEOUT = 30  # segundos
+KUBECTL_TIMEOUT = 30  # seconds
 
 
 def is_kubectl_available() -> bool:
-    """Verifica si el binario kubectl está disponible en el PATH del sistema."""
+    """Checks whether the kubectl binary is available on the system PATH."""
     return shutil.which("kubectl") is not None
 
 

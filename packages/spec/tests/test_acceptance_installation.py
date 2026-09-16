@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-
 from spec.agents import AgentsAdapter, ClaudeAdapter
 from spec.cli import main
 from spec.core.ownership import FileChangedError, OwnershipManifest

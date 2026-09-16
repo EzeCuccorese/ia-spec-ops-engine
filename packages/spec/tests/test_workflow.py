@@ -2,7 +2,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from spec.core.result import CheckResult, CheckStatus, VerificationReport
 from spec.spec.workflow import ArtifactExistsError, InvalidTransitionError, Stage, Workflow
 

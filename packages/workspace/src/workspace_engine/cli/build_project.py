@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-workspace_engine.cli.build_project — Compilación y build determinista de proyectos (Gradle, Maven, Node, Go, Python).
+workspace_engine.cli.build_project — Deterministic build for projects (Gradle, Maven, Node, Go, Python).
 """
 
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -16,7 +17,7 @@ from workspace_engine.utils import log_error, log_info, log_success, log_warning
 def build_project(project_dir: Path | None = None) -> int:
     cwd = project_dir or Path.cwd()
 
-    log_info("🔍 Detectando herramienta de construcción...")
+    log_info("🔍 Detecting build tool...")
     if (cwd / "pom.xml").is_file():
         build_tool = "mvn"
         build_cmd = f"{build_tool} clean install"
@@ -46,42 +47,42 @@ def build_project(project_dir: Path | None = None) -> int:
         build_cmd = "python3 -m pip install -e ."
         version_cmd = "python3 -c \"import tomllib, pathlib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text()).get('project', {}).get('version', 'unknown'))\""
     else:
-        log_error("No se detectó un proyecto compatible (Maven, Gradle, Node, Go, Rust o Python).")
+        log_error("No compatible project detected (Maven, Gradle, Node, Go, Rust, or Python).")
         return 1
 
-    log_info(f"🛠️ Proyecto basado en {build_tool.upper()}.")
+    log_info(f"🛠️ Project based on {build_tool.upper()}.")
 
-    # Configurar Java si aplica
+    # Configure Java if applicable
     java_env = None
     if build_tool in ("mvn", "gradle", "gradlew"):
-        log_info("🧪 Configurando Java...")
+        log_info("🧪 Configuring Java...")
         java_env = set_java.setups_java(cwd)
         if not java_env:
-            log_warning("No se pudo configurar Java automáticamente. Se usará el entorno actual.")
+            log_warning("Could not configure Java automatically. Using the current environment.")
             java_env = os.environ.copy()
 
-    log_info(f"🚧 Ejecutando build con {build_tool}...")
+    log_info(f"🚧 Running build with {build_tool}...")
     try:
         output = run_command(build_cmd, cwd=cwd, env=java_env, show_command=True)
         if output:
             print(output)
-        log_success("Build completado con éxito.")
-    except Exception as e:
-        log_error(f"Fallo en build: {e}")
+        log_success("Build completed successfully.")
+    except (OSError, subprocess.SubprocessError) as e:
+        log_error(f"Build failed: {e}")
         return 1
 
-    log_info("📦 Detectando versión del proyecto...")
+    log_info("📦 Detecting project version...")
     try:
         version = run_command(version_cmd, cwd=cwd, env=java_env, check=False)
         if version:
-            log_success(f"🔖 Versión detectada: {version.strip()}")
-    except Exception:
+            log_success(f"🔖 Detected version: {version.strip()}")
+    except (OSError, subprocess.SubprocessError):
         pass
 
     return 0
 
 
-def main():
+def main() -> None:
     sys.exit(build_project())
 
 

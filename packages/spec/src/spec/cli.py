@@ -5,6 +5,7 @@ import json
 import platform
 import sys
 from pathlib import Path
+from typing import Any
 
 from spec import __version__
 from spec.core.ownership import OwnershipError
@@ -171,7 +172,7 @@ def run_verify(root: str | Path, *, as_json: bool = False) -> int:
     boundary = PathBoundary(root)
     feature_dir = boundary.resolve(f".spec/specs/{current_snapshot.feature}")
     spec_path = feature_dir / "spec.md"
-    trace_info = None
+    trace_info: dict[str, Any] | None = None
     if spec_path.is_file():
         from spec.spec.trace import extract_scenarios, find_test_mappings
 
@@ -349,9 +350,9 @@ def main(argv: list[str] | None = None) -> None:
                     if args.file
                     else adapter_cls(args.root, agent=k)
                 )
-                res = adapter_instance.uninstall(dry_run=not args.apply)
-                if not args.apply and res.would_delete:
-                    print(f"Would delete owned adapter for {label}: {res.path}")
+                del_res = adapter_instance.uninstall(dry_run=not args.apply)
+                if not args.apply and del_res.would_delete:
+                    print(f"Would delete owned adapter for {label}: {del_res.path}")
                 elif args.apply:
                     print(f"Cleaned adapter for {label}")
             raise SystemExit(0)
@@ -359,7 +360,7 @@ def main(argv: list[str] | None = None) -> None:
             from spec.core.preflight import PreflightManager
 
             mgr = PreflightManager(args.root)
-            res = mgr.run(
+            preflight_res = mgr.run(
                 args.name,
                 base_branch=args.from_branch,
                 branch=args.branch,
@@ -367,18 +368,20 @@ def main(argv: list[str] | None = None) -> None:
                 description=args.description,
             )
             if args.json:
-                print(json.dumps(res, indent=2))
+                print(json.dumps(preflight_res, indent=2))
             else:
-                if res["status"] == "FAIL":
-                    print(f"Preflight FAIL: {res['error']}")
-                    if res.get("evidence_path"):
-                        print(f"Evidence: {res['evidence_path']}")
+                if preflight_res["status"] == "FAIL":
+                    print(f"Preflight FAIL: {preflight_res['error']}")
+                    if preflight_res.get("evidence_path"):
+                        print(f"Evidence: {preflight_res['evidence_path']}")
                 else:
-                    print(f"Preflight READY: feature '{res['feature']}' initialized")
-                    print(f"Worktree: {res['worktree_path']}")
-                    print(f"Branch: {res['branch']} (from {res['base_branch']})")
-                    print(f"Baseline: {res['baseline']}")
-            raise SystemExit(0 if res["status"] == "READY" else 1)
+                    print(f"Preflight READY: feature '{preflight_res['feature']}' initialized")
+                    print(f"Worktree: {preflight_res['worktree_path']}")
+                    print(
+                        f"Branch: {preflight_res['branch']} (from {preflight_res['base_branch']})"
+                    )
+                    print(f"Baseline: {preflight_res['baseline']}")
+            raise SystemExit(0 if preflight_res["status"] == "READY" else 1)
         if args.command == "new":
             snapshot = Workflow(args.root).create_spec(args.name, args.description)
             print(f"Created spec {snapshot.feature} (stage={snapshot.stage.value})")
@@ -402,27 +405,29 @@ def main(argv: list[str] | None = None) -> None:
             print(f"Completed {snapshot.feature} (stage={snapshot.stage.value})")
             raise SystemExit(0)
         if args.command == "status":
-            snapshot = Workflow(args.root).status()
+            current_status = Workflow(args.root).status()
             payload = (
                 {"status": "IDLE", "active_feature": None, "stage": None}
-                if snapshot is None
+                if current_status is None
                 else {
                     "status": "ACTIVE",
-                    "active_feature": snapshot.feature,
-                    "stage": snapshot.stage.value,
-                    "updated_at": snapshot.updated_at,
+                    "active_feature": current_status.feature,
+                    "stage": current_status.stage.value,
+                    "updated_at": current_status.updated_at,
                     "verification_status": (
-                        snapshot.verification_status.value if snapshot.verification_status else None
+                        current_status.verification_status.value
+                        if current_status.verification_status
+                        else None
                     ),
-                    "evidence_path": snapshot.evidence_path,
+                    "evidence_path": current_status.evidence_path,
                 }
             )
             if args.json:
                 print(json.dumps(payload, indent=2))
-            elif snapshot is None:
+            elif current_status is None:
                 print("No active specification")
             else:
-                print(f"{snapshot.feature}: {snapshot.stage.value}")
+                print(f"{current_status.feature}: {current_status.stage.value}")
             raise SystemExit(0)
         if args.command == "audit":
             raise SystemExit(run_audit(args.root, as_json=args.json))

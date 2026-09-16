@@ -1,5 +1,5 @@
 """
-workspace_engine.common.frontmatter — Parser unificado de YAML frontmatter para reglas y especificaciones markdown.
+workspace_engine.common.frontmatter — Unified YAML frontmatter parser for markdown rules and specs.
 """
 
 from __future__ import annotations
@@ -10,8 +10,8 @@ from typing import Any
 
 def parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
     """
-    Parsea frontmatter YAML simple delimitado por --- al inicio del contenido Markdown.
-    Retorna (metadata_dict, markdown_body).
+    Parses simple YAML frontmatter delimited by --- at the start of Markdown content.
+    Returns (metadata_dict, markdown_body).
     """
     metadata: dict[str, Any] = {}
     body = content.strip()
@@ -28,7 +28,7 @@ def parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
                     if v.startswith("[") and v.endswith("]"):
                         try:
                             metadata[k] = json.loads(v)
-                        except Exception:
+                        except json.JSONDecodeError:
                             metadata[k] = [
                                 s.strip().strip("'\"") for s in v[1:-1].split(",") if s.strip()
                             ]

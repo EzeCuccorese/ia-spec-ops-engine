@@ -1,5 +1,5 @@
 """
-workspace_engine.run_local.constants — Constantes, rutas y configuración para run_local.
+workspace_engine.run_local.constants — Constants, paths, and configuration for run_local.
 """
 
 from __future__ import annotations
@@ -52,13 +52,13 @@ def find_project_root(
     boundary_path = Path(boundary).resolve() if boundary is not None else None
     try:
         home_path = Path.home().resolve()
-    except Exception:
+    except (OSError, RuntimeError):
         home_path = None
     try:
         import pwd
 
         real_home = Path(pwd.getpwuid(os.getuid()).pw_dir).resolve()
-    except Exception:
+    except (OSError, KeyError):
         real_home = None
 
     def _is_home_or_root(p: Path) -> bool:
@@ -112,6 +112,7 @@ def load_project_config(
     }
 
     explicit_path = config_path or custom_path
+    target_path: Path | None
     if explicit_path is not None:
         target_path = Path(explicit_path).resolve()
         if not target_path.exists():
@@ -136,7 +137,7 @@ def load_project_config(
             raise ValueError(
                 f"Invalid JSON in config file '{target_path}': line {e.lineno}, column {e.colno} ({e.msg})"
             ) from e
-        except Exception:
+        except OSError:
             pass
         else:
             if isinstance(user_config, dict):
@@ -173,8 +174,8 @@ _NOISE_PREFIX = ("KUBERNETES_", "JAVA_", "LC_", "LS_COLORS", "JVM_")
 _NOISE_SUFFIX = ("_SERVICE_HOST", "_SERVICE_PORT")
 
 _DEFAULT_DB_CFG = """\
-# run-local.py — configuración de bases de datos locales
-# Usada cuando DB=local para override de URIs en servicios Spring/Node.
+# run-local.py — local database configuration
+# Used when DB=local to override URIs in Spring/Node services.
 local:
   mongodb: mongodb://localhost:27018
   postgresql: postgresql://localhost:5432

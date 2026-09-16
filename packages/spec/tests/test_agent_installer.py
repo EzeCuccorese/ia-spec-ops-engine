@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from spec.cli import main
 from spec.core.ownership import OwnershipManifest
 from spec.governance.project import ProjectGovernance
