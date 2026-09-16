@@ -34,5 +34,3 @@ scratch/*
 .specops/
 CLAUDE.md
 GEMINI.md
-
-.spec/.state.lock

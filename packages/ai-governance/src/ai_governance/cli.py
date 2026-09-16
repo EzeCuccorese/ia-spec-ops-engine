@@ -1,7 +1,4 @@
-"""
-cli.py — Master CLI for SpecOps AI Governance.
-Unifies rules, frugality, telemetry, ritmo, and session management.
-"""
+"""Master CLI for AI Governance tools."""
 
 from __future__ import annotations
 
@@ -17,7 +14,7 @@ console = Console()
 def show_banner() -> None:
     console.print(
         Panel.fit(
-            "[bold cyan]🛡️  SPECOPS AI GOVERNANCE[/bold cyan]\n"
+            "[bold cyan]🛡️  AI GOVERNANCE[/bold cyan]\n"
             "[white]Autonomous Standards, Context Frugality, Token Optimization & Telemetry[/white]",
             border_style="cyan",
         )
@@ -27,7 +24,7 @@ def show_banner() -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="governance",
-        description="SpecOps AI Governance — Engineering Standards, Token Frugality & Telemetry Engine.",
+        description="AI Governance — Engineering Standards, Token Frugality & Telemetry Engine.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = parser.add_subparsers(dest="subcommand", help="Available Governance subcommands")
@@ -64,24 +61,6 @@ def main(argv: list[str] | None = None) -> int:
     # confluence
     sub.add_parser("confluence", help="Confluence documentation reader and writer in Markdown")
 
-    # config
-    sub.add_parser(
-        "config",
-        help="Initialize and manage SpecOps workspace configuration (.specops/config.json)",
-    )
-
-    # agent
-    sub.add_parser(
-        "agent",
-        help="Manage universal AGENTS.md coding agent adapter",
-    )
-
-    # doctor
-    sub.add_parser("doctor", help="Run environment and system diagnostics")
-
-    # audit
-    sub.add_parser("audit", help="Audit repository against governance checkpoints")
-
     args_list = sys.argv[1:] if argv is None else list(argv)
     if not args_list:
         show_banner()
@@ -91,71 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     cmd = args_list[0]
     remaining_args = args_list[1:]
 
-    if cmd == "config":
-        try:
-            from workspace_engine.config.init_config import run_config_init
-        except ImportError:
-            console.print(
-                "[bold yellow]Notice:[/bold yellow] 'workspace_engine' is not installed or available.\n"
-                "Install sibling package 'ia-spec-ops-workspace' to use 'governance config'."
-            )
-            return 1
-
-        cfg_args = remaining_args
-        if cfg_args and cfg_args[0] == "init":
-            cfg_args = cfg_args[1:]
-        return run_config_init(cfg_args)
-    elif cmd == "agent":
-        try:
-            from spec.cli import main as spec_main
-        except ImportError:
-            console.print(
-                "[bold yellow]Notice:[/bold yellow] 'spec' is not installed or available.\n"
-                "Install sibling package 'spec' to use 'governance agent'."
-            )
-            return 1
-
-        try:
-            spec_main(["agent"] + remaining_args)
-            return 0
-        except SystemExit as e:
-            return e.code if isinstance(e.code, int) else 0
-    elif cmd == "doctor":
-        try:
-            from spec.cli import main as spec_main
-            from workspace_engine.cli.main import doctor_check
-        except ImportError:
-            console.print(
-                "[bold yellow]Notice:[/bold yellow] 'spec' or 'ia-spec-ops-workspace' is not installed or available.\n"
-                "Install sibling packages ('spec', 'ia-spec-ops-workspace') to use 'governance doctor'."
-            )
-            return 1
-
-        is_json = "--json" in remaining_args
-        if not is_json:
-            doctor_check()
-            print()
-        try:
-            spec_main(["doctor"] + remaining_args)
-            return 0
-        except SystemExit as e:
-            return e.code if isinstance(e.code, int) else 0
-    elif cmd == "audit":
-        try:
-            from spec.cli import main as spec_main
-        except ImportError:
-            console.print(
-                "[bold yellow]Notice:[/bold yellow] 'spec' is not installed or available.\n"
-                "Install sibling package 'spec' to use 'governance audit'."
-            )
-            return 1
-
-        try:
-            spec_main(["audit"] + remaining_args)
-            return 0
-        except SystemExit as e:
-            return e.code if isinstance(e.code, int) else 0
-    elif cmd == "rules":
+    if cmd == "rules":
         from .rules.cli import main as rules_main
 
         sys.argv = ["rules"] + remaining_args

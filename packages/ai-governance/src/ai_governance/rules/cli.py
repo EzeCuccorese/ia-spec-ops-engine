@@ -171,7 +171,7 @@ def main(argv: list[str] | None = None) -> None:
         type=str,
         default="agents",
         choices=["agents", "all"],
-        help="Write shared rules to AGENTS.md; provider bridges are managed by spec agent",
+        help="Write shared rules to AGENTS.md; provider-specific bridges remain optional",
     )
     args = parser.parse_args(argv or sys.argv[1:])
 

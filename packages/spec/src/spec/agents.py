@@ -39,7 +39,7 @@ When the user mentions or asks for spec-new, spec-plan, spec-verify, or spec-fin
 - **Gherkin as Executable Contract**:
   - Acceptance criteria in `spec.md` must be tagged with `@s1`, `@s2`...
   - Every `@s<n>` scenario must map to at least one test. `spec verify` audits coverage and `spec finish` blocks if scenarios lack test mapping.
-- **Anti-Teléfono-Descompuesto (Disk-First Memory)**:
+- **Anti-Telephone (Disk-First Memory)**:
   - During `spec work`, log TDD cycles and scenario mappings in `.spec/specs/<slug>/work.md`.
   - Keep chat responses concise with single-line references to disk artifacts instead of dumping voluminous diffs or logs into the context window.
 - **The Judge (Pruning Over Drafting)**:
