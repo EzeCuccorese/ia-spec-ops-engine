@@ -1,5 +1,5 @@
 """
-workspace_engine.run_local.profiles — Gestión de perfiles y persistencia de configuraciones para run_local.
+workspace_engine.run_local.profiles — Profile management and configuration persistence for run_local.
 """
 
 from __future__ import annotations

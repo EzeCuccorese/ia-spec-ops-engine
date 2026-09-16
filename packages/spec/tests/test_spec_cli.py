@@ -50,7 +50,6 @@ def test_verify_executes_config_and_records_workflow_evidence(tmp_path: Path, ca
 
 def test_cli_new_command_creates_specification(tmp_path: Path) -> None:
     import pytest
-
     from spec.cli import main
 
     with pytest.raises(SystemExit) as exc:
@@ -61,7 +60,6 @@ def test_cli_new_command_creates_specification(tmp_path: Path) -> None:
 
 def test_cli_audit_command(tmp_path: Path, capsys) -> None:
     import pytest
-
     from spec.cli import main
     from spec.governance.project import ProjectGovernance
 
@@ -112,7 +110,6 @@ def test_verify_includes_scenario_traceability(tmp_path: Path, capsys) -> None:
 
 def test_cli_test_assist_command(tmp_path: Path, capsys) -> None:
     import pytest
-
     from spec.cli import main
 
     with pytest.raises(SystemExit) as exc:

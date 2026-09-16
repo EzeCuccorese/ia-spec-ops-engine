@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-
 from spec.core.paths import PathBoundary, PathOutsideRootError, UnsafeRootError
 
 

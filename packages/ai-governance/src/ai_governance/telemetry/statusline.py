@@ -134,8 +134,9 @@ def main() -> int:
         res = format_statusline(payload, context_warning_pct=60.0)
         if res:
             print(res)
-    except Exception:
-        pass  # Fail open
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError, ValueError, TypeError):
+        # Top-level CLI guard: never break the statusline pipeline (fail open).
+        pass
     return 0
 
 

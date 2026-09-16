@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-workspace_engine.services.select_repos — Selector interactivo TUI para elegir repositorios de desarrollo.
+workspace_engine.services.select_repos — Interactive TUI selector for choosing development repositories.
 """
 
 from __future__ import annotations
@@ -10,16 +10,17 @@ import sys
 import termios
 import tty
 from pathlib import Path
+from typing import IO, Any
 
 from workspace_engine.services.tui_utils import _read_key, _resolve_cursor
 from workspace_engine.utils import Color
 
-TOOLKIT_NAME = "ai-dev-toolkit"
-ADD_NEW_LABEL = "[+ Agregar repositorio por nombre]"
+TOOLKIT_NAME = "ia-spec-ops-engine"
+ADD_NEW_LABEL = "[+ Add repository by name]"
 
 
 def load_repos(repos_root: Path) -> list[str]:
-    """Retorna la lista ordenada de directorios dentro de repos_root que contienen un .git."""
+    """Returns the sorted list of directories inside repos_root that contain a .git."""
     if not repos_root.exists():
         return []
     result = []
@@ -30,18 +31,18 @@ def load_repos(repos_root: Path) -> list[str]:
 
 
 def apply_filter(repos: list[str], query: str) -> list[str]:
-    """Retorna los repositorios cuyos nombres contienen el query buscado."""
+    """Returns the repositories whose names contain the search query."""
     if not query:
         return list(repos)
     q = query.lower()
     return [r for r in repos if q in r.lower()]
 
 
-def _open_tty():
+def _open_tty() -> IO[Any]:
     return open("/dev/tty", "rb+", buffering=0)
 
 
-def _write(tty_fd, s: str):
+def _write(tty_fd: Any, s: str) -> None:
     tty_fd.write(s.encode())
 
 
@@ -53,14 +54,12 @@ def select_repos(
     allow_custom: bool = False,
     locked: list[str] | None = None,
 ) -> list[str] | None:
-    """Ejecuta el selector interactivo TUI de repositorios y retorna los seleccionados."""
+    """Runs the interactive TUI repository selector and returns the selected ones."""
     available = load_repos(repos_root) if repos_root else []
     repos_warning = (
         ""
         if available
-        else (
-            "No se encontraron repositorios" if repos_root else "AI_REPOSITORIES_DIR no configurado"
-        )
+        else ("No repositories found" if repos_root else "AI_REPOSITORIES_DIR not configured")
     )
 
     selected: list[str] = []
@@ -80,13 +79,13 @@ def select_repos(
 
     try:
         tty_fd = _open_tty()
-    except Exception:
-        # Fallback para ambientes sin tty directo
+    except OSError:
+        # Fallback for environments without a direct tty
         return selected
 
     old_attrs = termios.tcgetattr(tty_fd)
 
-    def _restore():
+    def _restore() -> None:
         termios.tcsetattr(tty_fd.fileno(), termios.TCSADRAIN, old_attrs)
         tty_fd.close()
 
@@ -129,22 +128,22 @@ def select_repos(
             lines = []
             lines.append("\033[H\033[J")
             lines.append(f"{sep_d}\r\n")
-            lines.append(f"{Color.BOLD}  Seleccionar Repositorios{Color.RESET}\r\n")
+            lines.append(f"{Color.BOLD}  Select Repositories{Color.RESET}\r\n")
             lines.append(f"{sep_d}\r\n")
             lines.append(
-                f"  {Color.DIM}↑↓ navegar   ESPACIO marcar   ENTER confirmar   ESC volver{Color.RESET}\r\n"
+                f"  {Color.DIM}up/down navigate   SPACE toggle   ENTER confirm   ESC back{Color.RESET}\r\n"
             )
             lines.append("\r\n")
 
             if toolkit_selected:
                 lines.append(
-                    f"  {Color.DIM}Filtro: (no disponible cuando el toolkit está seleccionado){Color.RESET}\r\n"
+                    f"  {Color.DIM}Filter: (not available when the toolkit is selected){Color.RESET}\r\n"
                 )
             else:
                 _fb = filter_str[:filter_cur]
                 _fa = filter_str[filter_cur:]
                 lines.append(
-                    f"  {Color.BOLD}Filtro:{Color.RESET} {Color.YELLOW}{_fb}\x00{_fa}{Color.RESET}\r\n"
+                    f"  {Color.BOLD}Filter:{Color.RESET} {Color.YELLOW}{_fb}\x00{_fa}{Color.RESET}\r\n"
                 )
             lines.append("\r\n")
 
@@ -160,11 +159,11 @@ def select_repos(
 
             if toolkit_selected:
                 lines.append(
-                    f"  {Color.DIM}── Repositorios (desmarcar toolkit para habilitar) ──{Color.RESET}\r\n"
+                    f"  {Color.DIM}-- Repositories (uncheck toolkit to enable) --{Color.RESET}\r\n"
                 )
             else:
                 lines.append(
-                    f"  {Color.BOLD}{Color.CYAN}── Repositorios ───────────────────────────────{Color.RESET}\r\n"
+                    f"  {Color.BOLD}{Color.CYAN}-- Repositories ---------------------------------{Color.RESET}\r\n"
                 )
                 if repos_warning:
                     lines.append(f"  {Color.YELLOW}⚠ {repos_warning}{Color.RESET}\r\n")
@@ -172,7 +171,7 @@ def select_repos(
                     lines.append(f"{sep_s}\r\n")
                     if not filtered:
                         lines.append(
-                            f"  {Color.RED}Ningún repositorio coincide con '{filter_str}'.{Color.RESET}\r\n"
+                            f"  {Color.RED}No repository matches '{filter_str}'.{Color.RESET}\r\n"
                         )
                     else:
                         window = filtered[scroll : scroll + list_height]
@@ -202,7 +201,7 @@ def select_repos(
                                     marker = "▶" if rc == cursor else " "
                                     m_color = Color.YELLOW if rc == cursor else Color.DIM
                                     lines.append(
-                                        f"  {m_color}{marker}{Color.RESET} {Color.DIM}[✔] {item} (en workspace){Color.RESET}{sh}\r\n"
+                                        f"  {m_color}{marker}{Color.RESET} {Color.DIM}[✔] {item} (in workspace){Color.RESET}{sh}\r\n"
                                     )
                                 else:
                                     in_sel = item in selected or item in custom_repos
@@ -228,16 +227,14 @@ def select_repos(
                     parts.append(TOOLKIT_NAME)
                 parts.extend(selected)
                 parts.extend(custom_repos)
-                label = "Agregando" if locked_set else "Seleccionados"
+                label = "Adding" if locked_set else "Selected"
                 lines.append(
                     f"  {Color.BOLD}{label} ({sel_count}):{Color.RESET} {Color.GREEN}{' '.join(parts)}{Color.RESET}\r\n"
                 )
             elif locked_set:
-                lines.append(
-                    f"  {Color.DIM}Ningún repositorio nuevo seleccionado aún.{Color.RESET}\r\n"
-                )
+                lines.append(f"  {Color.DIM}No new repository selected yet.{Color.RESET}\r\n")
             else:
-                lines.append(f"  {Color.DIM}Ningún repositorio seleccionado aún.{Color.RESET}\r\n")
+                lines.append(f"  {Color.DIM}No repository selected yet.{Color.RESET}\r\n")
 
             if error_msg:
                 lines.append("\r\n")
@@ -251,7 +248,7 @@ def select_repos(
 
             if key in (b"\x1b", b"\x03"):
                 return None
-            elif key == b"\x1b[A":  # Arriba
+            elif key == b"\x1b[A":  # Up
                 if cursor > 0:
                     cursor -= 1
                     _rc = (cursor - 1) if show_toolkit else cursor
@@ -259,7 +256,7 @@ def select_repos(
                         scroll = 0
                     elif _rc < scroll:
                         scroll = _rc
-            elif key == b"\x1b[B":  # Abajo
+            elif key == b"\x1b[B":  # Down
                 if cursor < total - 1:
                     cursor += 1
                     _, _rows = shutil.get_terminal_size(fallback=(80, 24))
@@ -270,7 +267,7 @@ def select_repos(
             elif key in (b"\r", b"\n", b""):
                 total_sel = len(selected) + len(custom_repos) + (1 if toolkit_selected else 0)
                 if total_sel == 0:
-                    error_msg = "❌ Selecciona al menos un repositorio."
+                    error_msg = "❌ Select at least one repository."
                 else:
                     break
             elif key == b" ":
@@ -285,12 +282,12 @@ def select_repos(
                     if 0 <= item_idx < len(filtered):
                         item = filtered[item_idx]
                         if item in locked_set:
-                            error_msg = "Ya está en el workspace"
+                            error_msg = "Already in the workspace"
                         elif item == ADD_NEW_LABEL:
                             _restore()
                             tty_fd = _open_tty()
                             old_attrs = termios.tcgetattr(tty_fd)
-                            sys.stdout.write("\n  Nombre del repositorio: ")
+                            sys.stdout.write("\n  Repository name: ")
                             sys.stdout.flush()
                             new_repo = sys.stdin.readline().strip()
                             if new_repo:

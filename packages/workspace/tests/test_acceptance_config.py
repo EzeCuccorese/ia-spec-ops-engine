@@ -21,7 +21,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from workspace_engine.config.init_config import (
     generate_default_config,
     init_config,

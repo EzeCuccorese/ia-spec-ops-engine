@@ -2,7 +2,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from spec.core.result import CheckStatus
 from spec.verify.engine import (
     CommandCheck,

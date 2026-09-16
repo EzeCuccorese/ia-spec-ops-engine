@@ -27,7 +27,6 @@ frugal = "ai_governance.frugality.cli:main"
 statusline = "ai_governance.telemetry.statusline:main"
 telemetry = "ai_governance.telemetry.cli:main"
 progress = "ai_governance.session.cli:main"
-progreso = "ai_governance.session.cli:main"
 jira = "ai_governance.tools.jira:main"
 confluence = "ai_governance.tools.confluence:main"
 
@@ -38,11 +37,3 @@ packages = ["src/ai_governance"]
 pythonpath = ["src", "."]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
-
-[tool.ruff]
-target-version = "py311"
-line-length = 100
-
-[tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP", "SIM"]
-ignore = ["E501"]

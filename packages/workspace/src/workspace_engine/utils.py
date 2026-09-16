@@ -1,12 +1,14 @@
 """
-workspace_engine.utils — Utilidades de terminal, colores, detección de entorno y procesos para Workspace Engine.
+workspace_engine.utils — Terminal utilities, environment detection, and process helpers for Workspace Engine.
 """
 
 from __future__ import annotations
 
 import os
 import subprocess
+from io import TextIOWrapper
 from pathlib import Path
+from types import TracebackType
 
 try:
     import fcntl
@@ -56,11 +58,11 @@ from workspace_engine.common import (
 
 
 class FileLock:
-    """Context manager para bloqueo seguro de archivos en operaciones atómicas."""
+    """Context manager for safe file locking in atomic operations."""
 
     def __init__(self, lock_file_path: str | Path):
         self.lock_file_path = Path(lock_file_path)
-        self._fd = None
+        self._fd: TextIOWrapper | None = None
 
     def __enter__(self) -> FileLock:
         self.lock_file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -69,7 +71,12 @@ class FileLock:
             fcntl.flock(self._fd.fileno(), fcntl.LOCK_EX)
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         if self._fd:
             if _HAS_FCNTL:
                 with contextlib.suppress(OSError):
@@ -78,8 +85,8 @@ class FileLock:
             self._fd = None
 
 
-def run_git(repo_path: str | Path, *args: str) -> subprocess.CompletedProcess:
-    """Ejecuta comandos git de forma hermética, aislando variables ambientales de subshells."""
+def run_git(repo_path: str | Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """Runs git commands hermetically, isolating environment variables from subshells."""
     clean_env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     clean_env["GIT_CONFIG_GLOBAL"] = "/dev/null"
     clean_env["GIT_CONFIG_SYSTEM"] = "/dev/null"
@@ -96,7 +103,7 @@ def run_git(repo_path: str | Path, *args: str) -> subprocess.CompletedProcess:
 
 
 def resolve_local_env(repo_path: Path | str, repo_name: str) -> Path | None:
-    """Ubica el archivo .env de un repositorio específico dentro del workspace."""
+    """Locates the .env file for a specific repository within the workspace."""
     p = Path(repo_path)
     repo_env = p / ".env"
     if repo_env.is_file():
@@ -106,10 +113,11 @@ def resolve_local_env(repo_path: Path | str, repo_name: str) -> Path | None:
     workspace_env = root / "envs" / repo_name / ".env"
     if workspace_env.is_file():
         return workspace_env
+    return None
 
 
 def get_process_cmdline(pid: int) -> str:
-    """Obtiene la línea de comandos de un proceso dado su PID inspeccionando /proc o ps."""
+    """Gets the command line of a process given its PID by inspecting /proc or ps."""
     if pid <= 1:
         return ""
     proc_cmdline = Path(f"/proc/{pid}/cmdline")
@@ -128,7 +136,7 @@ def get_process_cmdline(pid: int) -> str:
         )
         if res.returncode == 0 and res.stdout.strip():
             return res.stdout.strip()
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         pass
 
     return ""

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-workspace_engine.cli.create_worktree — Creación determinista de Git Worktrees y sincronización de archivos de entorno.
+workspace_engine.cli.create_worktree — Deterministic creation of Git Worktrees and environment file synchronization.
 """
 
 from __future__ import annotations
@@ -21,13 +21,13 @@ def _run_cmd(cmd: list[str]) -> tuple[int, str, str]:
 def create_worktree(
     branch: str, from_branch: str | None = None, start_dir: Path | None = None
 ) -> int:
-    """Crea un git worktree para la rama especificada y copia configuraciones locales."""
+    """Creates a git worktree for the specified branch and copies local configurations."""
     repo_root = find_project_root(start_dir)
     sanitized_branch = branch.replace("/", "-")
     worktree_dir = repo_root.parent / f"workspace-{sanitized_branch}"
 
     if worktree_dir.exists():
-        log_error(f"Error: '{worktree_dir}' ya existe")
+        log_error(f"Error: '{worktree_dir}' already exists")
         return 1
 
     base_branch = from_branch
@@ -39,7 +39,7 @@ def create_worktree(
         base_branch = current_branch if (res_branch == 0 and current_branch) else "main"
 
     if base_branch in ("main", "master", "develop", "staging"):
-        log_info(f"🔄 Actualizando rama base '{base_branch}' con git pull...")
+        log_info(f"🔄 Updating base branch '{base_branch}' with git pull...")
         _run_cmd(["git", "-C", str(repo_root), "pull", "origin", base_branch])
 
     code_local, _, _ = _run_cmd(
@@ -87,10 +87,10 @@ def create_worktree(
 
     res, _, err = _run_cmd(cmd)
     if res != 0:
-        log_error(f"Fallo al crear worktree: {err}")
+        log_error(f"Failed to create worktree: {err}")
         return res
 
-    log_success(f"Worktree creado en: {worktree_dir}")
+    log_success(f"Worktree created at: {worktree_dir}")
 
     config_files = [
         "config/.env",
@@ -109,16 +109,16 @@ def create_worktree(
                 shutil.copytree(src, dest, dirs_exist_ok=True)
             else:
                 shutil.copy2(src, dest)
-            log_info(f"  copiado: {rel_path}")
+            log_info(f"  copied: {rel_path}")
 
     return 0
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Crea un Git worktree aislado en ../workspace-<rama>"
+        description="Creates an isolated Git worktree at ../workspace-<branch>"
     )
-    parser.add_argument("branch", help="Nombre de la rama para el worktree")
+    parser.add_argument("branch", help="Branch name for the worktree")
     args = parser.parse_args()
     sys.exit(create_worktree(args.branch))
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-workspace_engine.services.render_agents — Renderiza archivos de configuración de agentes (AGENTS.md, etc.)
-a partir de plantillas deterministas con sustituciones específicas del workspace.
+workspace_engine.services.render_agents — Renders agent configuration files (AGENTS.md, etc.)
+from deterministic templates with workspace-specific substitutions.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ def render_agents_md(
     repos_dir: str,
     repos: list[str],
 ) -> str:
-    """Retorna el contenido renderizado para las instrucciones del workspace."""
+    """Returns the rendered content for the workspace instructions."""
     repo_list = "\n".join(f"- {r}" for r in repos)
     template_file = Path(template_path) if template_path else None
     if not (template_file and template_file.exists()):
@@ -65,7 +65,7 @@ def update_workspace_agents(
 if __name__ == "__main__":
     if len(sys.argv) < 4:
         print(
-            f"Uso: {sys.argv[0]} <template> <workspace_name> <repos_dir> [repo ...]",
+            f"Usage: {sys.argv[0]} <template> <workspace_name> <repos_dir> [repo ...]",
             file=sys.stderr,
         )
         sys.exit(1)

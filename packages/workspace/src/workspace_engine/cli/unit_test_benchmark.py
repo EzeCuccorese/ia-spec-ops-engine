@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-workspace_engine.cli.unit_test_benchmark — Ejecución determinista de benchmarks de tests unitarios locales con métricas y visualización.
+workspace_engine.cli.unit_test_benchmark — Deterministic execution of local unit test benchmarks with metrics and visualization.
 """
 
 from __future__ import annotations
@@ -11,9 +11,10 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 from workspace_engine.cli import set_java
-from workspace_engine.services.benchmark_display import render_final_table
+from workspace_engine.services.benchmark_display import run_final
 from workspace_engine.utils import (
     Color,
     detect_project_type,
@@ -23,8 +24,8 @@ from workspace_engine.utils import (
 )
 
 
-def run_repo_tests(repo_path: Path) -> dict[str, any]:
-    """Ejecuta los tests unitarios de un repositorio y mide tiempos de ejecución."""
+def run_repo_tests(repo_path: Path) -> dict[str, Any]:
+    """Runs a repository's unit tests and measures execution times."""
     name = repo_path.name
     detect_project_type(repo_path)
 
@@ -113,7 +114,7 @@ def run_benchmark(repos_filter: list[str] | None = None, start_dir: Path | None 
         if (workspace_dir / ".git").exists():
             targets = [workspace_dir]
         else:
-            log_error(f"No se encontró carpeta repositories/ en {workspace_dir}")
+            log_error(f"repositories/ folder not found in {workspace_dir}")
             return 1
     else:
         if repos_filter:
@@ -122,7 +123,7 @@ def run_benchmark(repos_filter: list[str] | None = None, start_dir: Path | None 
             targets = [p for p in sorted(repos_dir.iterdir()) if p.is_dir()]
 
     if not targets:
-        log_warning("No hay repositorios para ejecutar benchmark.")
+        log_warning("No repositories to benchmark.")
         return 0
 
     results_dir = workspace_dir / ".ai-toolkit" / "unit-test-benchmark"
@@ -153,13 +154,11 @@ def run_benchmark(repos_filter: list[str] | None = None, start_dir: Path | None 
     ]
     tsv_lines = ["\t".join(headers)]
 
-    print(
-        f"\n{Color.BOLD}Ejecutando suite de tests para {len(targets)} repositorio(s)...{Color.RESET}\n"
-    )
+    print(f"\n{Color.BOLD}Running test suite for {len(targets)} repository(ies)...{Color.RESET}\n")
 
     has_failures = False
     for r in targets:
-        print(f"  {Color.BOLD}[{r.name}]{Color.RESET} ejecutando tests...", end="", flush=True)
+        print(f"  {Color.BOLD}[{r.name}]{Color.RESET} running tests...", end="", flush=True)
         res = run_repo_tests(r)
         if res["exit_code"] != 0:
             has_failures = True
@@ -172,15 +171,15 @@ def run_benchmark(repos_filter: list[str] | None = None, start_dir: Path | None 
 
     summary_file.write_text("\n".join(tsv_lines) + "\n", encoding="utf-8")
     print("\n")
-    render_final_table(workspace_dir, summary_file)
+    run_final(str(summary_file))
     return 1 if has_failures else 0
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Ejecuta benchmark de tests unitarios de repositorios locales."
+        description="Runs a unit test benchmark for local repositories."
     )
-    parser.add_argument("repos", nargs="*", help="Repositorios específicos a testear")
+    parser.add_argument("repos", nargs="*", help="Specific repositories to test")
     args = parser.parse_args()
     sys.exit(run_benchmark(repos_filter=args.repos))
 

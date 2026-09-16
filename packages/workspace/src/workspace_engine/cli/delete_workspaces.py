@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-workspace_engine.cli.delete_workspaces — Eliminación segura e interactiva de workspaces y sus worktrees asociados.
+workspace_engine.cli.delete_workspaces — Safe, interactive deletion of workspaces and their associated worktrees.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ def _git(repo_path: Path, *args: str) -> subprocess.CompletedProcess:
 
 
 def _is_owned_workspace(target: Path) -> bool:
-    """Verifica si el directorio contiene marcadores válidos de propiedad de workspace."""
+    """Checks whether the directory contains valid workspace ownership markers."""
     if (target / ".workspace_metadata").exists():
         return True
     if (target / ".ai-toolkit").is_dir():
@@ -43,7 +43,7 @@ def _is_owned_workspace(target: Path) -> bool:
 
 
 def _has_dirty_repos(target: Path) -> list[str]:
-    """Retorna los nombres de repositorios con cambios sin commitear o sin seguimiento."""
+    """Returns the names of repositories with uncommitted or untracked changes."""
     dirty: list[str] = []
     repos_dir = target / "repositories"
     if repos_dir.is_dir():
@@ -62,7 +62,7 @@ def _has_dirty_repos(target: Path) -> list[str]:
 def delete_single_workspace(
     workspace_dir: Path, force: bool = False, workspaces_dir: Path | None = None
 ) -> bool:
-    # 1. Resolver workspaces_dir base
+    # 1. Resolve the base workspaces_dir
     if workspaces_dir is not None:
         base_dir = Path(workspaces_dir).resolve()
     else:
@@ -71,7 +71,7 @@ def delete_single_workspace(
             root / "workspaces" if (root / "workspaces").exists() else root.parent / "workspaces"
         ).resolve()
 
-    # 2. Confinamiento de rutas: validar que target esté estrictamente contenido en base_dir
+    # 2. Path confinement: validate that target is strictly contained in base_dir
     target = Path(workspace_dir).resolve()
     if not (target.is_relative_to(base_dir) and target != base_dir):
         raise ValueError(
@@ -79,10 +79,10 @@ def delete_single_workspace(
         )
 
     if not target.is_dir():
-        log_error(f"Workspace no encontrado en {target}")
+        log_error(f"Workspace not found at {target}")
         return False
 
-    # 3. Verificación de ownership marker
+    # 3. Ownership marker verification
     if not _is_owned_workspace(target):
         raise ValueError(
             f"Directory '{target}' is not an owned workspace: missing ownership marker "
@@ -91,18 +91,18 @@ def delete_single_workspace(
 
     workspace_name = target.name
 
-    # 4. Comprobación de estado dirty de repositorios
+    # 4. Check repositories' dirty state
     dirty_repos = _has_dirty_repos(target)
     if dirty_repos and not force:
         log_error(
-            f"Workspace '{workspace_name}' contiene cambios sin commitear en: "
-            f"{', '.join(dirty_repos)}. Use force=True para forzar la eliminación."
+            f"Workspace '{workspace_name}' has uncommitted changes in: "
+            f"{', '.join(dirty_repos)}. Use force=True to force deletion."
         )
         return False
 
-    print(f"\n{Color.BOLD}Eliminando workspace '{workspace_name}'...{Color.RESET}")
+    print(f"\n{Color.BOLD}Deleting workspace '{workspace_name}'...{Color.RESET}")
 
-    # 5. Desregistro limpio de Git worktrees si aplica
+    # 5. Clean deregistration of Git worktrees if applicable
     repos_dir = target / "repositories"
     if repos_dir.is_dir():
         for r_dir in repos_dir.iterdir():
@@ -113,7 +113,7 @@ def delete_single_workspace(
                     common_path = Path(git_common.stdout.strip())
                     if not common_path.is_absolute():
                         common_path = (r_dir / common_path).resolve()
-                    # Solo intentar git worktree remove si es efectivamente un worktree vinculado
+                    # Only attempt git worktree remove if it is actually a linked worktree
                     if is_worktree or (
                         common_path != (r_dir / ".git").resolve() and common_path != r_dir
                     ):
@@ -127,24 +127,24 @@ def delete_single_workspace(
                             and "is a main working tree" not in remove_res.stderr
                         ):
                             log_error(
-                                f"Error al remover worktree para '{r_dir.name}': {remove_res.stderr.strip()}"
+                                f"Error removing worktree for '{r_dir.name}': {remove_res.stderr.strip()}"
                             )
                             return False
 
                         _git(common_path, "worktree", "prune")
 
-    # 6. Borrado honesto en el sistema de archivos (sin ignore_errors silencioso)
+    # 6. Honest filesystem deletion (no silent ignore_errors)
     try:
         shutil.rmtree(target)
     except OSError as e:
-        log_error(f"Error al eliminar workspace '{workspace_name}': {e}")
+        log_error(f"Error deleting workspace '{workspace_name}': {e}")
         return False
 
     if target.exists():
-        log_error(f"El directorio de workspace '{target}' no se pudo eliminar completamente.")
+        log_error(f"Workspace directory '{target}' could not be fully deleted.")
         return False
 
-    log_success(f"Workspace '{workspace_name}' eliminado.")
+    log_success(f"Workspace '{workspace_name}' deleted.")
     return True
 
 
@@ -161,36 +161,36 @@ def delete_workspaces(
             root / "workspaces" if (root / "workspaces").exists() else root.parent / "workspaces"
         ).resolve()
 
-    # Si se ejecuta desde adentro de un workspace
+    # If run from inside a workspace
     root = find_project_root()
     if (root / "repositories").is_dir() and root.name != "workspaces":
         if not force:
             print(
-                f"{Color.RED}{Color.BOLD}⚠ Advertencia: Vas a eliminar el workspace actual: {root.name}{Color.RESET}"
+                f"{Color.RED}{Color.BOLD}⚠ Warning: you are about to delete the current workspace: {root.name}{Color.RESET}"
             )
-            resp = input(f"{Color.BOLD}¿Eliminar? [y/N]: {Color.RESET}").strip().lower()
-            if resp not in ("y", "yes", "s", "si"):
-                log_warning("Operación cancelada.")
+            resp = input(f"{Color.BOLD}Delete? [y/N]: {Color.RESET}").strip().lower()
+            if resp not in ("y", "yes"):
+                log_warning("Operation cancelled.")
                 return 0
         ok = delete_single_workspace(root, force=True, workspaces_dir=workspaces_dir)
         return 0 if ok else 1
 
     if not workspaces:
         if not workspaces_root.exists():
-            log_warning("No se encontró directorio de workspaces.")
+            log_warning("Workspaces directory not found.")
             return 0
         available = [d.name for d in sorted(workspaces_root.iterdir()) if d.is_dir()]
         if not available:
-            log_info("No hay workspaces disponibles para eliminar.")
+            log_info("No workspaces available to delete.")
             return 0
-        print(f"\n{Color.BOLD}Workspaces disponibles:{Color.RESET}")
+        print(f"\n{Color.BOLD}Available workspaces:{Color.RESET}")
         for idx, w in enumerate(available, 1):
             print(f"  {idx}. {w}")
         choice = input(
-            f"\n{Color.BOLD}Selecciona los números a eliminar (separados por coma) o 'q' para salir: {Color.RESET}"
+            f"\n{Color.BOLD}Select the numbers to delete (comma-separated) or 'q' to quit: {Color.RESET}"
         ).strip()
         if not choice or choice.lower() == "q":
-            log_warning("Operación cancelada.")
+            log_warning("Operation cancelled.")
             return 0
         selected_indices = [int(x.strip()) for x in choice.split(",") if x.strip().isdigit()]
         workspaces = [available[i - 1] for i in selected_indices if 1 <= i <= len(available)]
@@ -205,9 +205,11 @@ def delete_workspaces(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Elimina workspaces y desregistra sus worktrees.")
-    parser.add_argument("--force", action="store_true", help="Omitir confirmación")
-    parser.add_argument("workspaces", nargs="*", help="Nombres de los workspaces a eliminar")
+    parser = argparse.ArgumentParser(
+        description="Deletes workspaces and deregisters their worktrees."
+    )
+    parser.add_argument("--force", action="store_true", help="Skip confirmation")
+    parser.add_argument("workspaces", nargs="*", help="Names of the workspaces to delete")
     args = parser.parse_args()
 
     try:

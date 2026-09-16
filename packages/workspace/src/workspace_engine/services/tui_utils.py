@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-workspace_engine.services.tui_utils — Utilidades de terminal TUI para captura de teclas, alineación y renderizado ANSI.
+workspace_engine.services.tui_utils — TUI terminal utilities for keypress capture, alignment, and ANSI rendering.
 """
 
 from __future__ import annotations
@@ -10,9 +10,13 @@ import re
 import select as _select
 import sys
 import termios
+from types import ModuleType
+from typing import IO, Any
 
 try:
-    import tty
+    import tty as _tty
+
+    tty: ModuleType | None = _tty
 except ImportError:
     tty = None
 
@@ -20,35 +24,35 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b[^[]")
 
 
 def strip_ansi(text: str) -> str:
-    """Elimina secuencias de escape ANSI para calcular la longitud visible real."""
+    """Removes ANSI escape sequences to compute the real visible length."""
     return _ANSI_RE.sub("", text)
 
 
 def pad_colored(plain_text: str, width: int, colored_text: str) -> str:
-    """Rellena texto con estilos ANSI para encajar exactamente en el ancho de columna."""
+    """Pads ANSI-styled text so it fits exactly within the column width."""
     visible_len = len(strip_ansi(plain_text))
     padding = max(0, width - visible_len)
     return colored_text + " " * padding
 
 
 def draw_separator(cols: int, char: str = "═", bold: bool = True) -> str:
-    """Genera una línea divisoria horizontal ajustada al ancho del terminal."""
+    """Generates a horizontal separator line sized to the terminal width."""
     line = char * max(1, cols)
     if bold:
         return f"\033[1m{line}\033[0m"
     return line
 
 
-def open_tty():
-    """Abre /dev/tty para interacción directa por terminal."""
+def open_tty() -> IO[Any]:
+    """Opens /dev/tty for direct terminal interaction."""
     try:
         return open("/dev/tty", "rb+", buffering=0)
     except OSError:
         return sys.stdin
 
 
-def write_tty(tty_fd, text: str) -> None:
-    """Escribe texto directamente al descriptor del TTY."""
+def write_tty(tty_fd: Any, text: str) -> None:
+    """Writes text directly to the TTY descriptor."""
     if hasattr(tty_fd, "write"):
         if isinstance(text, str):
             tty_fd.write(text.encode("utf-8", errors="ignore"))
@@ -59,8 +63,8 @@ def write_tty(tty_fd, text: str) -> None:
         os.write(tty_fd, text.encode("utf-8", errors="ignore"))
 
 
-def read_key(tty_fd, timeout: float | None = None) -> bytes | None:
-    """Lee una pulsación de tecla acumulando secuencias de escape ANSI multi-byte."""
+def read_key(tty_fd: Any, timeout: float | None = None) -> bytes | None:
+    """Reads a keypress, accumulating multi-byte ANSI escape sequences."""
     fd = tty_fd.fileno() if hasattr(tty_fd, "fileno") else tty_fd
     old_settings = termios.tcgetattr(fd)
     try:
@@ -74,8 +78,8 @@ def read_key(tty_fd, timeout: float | None = None) -> bytes | None:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 
-def _read_key(tty_fd) -> bytes:
-    """Lee una tecla desde TTY esperando secuencias compuestas."""
+def _read_key(tty_fd: Any) -> bytes:
+    """Reads a key from the TTY, waiting for composed sequences."""
     ch = tty_fd.read(1)
     if ch != b"\x1b":
         return ch
@@ -91,7 +95,7 @@ def _read_key(tty_fd) -> bytes:
 
 
 def _resolve_cursor(output: str) -> tuple[str, str]:
-    """Ubica el centinela de cursor \\x00 y retorna (frame, cursor_seq)."""
+    """Locates the \\x00 cursor sentinel and returns (frame, cursor_seq)."""
     idx = output.find("\x00")
     if idx < 0:
         return output, "\033[?25l"

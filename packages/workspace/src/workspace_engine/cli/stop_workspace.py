@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-workspace_engine.cli.stop_workspace — Detención determinista de procesos de servicios levantados en el workspace.
+workspace_engine.cli.stop_workspace — Deterministic termination of workspace service processes.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ def verify_process_identity(
     workspace_dir: Path,
     expected_cmd: str | None = None,
 ) -> bool:
-    """Verifica si el proceso pertenece legítimamente al servicio del workspace y no es un PID reutilizado."""
+    """Checks whether the process legitimately belongs to the workspace service and isn't a reused PID."""
     cmdline = get_process_cmdline(pid)
     if not cmdline:
         return False
@@ -76,17 +76,17 @@ def verify_process_identity(
 
 
 def stop_workspace(start_dir: Path | None = None, timeout: float = 5.0) -> int:
-    """Detiene determinista y acotadamente todos los procesos registrados en .ai-toolkit/run-pids/."""
+    """Deterministically and boundedly stops all processes registered in .ai-toolkit/run-pids/."""
     workspace_dir = find_project_root(start_dir)
     pids_dir = workspace_dir / ".ai-toolkit" / "run-pids"
 
     if not pids_dir.is_dir():
-        log_info("No hay servicios corriendo (.ai-toolkit/run-pids no existe).")
+        log_info("No services running (.ai-toolkit/run-pids does not exist).")
         return 0
 
     pid_files = list(pids_dir.glob("*.pid"))
     if not pid_files:
-        log_info("No hay servicios activos (ningún archivo .pid encontrado).")
+        log_info("No active services (no .pid file found).")
         return 0
 
     stopped = 0
@@ -111,7 +111,7 @@ def stop_workspace(start_dir: Path | None = None, timeout: float = 5.0) -> int:
                 expected_cmd = meta.get("cmdline") or meta.get("command") or meta.get("cmd")
                 if meta.get("repo"):
                     repo = meta["repo"]
-            except Exception:
+            except (json.JSONDecodeError, ValueError, TypeError):
                 pass
         else:
             lines = raw_text.splitlines()
@@ -135,27 +135,27 @@ def stop_workspace(start_dir: Path | None = None, timeout: float = 5.0) -> int:
             is_running = False
 
         if not is_running:
-            log_warning(f"  {repo} (PID {pid}) ya no está corriendo.")
+            log_warning(f"  {repo} (PID {pid}) is no longer running.")
             pid_file.unlink(missing_ok=True)
             continue
 
         if not verify_process_identity(pid, repo, workspace_dir, expected_cmd=expected_cmd):
             log_warning(
-                f"  {repo} (PID {pid}) no coincide con la identidad esperada del servicio. Señal omitida."
+                f"  {repo} (PID {pid}) does not match the expected service identity. Signal skipped."
             )
             pid_file.unlink(missing_ok=True)
             continue
 
-        log_info(f"Deteniendo {repo} (PID {pid})...")
+        log_info(f"Stopping {repo} (PID {pid})...")
 
         proc_pgid = None
         with contextlib.suppress(OSError):
             proc_pgid = os.getpgid(pid)
 
-        # Solo señalizar el process group si es líder de grupo y NO es nuestro propio grupo
+        # Only signal the process group if it's the group leader and NOT our own group
         use_pg = proc_pgid is not None and proc_pgid == pid and proc_pgid != my_pgid
 
-        if use_pg:
+        if use_pg and proc_pgid is not None:
             with contextlib.suppress(OSError):
                 os.killpg(proc_pgid, signal.SIGTERM)
         with contextlib.suppress(OSError):
@@ -174,7 +174,7 @@ def stop_workspace(start_dir: Path | None = None, timeout: float = 5.0) -> int:
                 break
 
         if not process_terminated:
-            if use_pg:
+            if use_pg and proc_pgid is not None:
                 with contextlib.suppress(OSError):
                     os.killpg(proc_pgid, signal.SIGKILL)
             with contextlib.suppress(OSError):
@@ -192,25 +192,25 @@ def stop_workspace(start_dir: Path | None = None, timeout: float = 5.0) -> int:
             stopped += 1
         else:
             log_warning(
-                f"  {repo} (PID {pid}) no respondió a las señales de terminación tras {timeout}s."
+                f"  {repo} (PID {pid}) did not respond to termination signals after {timeout}s."
             )
 
         pid_file.unlink(missing_ok=True)
 
     if stopped > 0:
-        log_success(f"Se detuvieron {stopped} servicio(s).")
+        log_success(f"Stopped {stopped} service(s).")
     else:
-        log_info("No había servicios activos.")
+        log_info("No active services.")
     return 0
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Detiene los servicios activos del workspace.")
+    parser = argparse.ArgumentParser(description="Stops the workspace's active services.")
     parser.add_argument(
         "--timeout",
         type=float,
         default=5.0,
-        help="Tiempo límite en segundos para la detención de procesos.",
+        help="Timeout in seconds for stopping processes.",
     )
     args = parser.parse_args()
     sys.exit(stop_workspace(timeout=args.timeout))

@@ -1,7 +1,7 @@
 """
-Tests unitarios exhaustivos para workspace_engine.run_local.process_manager.
-Cubre verificación de procesos vivos, escalado de señales, guardado y carga de estado,
-manejo de puertos y terminación elegante.
+Comprehensive unit tests for workspace_engine.run_local.process_manager.
+Covers live-process checks, signal escalation, state save/load,
+port handling, and graceful termination.
 """
 
 import os
@@ -21,7 +21,7 @@ from workspace_engine.run_local.process_manager import (
 def test_pid_alive_current_process():
     current_pid = os.getpid()
     assert _pid_alive(current_pid) is True
-    assert _pid_alive(99999999) is False  # PID inexistente
+    assert _pid_alive(99999999) is False  # nonexistent PID
 
 
 def test_status_str():
@@ -67,20 +67,20 @@ def test_save_and_load_state():
 
 
 def test_graceful_kill_pid_already_dead():
-    # Matar un PID inexistente debe ser no-op sin lanzar excepción
+    # Killing a nonexistent PID must be a no-op without raising
     graceful_kill_pid(99999999, timeout=0.1)
 
 
 @patch("os.kill")
 def test_graceful_kill_pid_escalation(mock_kill):
-    # Simular que el proceso no muere con SIGTERM y requiere SIGKILL
+    # Simulate the process not dying on SIGTERM, requiring SIGKILL
     with patch(
         "workspace_engine.run_local.process_manager._pid_alive",
         side_effect=[True, True, True, False],
     ):
         graceful_kill_pid(12345, timeout=0.1)
 
-        # Verificar que se llamó a SIGTERM (15) y luego a SIGKILL (9)
+        # Verify SIGTERM (15) was sent, followed by SIGKILL (9)
         calls = mock_kill.call_args_list
         signals_sent = [call[0][1] for call in calls]
         assert 15 in signals_sent
@@ -94,7 +94,7 @@ def test_stop_all_clean_pids():
         state_file = Path(tmpdir) / "state.json"
         state_file.touch()
 
-        # Crear archivos pid falsos
+        # Create fake pid files
         (pids_dir / "service1.pid").write_text("99999991\n")
         (pids_dir / "service2.pid").write_text("99999992\n")
 
@@ -105,14 +105,14 @@ def test_stop_all_clean_pids():
         ):
             stop_all()
             assert mock_kill.call_count == 2
-            # Los archivos .pid y state.json deben haberse borrado
+            # The .pid files and state.json should have been deleted
             assert len(list(pids_dir.glob("*.pid"))) == 0
             assert not state_file.exists()
 
 
 @patch("os.kill")
 def test_graceful_kill_pid_safety_guards(mock_kill):
-    """Rechazar inmediatamente pids <= 1 o pid del proceso actual sin enviar señales."""
+    """Immediately reject pids <= 1 or the current process's pid without sending signals."""
     graceful_kill_pid(0)
     graceful_kill_pid(1)
     graceful_kill_pid(os.getpid())
@@ -121,7 +121,7 @@ def test_graceful_kill_pid_safety_guards(mock_kill):
 
 @patch("os.kill")
 def test_graceful_kill_pid_pid_reuse_prevention(mock_kill):
-    """W05: Proteger contra PID reutilizado por un proceso ajeno al servicio."""
+    """W05: Guard against a PID reused by a process unrelated to the service."""
     with patch(
         "workspace_engine.utils.get_process_cmdline",
         return_value="postgres: background worker",
@@ -132,11 +132,11 @@ def test_graceful_kill_pid_pid_reuse_prevention(mock_kill):
 
 @patch("os.kill")
 def test_graceful_kill_pid_does_not_kill_own_group(mock_kill):
-    """No enviar señal a -pid si pid coincide con el grupo del proceso actual."""
+    """Do not signal -pid if pid matches the current process's group."""
     current_pgid = os.getpgrp()
     with (
         patch("workspace_engine.run_local.process_manager._pid_alive", return_value=False),
-        patch("os.getpid", return_value=99999),  # diferente al pid testeado
+        patch("os.getpid", return_value=99999),  # different from the tested pid
     ):
         stopped = graceful_kill_pid(current_pgid)
         # Verify that os.kill was NOT called with -current_pgid
@@ -147,7 +147,7 @@ def test_graceful_kill_pid_does_not_kill_own_group(mock_kill):
 
 @patch("os.kill")
 def test_graceful_kill_pid_rejects_disallowed_tools(mock_kill):
-    """Rechazar procesos de herramientas como grep, cat o vim que contienen el nombre del servicio como argumento."""
+    """Reject tool processes like grep, cat, or vim that contain the service name as an argument."""
     with patch(
         "workspace_engine.utils.get_process_cmdline",
         return_value="grep -r auth-service .",
@@ -159,20 +159,20 @@ def test_graceful_kill_pid_rejects_disallowed_tools(mock_kill):
 
 @patch("os.kill")
 def test_graceful_kill_pid_rejects_foreign_workspace_matching_service_name(mock_kill):
-    """Verifica que si la ruta del servicio (service_path) no coincide con cmdline,
+    """Verifies that when the service path (service_path) does not match cmdline,
 
-    NO se acepte el proceso aunque service_name coincida en otro workspace
-    (e.g. buscando proyecto-a/api contra node /workspaces/proyecto-b/api/server.js).
+    the process is NOT accepted even if service_name matches in another workspace
+    (e.g. looking for project-a/api against node /workspaces/project-b/api/server.js).
     """
     with patch(
         "workspace_engine.utils.get_process_cmdline",
-        return_value="node /workspaces/proyecto-b/api/server.js",
+        return_value="node /workspaces/project-b/api/server.js",
     ):
-        # Buscando proyecto-a/api con service_name="api" y service_path="proyecto-a/api"
+        # Looking for project-a/api with service_name="api" and service_path="project-a/api"
         stopped = graceful_kill_pid(
             12345,
             service_name="api",
-            service_path="proyecto-a/api",
+            service_path="project-a/api",
         )
         assert stopped is False
         mock_kill.assert_not_called()
@@ -180,17 +180,17 @@ def test_graceful_kill_pid_rejects_foreign_workspace_matching_service_name(mock_
 
 @patch("os.kill")
 def test_graceful_kill_pid_rejects_foreign_workspace_when_service_name_has_path(mock_kill):
-    """Verifica que si service_name incluye ruta (e.g. 'proyecto-a/api'),
+    """Verifies that when service_name includes a path (e.g. 'project-a/api'),
 
-    se rechace si cmdline apunta a otro workspace ('proyecto-b/api').
+    it is rejected if cmdline points to another workspace ('project-b/api').
     """
     with patch(
         "workspace_engine.utils.get_process_cmdline",
-        return_value="node /workspaces/proyecto-b/api/server.js",
+        return_value="node /workspaces/project-b/api/server.js",
     ):
         stopped = graceful_kill_pid(
             12345,
-            service_name="proyecto-a/api",
+            service_name="project-a/api",
         )
         assert stopped is False
         mock_kill.assert_not_called()
@@ -198,18 +198,18 @@ def test_graceful_kill_pid_rejects_foreign_workspace_when_service_name_has_path(
 
 @patch("os.kill")
 def test_graceful_kill_pid_accepts_matching_service_path(mock_kill):
-    """Verifica que si service_path coincide en cmdline, el proceso es aceptado."""
+    """Verifies that when service_path matches in cmdline, the process is accepted."""
     with (
         patch(
             "workspace_engine.utils.get_process_cmdline",
-            return_value="node /workspaces/proyecto-a/api/server.js",
+            return_value="node /workspaces/project-a/api/server.js",
         ),
         patch("workspace_engine.run_local.process_manager._pid_alive", return_value=False),
     ):
         stopped = graceful_kill_pid(
             12345,
             service_name="api",
-            service_path="proyecto-a/api",
+            service_path="project-a/api",
         )
         assert stopped is True
         mock_kill.assert_called()

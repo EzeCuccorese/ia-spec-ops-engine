@@ -34,7 +34,6 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-
 from workspace_engine.cli.clean_workspace import clean_workspace
 from workspace_engine.cli.delete_workspaces import delete_single_workspace, delete_workspaces
 from workspace_engine.cli.reset_repos import reset_repositories
@@ -330,9 +329,9 @@ def test_pid_reuse_does_not_signal_foreign_process(
 def test_pid_reuse_rejects_matching_name_in_foreign_workspace(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """W05: stop_workspace rechaza procesos cuyo nombre de servicio coincide pero pertenecen a otro workspace
+    """W05: stop_workspace rejects processes whose service name matches but that belong to another workspace
 
-    (e.g. buscando en ws_a/api contra node /workspaces/proyecto-b/api/server.js).
+    (e.g. looking up ws_a/api against node /workspaces/project-b/api/server.js).
     """
     ws_dir = tmp_path / "ws_pid_reuse_ws_a"
     pids_dir = ws_dir / ".ai-toolkit" / "run-pids"
@@ -356,15 +355,15 @@ def test_pid_reuse_rejects_matching_name_in_foreign_workspace(
     monkeypatch.setattr("os.killpg", mock_killpg)
     monkeypatch.setattr("os.getpgid", lambda p: p)
 
-    # El cmdline pertenece a otro workspace (proyecto-b)
+    # The cmdline belongs to another workspace (project-b)
     monkeypatch.setattr(
         "workspace_engine.cli.stop_workspace.get_process_cmdline",
-        lambda pid: "node /workspaces/proyecto-b/api/server.js",
+        lambda pid: "node /workspaces/project-b/api/server.js",
     )
 
     stop_workspace(ws_dir)
 
-    # ORÁCULO CRÍTICO: No se envía ninguna señal al proceso del workspace ajeno
+    # CRITICAL ORACLE: No signal is sent to the foreign workspace's process
     assert len(signals_sent) == 0, f"Foreign workspace process was signaled: {signals_sent}"
     assert not pid_file.exists()
 

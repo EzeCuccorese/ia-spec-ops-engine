@@ -1,9 +1,9 @@
 """
-Tests de Integración End-to-End Aislados e Idempotentes para ia-spec-ops-engine.
+Isolated, idempotent end-to-end integration tests for ia-spec-ops-engine.
 
-Crea repositorios Git y workspaces temporales para verificar:
-1. Ciclo completo de Workspace Engine: generate -> worktree -> build -> clean -> delete.
-2. Ciclo completo de SDD Engine: init -> specify -> plan -> tasks -> verify -> finish.
+Creates temporary Git repositories and workspaces to verify:
+1. Full Workspace Engine cycle: generate -> worktree -> build -> clean -> delete.
+2. Full SDD Engine cycle: init -> specify -> plan -> tasks -> verify -> finish.
 """
 
 import os
@@ -12,14 +12,13 @@ import tempfile
 from pathlib import Path
 
 import pytest
-
 from workspace_engine.cli.clean_workspace import clean_workspace
 from workspace_engine.cli.generate_workspace import create_workspace_structure
 from workspace_engine.services.configure_repos import RepoConfig
 
 
 def _init_git_repo(repo_path: Path) -> None:
-    """Inicializa un repositorio git local con un commit inicial."""
+    """Initializes a local git repository with an initial commit."""
     repo_path.mkdir(parents=True, exist_ok=True)
     clean_env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     git_env = {
@@ -64,19 +63,19 @@ def _init_git_repo(repo_path: Path) -> None:
 
 @pytest.mark.integration
 def test_e2e_workspace_flow_isolated():
-    """Prueba de integración aislada para el ciclo de vida del workspace."""
+    """Isolated integration test for the workspace lifecycle."""
     with tempfile.TemporaryDirectory() as tmpdir:
         base_dir = Path(tmpdir)
         repos_dir = base_dir / "ai-repositories"
         workspaces_dir = base_dir / "workspaces"
 
-        # 1. Crear repositorios base
+        # 1. Create base repositories
         repo_a = repos_dir / "auth-service"
         repo_b = repos_dir / "billing-service"
         _init_git_repo(repo_a)
         _init_git_repo(repo_b)
 
-        # 2. Configurar y generar workspace
+        # 2. Configure and generate the workspace
         repo_configs = [
             RepoConfig(name="auth-service", mode="new", branch="feature-test", parent="main"),
             RepoConfig(name="billing-service", mode="new", branch="feature-test", parent="main"),
@@ -90,13 +89,13 @@ def test_e2e_workspace_flow_isolated():
             repo_paths=repo_paths,
         )
 
-        # 3. Validar estructura creada
+        # 3. Validate the created structure
         assert ws_dir.exists()
         assert (ws_dir / "repositories" / "auth-service").exists()
         assert (ws_dir / "repositories" / "billing-service").exists()
         assert (ws_dir / ".ai-toolkit" / "workspace.json").exists()
         assert (ws_dir / "AGENTS.md").exists()
 
-        # 4. Limpieza del workspace
+        # 4. Clean up the workspace
         code = clean_workspace(ws_dir)
         assert code == 0

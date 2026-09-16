@@ -5,7 +5,6 @@ import tempfile
 from pathlib import Path
 
 import pytest
-
 from workspace_engine.cli.manage_hooks import main as manage_hooks_cli
 from workspace_engine.services.git_hooks import (
     generate_canonical_pre_push_script,

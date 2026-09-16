@@ -19,20 +19,20 @@ class OutputTrimmer:
         return bool(SKIP_COMMAND_RE.search(cmd))
 
     @staticmethod
-    def is_homogeneous(lineas: list[str], pct: float = 0.7) -> bool:
-        prefijos = [line.strip()[:3] for line in lineas if line.strip()]
-        if not prefijos:
+    def is_homogeneous(lines: list[str], pct: float = 0.7) -> bool:
+        prefixes = [line.strip()[:3] for line in lines if line.strip()]
+        if not prefixes:
             return False
-        _, top = Counter(prefijos).most_common(1)[0]
-        return (top / len(prefijos)) >= pct
+        _, top = Counter(prefixes).most_common(1)[0]
+        return (top / len(prefixes)) >= pct
 
     @staticmethod
-    def parse_large_json(texto: str, threshold: int = 50) -> tuple[Any, int] | None:
-        texto = texto.strip()
-        if not texto or texto[0] not in "[{":
+    def parse_large_json(text: str, threshold: int = 50) -> tuple[Any, int] | None:
+        text = text.strip()
+        if not text or text[0] not in "[{":
             return None
         try:
-            parsed = json.loads(texto)
+            parsed = json.loads(text)
         except (ValueError, TypeError):
             return None
 
@@ -47,24 +47,24 @@ class OutputTrimmer:
         if isinstance(parsed, list):
             sample = parsed[0]
             if isinstance(sample, dict):
-                claves = ", ".join(sorted(sample.keys()))
+                keys = ", ".join(sorted(sample.keys()))
                 first_key = sorted(sample.keys())[0] if sample else ""
-                sugerencia = f"jq -r '.[].{first_key}' <file>"
+                suggestion = f"jq -r '.[].{first_key}' <file>"
             else:
-                claves = type(sample).__name__
-                sugerencia = "jq -r '.[]' <file>"
+                keys = type(sample).__name__
+                suggestion = "jq -r '.[]' <file>"
             msg = (
                 f"[frugality trimmed: JSON array of {n} items]\n"
-                f"  sample item keys: {claves}\n"
-                f"  project only needed fields, e.g.: {sugerencia}\n\n{reference}"
+                f"  sample item keys: {keys}\n"
+                f"  project only needed fields, e.g.: {suggestion}\n\n{reference}"
             )
             return msg.strip()
 
-        claves = ", ".join(sorted(parsed.keys())[:20])
+        keys = ", ".join(sorted(parsed.keys())[:20])
         extra = " ..." if len(parsed) > 20 else ""
         msg = (
             f"[frugality trimmed: JSON object with {n} keys]\n"
-            f"  keys: {claves}{extra}\n"
+            f"  keys: {keys}{extra}\n"
             f"  project only needed keys with jq -r\n\n{reference}"
         )
         return msg.strip()
@@ -76,26 +76,26 @@ class OutputTrimmer:
             parsed, n = large_json
             return cls.skeleton_json(parsed, n, reference)
 
-        lineas = stdout.splitlines()
-        n = len(lineas)
-        min_lineas = cfg.get("min_lineas_listado", 120)
+        lines = stdout.splitlines()
+        n = len(lines)
+        min_lines = cfg.get("min_lineas_listado", 120)
         pct = cfg.get("prefijo_homogeneo_pct", 0.7)
 
-        if n < min_lineas or not cls.is_homogeneous(lineas, pct):
+        if n < min_lines or not cls.is_homogeneous(lines, pct):
             return None
 
         h = cfg.get("head_lineas", 30)
         t = cfg.get("tail_lineas", 20)
-        head = lineas[:h]
-        tail = lineas[-t:] if n > h + t else []
-        omitidas = n - len(head) - len(tail)
+        head = lines[:h]
+        tail = lines[-t:] if n > h + t else []
+        omitted = n - len(head) - len(tail)
 
-        partes = [
+        parts = [
             "\n".join(head),
-            f"[... {omitidas} lines omitted for frugality ...]",
+            f"[... {omitted} lines omitted for frugality ...]",
             "\n".join(tail),
         ]
-        res = "\n\n".join(partes)
+        res = "\n\n".join(parts)
         if reference:
             res += f"\n\n{reference}"
         return res

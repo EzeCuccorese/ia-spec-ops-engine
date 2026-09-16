@@ -64,7 +64,11 @@ def main(argv: list[str] | None = None) -> int:
                 }
             )
         )
-    except Exception:
+    except Exception as exc:
+        # Fail-open by design (see module docstring): this hook must never
+        # crash or block the caller, so any unexpected error is reported to
+        # stderr and swallowed rather than propagated.
+        print(f"worktree_hook: ignoring unexpected error: {exc}", file=sys.stderr)
         return 0
     return 0
 

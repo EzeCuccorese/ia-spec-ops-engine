@@ -34,56 +34,56 @@ class TestTrimmer:
 
     @staticmethod
     def trim(stdout: str, cfg: dict[str, Any], reference: str = "") -> str:
-        lineas = stdout.splitlines()
-        n = len(lineas)
+        lines = stdout.splitlines()
+        n = len(lines)
         if n == 0:
             return stdout
 
         tail_n = min(cfg.get("test_tail_lineas", 15), n)
-        inicio_resumen = n - tail_n
-        resumen_final = lineas[inicio_resumen:]
+        summary_start = n - tail_n
+        final_summary = lines[summary_start:]
 
-        indices_falla = [
-            i for i, line in enumerate(lineas[:inicio_resumen]) if FAIL_MARKER_RE.search(line)
+        failure_indices = [
+            i for i, line in enumerate(lines[:summary_start]) if FAIL_MARKER_RE.search(line)
         ]
 
-        partes = []
-        if not indices_falla:
-            head_n = min(cfg.get("test_head_lineas", 3), inicio_resumen)
-            partes.append("\n".join(lineas[:head_n]))
-            omitidas = inicio_resumen - head_n
-            if omitidas > 0:
-                partes.append(
-                    f"[... {omitidas} lines of green test output omitted for frugality ...]"
+        parts = []
+        if not failure_indices:
+            head_n = min(cfg.get("test_head_lineas", 3), summary_start)
+            parts.append("\n".join(lines[:head_n]))
+            omitted = summary_start - head_n
+            if omitted > 0:
+                parts.append(
+                    f"[... {omitted} lines of green test output omitted for frugality ...]"
                 )
-            anterior_fin = inicio_resumen - 1
+            previous_end = summary_start - 1
         else:
-            antes = cfg.get("test_contexto_antes", 3)
-            despues = cfg.get("test_contexto_despues", 30)
-            bloques: list[tuple[int, int]] = []
-            for i in indices_falla:
-                ini, fin = max(0, i - antes), min(inicio_resumen - 1, i + despues)
-                if bloques and ini <= bloques[-1][1] + 1:
-                    bloques[-1] = (bloques[-1][0], max(bloques[-1][1], fin))
+            before = cfg.get("test_contexto_antes", 3)
+            after = cfg.get("test_contexto_despues", 30)
+            blocks: list[tuple[int, int]] = []
+            for i in failure_indices:
+                start, end = max(0, i - before), min(summary_start - 1, i + after)
+                if blocks and start <= blocks[-1][1] + 1:
+                    blocks[-1] = (blocks[-1][0], max(blocks[-1][1], end))
                 else:
-                    bloques.append((ini, fin))
+                    blocks.append((start, end))
 
-            anterior_fin = -1
-            for ini, fin in bloques:
-                omitidas = ini - anterior_fin - 1
-                if omitidas > 0:
-                    partes.append(f"[... {omitidas} test output lines omitted ...]")
-                partes.append("\n".join(lineas[ini : fin + 1]))
-                anterior_fin = fin
+            previous_end = -1
+            for start, end in blocks:
+                omitted = start - previous_end - 1
+                if omitted > 0:
+                    parts.append(f"[... {omitted} test output lines omitted ...]")
+                parts.append("\n".join(lines[start : end + 1]))
+                previous_end = end
 
-        if inicio_resumen > anterior_fin + 1:
-            omitidas = inicio_resumen - anterior_fin - 1
-            if omitidas > 0:
-                partes.append(f"[... {omitidas} lines omitted ...]")
+        if summary_start > previous_end + 1:
+            omitted = summary_start - previous_end - 1
+            if omitted > 0:
+                parts.append(f"[... {omitted} lines omitted ...]")
 
-        partes.append("\n".join(resumen_final))
+        parts.append("\n".join(final_summary))
 
-        result = "\n\n".join(partes)
+        result = "\n\n".join(parts)
         if reference:
             result += f"\n\n{reference}"
         return result

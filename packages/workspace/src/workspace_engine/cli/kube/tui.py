@@ -1,5 +1,5 @@
 """
-workspace_engine.cli.kube.tui — Interfaz interactiva Rich TUI para Kubernetes.
+workspace_engine.cli.kube.tui — Interactive Rich TUI interface for Kubernetes.
 """
 
 from __future__ import annotations
@@ -9,34 +9,33 @@ from typing import Any
 from rich.console import Console
 from rich.prompt import Prompt
 from rich.table import Table
-
 from workspace_engine.common import log_warning
 
 console = Console()
 
 
 def select_context(contexts: list[dict[str, Any]]) -> str | None:
-    """Muestra un picker interactivo con Rich para seleccionar el contexto de Kubernetes."""
+    """Shows an interactive Rich picker to select the Kubernetes context."""
     if not contexts:
-        log_warning("No se encontraron contextos de kubectl configurados.")
+        log_warning("No configured kubectl contexts found.")
         return None
 
     if len(contexts) == 1:
         return contexts[0]["name"]
 
-    table = Table(title="Contextos Kubernetes Disponibles", border_style="cyan")
+    table = Table(title="Available Kubernetes Contexts", border_style="cyan")
     table.add_column("#", justify="right", style="cyan", no_wrap=True)
-    table.add_column("Nombre del Contexto", style="bold")
-    table.add_column("Estado", justify="center")
+    table.add_column("Context Name", style="bold")
+    table.add_column("Status", justify="center")
 
     for idx, ctx in enumerate(contexts, 1):
-        status = "[green]✓ Actual[/green]" if ctx["is_current"] else ""
+        status = "[green]✓ Current[/green]" if ctx["is_current"] else ""
         table.add_row(str(idx), ctx["name"], status)
 
     console.print(table)
 
     choice = Prompt.ask(
-        "Selecciona el número del contexto",
+        "Select the context number",
         choices=[str(i) for i in range(1, len(contexts) + 1)],
         default="1",
     )
@@ -44,16 +43,16 @@ def select_context(contexts: list[dict[str, Any]]) -> str | None:
 
 
 def select_operation() -> str:
-    """Selecciona la operación K8s deseada (env, logs, shell)."""
-    table = Table(title="Operaciones Kubernetes", border_style="magenta")
+    """Selects the desired K8s operation (env, logs, shell)."""
+    table = Table(title="Kubernetes Operations", border_style="magenta")
     table.add_column("#", justify="right", style="cyan")
-    table.add_column("Operación", style="bold")
-    table.add_column("Descripción")
+    table.add_column("Operation", style="bold")
+    table.add_column("Description")
 
     ops = [
-        ("env", "Extraer variables de entorno (.env y set-env.sh)"),
-        ("logs", "Ver logs en tiempo real de los pods"),
-        ("shell", "Abrir shell interactivo dentro del pod"),
+        ("env", "Extract environment variables (.env and set-env.sh)"),
+        ("logs", "View real-time logs from the pods"),
+        ("shell", "Open an interactive shell inside the pod"),
     ]
 
     for idx, (op, desc) in enumerate(ops, 1):
@@ -61,7 +60,7 @@ def select_operation() -> str:
 
     console.print(table)
     choice = Prompt.ask(
-        "Selecciona una operación",
+        "Select an operation",
         choices=[str(i) for i in range(1, len(ops) + 1)],
         default="1",
     )

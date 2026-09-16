@@ -1,5 +1,5 @@
 """
-workspace_engine.run_local.service_wiring — Lógica de dominio para descubrimiento de servicios, asignación de puertos, URLs y base de datos.
+workspace_engine.run_local.service_wiring — Domain logic for service discovery, port assignment, URL and database wiring.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 def assign_port(repo_name: str) -> int:
-    """Genera un número de puerto local determinista (8000-8999) según hash del repositorio."""
+    """Generates a deterministic local port number (8000-8999) based on a hash of the repository."""
     h = hashlib.md5(repo_name.encode("utf-8")).hexdigest()
     return 8000 + (int(h, 16) % 1000)
 
@@ -24,7 +24,7 @@ _URL_RE = re.compile(r"https?://([a-z0-9.-]+)(\/[^\s\"']*)?", re.IGNORECASE)
 
 
 def service_name_from_subdomain(subdomain: str, strip_env: bool = True) -> str:
-    """Extrae el nombre canónico del servicio eliminando prefijos de namespace o hashes de ambiente."""
+    """Extracts the canonical service name by stripping namespace prefixes or environment hashes."""
     s = subdomain.split(".")[0].lower()
     for prefix in _NS_PREFIXES:
         if s.startswith(prefix):
@@ -38,7 +38,7 @@ def service_name_from_subdomain(subdomain: str, strip_env: bool = True) -> str:
 
 
 def spring_context_path(repo_path: Path) -> str:
-    """Extrae el context path de Spring Boot de application.properties o YAML."""
+    """Extracts the Spring Boot context path from application.properties or YAML."""
     repo_path = Path(repo_path)
     res_dir = repo_path / "src" / "main" / "resources"
     if not res_dir.is_dir():
@@ -68,7 +68,7 @@ def spring_context_path(repo_path: Path) -> str:
 
 
 def node_health_path(repo_path: Path) -> str | None:
-    """Detecta la ruta de health check para servicios Node.js."""
+    """Detects the health check route for Node.js services."""
     repo_path = Path(repo_path)
     version_prefix = ""
     health_route = ""
@@ -93,7 +93,7 @@ def node_health_path(repo_path: Path) -> str | None:
 
 
 def service_link(svc_type: str, port: int, repo_path: Path | None = None) -> tuple[str, str]:
-    """Genera etiqueta y URL para acceder a un servicio levantado localmente."""
+    """Generates a label and URL for accessing a locally running service."""
     if svc_type in ("spring-gradle", "spring-maven", "spring_boot", "spring"):
         ctx = spring_context_path(repo_path) if repo_path else ""
         return "Swagger", f"http://localhost:{port}{ctx}/swagger-ui/index.html"
@@ -109,7 +109,7 @@ def service_link(svc_type: str, port: int, repo_path: Path | None = None) -> tup
 def wire_urls(
     env_vars: dict[str, str], running_ports: dict[str, int]
 ) -> tuple[dict[str, str], dict[str, int]]:
-    """Reescribe URLs remotas en variables de entorno para que apunten a puertos locales activos."""
+    """Rewrites remote URLs in environment variables to point to active local ports."""
     res = dict(env_vars)
     wired: dict[str, int] = {}
 
@@ -131,7 +131,7 @@ def wire_urls(
 
 
 def wire_db_urls(src_env: dict[str, str]) -> dict[str, str]:
-    """Extrae y mapea cadenas de conexión a base de datos (MongoDB, PostgreSQL)."""
+    """Extracts and maps database connection strings (MongoDB, PostgreSQL)."""
     res: dict[str, str] = {}
     mongo_uris = []
     postgres_uris = []

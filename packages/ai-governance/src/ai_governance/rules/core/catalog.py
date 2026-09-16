@@ -31,7 +31,7 @@ class RuleCatalog:
                 res = Path(str(pkg_resources.files("ai_governance").joinpath("catalog")))
                 if res.is_dir() and (res / "manifest.json").exists():
                     found = res
-            except Exception:
+            except (ImportError, ModuleNotFoundError, OSError):
                 found = None
 
             if not found:

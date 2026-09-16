@@ -7,7 +7,7 @@ name = "workspace"
 version = "0.2.0"
 description = "Deterministic workspace manager, Git worktree isolation, local environment orchestrator, builds and Kubernetes manager."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "rich>=13.0.0",
     "psutil>=5.9",
@@ -15,10 +15,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.0",
+    "pytest>=8.0",
     "pytest-cov",
     "pytest-asyncio",
-    "ruff>=0.1",
+    "ruff>=0.9",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -31,11 +31,3 @@ ws = "workspace_engine.cli.main:main"
 pythonpath = ["src", "."]
 python_files = ["test_*.py", "*_test.py"]
 testpaths = ["tests"]
-
-[tool.ruff]
-target-version = "py311"
-line-length = 100
-
-[tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP", "SIM"]
-ignore = ["E501"]

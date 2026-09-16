@@ -7,7 +7,6 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-
 from ai_governance.telemetry.cost_monitor import CostMonitor
 from ai_governance.telemetry.prices import PriceCatalog
 from ai_governance.telemetry.ritmo import RitmoCalculator

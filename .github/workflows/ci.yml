@@ -20,11 +20,7 @@ jobs:
         with:
           enable-cache: true
           version: "latest"
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Set up Git config
         run: |
@@ -33,23 +29,23 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          uv venv --python 3.11 .venv
-          uv pip install --python .venv/bin/python \
-            -e "packages/ai-governance[dev]" \
-            -e "packages/spec[dev]" \
-            -e "packages/workspace[dev]"
+          uv sync --all-packages
 
       - name: Run Ruff Lint
         run: |
-          .venv/bin/ruff check packages/ tests/
+          uv run ruff check packages/ tests/
 
       - name: Run Ruff Format Check
         run: |
-          .venv/bin/ruff format --check packages/ tests/
+          uv run ruff format --check packages/ tests/
+
+      - name: Run Mypy
+        run: |
+          uv run mypy
 
       - name: Run Pytest Suite with Coverage
         run: |
-          .venv/bin/python -m pytest -v --cov=ai_governance --cov=spec --cov=workspace_engine --cov-report=term-missing \
+          uv run python -m pytest -v --cov=ai_governance --cov=spec --cov=workspace_engine --cov-report=term-missing \
             packages/ai-governance/tests \
             packages/spec/tests \
             packages/workspace/tests \
@@ -58,15 +54,17 @@ jobs:
 
       - name: Verify CLI Tools & Diagnostics
         run: |
-          .venv/bin/specops --help
-          .venv/bin/governance --help
-          .venv/bin/ws --help
+          uv run specops --help
+          uv run governance --help
+          uv run ws --help
+          uv run spec --help
 
       - name: Build Monorepo Wheels
         run: |
           uv build packages/ai-governance --wheel --out-dir dist
+          uv build packages/spec --wheel --out-dir dist
           uv build packages/workspace --wheel --out-dir dist
 
       - name: Verify Wheel Hermeticity & CLI in Isolated Environment
         run: |
-          .venv/bin/python tests/integration/verify_wheels.py dist
+          uv run python tests/integration/verify_wheels.py dist
