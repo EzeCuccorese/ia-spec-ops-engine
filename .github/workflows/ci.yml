@@ -33,33 +33,40 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          ./install.sh
+          uv venv --python 3.11 .venv
+          uv pip install --python .venv/bin/python \
+            -e "packages/ai-governance[dev]" \
+            -e "packages/spec[dev]" \
+            -e "packages/workspace[dev]"
 
       - name: Run Ruff Lint
         run: |
-          .venv/bin/ruff check packages/ tests_acceptance/ scripts/
+          .venv/bin/ruff check packages/ tests/
 
       - name: Run Ruff Format Check
         run: |
-          .venv/bin/ruff format --check packages/ tests_acceptance/ scripts/
+          .venv/bin/ruff format --check packages/ tests/
 
       - name: Run Pytest Suite with Coverage
         run: |
-          .venv/bin/python -m pytest -v --cov=ai_governance --cov=spec --cov=workspace_engine --cov-report=term-missing packages/ tests_acceptance/
+          .venv/bin/python -m pytest -v --cov=ai_governance --cov=spec --cov=workspace_engine --cov-report=term-missing \
+            packages/ai-governance/tests \
+            packages/spec/tests \
+            packages/workspace/tests \
+            packages/workspace/tests_integration \
+            tests
 
       - name: Verify CLI Tools & Diagnostics
         run: |
           .venv/bin/specops --help
-          .venv/bin/spec --help
+          .venv/bin/governance --help
           .venv/bin/ws --help
 
       - name: Build Monorepo Wheels
         run: |
           uv build packages/ai-governance --wheel --out-dir dist
-          uv build packages/spec --wheel --out-dir dist
           uv build packages/workspace --wheel --out-dir dist
 
       - name: Verify Wheel Hermeticity & CLI in Isolated Environment
         run: |
-          .venv/bin/python scripts/verify_wheels.py dist
-
+          .venv/bin/python tests/integration/verify_wheels.py dist

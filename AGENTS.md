@@ -1,43 +1,15 @@
-# Spec Governance for Coding Agents
+# ia-spec-ops-engine
 
-## ⚡ Agent Post-Clone Bootstrap Protocol (Run Once After Git Clone)
-Any AI coding agent (Antigravity, Claude Code, Cursor, Windsurf, Aider, or custom) that clones this repository MUST execute the following 4-step bootstrap:
+This repository contains three independently installable Python packages:
 
-1. **Install dependencies in editable mode**:
-   ```bash
-   ./install.sh
-   source .venv/bin/activate
-   ```
-2. **Initialize project configuration**:
-   ```bash
-   specops config init --local --yes
-   # or: ./bin/specops config init --local --yes
-   ```
-3. **Configure your AI agent governance adapter**:
-   ```bash
-   specops agent install
-   # or: specops agent install antigravity
-   ```
-4. **Verify environment health**:
-   ```bash
-   specops doctor && specops audit
-   # or: ./bin/specops doctor && ./bin/specops audit
-   ```
+- `packages/ai-governance`: rules, progress tracking, telemetry, context-frugality tools, and Atlassian utilities.
+- `packages/workspace`: Git worktrees, quality gates, local services, and environment tools.
+- `packages/spec`: specification workflows and coding-agent adapters.
 
-## Required Workflow
-1. Read `.spec/state.json` and active artifacts under `.spec/specs/` before changing code.
-2. Keep implementation strictly inside the active spec, plan, and task scope.
-3. Follow Test-First methodology: write/update unit and integration tests before or alongside logic.
-4. Execute verification using explicit commands from `.spec/verification.json` (e.g. `spec verify`).
-5. `SKIPPED`, `INCOMPLETE`, and `ERROR` are never considered `PASS`.
-6. Run `spec finish` only after recorded verification status is `PASS`.
+The checkout is a source repository, not a bootstrap script. Do not install packages, create virtual environments, configure an agent, or write project configuration unless the user explicitly asks for that action and names the package or component to install.
 
-## Safety & Invariants
-- Treat `.spec/evidence/` as immutable execution evidence.
-- Do not edit `.spec/state.json` or `.spec/ownership.json` by hand.
-- Do not add AI attribution, robot emojis, or AI-generated mentions to commit messages or PRs.
-- Never modify files outside the agreed specification scope without user confirmation.
+When the user asks to adopt a capability, inspect its package first, describe the available scopes, and install only the requested scope. Preserve unrelated user configuration.
 
-<!-- spec:governance -->
-@.spec/governance.md
-<!-- /spec:governance -->
+Use English for documentation, CLI output, and user-facing messages.
+
+When a selected environment already exists, verify relevant changes with its available Python tooling and tests. Do not create an environment merely to run checks unless the user asks.

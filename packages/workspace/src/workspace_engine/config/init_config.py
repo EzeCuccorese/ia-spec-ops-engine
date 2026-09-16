@@ -170,9 +170,9 @@ def init_config(
 
 
 def run_config_init(argv: list[str] | None = None) -> int:
-    """CLI runner for `specops config init` and `ws config init`."""
+    """CLI runner for `ws config init`."""
     parser = argparse.ArgumentParser(
-        prog="specops config init",
+        prog="ws config init",
         description="Initialize SpecOps configuration (.specops/config.json or ~/.config/specops/config.json).",
     )
     scope_group = parser.add_mutually_exclusive_group()
