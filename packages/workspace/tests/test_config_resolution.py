@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from workspace_engine.run_local.constants import (
     find_project_root,
     load_project_config,

@@ -1,5 +1,5 @@
 """
-workspace_engine.run_local.process_manager — Ejecución de procesos, health probes, gestión de PIDs y persistencia.
+workspace_engine.run_local.process_manager — Process execution, health probes, PID management, and persistence.
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ def _probe_one(name: str, port: int, svc_type: str) -> None:
             with urllib.request.urlopen(req, timeout=0.5) as resp:
                 body = json.loads(resp.read())
                 _HEALTH[name] = "up" if body.get("status") == "UP" else "unhealthy"
-        except Exception:
+        except (OSError, ValueError, json.JSONDecodeError):
             _HEALTH[name] = "up"
     else:
         _HEALTH[name] = "up"
@@ -104,15 +104,15 @@ def _log_rotation_worker(stop_event: threading.Event) -> None:
                         tail = fh.read()
                     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     header = (
-                        f"# [run-local] log rotado {ts} "
-                        f"({size // (1024 * 1024)} MB → últimos {constants.LOG_KEEP_BYTES // (1024 * 1024)} MB)\n"
+                        f"# [run-local] log rotated {ts} "
+                        f"({size // (1024 * 1024)} MB -> last {constants.LOG_KEEP_BYTES // (1024 * 1024)} MB)\n"
                     ).encode()
                     with open(log_file, "wb") as fh:
                         fh.write(header)
                         fh.write(tail)
                 except OSError:
                     pass
-        except Exception:
+        except OSError:
             pass
 
 
@@ -144,7 +144,7 @@ def _all_group_rss(pids: list) -> dict:
                     pass
             if totals:
                 return totals
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         pass
 
     for pid in pids:
@@ -171,7 +171,7 @@ def _save_env_dump(name: str, env_vars: dict, base_env: str, db_env: str, up_mod
             lines.append(f"{k}={v}")
         dump_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
         dump_file.chmod(0o600)
-    except Exception:
+    except OSError:
         pass
 
 
@@ -198,9 +198,9 @@ def _port_in_use(port: int) -> str | None:
             parts = line.split()
             if len(parts) >= 2:
                 return f"{parts[0]} (PID {parts[1]})"
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         pass
-    return "proceso desconocido"
+    return "unknown process"
 
 
 def _wait_port_free(port: int, timeout: float = 3.0) -> bool:
@@ -212,7 +212,7 @@ def _wait_port_free(port: int, timeout: float = 3.0) -> bool:
     return False
 
 
-def _env_by_id(env_id: str):
+def _env_by_id(env_id: str) -> dict | None:
     return next((e for e in constants.ENVIRONMENTS if e["id"] == env_id), None)
 
 
@@ -248,7 +248,7 @@ def _launch_one(
 
     occupant = _port_in_use(cfg["port"])
     if occupant:
-        return None, f"Puerto {cfg['port']} ocupado por {occupant}", None, {}
+        return None, f"Port {cfg['port']} occupied by {occupant}", None, {}
 
     env_vars: dict = {}
 
@@ -266,7 +266,7 @@ def _launch_one(
     else:
         context = _resolve_context(env_info["cluster"])
         if not context:
-            return None, f"Sin contexto kubectl para cluster '{env_info['cluster']}'", None, {}
+            return None, f"No kubectl context for cluster '{env_info['cluster']}'", None, {}
         pod, pod_err = find_pod(name, env_info["id"], context, env_info["namespace"])
         if not pod:
             if is_fe:
@@ -275,11 +275,11 @@ def _launch_one(
                     if dp.exists():
                         env_vars.update(_parse_dotenv(dp))
             else:
-                return None, pod_err or f"Pod no encontrado en '{env_info['id']}'", None, {}
+                return None, pod_err or f"Pod not found in '{env_info['id']}'", None, {}
         else:
             pod_env = get_pod_env(pod, context, env_info["namespace"])
             if not pod_env and not is_fe:
-                return None, "No se pudieron obtener variables del pod", None, {}
+                return None, "Could not get variables from pod", None, {}
             app_vars = parse_app_vars(cfg["path"])
             clean = {k: v for k, v in pod_env.items() if not _is_noise(k)}
             env_vars = {k: v for k, v in clean.items() if k in app_vars} if app_vars else clean
@@ -351,7 +351,7 @@ def _launch_one(
         }
         (constants.PIDS_DIR / f"{name}.pid").write_text(json.dumps(pid_payload), encoding="utf-8")
         return proc.pid, None, time.time(), wired_map
-    except Exception as exc:
+    except OSError as exc:
         return None, str(exc), None, {}
 
 
@@ -434,7 +434,7 @@ def load_state() -> tuple[list, list]:
         return [], []
     try:
         entries = json.loads(constants.STATE_FILE.read_text(encoding="utf-8"))
-    except Exception:
+    except (OSError, json.JSONDecodeError):
         return [], []
 
     results, launch_configs = [], []
@@ -483,9 +483,10 @@ def graceful_kill_pid(
     expected_cmd: str | None = None,
     service_path: Path | str | None = None,
 ) -> bool:
-    """Intenta terminar el proceso con SIGTERM y escala a SIGKILL si persiste, verificando identidad para evitar PID reuse.
+    """Tries to terminate the process with SIGTERM and escalates to SIGKILL if it persists,
+    verifying identity to avoid PID reuse.
 
-    Retorna True si el proceso fue detenido/terminado; False si fue rechazado o sigue vivo.
+    Returns True if the process was stopped/terminated; False if it was rejected or is still alive.
     """
     if pid <= 1 or pid == os.getpid():
         return False
@@ -535,10 +536,10 @@ def graceful_kill_pid(
             if svc_path_str in cmdline or svc_path_resolved in cmdline:
                 matched = True
             else:
-                # El servicio tiene una ruta específica (service_path).
-                # Si la ruta no coincide con cmdline, NUNCA debemos aceptar
-                # el proceso por mera coincidencia de service_name en otro
-                # workspace o directorio (e.g. proyecto-a/api vs proyecto-b/api).
+                # The service has a specific path (service_path).
+                # If the path doesn't match cmdline, we must NEVER accept
+                # the process merely because service_name matches in another
+                # workspace or directory (e.g. project-a/api vs project-b/api).
                 return False
         elif service_name:
             if "/" in service_name or "\\" in service_name:
@@ -563,19 +564,19 @@ def graceful_kill_pid(
     if pid != current_pgid:
         targets.insert(0, -pid)
 
-    # 1. Enviar SIGTERM
+    # 1. Send SIGTERM
     for target in targets:
         with contextlib.suppress(ProcessLookupError, PermissionError):
             os.kill(target, 15)  # SIGTERM
 
-    # 2. Esperar confirmación de salida
+    # 2. Wait for exit confirmation
     start_time = time.time()
     while time.time() - start_time < timeout:
         if not _pid_alive(pid):
             return True
         time.sleep(0.2)
 
-    # 3. Escalar a SIGKILL si aún sigue vivo
+    # 3. Escalate to SIGKILL if still alive
     if _pid_alive(pid):
         for target in targets:
             with contextlib.suppress(ProcessLookupError, PermissionError):
@@ -585,10 +586,10 @@ def graceful_kill_pid(
     return not _pid_alive(pid)
 
 
-def stop_all():
+def stop_all() -> None:
     pid_files = list(constants.PIDS_DIR.glob("*.pid"))
     if not pid_files:
-        print("No hay servicios activos.")
+        print("No active services.")
         return
 
     # Load recorded state if available to retrieve service path
@@ -600,7 +601,7 @@ def stop_all():
                 for e in entries:
                     if isinstance(e, dict) and "name" in e and "path" in e:
                         state_map[e["name"]] = e["path"]
-        except Exception:
+        except (OSError, json.JSONDecodeError):
             pass
 
     for pid_file in pid_files:
@@ -608,7 +609,7 @@ def stop_all():
         raw_text = ""
         try:
             raw_text = pid_file.read_text(encoding="utf-8").strip()
-        except Exception:
+        except OSError:
             pid_file.unlink(missing_ok=True)
             continue
 
@@ -622,13 +623,13 @@ def stop_all():
                 pid = int(meta.get("pid", 0))
                 expected_cmd = meta.get("cmd") or meta.get("command") or meta.get("cmdline")
                 file_path = meta.get("path")
-            except Exception:
+            except (json.JSONDecodeError, ValueError, TypeError):
                 pass
 
         if pid is None or pid <= 0:
             try:
                 pid = int(raw_text.splitlines()[0].strip())
-            except Exception:
+            except (ValueError, IndexError):
                 pid_file.unlink(missing_ok=True)
                 continue
 
@@ -641,10 +642,10 @@ def stop_all():
         )
         pid_file.unlink(missing_ok=True)
         if stopped:
-            print(f"  {RED}●{RESET} {name} (PID {pid}) detenido")
+            print(f"  {RED}●{RESET} {name} (PID {pid}) stopped")
         else:
             print(
-                f"  {YELLOW}⚠{RESET} {name} (PID {pid}) no detenido o proceso ajeno (PID reutilizado)"
+                f"  {YELLOW}⚠{RESET} {name} (PID {pid}) not stopped or foreign process (PID reused)"
             )
     constants.STATE_FILE.unlink(missing_ok=True)
     print()

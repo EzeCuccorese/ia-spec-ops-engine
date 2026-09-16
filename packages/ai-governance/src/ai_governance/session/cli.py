@@ -177,8 +177,10 @@ def main(argv: list[str] | None = None) -> int:
             target = None
 
         if args.cmd in ("show", "ver", "view", "here", "aqui"):
-            if not target or not (task := tracker.get_task(target)):
+            found_task = tracker.get_task(target) if target else None
+            if not found_task:
                 raise FileNotFoundError("No task matches the current context")
+            task = found_task
             if args.json:
                 data = task.to_dict()
                 if args.full:

@@ -34,7 +34,7 @@ class RuleStorage:
                 data = json.loads(manifest_path.read_text(encoding="utf-8"))
                 for r_item in data.get("rules", []):
                     existing_by_file[r_item.get("file", "")] = r_item
-            except Exception:
+            except (json.JSONDecodeError, UnicodeDecodeError, OSError):
                 pass
 
         manifest_rules: list[dict] = []
@@ -102,7 +102,7 @@ class RuleStorage:
 
         try:
             data = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except Exception:
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError):
             return deleted
 
         manifest_rules = data.get("rules", [])

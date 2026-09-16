@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-workspace_engine.cli.install_deps — Instalación determinista de dependencias locales (Node, Gradle, Maven, Go, Python).
+workspace_engine.cli.install_deps — Deterministic installation of local dependencies (Node, Gradle, Maven, Go, Python).
 """
 
 from __future__ import annotations
@@ -21,11 +21,11 @@ from workspace_engine.utils import (
 
 
 def install_repo_deps(repo_path: Path) -> bool:
-    """Instala las dependencias para un repositorio específico según su tecnología."""
+    """Installs dependencies for a specific repository based on its technology."""
     name = repo_path.name
     ptype = detect_project_type(repo_path)
 
-    log_info(f"[{name}] Instalando dependencias ({ptype})...")
+    log_info(f"[{name}] Installing dependencies ({ptype})...")
 
     if (repo_path / "yarn.lock").is_file():
         cmd = ["yarn", "install"]
@@ -42,15 +42,15 @@ def install_repo_deps(repo_path: Path) -> bool:
     elif (repo_path / "pyproject.toml").is_file():
         cmd = ["pip", "install", "-e", "."]
     else:
-        log_warning(f"[{name}] No se detectó manifest de dependencias reconocido.")
+        log_warning(f"[{name}] No recognized dependency manifest detected.")
         return True
 
     res = subprocess.run(cmd, cwd=str(repo_path), capture_output=True, text=True)
     if res.returncode == 0:
-        log_success(f"[{name}] Dependencias instaladas con éxito.")
+        log_success(f"[{name}] Dependencies installed successfully.")
         return True
     else:
-        log_error(f"[{name}] Error al instalar dependencias:\n{res.stderr.strip()[:300]}")
+        log_error(f"[{name}] Error installing dependencies:\n{res.stderr.strip()[:300]}")
         return False
 
 
@@ -59,11 +59,11 @@ def install_all_deps(repos_filter: list[str] | None = None, start_dir: Path | No
     repos_dir = workspace_dir / "repositories"
 
     if not repos_dir.is_dir():
-        # Si se ejecuta directamente dentro de un único repositorio
+        # If run directly inside a single repository
         if (workspace_dir / ".git").exists():
             success = install_repo_deps(workspace_dir)
             return 0 if success else 1
-        log_error(f"No se encontró directorio de repositorios en {workspace_dir}")
+        log_error(f"Repositories directory not found in {workspace_dir}")
         return 1
 
     targets: list[Path] = []
@@ -73,12 +73,12 @@ def install_all_deps(repos_filter: list[str] | None = None, start_dir: Path | No
             if p.is_dir():
                 targets.append(p)
             else:
-                log_error(f"Repositorio no encontrado: {rname}")
+                log_error(f"Repository not found: {rname}")
     else:
         targets = [p for p in sorted(repos_dir.iterdir()) if p.is_dir()]
 
     if not targets:
-        log_warning("No hay repositorios para procesar.")
+        log_warning("No repositories to process.")
         return 0
 
     all_ok = True
@@ -91,8 +91,8 @@ def install_all_deps(repos_filter: list[str] | None = None, start_dir: Path | No
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Instala dependencias de proyectos locales.")
-    parser.add_argument("repos", nargs="*", help="Nombres de repositorios específicos (opcional)")
+    parser = argparse.ArgumentParser(description="Installs local project dependencies.")
+    parser.add_argument("repos", nargs="*", help="Specific repository names (optional)")
     args = parser.parse_args()
     sys.exit(install_all_deps(repos_filter=args.repos))
 

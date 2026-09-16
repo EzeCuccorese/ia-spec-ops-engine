@@ -21,7 +21,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 from ai_governance.rules.agents import AgentsRulesAdapter
 from ai_governance.rules.cli import main as rules_cli_main
 from ai_governance.rules.core.catalog import RuleCatalog

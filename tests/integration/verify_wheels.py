@@ -13,11 +13,12 @@ import tempfile
 from pathlib import Path
 
 PACKAGES = {
-    "specops_ai_governance": (
+    "ai_governance": (
         "ai_governance",
         ["specops", "governance", "rules", "progress", "jira", "confluence"],
     ),
-    "ia_spec_ops_workspace": ("workspace_engine", ["ws"]),
+    "spec": ("spec", ["spec"]),
+    "workspace": ("workspace_engine", ["ws"]),
 }
 
 RESOURCE_CHECK = """

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-workspace_engine.cli.generate_workspace — Generador interactivo y determinista de workspaces multi-repositorio.
+workspace_engine.cli.generate_workspace — Interactive, deterministic generator for multi-repository workspaces.
 """
 
 from __future__ import annotations
@@ -26,12 +26,12 @@ from workspace_engine.utils import (
 )
 
 
-def _git(repo_path: Path, *args) -> subprocess.CompletedProcess:
+def _git(repo_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return run_git(repo_path, *args)
 
 
 def setup_repo_worktree(repo_path: Path, target_path: Path, config: RepoConfig) -> None:
-    """Crea un git worktree de forma determinista."""
+    """Deterministically creates a git worktree."""
     wt_list = _git(repo_path, "worktree", "list", "--porcelain")
     for line in wt_list.stdout.splitlines():
         if line == f"worktree {target_path}":
@@ -45,7 +45,7 @@ def setup_repo_worktree(repo_path: Path, target_path: Path, config: RepoConfig) 
         start = remote_ref if remote_check.returncode == 0 else parent
         result = _git(repo_path, "worktree", "add", "-b", config.branch, str(target_path), start)
         if result.returncode != 0:
-            raise RuntimeError(f"Fallo al crear worktree para {config.name}: {result.stderr}")
+            raise RuntimeError(f"Failed to create worktree for {config.name}: {result.stderr}")
     elif config.mode == "existing":
         if getattr(config, "is_remote_only", False):
             _git(repo_path, "fetch", "origin", config.branch)
@@ -62,7 +62,7 @@ def setup_repo_worktree(repo_path: Path, target_path: Path, config: RepoConfig) 
         else:
             result = _git(repo_path, "worktree", "add", str(target_path), config.branch)
         if result.returncode != 0:
-            raise RuntimeError(f"Fallo al crear worktree para {config.name}: {result.stderr}")
+            raise RuntimeError(f"Failed to create worktree for {config.name}: {result.stderr}")
 
 
 def create_workspace_structure(
@@ -77,15 +77,15 @@ def create_workspace_structure(
     workspace_repos.mkdir(parents=True, exist_ok=True)
     (workspace_dir / "docs").mkdir(exist_ok=True)
 
-    print(f"\n{Color.BOLD}Creando workspace '{workspace_name}'...{Color.RESET}")
+    print(f"\n{Color.BOLD}Creating workspace '{workspace_name}'...{Color.RESET}")
 
     for cfg in repo_configs:
         src = repo_paths[cfg.name]
         target = workspace_repos / cfg.name
         setup_repo_worktree(src, target, cfg)
-        log_success(f"Worktree creado para {cfg.name} (rama: {cfg.branch})")
+        log_success(f"Worktree created for {cfg.name} (branch: {cfg.branch})")
 
-    # Escribir manifiesto
+    # Write manifest
     ai_dir = workspace_dir / ".ai-toolkit"
     ai_dir.mkdir(parents=True, exist_ok=True)
     manifest = {
@@ -102,21 +102,21 @@ def create_workspace_structure(
     }
     (ai_dir / "workspace.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
-    # Renderizar AGENTS.md
+    # Render AGENTS.md
     repos = [cfg.name for cfg in repo_configs]
     template_file = (template_dir / "workspace-agents.md.template") if template_dir else None
     content = render_agents_md(template_file, workspace_name, "repositories", repos)
 
     (workspace_dir / "AGENTS.md").write_text(content, encoding="utf-8")
-    log_success(f"Workspace '{workspace_name}' generado exitosamente en {workspace_dir}")
+    log_success(f"Workspace '{workspace_name}' generated successfully at {workspace_dir}")
     return workspace_dir
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Genera un workspace multi-repositorio.")
-    parser.add_argument("name", nargs="?", help="Nombre del workspace")
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Generates a multi-repository workspace.")
+    parser.add_argument("name", nargs="?", help="Workspace name")
     parser.add_argument(
-        "repos", nargs="*", help="Repositorios iniciales (formato repo o repo:parent o repo@branch)"
+        "repos", nargs="*", help="Initial repositories (format repo or repo:parent or repo@branch)"
     )
     args = parser.parse_args()
 
@@ -134,17 +134,16 @@ def main():
 
     workspace_name = args.name
     if not workspace_name:
-        workspace_name = input(
-            f"{Color.BOLD}Ingresa el nombre del nuevo workspace: {Color.RESET}"
-        ).strip()
+        workspace_name = input(f"{Color.BOLD}Enter the new workspace name: {Color.RESET}").strip()
         if not workspace_name:
-            log_error("El nombre del workspace no puede estar vacío.")
+            log_error("The workspace name cannot be empty.")
             sys.exit(1)
 
     if (workspaces_root / workspace_name).exists():
-        log_error(f"El workspace '{workspace_name}' ya existe.")
+        log_error(f"Workspace '{workspace_name}' already exists.")
         sys.exit(1)
 
+    repo_configs: list[RepoConfig] | None
     if args.repos:
         repo_configs = []
         repo_paths = {}
@@ -162,12 +161,12 @@ def main():
     else:
         selected = select_repos(toolkit_dir=toolkit_dir, repos_root=repos_root, show_toolkit=False)
         if not selected:
-            log_warning("No se seleccionó ningún repositorio.")
+            log_warning("No repository was selected.")
             sys.exit(0)
         repo_paths = {name: repos_root / name for name in selected}
         repo_configs = configure_repos(workspace_name, selected, repo_paths)
         if not repo_configs:
-            log_warning("Configuración cancelada.")
+            log_warning("Configuration cancelled.")
             sys.exit(0)
 
     create_workspace_structure(

@@ -9,7 +9,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from spec.cli import main, run_verify
 from spec.core.preflight import PreflightManager
 from spec.core.result import CheckResult, CheckStatus, VerificationReport

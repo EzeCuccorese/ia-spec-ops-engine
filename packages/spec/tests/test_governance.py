@@ -2,7 +2,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from spec.agents import AgentsAdapter, ClaudeAdapter, render_consumer, render_contributor
 from spec.core.ownership import FileChangedError, OwnershipManifest
 from spec.governance.project import ProjectGovernance

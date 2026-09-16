@@ -6,7 +6,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
 from spec.cli import main
 from spec.core.preflight import PreflightManager
 from spec.governance.project import ProjectGovernance

@@ -1,7 +1,35 @@
-# ia-spec-ops-engine: checkout configuration, not a Python distribution.
-# Install the supported checkout packages using ./install.sh.
+# ia-spec-ops-engine: uv workspace root. Not a distributable package itself.
+#
+#   uv sync --all-packages        # create .venv with the three packages + dev tools
+#   uv run pytest                 # run the whole suite
+#   uv pip install -e packages/<pkg>   # install a single package elsewhere
+[project]
+name = "ia-spec-ops-engine"
+version = "0.0.0"
+description = "Workspace root for ai-governance, spec and workspace packages."
+requires-python = ">=3.11"
+dependencies = []
+
 [tool.uv]
-managed = false
+package = false
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+ai-governance = { workspace = true }
+spec = { workspace = true }
+workspace = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov",
+    "pytest-asyncio",
+    "ruff>=0.9",
+    "mypy>=1.10",
+    "types-psutil",
+]
 
 [tool.ruff]
 line-length = 100
@@ -11,6 +39,19 @@ target-version = "py311"
 select = ["E", "F", "I", "B", "UP", "SIM"]
 ignore = ["E501"]
 
+[tool.mypy]
+python_version = "3.11"
+mypy_path = "packages/ai-governance/src:packages/spec/src:packages/workspace/src"
+packages = ["ai_governance", "spec", "workspace_engine"]
+namespace_packages = true
+explicit_package_bases = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = false
+check_untyped_defs = true
+disallow_incomplete_defs = true
+no_implicit_optional = true
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 pythonpath = ["packages/ai-governance/src", "packages/spec/src", "packages/workspace/src", "."]

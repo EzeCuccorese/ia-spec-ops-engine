@@ -61,7 +61,7 @@ def load_profile_config(profile_name: str | None = None) -> dict[str, str]:
                         "token": prof.get("token", prof.get("api_token", "")),
                         "url": prof.get("url", "").rstrip("/"),
                     }
-            except Exception:
+            except (json.JSONDecodeError, UnicodeDecodeError, OSError):
                 continue
 
     # 3. Check environment variables: ATLASSIAN_{PROFILE}_EMAIL, etc.
@@ -164,7 +164,7 @@ def execute_request(
         try:
             msg = json.loads(err)
             err = json.dumps(msg, indent=2)
-        except Exception:
+        except json.JSONDecodeError:
             pass
         sanitized = sanitize_secrets(err)
         print(f"HTTP {e.code} Error calling {method} {url}:\n{sanitized}", file=sys.stderr)

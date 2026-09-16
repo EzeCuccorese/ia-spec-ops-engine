@@ -84,7 +84,7 @@ class PreCheck:
             if warnings_file.exists():
                 try:
                     warned = set(json.loads(warnings_file.read_text(encoding="utf-8")))
-                except Exception:
+                except (json.JSONDecodeError, UnicodeDecodeError, OSError, TypeError):
                     warned = set()
 
         for pid, matcher, advice in PATTERNS:
@@ -111,7 +111,7 @@ class PreCheck:
                         finally:
                             if temporary and temporary.exists():
                                 temporary.unlink(missing_ok=True)
-                    except Exception:
+                    except OSError:
                         pass
                 return advice
         return None

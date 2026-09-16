@@ -113,7 +113,9 @@ def get_bundled_skills() -> dict[str, str]:
             skill_file = base.joinpath(name, "SKILL.md")
             if skill_file.is_file():
                 skills[name] = skill_file.read_text(encoding="utf-8")
-    except Exception:
+    except (ModuleNotFoundError, FileNotFoundError, OSError, AttributeError, UnicodeDecodeError):
+        # Fall back to the filesystem-based lookup below if the package resources
+        # API is unavailable or the bundled skills cannot be read this way.
         pass
     if not skills:
         skills_dir = Path(__file__).parent / "skills"
@@ -335,17 +337,8 @@ class AgentsAdapter:
     def render_contributor() -> str:
         return render_contributor()
 
-    def render(
-        self_or_root: AgentsAdapter | str | Path | None = None,
-        root: str | Path | None = None,
-    ) -> str:
-        target_root: str | Path | None = None
-        if isinstance(self_or_root, AgentsAdapter):
-            target_root = root if root is not None else getattr(self_or_root, "root", None)
-        elif isinstance(self_or_root, (str, Path)):
-            target_root = self_or_root
-        elif root is not None:
-            target_root = root
+    def render(self, root: str | Path | None = None) -> str:
+        target_root: str | Path | None = root if root is not None else self.root
 
         if target_root is not None:
             root_path = Path(target_root)
@@ -364,7 +357,7 @@ class AgentsAdapter:
 class ClaudeAdapter(AgentsAdapter):
     """Adapter for Claude Code configuring AGENTS.md and discovery pointer CLAUDE.md."""
 
-    def __init__(self, root: str | Path, target: str | None = None, **kwargs) -> None:
+    def __init__(self, root: str | Path, target: str | None = None, **kwargs: object) -> None:
         super().__init__(root, target=target, agent="claude")
 
 

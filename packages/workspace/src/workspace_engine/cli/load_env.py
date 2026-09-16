@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-workspace_engine.cli.load_env — Actualización determinista de variables de entorno en archivos de configuración YAML/dotenv.
+workspace_engine.cli.load_env — Deterministic update of environment variables in YAML/dotenv config files.
 """
 
 from __future__ import annotations
@@ -14,11 +14,12 @@ from workspace_engine.utils import log_error, log_info, log_success
 
 def update_env_in_yaml(yaml_path: Path, services: list[str], key: str, value: str) -> bool:
     if not yaml_path.is_file():
-        log_error(f"Archivo no encontrado: {yaml_path}")
+        log_error(f"File not found: {yaml_path}")
         return False
 
     try:
         from ruamel.yaml import YAML
+        from ruamel.yaml.error import YAMLError
 
         yaml = YAML()
         yaml.preserve_quotes = True
@@ -36,33 +37,33 @@ def update_env_in_yaml(yaml_path: Path, services: list[str], key: str, value: st
                 if app["configMapProperties"].get(key) != value:
                     app["configMapProperties"][key] = value
                     updated = True
-                    log_success(f"  Actualizado {app['name']}")
+                    log_success(f"  Updated {app['name']}")
 
         if updated:
             with open(yaml_path, "w", encoding="utf-8") as f:
                 yaml.dump(data, f)
-            log_success(f"  Guardado en {yaml_path}")
+            log_success(f"  Saved to {yaml_path}")
             return True
         else:
-            log_info("  Sin cambios requeridos.")
+            log_info("  No changes required.")
             return True
-    except Exception as e:
-        log_error(f"Error procesando YAML {yaml_path}: {e}")
+    except (OSError, YAMLError, AttributeError, KeyError) as e:
+        log_error(f"Error processing YAML {yaml_path}: {e}")
         return False
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Actualiza variables en archivos YAML de GitOps o despliegue."
+        description="Updates variables in GitOps or deployment YAML files."
     )
-    parser.add_argument("--envs", required=True, help="Ambientes (separados por coma)")
-    parser.add_argument("--services", required=True, help="Servicios (separados por coma)")
-    parser.add_argument("--var", required=True, help="Nombre de la variable")
-    parser.add_argument("--values", required=True, help="Valores (separados por coma)")
+    parser.add_argument("--envs", required=True, help="Environments (comma-separated)")
+    parser.add_argument("--services", required=True, help="Services (comma-separated)")
+    parser.add_argument("--var", required=True, help="Variable name")
+    parser.add_argument("--values", required=True, help="Values (comma-separated)")
     parser.add_argument(
-        "--root", default=os.path.expanduser("~/projects/gitops/apps/apps"), help="Directorio raíz"
+        "--root", default=os.path.expanduser("~/projects/gitops/apps/apps"), help="Root directory"
     )
-    parser.add_argument("--suffix", help="Sufijo opcional para valores")
+    parser.add_argument("--suffix", help="Optional suffix for values")
     args = parser.parse_args()
 
     envs = [e.strip() for e in args.envs.split(",")]
@@ -80,7 +81,7 @@ def main():
         yaml_path = root_dir / f"values.{env}.yaml"
         if env not in env_to_value:
             continue
-        log_info(f"Procesando ambiente {env}...")
+        log_info(f"Processing environment {env}...")
         update_env_in_yaml(yaml_path, services, key, env_to_value[env])
 
 

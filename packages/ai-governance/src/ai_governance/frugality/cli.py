@@ -53,7 +53,7 @@ def load_config() -> dict:
     cfg = dict(DEFAULT_CONFIG)
     cfg_file = get_runtime_dir() / "frugal.json"
     if cfg_file.exists():
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(json.JSONDecodeError, UnicodeDecodeError, OSError):
             cfg.update(json.loads(cfg_file.read_text(encoding="utf-8")))
     return cfg
 
@@ -107,7 +107,7 @@ def _audit_trim(runtime: Path, command: str, original: int, trimmed: int) -> Non
 def run_pre_bash(cfg: dict) -> None:
     try:
         payload = json.load(sys.stdin)
-    except Exception:
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError):
         return
 
     command = (payload.get("tool_input") or {}).get("command", "")
@@ -129,7 +129,7 @@ def run_pre_bash(cfg: dict) -> None:
 def run_post_bash(cfg: dict) -> None:
     try:
         payload = json.load(sys.stdin)
-    except Exception:
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError):
         return
 
     command = (payload.get("tool_input") or {}).get("command", "")
@@ -156,6 +156,7 @@ def run_post_bash(cfg: dict) -> None:
     if not is_test and OutputTrimmer.should_skip(command):
         return
 
+    candidate: str | None
     if is_test:
         candidate = TestTrimmer.trim(stdout, cfg)
     else:
@@ -169,6 +170,7 @@ def run_post_bash(cfg: dict) -> None:
             generated = _atomic_output_copy(runtime, identifier, stdout)
             persisted = str(generated) if generated else None
         ref = f"full output: {persisted}" if persisted else "full output unavailable"
+        new_output: str | None
         if is_test:
             new_output = TestTrimmer.trim(stdout, cfg, ref)
         else:
@@ -176,6 +178,7 @@ def run_post_bash(cfg: dict) -> None:
         if not new_output or len(new_output) >= len(stdout):
             return
         _audit_trim(runtime, command, len(stdout), len(new_output))
+        updated_val: dict | str
         if is_dict:
             updated_val = dict(resp)
             updated_val["stdout"] = new_output
@@ -196,8 +199,8 @@ def run_post_bash(cfg: dict) -> None:
         )
 
 
-def main() -> int:
-    args = sys.argv[1:]
+def main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else list(argv)
     cfg = load_config()
     try:
         if "--post-bash" in args:
@@ -208,7 +211,11 @@ def main() -> int:
             print("SpecOps Frugal Context Optimizer")
             print("Usage: frugal --post-bash | frugal --pre-bash")
     except Exception:
-        pass  # Never disrupt active agent execution
+        # Top-level hook boundary: never disrupt active agent execution. The
+        # exception is surfaced to stderr instead of being silently dropped.
+        import traceback
+
+        traceback.print_exc(file=sys.stderr)
     return 0
 
 

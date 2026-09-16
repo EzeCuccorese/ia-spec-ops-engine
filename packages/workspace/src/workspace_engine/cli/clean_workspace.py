@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-workspace_engine.cli.clean_workspace — Limpieza determinista de artefactos de build y caches en el workspace.
+workspace_engine.cli.clean_workspace — Deterministic cleanup of build artifacts and caches in the workspace.
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ def clean_workspace(start_dir: Path | None = None) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Limpia artefactos de compilación y caches en el workspace."
+        description="Cleans build artifacts and caches in the workspace."
     )
     parser.parse_args()
     sys.exit(clean_workspace())

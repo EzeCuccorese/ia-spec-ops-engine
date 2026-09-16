@@ -35,7 +35,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from ai_governance.frugality import cli as frugal_cli
 from ai_governance.telemetry.cost_monitor import CostMonitor
 from ai_governance.telemetry.ritmo import RitmoCalculator

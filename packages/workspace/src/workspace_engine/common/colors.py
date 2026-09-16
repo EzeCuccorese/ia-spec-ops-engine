@@ -1,5 +1,5 @@
 """
-workspace_engine.common.colors — Paleta de colores ANSI y consola Rich unificada para Workspace Engine.
+workspace_engine.common.colors — Unified ANSI color palette and Rich console for Workspace Engine.
 """
 
 from __future__ import annotations
@@ -9,13 +9,13 @@ from typing import TextIO
 
 from rich.console import Console
 
-# Instancia compartida de Rich Console
+# Shared Rich Console instance
 console = Console()
 err_console = Console(stderr=True)
 
 
 class Color:
-    """Códigos de escape ANSI estándar y alta fidelidad."""
+    """Standard and high-fidelity ANSI escape codes."""
 
     RED = "\033[0;31m"
     GREEN = "\033[0;32m"
@@ -40,7 +40,7 @@ class Color:
     HIGH_WHITE = "\033[97m"
 
 
-# Aliases globales directos
+# Direct global aliases
 RED = Color.RED
 GREEN = Color.GREEN
 YELLOW = Color.YELLOW
@@ -57,29 +57,29 @@ END = Color.END
 
 
 def log_info(message: str, file: TextIO | None = None) -> None:
-    """Imprime un mensaje informativo con formato unificado."""
+    """Prints an informational message with unified formatting."""
     target = file if file is not None else sys.stdout
     print(f"{Color.CYAN}ℹ {message}{Color.RESET}", file=target)
 
 
 def log_success(message: str, file: TextIO | None = None) -> None:
-    """Imprime un mensaje de éxito con formato unificado."""
+    """Prints a success message with unified formatting."""
     target = file if file is not None else sys.stdout
     print(f"{Color.GREEN}✔ {message}{Color.RESET}", file=target)
 
 
 def log_warning(message: str, file: TextIO | None = None) -> None:
-    """Imprime un mensaje de advertencia con formato unificado."""
+    """Prints a warning message with unified formatting."""
     target = file if file is not None else sys.stdout
     print(f"{Color.YELLOW}⚠ {message}{Color.RESET}", file=target)
 
 
 def log_error(message: str, file: TextIO | None = None) -> None:
-    """Imprime un mensaje de error en stderr con formato unificado."""
+    """Prints an error message to stderr with unified formatting."""
     target = file if file is not None else sys.stderr
     print(f"{Color.RED}✖ {message}{Color.RESET}", file=target)
 
 
 def colorize(text: str, color: str) -> str:
-    """Envuelve el texto con un código ANSI y resetea automáticamente."""
+    """Wraps text with an ANSI code and resets automatically."""
     return f"{color}{text}{Color.RESET}"

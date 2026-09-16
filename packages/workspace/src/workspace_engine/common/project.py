@@ -1,5 +1,5 @@
 """
-workspace_engine.common.project — Detección determinista de tipo de proyecto, stacks y búsqueda de raíz.
+workspace_engine.common.project — Deterministic detection of project type, stacks, and root lookup.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ class ProjectType(StrEnum):
 
 def find_project_root(start_path: Path | str | None = None) -> Path:
     """
-    Encuentra la raíz del proyecto o workspace buscando .specify, .git o pyproject.toml.
+    Finds the project or workspace root by looking for .specify, .git, or pyproject.toml.
     """
     current = Path(start_path or Path.cwd()).resolve()
     for parent in [current] + list(current.parents):
@@ -48,7 +48,7 @@ def find_project_root(start_path: Path | str | None = None) -> Path:
 
 
 def read_package_json(repo_path: Path | str) -> dict[str, Any] | None:
-    """Parsea de forma segura package.json si existe."""
+    """Safely parses package.json if it exists."""
     pkg_file = Path(repo_path) / "package.json"
     if not pkg_file.is_file():
         return None
@@ -60,7 +60,7 @@ def read_package_json(repo_path: Path | str) -> dict[str, Any] | None:
 
 
 def is_spring_boot_app(repo_path: Path | str) -> bool:
-    """Determina si un repositorio es un microservicio Spring Boot Java/Kotlin."""
+    """Determines whether a repository is a Spring Boot Java/Kotlin microservice."""
     p = Path(repo_path)
     res_dir = p / "src" / "main" / "resources"
     if (res_dir / "application.properties").is_file():
@@ -71,7 +71,7 @@ def is_spring_boot_app(repo_path: Path | str) -> bool:
 
 
 def is_kotlin_service(repo_path: Path | str) -> bool:
-    """Determina si un repositorio es un proyecto o servicio en Kotlin."""
+    """Determines whether a repository is a Kotlin project or service."""
     p = Path(repo_path)
     if (p / "build.gradle.kts").is_file() or (p / "settings.gradle.kts").is_file():
         return True
@@ -79,17 +79,17 @@ def is_kotlin_service(repo_path: Path | str) -> bool:
 
 
 def is_go_service(repo_path: Path | str) -> bool:
-    """Determina si un repositorio es un servicio en Go."""
+    """Determines whether a repository is a Go service."""
     return (Path(repo_path) / "go.mod").is_file()
 
 
 def is_rust_service(repo_path: Path | str) -> bool:
-    """Determina si un repositorio es un proyecto o workspace Rust."""
+    """Determines whether a repository is a Rust project or workspace."""
     return (Path(repo_path) / "Cargo.toml").is_file()
 
 
 def is_bun_project(repo_path: Path | str) -> bool:
-    """Determina si un proyecto utiliza el runtime Bun."""
+    """Determines whether a project uses the Bun runtime."""
     p = Path(repo_path)
     return (
         (p / "bun.lockb").is_file() or (p / "bun.lock").is_file() or (p / "bunfig.toml").is_file()
@@ -97,7 +97,7 @@ def is_bun_project(repo_path: Path | str) -> bool:
 
 
 def detect_fe_framework(repo_path: Path | str) -> str | None:
-    """Detecta el framework frontend (React, Next.js, Vue, Angular, Svelte, Astro, Vite)."""
+    """Detects the frontend framework (React, Next.js, Vue, Angular, Svelte, Astro, Vite)."""
     pkg = read_package_json(repo_path)
     p = Path(repo_path)
     if (p / "astro.config.mjs").is_file() or (p / "astro.config.ts").is_file():
@@ -126,7 +126,7 @@ def detect_fe_framework(repo_path: Path | str) -> str | None:
 
 
 def detect_project_type(repo_path: Path | str) -> ProjectType:
-    """Identifica la tecnología o build system principal de un proyecto."""
+    """Identifies a project's main technology or build system."""
     p = Path(repo_path)
     if is_spring_boot_app(p):
         return ProjectType.SPRING_BOOT

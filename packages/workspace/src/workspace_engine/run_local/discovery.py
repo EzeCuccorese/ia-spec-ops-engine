@@ -1,5 +1,5 @@
 """
-workspace_engine.run_local.discovery — Descubrimiento de servicios, resolución de entorno y helpers de kubectl.
+workspace_engine.run_local.discovery — Service discovery, environment resolution, and kubectl helpers.
 """
 
 from __future__ import annotations
@@ -22,7 +22,6 @@ from workspace_engine.run_local.service_wiring import (
     wire_urls,
 )
 
-_service_link = service_link
 _service_name_from_subdomain = service_name_from_subdomain
 
 
@@ -57,7 +56,7 @@ def _ensure_config() -> dict:
                 v = line.split(":", 1)[1].strip().strip('"').strip("'")
                 if v:
                     cfg["postgresql"] = v
-    except Exception:
+    except OSError:
         pass
     return cfg
 
@@ -232,7 +231,7 @@ def find_pod(
 ) -> tuple[str | None, str | None]:
     r = _kubectl(["--context", context, "get", "pods", "-n", namespace])
     if r.returncode != 0:
-        return None, r.stderr.strip() or "kubectl falló"
+        return None, r.stderr.strip() or "kubectl failed"
     for line in r.stdout.splitlines()[1:]:
         parts = line.split()
         if len(parts) < 3:
@@ -241,7 +240,7 @@ def find_pod(
         if service_name in name and f"-{app_env}-" in name:
             if status == "Running":
                 return name, None
-            return None, f"Pod encontrado pero no Running ({status})"
+            return None, f"Pod found but not Running ({status})"
     return None, None
 
 
@@ -371,7 +370,7 @@ def _read_pkg(repo_path: Path) -> dict | None:
         return None
     try:
         return json.loads(pkg.read_text())
-    except Exception:
+    except (OSError, json.JSONDecodeError):
         return None
 
 

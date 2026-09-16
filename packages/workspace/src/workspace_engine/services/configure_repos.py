@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-workspace_engine.services.configure_repos — Configuración interactiva de branches y pre-validación de worktrees.
+workspace_engine.services.configure_repos — Interactive branch configuration and worktree pre-validation.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import time
 import tty
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, cast
 
 from workspace_engine.services.tui_utils import _read_key, _resolve_cursor
 from workspace_engine.utils import Color, run_git
@@ -23,7 +24,7 @@ from workspace_engine.utils import Color, run_git
 @dataclass
 class RepoConfig:
     name: str
-    mode: str  # "new" o "existing"
+    mode: str  # "new" or "existing"
     branch: str
     parent: str | None = None
     from_date: str | None = None
@@ -32,15 +33,15 @@ class RepoConfig:
 
     @property
     def is_remote_only(self) -> bool:
-        """Indica si la branch existe únicamente en el remoto (origin)."""
+        """Indicates whether the branch only exists on the remote (origin)."""
         return getattr(self, "_remote_only", False)
 
-    def mark_remote_only(self):
+    def mark_remote_only(self) -> None:
         object.__setattr__(self, "_remote_only", True)
 
 
 def fetch_branches(repo_path: Path, skip_fetch: bool = False) -> list[str]:
-    """Obtiene branches locales y remotas del repositorio deduplicadas."""
+    """Gets deduplicated local and remote branches for the repository."""
     if not skip_fetch:
         subprocess.run(
             ["git", "-C", str(repo_path), "fetch", "--quiet", "origin"],
@@ -74,12 +75,12 @@ def fetch_branches(repo_path: Path, skip_fetch: bool = False) -> list[str]:
     return sorted(branches)
 
 
-def _git(repo_path: Path, *args) -> subprocess.CompletedProcess:
+def _git(repo_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return run_git(repo_path, *args)
 
 
 def _parse_worktrees(porcelain: str) -> list[tuple[Path, str]]:
-    """Parsea la salida de 'git worktree list --porcelain'."""
+    """Parses the output of 'git worktree list --porcelain'."""
     result = []
     current_path = None
     current_branch = None
@@ -100,14 +101,14 @@ def _parse_worktrees(porcelain: str) -> list[tuple[Path, str]]:
 
 
 def pre_validate(configs: list[RepoConfig], repo_paths: dict[str, Path]) -> list[str]:
-    """Pre-valida todas las configuraciones de repositorio antes de crear worktrees."""
+    """Pre-validates all repository configurations before creating worktrees."""
     errors: list[str] = []
 
     for cfg in configs:
         repo_path = repo_paths.get(cfg.name)
         if repo_path is None or not repo_path.exists():
-            detail = f" en {repo_path}" if repo_path else ""
-            errors.append(f"{cfg.name}: directorio del repositorio no encontrado{detail}")
+            detail = f" at {repo_path}" if repo_path else ""
+            errors.append(f"{cfg.name}: repository directory not found{detail}")
             continue
 
         if cfg.mode == "existing":
@@ -117,7 +118,7 @@ def pre_validate(configs: list[RepoConfig], repo_paths: dict[str, Path]) -> list
             for wt_path, wt_branch in worktrees:
                 if wt_branch == branch_ref and str(wt_path) != str(repo_path):
                     errors.append(
-                        f"{cfg.name}: la rama '{cfg.branch}' ya está activa en otro worktree: {wt_path}"
+                        f"{cfg.name}: branch '{cfg.branch}' is already active in another worktree: {wt_path}"
                     )
 
             local = _git(repo_path, "rev-parse", "--verify", f"refs/heads/{cfg.branch}")
@@ -136,13 +137,13 @@ def pre_validate(configs: list[RepoConfig], repo_paths: dict[str, Path]) -> list
                 )
                 if remote.returncode != 0:
                     errors.append(
-                        f"{cfg.name}: la rama origen '{cfg.parent}' no existe localmente ni en origin"
+                        f"{cfg.name}: source branch '{cfg.parent}' does not exist locally or on origin"
                     )
 
     return errors
 
 
-def _tty_write(tty_fd, s: str):
+def _tty_write(tty_fd: Any, s: str) -> None:
     tty_fd.write(s.encode())
 
 
@@ -150,8 +151,8 @@ def _branch_config_panel(
     repo_name: str,
     workspace_name: str,
     repo_path: Path,
-    tty_fd,
-    old_attrs,
+    tty_fd: Any,
+    old_attrs: Any,
     repo_index: int = 0,
     repo_total: int = 1,
     initial: RepoConfig | None = None,
@@ -159,7 +160,7 @@ def _branch_config_panel(
     pre_fetch_thread: threading.Thread | None = None,
     pre_fetch_cache: dict | None = None,
 ) -> RepoConfig | None:
-    """Muestra el panel de configuración de branch para un repositorio."""
+    """Shows the branch configuration panel for a repository."""
     mode = initial.mode if initial else "new"
     new_branch_name = initial.branch if (initial and initial.mode == "new") else workspace_name
     new_branch_cur = len(new_branch_name)
@@ -229,13 +230,13 @@ def _branch_config_panel(
         start = max(0, cur - max_val)
         before = text[start:cur]
         after = text[cur : start + max_val]
-        return f"  {Color.BOLD}Filtro{Color.RESET}  {before}\x00{after}\r\n"
+        return f"  {Color.BOLD}Filter{Color.RESET}  {before}\x00{after}\r\n"
 
     def _list_lines(text: str, d_idx: int, scroll: int, list_height: int, cols: int) -> list[str]:
         sugg = _suggestions(text)
         total = len(sugg)
         if not sugg:
-            return [f"  {Color.DIM}(ninguna rama coincide){Color.RESET}\r\n"]
+            return [f"  {Color.DIM}(no branch matches){Color.RESET}\r\n"]
         window = sugg[scroll : scroll + list_height]
         lines = []
         for i, s in enumerate(window):
@@ -257,10 +258,10 @@ def _branch_config_panel(
     def _top_hint() -> str:
         if editing:
             if mode == "new" and focused == 0:
-                return "Escribe el nombre de la rama   ENTER siguiente campo   ESC volver"
+                return "Type the branch name   ENTER next field   ESC back"
             if _is_picker(mode, focused):
-                return "Escribe para filtrar   ↑↓ seleccionar   ENTER confirmar   ESC volver"
-        return "↑↓ navegar   ENTER editar / confirmar   ← → cambiar modo   ESC volver"
+                return "Type to filter   up/down select   ENTER confirm   ESC back"
+        return "up/down navigate   ENTER edit / confirm   left/right switch mode   ESC back"
 
     def _picker_section(ftext: str, fcur: int, lh: int, sep_s: str, cols: int) -> list[str]:
         out: list[str] = []
@@ -291,11 +292,11 @@ def _branch_config_panel(
         rn_disp = repo_name[:max_rn] if len(repo_name) > max_rn else repo_name
         out.append(f"{Color.BOLD}  {rn_disp}  {counter}{Color.RESET}\r\n")
         if last_fetched_str:
-            out.append(f"  {Color.DIM}actualizado: {last_fetched_str}{Color.RESET}\r\n")
+            out.append(f"  {Color.DIM}updated: {last_fetched_str}{Color.RESET}\r\n")
         out.append(f"{sep_d}\r\n")
 
         if fetching:
-            out.append(f"\r\n  {Color.YELLOW}Consultando ramas remotas en origin…{Color.RESET}\r\n")
+            out.append(f"\r\n  {Color.YELLOW}Querying remote branches on origin…{Color.RESET}\r\n")
             _tty_write(tty_fd, "".join(out))
             return
 
@@ -304,14 +305,14 @@ def _branch_config_panel(
 
         if mode == "new":
             out.append(
-                f"  Modo:  {Color.BOLD}● Nueva{Color.RESET}   ○ Existente   {Color.DIM}(← → para alternar){Color.RESET}\r\n"
+                f"  Mode:  {Color.BOLD}● New{Color.RESET}   ○ Existing   {Color.DIM}(left/right to toggle){Color.RESET}\r\n"
             )
             out.append("\r\n")
 
             if editing and focused == 0:
-                out.append(_text_edit_row("Nombre de Rama ", new_branch_name, new_branch_cur, cols))
+                out.append(_text_edit_row("Branch Name    ", new_branch_name, new_branch_cur, cols))
             else:
-                out.append(_value_row("Nombre de Rama ", new_branch_name, "", focused == 0, cols))
+                out.append(_value_row("Branch Name    ", new_branch_name, "", focused == 0, cols))
             if name_error:
                 out.append(f"  {Color.RED}{name_error[: cols - 4]}{Color.RESET}\r\n")
             else:
@@ -320,19 +321,19 @@ def _branch_config_panel(
             if editing and focused == 1:
                 out.extend(_picker_section(parent_filter, parent_filter_cur, lh, sep_s, cols))
             else:
-                out.append(_value_row("Rama Origen    ", parent_branch, "main", focused == 1, cols))
+                out.append(_value_row("Source Branch  ", parent_branch, "main", focused == 1, cols))
 
         else:
             out.append(
-                f"  Modo:  ○ Nueva   {Color.BOLD}● Existente{Color.RESET}   {Color.DIM}(← → para alternar){Color.RESET}\r\n"
+                f"  Mode:  ○ New   {Color.BOLD}● Existing{Color.RESET}   {Color.DIM}(left/right to toggle){Color.RESET}\r\n"
             )
             out.append("\r\n")
 
             out.append(
                 _value_row(
-                    "Nombre de Rama ",
+                    "Branch Name    ",
                     exist_branch,
-                    "presiona ENTER para seleccionar rama",
+                    "press ENTER to select a branch",
                     focused == 0,
                     cols,
                 )
@@ -347,9 +348,9 @@ def _branch_config_panel(
 
         out.append("\r\n")
         if focused == cr and not editing:
-            out.append(f"{Color.BOLD}{Color.GREEN}▶ [ Confirmar ]{Color.RESET}\r\n")
+            out.append(f"{Color.BOLD}{Color.GREEN}▶ [ Confirm ]{Color.RESET}\r\n")
         else:
-            out.append(f"  {Color.DIM}[ Confirmar ]{Color.RESET}\r\n")
+            out.append(f"  {Color.DIM}[ Confirm ]{Color.RESET}\r\n")
 
         frame, cur_seq = _resolve_cursor("".join(out))
         _tty_write(tty_fd, frame + cur_seq)
@@ -370,7 +371,7 @@ def _branch_config_panel(
         last_fetched_str = ts.strftime("%d/%m/%Y %H:%M:%S")
 
     if mode == "new" and _branch_exists(new_branch_name):
-        name_error = "la rama ya existe — cambia a Existente o elige otro nombre"
+        name_error = "branch already exists — switch to Existing or pick another name"
         focused = 0
 
     while True:
@@ -480,11 +481,11 @@ def _branch_config_panel(
                 if focused == cr:
                     if mode == "new":
                         if not new_branch_name:
-                            name_error = "El nombre de la rama no puede estar vacío"
+                            name_error = "Branch name cannot be empty"
                             focused = 0
                         elif _branch_exists(new_branch_name):
                             name_error = (
-                                "la rama ya existe — cambia a Existente o elige otro nombre"
+                                "branch already exists — switch to Existing or pick another name"
                             )
                             focused = 0
                         else:
@@ -500,7 +501,7 @@ def _branch_config_panel(
                                 name=repo_name, mode="existing", branch=exist_branch, parent=None
                             )
                         else:
-                            exist_error = "Selecciona una rama primero"
+                            exist_error = "Select a branch first"
                             focused = 0
                 else:
                     editing = True
@@ -514,9 +515,11 @@ def _branch_config_panel(
             else:
                 if mode == "new" and focused == 0:
                     if not new_branch_name:
-                        name_error = "El nombre de la rama no puede estar vacío"
+                        name_error = "Branch name cannot be empty"
                     elif _branch_exists(new_branch_name):
-                        name_error = "la rama ya existe — cambia a Existente o elige otro nombre"
+                        name_error = (
+                            "branch already exists — switch to Existing or pick another name"
+                        )
                     else:
                         name_error = ""
                         editing = False
@@ -548,7 +551,7 @@ def _branch_config_panel(
                         exist_branch = exist_filter
                         exist_error = ""
                     else:
-                        exist_error = "Selecciona una rama de la lista"
+                        exist_error = "Select a branch from the list"
                         exist_branch = ""
 
                     if exist_branch:
@@ -607,30 +610,30 @@ def _branch_config_panel(
                     dropdown_scroll = 0
 
 
-def _confirm_panel(configs: list[RepoConfig], tty_fd, old_attrs) -> bool:
-    """Panel de confirmación final de la configuración de repositorios."""
+def _confirm_panel(configs: list[RepoConfig], tty_fd: Any, old_attrs: Any) -> bool:
+    """Final confirmation panel for the repository configuration."""
 
-    def _render():
+    def _render() -> None:
         cols, _ = shutil.get_terminal_size(fallback=(80, 24))
         cols = max(60, cols)
         sep_w = cols - 2
         sep_d = Color.BOLD + Color.CYAN + "═" * sep_w + Color.RESET
         out = ["\033[H\033[J"]
         out.append(f"{sep_d}\r\n")
-        out.append(f"{Color.BOLD}  Confirmar Workspace{Color.RESET}\r\n")
+        out.append(f"{Color.BOLD}  Confirm Workspace{Color.RESET}\r\n")
         out.append(f"{sep_d}\r\n")
-        out.append(f"  {Color.DIM}ENTER confirmar   ESC volver{Color.RESET}\r\n")
+        out.append(f"  {Color.DIM}ENTER confirm   ESC back{Color.RESET}\r\n")
         out.append("\r\n")
         for cfg in configs:
             out.append(f"  {Color.BOLD}{cfg.name}{Color.RESET}\r\n")
             if cfg.mode == "new":
                 out.append(
-                    f"    {Color.DIM}nueva rama:{Color.RESET}  {cfg.branch}  {Color.DIM}desde{Color.RESET}  {cfg.parent or 'main'}\r\n"
+                    f"    {Color.DIM}new branch:{Color.RESET}  {cfg.branch}  {Color.DIM}from{Color.RESET}  {cfg.parent or 'main'}\r\n"
                 )
             else:
-                out.append(f"    {Color.DIM}existente:{Color.RESET}  {cfg.branch}\r\n")
+                out.append(f"    {Color.DIM}existing:{Color.RESET}  {cfg.branch}\r\n")
             out.append("\r\n")
-        out.append(f"{Color.BOLD}{Color.GREEN}▶ [ Confirmar ]{Color.RESET}\r\n")
+        out.append(f"{Color.BOLD}{Color.GREEN}▶ [ Confirm ]{Color.RESET}\r\n")
         _tty_write(tty_fd, "".join(out))
 
     while True:
@@ -651,7 +654,7 @@ def configure_repos(
     repo_paths: dict[str, Path],
     fetch_cache_minutes: int = 5,
 ) -> list[RepoConfig] | None:
-    """Configura interactivamente las ramas para cada repositorio seleccionado."""
+    """Interactively configures branches for each selected repository."""
     if not repo_names:
         return []
 
@@ -663,7 +666,7 @@ def configure_repos(
             fh = rp / ".git" / "FETCH_HEAD"
             skip = fh.exists() and (time.time() - fh.stat().st_mtime) < (fetch_cache_minutes * 60)
             prefetch_cache[rname] = fetch_branches(rp, skip_fetch=skip)
-        except Exception:
+        except (OSError, subprocess.SubprocessError, KeyError):
             prefetch_cache[rname] = ([], [])
 
     prefetch_threads: dict = {}
@@ -674,14 +677,14 @@ def configure_repos(
 
     try:
         tty_fd = open("/dev/tty", "rb+", buffering=0)  # noqa: SIM115
-    except Exception:
-        # Fallback default para entornos no interactivos
+    except OSError:
+        # Default fallback for non-interactive environments
         return [
             RepoConfig(name=r, mode="new", branch=workspace_name, parent="main") for r in repo_names
         ]
 
     old_attrs = termios.tcgetattr(tty_fd)
-    configs = [None] * len(repo_names)
+    configs: list[RepoConfig | None] = [None] * len(repo_names)
     confirmed = False
     try:
         tty.setraw(tty_fd.fileno())
@@ -710,7 +713,9 @@ def configure_repos(
                     configs[i] = cfg
                     i += 1
             else:
-                if _confirm_panel(configs, tty_fd, old_attrs):
+                # By this point every slot has been filled by the loop above.
+                resolved_configs = cast("list[RepoConfig]", configs)
+                if _confirm_panel(resolved_configs, tty_fd, old_attrs):
                     confirmed = True
                     break
                 else:
@@ -723,11 +728,12 @@ def configure_repos(
     if not confirmed:
         return None
 
-    errors = pre_validate(configs, repo_paths)
+    resolved_configs = cast("list[RepoConfig]", configs)
+    errors = pre_validate(resolved_configs, repo_paths)
     if errors:
-        print(f"\n{Color.RED}❌ Falló la pre-validación:{Color.RESET}", file=sys.stderr)
+        print(f"\n{Color.RED}❌ Pre-validation failed:{Color.RESET}", file=sys.stderr)
         for err in errors:
             print(f"   {Color.RED}• {err}{Color.RESET}", file=sys.stderr)
         sys.exit(1)
 
-    return configs
+    return resolved_configs

@@ -23,6 +23,8 @@ Usage:
     confluence help                                   Display this help message
 """
 
+from __future__ import annotations
+
 import html
 import json
 import re
@@ -31,6 +33,7 @@ import textwrap
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import Any
 
 # ── Configuration & Profiles (Shared with Atlassian Common) ─────────────────
 from ai_governance.tools.atlassian_common import (
@@ -55,27 +58,27 @@ _auth_header = auth_header
 _get_base_url = get_base_url
 
 
-def _get_api_url():
+def _get_api_url() -> str:
     return f"{_get_base_url()}/wiki/rest/api"
 
 
-def _request(method, url, payload=None):
+def _request(method: str, url: str, payload: dict[str, Any] | list[Any] | None = None) -> Any:
     return execute_request(method, url, payload=payload, timeout=ATLASSIAN_TIMEOUT)
 
 
-def get(path):
+def get(path: str) -> Any:
     return _request("GET", f"{_get_api_url()}{path}")
 
 
-def post(path, payload):
+def post(path: str, payload: dict[str, Any]) -> Any:
     return _request("POST", f"{_get_api_url()}{path}", payload)
 
 
-def put(path, payload):
+def put(path: str, payload: dict[str, Any]) -> Any:
     return _request("PUT", f"{_get_api_url()}{path}", payload)
 
 
-def html_to_md(html_str):
+def html_to_md(html_str: str) -> str:
     """Converts Confluence storage format (XHTML) to clean Markdown."""
     if not html_str:
         return ""
@@ -116,7 +119,7 @@ def html_to_md(html_str):
     text = re.sub(r"<li[^>]*>(.*?)</li>", r"- \1\n", text, flags=re.DOTALL | re.IGNORECASE)
     text = re.sub(r"</?[uo]l[^>]*>", "\n", text, flags=re.IGNORECASE)
 
-    def convert_table(match):
+    def convert_table(match: re.Match[str]) -> str:
         table_html = match.group(0)
         rows = re.findall(r"<tr[^>]*>(.*?)</tr>", table_html, flags=re.DOTALL | re.IGNORECASE)
         if not rows:
@@ -156,7 +159,7 @@ def html_to_md(html_str):
     return text.strip()
 
 
-def _md_inline(text):
+def _md_inline(text: str) -> str:
     escaped = html.escape(text)
     escaped = re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped)
     escaped = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", escaped)
@@ -165,7 +168,7 @@ def _md_inline(text):
     return escaped
 
 
-def md_to_storage(md):
+def md_to_storage(md: str) -> str:
     """Converts basic Markdown to Confluence storage format (XHTML), preserving raw XML macros/tables."""
     blocks = []
     lines = md.split("\n")
@@ -234,7 +237,7 @@ def md_to_storage(md):
 # ── Commands ──────────────────────────────────────────────────────────────────
 
 
-def cmd_read(page_id, as_json=False):
+def cmd_read(page_id: str, as_json: bool = False) -> None:
     """Displays page in clean Markdown or JSON."""
     data = get(f"/content/{page_id}?expand=body.storage,version,space")
     if as_json:
@@ -261,7 +264,13 @@ def escape_cql_literal(text: str) -> str:
     return text.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def cmd_search(query, space_key=None, start=0, limit=15, as_json=False):
+def cmd_search(
+    query: str,
+    space_key: str | None = None,
+    start: int = 0,
+    limit: int = 15,
+    as_json: bool = False,
+) -> None:
     """Searches pages by text query with pagination support."""
     safe_query = escape_cql_literal(query)
     cql = f'text ~ "{safe_query}" AND type = page'
@@ -295,7 +304,7 @@ def cmd_search(query, space_key=None, start=0, limit=15, as_json=False):
         )
 
 
-def cmd_spaces(as_json=False):
+def cmd_spaces(as_json: bool = False) -> None:
     """Lists available spaces."""
     data = get("/space?limit=50&type=global&status=current")
     if as_json:
@@ -314,10 +323,10 @@ def cmd_spaces(as_json=False):
         print(f"| {s.get('key', '')} | {s.get('name', '')} |")
 
 
-def cmd_create(space_key, title, body_md, parent_id=None):
+def cmd_create(space_key: str, title: str, body_md: str, parent_id: str | None = None) -> None:
     """Creates a new page in Confluence."""
     content_text = read_input_text(body_md)
-    payload = {
+    payload: dict[str, Any] = {
         "type": "page",
         "title": title,
         "space": {"key": space_key},
@@ -332,7 +341,7 @@ def cmd_create(space_key, title, body_md, parent_id=None):
     print(f"   {_get_base_url()}/wiki/spaces/{space_key}/pages/{pid}")
 
 
-def cmd_update(page_id, body_md, expected_version=None):
+def cmd_update(page_id: str, body_md: str, expected_version: int | None = None) -> None:
     """Updates page body with version conflict checking."""
     current = get(f"/content/{page_id}?expand=version,space")
     title = current.get("title", "")
@@ -358,7 +367,7 @@ def cmd_update(page_id, body_md, expected_version=None):
     print(f"✅ Page updated: **{title}** (v{ver + 1})")
 
 
-def cmd_append(page_id, text, expected_version=None):
+def cmd_append(page_id: str, text: str, expected_version: int | None = None) -> None:
     """Appends content to the end of a page with version conflict checking."""
     current = get(f"/content/{page_id}?expand=body.storage,version,space")
     title = current.get("title", "")
@@ -388,7 +397,7 @@ def cmd_append(page_id, text, expected_version=None):
     print(f"✅ Content appended to **{title}** (v{ver + 1})")
 
 
-def cmd_comment(page_id, text):
+def cmd_comment(page_id: str, text: str) -> None:
     """Adds comment to a page."""
     comment_text = read_input_text(text)
     payload = {
@@ -400,7 +409,7 @@ def cmd_comment(page_id, text):
     print(f"✅ Comment added to page {page_id}")
 
 
-def cmd_help():
+def cmd_help() -> None:
     print(
         textwrap.dedent("""
         confluence — Lightweight CLI for Confluence REST API v1
@@ -427,8 +436,8 @@ def cmd_help():
     )
 
 
-def main():
-    raw_args = sys.argv[1:]
+def main(argv: list[str] | None = None) -> None:
+    raw_args = sys.argv[1:] if argv is None else list(argv)
     if not raw_args or raw_args[0] in ("-h", "--help", "help"):
         cmd_help()
         return

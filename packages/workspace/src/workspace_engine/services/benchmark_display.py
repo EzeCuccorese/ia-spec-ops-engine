@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-workspace_engine.services.benchmark_display — Renderizador visual en tiempo real y reporte final para unit-test-benchmark.
+workspace_engine.services.benchmark_display — Real-time visual renderer and final report for unit-test-benchmark.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ _WORKSPACE_DIR = ""
 
 
 def _detect_type(repo: str) -> str:
-    """Detecta el tipo de tecnología del repositorio desde el directorio."""
+    """Detects the repository's technology type from the directory."""
     workspace = _WORKSPACE_DIR
     d = os.path.join(workspace, "repositories", repo) if workspace else ""
     if not d or not os.path.isdir(d):
@@ -45,7 +45,7 @@ def _detect_type(repo: str) -> str:
             if "vite" in deps or "vitest" in deps:
                 return "vite"
             return "node"
-        except Exception:
+        except (OSError, json.JSONDecodeError):
             return "node"
     return "?"
 
@@ -69,12 +69,12 @@ STATUS_COLOR = {
 }
 
 STATUS_FRIENDLY = {
-    "pending": "pendiente",
-    "running": "ejecutando",
-    "green": "pasó",
-    "red_code": "fallaron tests",
-    "red_infra": "error infra",
-    "no_tests": "sin tests",
+    "pending": "pending",
+    "running": "running",
+    "green": "passed",
+    "red_code": "tests failed",
+    "red_infra": "infra error",
+    "no_tests": "no tests",
 }
 
 
@@ -95,7 +95,7 @@ def _fmt_phase_elapsed(secs: float) -> str:
     return f"{m:02d}:{s:02d}"
 
 
-def _fmt_secs_py(s) -> str:
+def _fmt_secs_py(s: float | str | None) -> str:
     try:
         s = float(s or 0)
     except (ValueError, TypeError):
@@ -106,7 +106,7 @@ def _fmt_secs_py(s) -> str:
     return f"{total // 60:02d}:{total % 60:02d}"
 
 
-def _fmt_gross_net(net_display: str, gross_secs) -> str:
+def _fmt_gross_net(net_display: str, gross_secs: float | str | None) -> str:
     if not net_display:
         return net_display
     parts = net_display.split()
@@ -288,14 +288,14 @@ def build_table(
         ncells = 15 if repeat else 13
         summary = [""] * ncells
         summary[0] = "…"
-        summary[2] = f"+{hidden} más" + (f" ({pending} pendientes)" if pending else "")
+        summary[2] = f"+{hidden} more" + (f" ({pending} pending)" if pending else "")
         t.add_row(*[Text(v, style="dim") for v in summary])
 
     return t
 
 
 class LiveDisplay:
-    """Componente actualizable para Live de Rich."""
+    """Updatable component for Rich's Live."""
 
     def __init__(
         self, repos: list[str], statuses: dict, repeat: bool, start_time: float, parallel: int
@@ -315,7 +315,7 @@ class LiveDisplay:
         )
         mode_label = "repeat" if self.repeat else "single"
         header = Text(
-            f"⏱  {elapsed}   {done_count}/{len(self.repos)} repos   paralelo={self.parallel}   modo={mode_label}",
+            f"⏱  {elapsed}   {done_count}/{len(self.repos)} repos   parallel={self.parallel}   mode={mode_label}",
             style="bold cyan",
         )
         max_rows = max(5, console.size.height - 3)
@@ -326,7 +326,7 @@ class LiveDisplay:
 
 
 def run_final(summary_path: str, elapsed: str = "") -> None:
-    """Renderiza el reporte final a partir del archivo summary.tsv."""
+    """Renders the final report from the summary.tsv file."""
     repos: list[str] = []
     statuses: dict = {}
 
@@ -334,7 +334,7 @@ def run_final(summary_path: str, elapsed: str = "") -> None:
         with open(summary_path, encoding="utf-8") as f:
             lines = f.readlines()
     except OSError:
-        Console().print(f"[red]No se encontró el resumen: {summary_path}[/red]")
+        Console().print(f"[red]Summary not found: {summary_path}[/red]")
         sys.exit(1)
 
     elapsed_from_tsv = ""
@@ -404,20 +404,20 @@ def run_final(summary_path: str, elapsed: str = "") -> None:
     c = Console(width=shutil.get_terminal_size(fallback=(200, 50)).columns)
     c.print(build_table(repos, statuses, repeat))
     summary_line = (
-        f"\n[bold]=== RESULTADO ===[/bold]  "
-        f"[green]exitosos={green}[/green]  "
-        f"[red]fallidos={red}[/red]  "
+        f"\n[bold]=== RESULT ===[/bold]  "
+        f"[green]passed={green}[/green]  "
+        f"[red]failed={red}[/red]  "
         f"[yellow]infra={infra}[/yellow]  "
-        f"[dim]sin_tests={no_tests}[/dim]  "
+        f"[dim]no_tests={no_tests}[/dim]  "
         f"(total={len(repos)})"
     )
     elapsed_shown = elapsed or elapsed_from_tsv
     if elapsed_shown:
-        summary_line += f"  tiempo={elapsed_shown}"
+        summary_line += f"  time={elapsed_shown}"
     c.print(summary_line)
 
 
-def main():
+def main() -> None:
     global _WORKSPACE_DIR
     os.environ.pop("LINES", None)
     os.environ.pop("COLUMNS", None)
@@ -459,7 +459,7 @@ def main():
     if final_mode:
         if not summary_path:
             print(
-                "Uso: benchmark_display.py --workspace-dir DIR --final <summary.tsv> [--elapsed HH:MM:SS]",
+                "Usage: benchmark_display.py --workspace-dir DIR --final <summary.tsv> [--elapsed HH:MM:SS]",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -522,12 +522,12 @@ def main():
         elapsed_secs = int(time.monotonic() - start_time)
 
     c.print(
-        f"\n[bold]=== FINALIZADO ===[/bold]  "
-        f"[green]exitosos={dg}[/green]  "
-        f"[red]fallidos={dr}[/red]  "
+        f"\n[bold]=== DONE ===[/bold]  "
+        f"[green]passed={dg}[/green]  "
+        f"[red]failed={dr}[/red]  "
         f"[yellow]infra={di}[/yellow]  "
-        f"[dim]sin_tests={dn}[/dim]  "
-        f"tiempo={_fmt_elapsed(elapsed_secs)}"
+        f"[dim]no_tests={dn}[/dim]  "
+        f"time={_fmt_elapsed(elapsed_secs)}"
     )
 
 

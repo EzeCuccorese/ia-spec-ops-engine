@@ -24,11 +24,14 @@ Usage:
     jira help                                        Display this help message
 """
 
+from __future__ import annotations
+
 import json
 import re
 import sys
 import textwrap
 from datetime import datetime
+from typing import Any
 
 # ── Configuration & Profiles (Shared with Atlassian Common) ─────────────────
 from ai_governance.tools.atlassian_common import (
@@ -53,41 +56,43 @@ _auth_header = auth_header
 _get_base_url = get_base_url
 
 
-def _get_api_url():
+def _get_api_url() -> str:
     return f"{_get_base_url()}/rest/api/3"
 
 
-def _get_agile_url():
+def _get_agile_url() -> str:
     return f"{_get_base_url()}/rest/agile/1.0"
 
 
-def _request(method, path, payload=None, base=None):
+def _request(
+    method: str, path: str, payload: dict[str, Any] | None = None, base: str | None = None
+) -> Any:
     base_endpoint = base if base is not None else _get_api_url()
     url = f"{base_endpoint}{path}"
     return execute_request(method, url, payload=payload, timeout=ATLASSIAN_TIMEOUT)
 
 
-def get(path):
+def get(path: str) -> Any:
     return _request("GET", path)
 
 
-def post(path, payload):
+def post(path: str, payload: dict[str, Any]) -> Any:
     return _request("POST", path, payload)
 
 
-def put(path, payload):
+def put(path: str, payload: dict[str, Any]) -> Any:
     return _request("PUT", path, payload)
 
 
-def agile_get(path):
+def agile_get(path: str) -> Any:
     return _request("GET", path, base=_get_agile_url())
 
 
-def agile_post(path, payload):
+def agile_post(path: str, payload: dict[str, Any]) -> Any:
     return _request("POST", path, payload, base=_get_agile_url())
 
 
-def _adf_to_md(node):
+def _adf_to_md(node: Any) -> str:
     """Converts Atlassian Document Format (ADF) to clean Markdown."""
     if not node or not isinstance(node, dict):
         return ""
@@ -148,16 +153,16 @@ def _adf_to_md(node):
     return inner
 
 
-def _fmt_date(iso):
+def _fmt_date(iso: str | None) -> str:
     if not iso:
         return "—"
     try:
         return datetime.fromisoformat(iso.replace("Z", "+00:00")).strftime("%Y-%m-%d %H:%M")
-    except Exception:
+    except ValueError:
         return iso[:16]
 
 
-def _inline_to_adf(text):
+def _inline_to_adf(text: str) -> list[dict[str, Any]]:
     nodes = []
     tokens = re.split(r"(\*\*.*?\*\*|`.*?`)", text)
     for token in tokens:
@@ -172,14 +177,14 @@ def _inline_to_adf(text):
     return nodes
 
 
-def _is_table_separator(line):
+def _is_table_separator(line: str) -> bool:
     line = line.strip()
     return bool(
         line.startswith("|") and line.endswith("|") and re.match(r"^\|(\s*:?-+:?\s*\|)+$", line)
     )
 
 
-def _parse_table_row(line):
+def _parse_table_row(line: str) -> list[str]:
     line = line.strip()
     if line.startswith("|"):
         line = line[1:]
@@ -188,7 +193,7 @@ def _parse_table_row(line):
     return [cell.strip() for cell in line.split("|")]
 
 
-def _table_to_adf(lines):
+def _table_to_adf(lines: list[str]) -> dict[str, Any]:
     rows = []
     for i, line in enumerate(lines):
         cell_type = "tableHeader" if i == 0 else "tableCell"
@@ -204,12 +209,12 @@ def _table_to_adf(lines):
     return {"type": "table", "content": rows}
 
 
-def _md_to_adf(text):
-    content = []
-    bullet_accum = []
-    table_accum = []
+def _md_to_adf(text: str) -> dict[str, Any]:
+    content: list[dict[str, Any]] = []
+    bullet_accum: list[str] = []
+    table_accum: list[str] = []
 
-    def flush_bullets():
+    def flush_bullets() -> None:
         if bullet_accum:
             content.append(
                 {
@@ -225,7 +230,7 @@ def _md_to_adf(text):
             )
             bullet_accum.clear()
 
-    def flush_table():
+    def flush_table() -> None:
         if table_accum:
             data_rows = [r for r in table_accum if not _is_table_separator(r)]
             if len(data_rows) >= 2:
@@ -259,7 +264,7 @@ def _md_to_adf(text):
 # ── Commands ──────────────────────────────────────────────────────────────────
 
 
-def cmd_issue(key, as_json=False):
+def cmd_issue(key: str, as_json: bool = False) -> None:
     """Displays issue in clean Markdown or JSON."""
     data = get(
         f"/issue/{key}?fields=summary,status,assignee,reporter,priority,issuetype,description,created,updated,labels,comment"
@@ -297,7 +302,7 @@ def cmd_issue(key, as_json=False):
             print(f"**{author}** — {date}\n{body}\n")
 
 
-def cmd_search(jql, start_at=0, max_results=30, as_json=False):
+def cmd_search(jql: str, start_at: int = 0, max_results: int = 30, as_json: bool = False) -> None:
     """Searches issues using JQL with pagination support."""
     data = post(
         "/search/jql",
@@ -335,7 +340,7 @@ def cmd_search(jql, start_at=0, max_results=30, as_json=False):
         )
 
 
-def cmd_comments(key, as_json=False):
+def cmd_comments(key: str, as_json: bool = False) -> None:
     """Displays all comments on an issue."""
     data = get(f"/issue/{key}/comment?orderBy=created")
     if as_json:
@@ -356,7 +361,13 @@ def cmd_comments(key, as_json=False):
         print(f"---\n**{author}** — {date} — id: {c.get('id', '—')}\n\n{body}\n")
 
 
-def cmd_create(project, summary, desc="", issue_type="Task", parent=None):
+def cmd_create(
+    project: str,
+    summary: str,
+    desc: str = "",
+    issue_type: str = "Task",
+    parent: str | None = None,
+) -> None:
     """Creates a new issue in Jira. With --parent, creates a sub-task."""
     fields = {
         "project": {"key": project},
@@ -374,7 +385,7 @@ def cmd_create(project, summary, desc="", issue_type="Task", parent=None):
     print(f"   {_get_base_url()}/browse/{key}")
 
 
-def cmd_comment(key, text):
+def cmd_comment(key: str, text: str) -> None:
     """Adds a comment to an issue."""
     comment_text = read_input_text(text)
     data = post(f"/issue/{key}/comment", {"body": _md_to_adf(comment_text)})
@@ -382,14 +393,14 @@ def cmd_comment(key, text):
     print(f"   id: {data.get('id', '')}")
 
 
-def cmd_comment_edit(key, comment_id, text):
+def cmd_comment_edit(key: str, comment_id: str, text: str) -> None:
     """Replaces the body of an existing comment."""
     comment_text = read_input_text(text)
     put(f"/issue/{key}/comment/{comment_id}", {"body": _md_to_adf(comment_text)})
     print(f"✅ Comment {comment_id} edited on {key}")
 
 
-def cmd_transition(key, state_name):
+def cmd_transition(key: str, state_name: str) -> None:
     """Moves an issue to target status with strict ambiguous match protection."""
     data = get(f"/issue/{key}/transitions")
     transitions = data.get("transitions", [])
@@ -426,7 +437,7 @@ def cmd_transition(key, state_name):
     print(f"✅ {key} → {match['name']}")
 
 
-def cmd_assign(key, who):
+def cmd_assign(key: str, who: str) -> None:
     """Assigns an issue. Use 'me' to assign to yourself. Strictly rejects ambiguous user matches."""
     if who == "me":
         me = get("/myself")
@@ -464,7 +475,7 @@ def cmd_assign(key, who):
     print(f"✅ {key} assigned to {'you' if who == 'me' else who}")
 
 
-def cmd_sprint(key, name):
+def cmd_sprint(key: str, name: str) -> None:
     """Moves an issue to a sprint."""
     project = key.split("-")[0]
     boards = agile_get(f"/board?projectKeyOrId={project}").get("values", [])
@@ -502,7 +513,7 @@ def cmd_sprint(key, name):
     print(f"✅ {key} moved to sprint **{sprint_name}** (id: {sprint_id})")
 
 
-def cmd_help():
+def cmd_help() -> None:
     print(
         textwrap.dedent("""
         jira — Lightweight CLI for Jira REST API v3
@@ -531,8 +542,8 @@ def cmd_help():
     )
 
 
-def main():
-    raw_args = sys.argv[1:]
+def main(argv: list[str] | None = None) -> None:
+    raw_args = sys.argv[1:] if argv is None else list(argv)
     if not raw_args or raw_args[0] in ("-h", "--help", "help"):
         cmd_help()
         return

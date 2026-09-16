@@ -1,8 +1,8 @@
 """
-workspace_engine.services.git_hooks — Gestor de Git Hooks e instalación de Quality Gates Multi-Stack.
+workspace_engine.services.git_hooks — Git Hooks manager and Multi-Stack Quality Gate installer.
 
-Provee instalación, desinstalación y verificación de estado para hooks locales (.githooks/)
-y globales (~/.githooks/) con soporte multi-lenguaje (Python, Node/React, Java/Kotlin, Go, Rust, Flutter, etc.).
+Provides install, uninstall, and status checks for local (.githooks/) and
+global (~/.githooks/) hooks with multi-language support (Python, Node/React, Java/Kotlin, Go, Rust, Flutter, etc.).
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from workspace_engine.common import run_command_safe
 
 
 def generate_canonical_pre_push_script() -> str:
-    """Genera el script bash canónico de 5 etapas para el hook pre-push."""
+    """Generates the canonical 5-stage bash script for the pre-push hook."""
     return (
         files("workspace_engine")
         .joinpath("resources", "hooks", "pre-push")
@@ -34,12 +34,12 @@ def install_git_hooks(
     force: bool = True,
 ) -> dict[str, Any]:
     """
-    Instala y configura el hook pre-push multi-stack canónico.
+    Installs and configures the canonical multi-stack pre-push hook.
 
-    :param target_dir: Directorio raíz del repositorio destino (ignorado si is_global=True).
-    :param is_global: Si es True, instala en ~/.githooks/pre-push y configura git global core.hooksPath.
-    :param force: Si es True, sobreescribe hooks existentes.
-    :return: Diccionario con el resultado de la instalación.
+    :param target_dir: Target repository root directory (ignored if is_global=True).
+    :param is_global: If True, installs at ~/.githooks/pre-push and sets global git core.hooksPath.
+    :param force: If True, overwrites existing hooks.
+    :return: Dictionary with the installation result.
     """
     script_content = generate_canonical_pre_push_script()
 
@@ -51,7 +51,7 @@ def install_git_hooks(
         if hook_path.exists() and not force:
             return {
                 "success": False,
-                "message": f"El hook global ya existe en {hook_path}. Usa --force para sobreescribir.",
+                "message": f"The global hook already exists at {hook_path}. Use --force to overwrite.",
                 "hook_path": str(hook_path),
                 "is_global": True,
             }
@@ -63,12 +63,12 @@ def install_git_hooks(
         code, out, err = run_command_safe(cmd, cwd=Path.home(), isolated_git=False)
         return {
             "success": code == 0,
-            "message": f"Hook global instalado exitosamente en {hook_path} y configurado core.hooksPath.",
+            "message": f"Global hook installed successfully at {hook_path} and core.hooksPath configured.",
             "hook_path": str(hook_path),
             "is_global": True,
         }
 
-    # Instalación local
+    # Local installation
     root = Path(target_dir).resolve() if target_dir else Path.cwd().resolve()
     hooks_dir = root / ".githooks"
     hook_path = hooks_dir / "pre-push"
@@ -77,7 +77,7 @@ def install_git_hooks(
     if hook_path.exists() and not force:
         return {
             "success": False,
-            "message": f"El hook local ya existe en {hook_path}. Usa --force para sobreescribir.",
+            "message": f"The local hook already exists at {hook_path}. Use --force to overwrite.",
             "hook_path": str(hook_path),
             "is_global": False,
         }
@@ -89,7 +89,7 @@ def install_git_hooks(
     code, out, err = run_command_safe(cmd, cwd=root, isolated_git=True)
     return {
         "success": code == 0,
-        "message": f"Hook local instalado exitosamente en {hook_path} y configurado core.hooksPath en .githooks.",
+        "message": f"Local hook installed successfully at {hook_path} and core.hooksPath set to .githooks.",
         "hook_path": str(hook_path),
         "is_global": False,
     }
@@ -100,7 +100,7 @@ def uninstall_git_hooks(
     is_global: bool = False,
 ) -> dict[str, Any]:
     """
-    Desinstala o desconfigura el hook pre-push.
+    Uninstalls or unconfigures the pre-push hook.
     """
     if is_global:
         hooks_dir = Path.home() / ".githooks"
@@ -112,7 +112,7 @@ def uninstall_git_hooks(
         run_command_safe(cmd, cwd=Path.home(), isolated_git=False)
         return {
             "success": True,
-            "message": "Hook global desinstalado y core.hooksPath desvinculado.",
+            "message": "Global hook uninstalled and core.hooksPath unset.",
             "is_global": True,
         }
 
@@ -126,7 +126,7 @@ def uninstall_git_hooks(
     run_command_safe(cmd, cwd=root, isolated_git=True)
     return {
         "success": True,
-        "message": f"Hook local desinstalado en {root} y core.hooksPath desvinculado.",
+        "message": f"Local hook uninstalled at {root} and core.hooksPath unset.",
         "is_global": False,
     }
 
@@ -135,11 +135,11 @@ def get_hooks_status(
     target_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """
-    Diagnóstico del estado de Git Hooks local y global.
+    Diagnoses the status of local and global Git Hooks.
     """
     root = Path(target_dir).resolve() if target_dir else Path.cwd().resolve()
 
-    # Estado Local
+    # Local status
     local_hook = root / ".githooks" / "pre-push"
     _, local_cfg_raw, _ = run_command_safe(
         "git config --get core.hooksPath", cwd=root, isolated_git=True
@@ -151,7 +151,7 @@ def get_hooks_status(
         and (local_cfg in [".githooks", str(root / ".githooks")])
     )
 
-    # Estado Global
+    # Global status
     global_hook = Path.home() / ".githooks" / "pre-push"
     _, global_cfg_raw, _ = run_command_safe(
         "git config --global --get core.hooksPath", cwd=Path.home(), isolated_git=False
@@ -190,8 +190,8 @@ def run_quality_gate(
     output: str = "errors",
 ) -> int:
     """
-    Ejecuta el Quality Gate de Git Hooks a demanda en el repositorio indicado.
-    Retorna el código de salida del script pre-push.
+    Runs the Git Hooks Quality Gate on demand in the given repository.
+    Returns the pre-push script's exit code.
     """
     root = Path(target_dir).resolve() if target_dir else Path.cwd().resolve()
     local_hook = root / ".githooks" / "pre-push"
@@ -203,7 +203,7 @@ def run_quality_gate(
     elif global_hook.is_file() and os.access(global_hook, os.X_OK):
         hook_to_run = global_hook
 
-    # Si no existe ningún hook instalado, escribir temporalmente el canónico
+    # If no hook is installed, temporarily write the canonical one
     temp_hook = None
     if not hook_to_run:
         script = generate_canonical_pre_push_script()
@@ -213,7 +213,7 @@ def run_quality_gate(
         temp_hook.chmod(temp_hook.stat().st_mode | stat.S_IXUSR)
         hook_to_run = temp_hook
 
-    # Obtener el commit actual para stdin
+    # Get the current commit for stdin
     _, head_sha, _ = run_command_safe("git rev-parse HEAD", cwd=root)
     head_sha = head_sha.strip() or "0000000000000000000000000000000000000000"
     _, prev_sha, _ = run_command_safe("git rev-parse HEAD~1", cwd=root)
