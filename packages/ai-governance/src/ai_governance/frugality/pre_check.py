@@ -10,7 +10,12 @@ import json
 import os
 import re
 import tempfile
+from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ai_governance.rules.core.catalog import ToolDefinition
 
 LOCKFILES = (
     "package-lock.json",
@@ -68,10 +73,77 @@ PATTERNS = (
 )
 
 
+def _token_regex(token: str) -> str:
+    """Build a regex fragment for one whitespace-delimited token of a `replaces` entry."""
+    if token.startswith("<") and token.endswith(">"):
+        return r"\S+"
+    return re.escape(token)
+
+
+def _entry_regex(entry: str) -> str:
+    """Turn a `replaces` entry (with `<placeholder>` tokens) into a bounded regex."""
+    tokens = entry.split()
+    body = r"\s+".join(_token_regex(tok) for tok in tokens)
+    return rf"\b{body}\b" if tokens and tokens[0][0].isalnum() else body
+
+
+def _build_matcher(entry: str) -> Callable[[str], bool] | None:
+    """Compile a `replaces` catalog entry into a command matcher.
+
+    Most entries describe a literal command shape (e.g. ``git worktree add
+    <path>``) and become a straightforward regex. Entries that describe a
+    missing flag (e.g. ``docker logs without --tail``) become a positive
+    match on the base command plus a negative check that the flag is absent.
+    """
+    negative = re.match(r"^(?P<base>.+?)\bwithout\s+(?P<flag>\S+)\s*$", entry)
+    if negative:
+        base_pattern = re.compile(_entry_regex(negative.group("base").strip()), re.IGNORECASE)
+        flag = negative.group("flag")
+
+        def matcher(command: str, _base: re.Pattern[str] = base_pattern, _flag: str = flag) -> bool:
+            return bool(_base.search(command)) and _flag not in command
+
+        return matcher
+
+    pattern = re.compile(_entry_regex(entry), re.IGNORECASE)
+
+    def positive_matcher(command: str, _pattern: re.Pattern[str] = pattern) -> bool:
+        return bool(_pattern.search(command))
+
+    return positive_matcher
+
+
+def catalog_patterns(
+    tools: Sequence[ToolDefinition],
+) -> tuple[tuple[str, Callable[[str], bool], str], ...]:
+    """Derive pre-check patterns from the rule catalog's deterministic tools.
+
+    For every ``replaces`` entry declared on a tool, build a case-insensitive
+    matcher and an advice message pointing the agent at the deterministic
+    tool. Checked after the built-in :data:`PATTERNS`, in the same
+    first-match, per-session-dedup flow.
+    """
+    patterns: list[tuple[str, Callable[[str], bool], str]] = []
+    for tool in tools:
+        for index, entry in enumerate(tool.replaces):
+            matcher = _build_matcher(entry)
+            if matcher is None:
+                continue
+            advice = (
+                f"Deterministic alternative: `{tool.command}` — {tool.purpose}. "
+                f"Announce it as `⚙ {tool.id}`."
+            )
+            patterns.append((f"tool:{tool.id}:{index}", matcher, advice))
+    return tuple(patterns)
+
+
 class PreCheck:
     @staticmethod
     def check_command(
-        command: str, session_id: str | None = None, runtime_dir: Path | None = None
+        command: str,
+        session_id: str | None = None,
+        runtime_dir: Path | None = None,
+        extra_patterns: Sequence[tuple[str, Callable[[str], bool], str]] = (),
     ) -> str | None:
         if not command or "#nofrugal" in command or os.environ.get("FRUGAL") == "0":
             return None
@@ -87,7 +159,7 @@ class PreCheck:
                 except (json.JSONDecodeError, UnicodeDecodeError, OSError, TypeError):
                     warned = set()
 
-        for pid, matcher, advice in PATTERNS:
+        for pid, matcher, advice in (*PATTERNS, *extra_patterns):
             if pid in warned:
                 continue
             if matcher(command):

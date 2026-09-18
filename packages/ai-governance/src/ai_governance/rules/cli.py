@@ -6,8 +6,8 @@ from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
 
+from ..output import emit_rows, emit_status, is_agent_mode
 from .agents import ALL_ADAPTERS, filter_rules_by_tech
 from .core.catalog import RuleCatalog, RuleDefinition
 from .core.storage import RuleStorage
@@ -17,6 +17,8 @@ console = Console()
 
 
 def show_banner() -> None:
+    if is_agent_mode():
+        return
     console.print(
         Panel.fit(
             "[bold cyan]🛠️  SPECOPS RULES[/bold cyan] — [white]Software Engineering Standards & Multi-Agent Harness[/white]",
@@ -25,21 +27,23 @@ def show_banner() -> None:
     )
 
 
-def list_catalog(catalog: RuleCatalog) -> None:
-    table = Table(title="📚 Canonical Engineering Rules Catalog", border_style="cyan")
-    table.add_column("ID", style="bold green")
-    table.add_column("Category", style="yellow")
-    table.add_column("Description", style="white")
-    table.add_column("Globs / Triggers", style="dim cyan")
-
-    for rule in catalog.rules:
-        table.add_row(
+def list_catalog(catalog: RuleCatalog, *, full: bool = False) -> None:
+    rows = [
+        (
             rule.id,
             rule.category,
             rule.description,
             ", ".join(rule.globs[:3]) + ("..." if len(rule.globs) > 3 else ""),
         )
-    console.print(table)
+        for rule in catalog.rules
+    ]
+    emit_rows(
+        rows,
+        headers=("ID", "Category", "Description", "Globs / Triggers"),
+        title="Canonical Engineering Rules Catalog",
+        full=full,
+        more_hint="rules list --full",
+    )
 
 
 def run_interactive_installer(catalog: RuleCatalog, root: Path) -> None:
@@ -68,7 +72,11 @@ def run_interactive_installer(catalog: RuleCatalog, root: Path) -> None:
 
     # 3. Rule category / stacks selection
     category_options = [
-        ("all", "✨ Select ALL 28 Rules (Full Enterprise Suite)"),
+        ("all", "✨ Select ALL 29 Rules (Full Enterprise Suite)"),
+        (
+            "0-harness",
+            "⚙  Harness (deterministic-first behaviour, output discipline, context frugality)",
+        ),
         (
             "1-core",
             "🏛️  Core Rules (Clean Code, SOLID, DDD, Clean Architecture, Testing, Security, EDA)",
@@ -100,18 +108,14 @@ def run_interactive_installer(catalog: RuleCatalog, root: Path) -> None:
 
     # Save to storage
     saved_path = storage.save_rules(chosen_rules)
-    console.print(
-        f"[bold green]✔[/bold green] Saved [bold]{len(chosen_rules)} rules[/bold] to [cyan]{saved_path}[/cyan]"
-    )
+    emit_status("ok", f"Saved {len(chosen_rules)} rules to {saved_path}")
 
     # Install into selected adapters
     for adapter in selected_adapters:
-        target = adapter.install(chosen_rules, saved_path, root, is_global)
-        console.print(
-            f"[bold green]✔[/bold green] Configured {adapter.display_name}: [cyan]{target}[/cyan]"
-        )
+        target = adapter.install(chosen_rules, saved_path, root, is_global, tools=catalog.tools)
+        emit_status("ok", f"Configured {adapter.display_name}: {target}")
 
-    console.print("\n[bold green]🎉 Rules installation completed successfully![/bold green]\n")
+    emit_status("ok", "Rules installation completed successfully")
 
 
 def run_uninstaller(root: Path) -> None:
@@ -132,13 +136,9 @@ def run_uninstaller(root: Path) -> None:
     for adapter in ALL_ADAPTERS.values():
         res = adapter.uninstall(root, is_global)
         if res:
-            console.print(
-                f"[bold green]✔[/bold green] Cleaned {adapter.display_name}: [cyan]{res}[/cyan]"
-            )
+            emit_status("ok", f"Cleaned {adapter.display_name}: {res}")
 
-    console.print(
-        "\n[bold green]✨ All rules successfully uninstalled and user files preserved.[/bold green]\n"
-    )
+    emit_status("ok", "All rules successfully uninstalled and user files preserved")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -173,12 +173,18 @@ def main(argv: list[str] | None = None) -> None:
         choices=["agents", "all"],
         help="Write shared rules to AGENTS.md; provider-specific bridges remain optional",
     )
+    parser.add_argument(
+        "--full",
+        dest="full",
+        action="store_true",
+        help="Disable output truncation in agent mode (list action)",
+    )
     args = parser.parse_args(argv or sys.argv[1:])
 
     catalog = RuleCatalog()
 
     if args.action == "list":
-        list_catalog(catalog)
+        list_catalog(catalog, full=args.full)
         return
 
     if args.action == "uninstall":
@@ -230,7 +236,14 @@ def main(argv: list[str] | None = None) -> None:
                 selected_adapters = [ALL_ADAPTERS["agents"]]
 
             for adapter in selected_adapters:
-                adapter.install(rules_to_save, saved, args.root, args.is_global, tech=args.tech)
+                adapter.install(
+                    rules_to_save,
+                    saved,
+                    args.root,
+                    args.is_global,
+                    tech=args.tech,
+                    tools=catalog.tools,
+                )
             return
         run_interactive_installer(catalog, args.root)
         return

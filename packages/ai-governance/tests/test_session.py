@@ -139,8 +139,10 @@ def test_session_tracker_write_failure_raises_oserror(tmp_path: Path, monkeypatc
 def test_session_cli_error_handling(monkeypatch, capsys) -> None:
     from ai_governance.session import cli
 
+    monkeypatch.setenv("SPECOPS_AGENT", "1")
     monkeypatch.setattr("sys.argv", ["progress", "new", "..", "--title", "Bad Task"])
     rc = cli.main()
     assert rc == 1
-    err_out = capsys.readouterr().out
+    # Agent mode routes ERROR status lines to stderr (see ai_governance.output.emit_status).
+    err_out = capsys.readouterr().err
     assert "Error creating task" in err_out

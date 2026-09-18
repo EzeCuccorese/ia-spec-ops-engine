@@ -12,9 +12,7 @@ import re
 import sys
 from pathlib import Path
 
-from rich.console import Console
-
-console = Console()
+from workspace_engine.common import log_error, log_success, log_warning
 
 
 def generate_default_config(project_name: str, domain: str, *, enterprise: bool = False) -> dict:
@@ -127,13 +125,11 @@ def init_config(
 
     if target.exists() and not force:
         if non_interactive or not sys.stdin.isatty():
-            console.print(
-                f"[yellow]⚠ Configuration already exists at [cyan]{target}[/cyan]. Use --force to overwrite.[/yellow]"
-            )
+            log_warning(f"Configuration already exists at {target}. Use --force to overwrite.")
             return target
         confirm = input(f"Configuration file {target} already exists. Overwrite? [y/N]: ").strip()
         if confirm.lower() not in ("y", "yes"):
-            console.print("[dim]Aborted configuration initialization.[/dim]")
+            print("Aborted configuration initialization.")
             return target
 
     # Resolve project name
@@ -163,9 +159,7 @@ def init_config(
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(config_data, indent=2) + "\n", encoding="utf-8")
 
-    console.print(
-        f"[bold green]✓[/bold green] Initialized SpecOps configuration at [bold cyan]{target}[/bold cyan]"
-    )
+    log_success(f"Initialized SpecOps configuration at {target}")
     return target
 
 
@@ -255,10 +249,10 @@ def run_config(args: argparse.Namespace) -> int:
             )
             return 0
         except (OSError, ValueError) as exc:
-            console.print(f"[bold red]Error initializing configuration:[/bold red] {exc}")
+            log_error(f"Error initializing configuration: {exc}")
             return 1
 
-    console.print(f"[bold red]Unknown config subcommand:[/bold red] {config_command}")
+    log_error(f"Unknown config subcommand: {config_command}")
     return 1
 
 
