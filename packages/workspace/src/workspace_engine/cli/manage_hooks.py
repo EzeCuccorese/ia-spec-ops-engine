@@ -8,9 +8,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from rich.console import Console
-from rich.table import Table
-from workspace_engine.common import log_error, log_success
+from workspace_engine.common import emit_rows, is_agent_mode, log_error, log_success
 from workspace_engine.services.git_hooks import (
     get_hooks_status,
     install_git_hooks,
@@ -18,53 +16,46 @@ from workspace_engine.services.git_hooks import (
     uninstall_git_hooks,
 )
 
-console = Console()
+
+def _scope_row(
+    label: str, scope_status: dict[str, object], *, agent_mode: bool
+) -> tuple[str, str, str, str, str]:
+    hook_exists = bool(scope_status["hook_exists"])
+    is_executable = bool(scope_status["is_executable"])
+    is_active = bool(scope_status["is_active"])
+    configured_hooks_path = scope_status["configured_hooks_path"] or (
+        "Not configured" if agent_mode else "[dim]Not configured[/dim]"
+    )
+
+    if agent_mode:
+        perm = "Executable" if is_executable else ("No exec" if hook_exists else "Not installed")
+        active = "ACTIVE" if is_active else "Inactive"
+    else:
+        perm = (
+            "[green]✓ Executable[/green]"
+            if is_executable
+            else ("[yellow]No exec[/yellow]" if hook_exists else "[red]Not installed[/red]")
+        )
+        active = "[green]✓ ACTIVE[/green]" if is_active else "[dim]Inactive[/dim]"
+
+    return (label, str(scope_status["hook_path"]), str(configured_hooks_path), perm, active)
 
 
 def render_hooks_status(target_dir: Path | None = None) -> None:
     """Displays a status table for local and global Git hooks."""
     status = get_hooks_status(target_dir)
+    agent_mode = is_agent_mode()
 
-    table = Table(title="🛡️ Git Hooks & Quality Gate Status", border_style="cyan")
-    table.add_column("Scope", style="bold magenta", justify="center")
-    table.add_column("Hook Location", style="dim")
-    table.add_column("core.hooksPath", style="bold")
-    table.add_column("Permissions", justify="center")
-    table.add_column("Active Status", justify="center")
-
-    # Local Row
-    loc = status["local"]
-    loc_perm = (
-        "[green]✓ Executable[/green]"
-        if loc["is_executable"]
-        else ("[yellow]No exec[/yellow]" if loc["hook_exists"] else "[red]Not installed[/red]")
+    rows = [
+        _scope_row("Local (Repo)", status["local"], agent_mode=agent_mode),
+        _scope_row("Global (System)", status["global"], agent_mode=agent_mode),
+    ]
+    emit_rows(
+        rows,
+        headers=("Scope", "Hook Location", "core.hooksPath", "Permissions", "Active Status"),
+        title="Git Hooks & Quality Gate Status",
+        full=True,
     )
-    loc_act = "[green]✓ ACTIVE[/green]" if loc["is_active"] else "[dim]Inactive[/dim]"
-    table.add_row(
-        "Local (Repo)",
-        loc["hook_path"],
-        loc["configured_hooks_path"] or "[dim]Not configured[/dim]",
-        loc_perm,
-        loc_act,
-    )
-
-    # Global Row
-    glo = status["global"]
-    glo_perm = (
-        "[green]✓ Executable[/green]"
-        if glo["is_executable"]
-        else ("[yellow]No exec[/yellow]" if glo["hook_exists"] else "[red]Not installed[/red]")
-    )
-    glo_act = "[green]✓ ACTIVE[/green]" if glo["is_active"] else "[dim]Inactive[/dim]"
-    table.add_row(
-        "Global (System)",
-        glo["hook_path"],
-        glo["configured_hooks_path"] or "[dim]Not configured[/dim]",
-        glo_perm,
-        glo_act,
-    )
-
-    console.print(table)
 
 
 def main(argv: list[str] | None = None) -> int:

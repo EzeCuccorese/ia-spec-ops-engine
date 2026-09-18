@@ -5,6 +5,18 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+TRIGGERS: frozenset[str] = frozenset(
+    {
+        "before-shell-command",
+        "after-shell-command",
+        "on-turn-end",
+        "on-worktree-create",
+        "on-demand",
+    }
+)
+FAIL_MODES: frozenset[str] = frozenset({"open", "closed"})
+IO_KINDS: frozenset[str] = frozenset({"json", "text", "none"})
+
 
 @dataclass(frozen=True)
 class RuleDefinition:
@@ -15,6 +27,19 @@ class RuleDefinition:
     globs: tuple[str, ...]
     content: str
     sha256: str
+
+
+@dataclass(frozen=True)
+class ToolDefinition:
+    id: str
+    package: str
+    command: str
+    purpose: str
+    trigger: str
+    io_stdin: str
+    io_stdout: str
+    replaces: tuple[str, ...]
+    fail_mode: str
 
 
 class RuleCatalog:
@@ -42,6 +67,7 @@ class RuleCatalog:
                         break
             self.root = found or (Path(__file__).resolve().parents[4] / "catalog")
         self._rules: dict[str, RuleDefinition] = {}
+        self._tools: dict[str, ToolDefinition] = {}
         self._load()
 
     def _load(self) -> None:
@@ -68,6 +94,34 @@ class RuleCatalog:
                 )
                 self._rules[rule.id] = rule
 
+        for item in data.get("tools", []):
+            tool_id = item["id"]
+            trigger = item.get("trigger", "on-demand")
+            if trigger not in TRIGGERS:
+                raise ValueError(f"Tool '{tool_id}' has invalid trigger: {trigger!r}")
+            fail_mode = item.get("fail_mode", "open")
+            if fail_mode not in FAIL_MODES:
+                raise ValueError(f"Tool '{tool_id}' has invalid fail_mode: {fail_mode!r}")
+            io = item.get("io", {})
+            io_stdin = io.get("stdin", "text")
+            io_stdout = io.get("stdout", "text")
+            if io_stdin not in IO_KINDS:
+                raise ValueError(f"Tool '{tool_id}' has invalid io.stdin: {io_stdin!r}")
+            if io_stdout not in IO_KINDS:
+                raise ValueError(f"Tool '{tool_id}' has invalid io.stdout: {io_stdout!r}")
+            tool = ToolDefinition(
+                id=tool_id,
+                package=item["package"],
+                command=item["command"],
+                purpose=item.get("purpose", ""),
+                trigger=trigger,
+                io_stdin=io_stdin,
+                io_stdout=io_stdout,
+                replaces=tuple(item.get("replaces", ())),
+                fail_mode=fail_mode,
+            )
+            self._tools[tool.id] = tool
+
     @property
     def rules(self) -> list[RuleDefinition]:
         return list(self._rules.values())
@@ -80,3 +134,22 @@ class RuleCatalog:
         for rule in self.rules:
             grouped.setdefault(rule.category, []).append(rule)
         return grouped
+
+    @property
+    def tools(self) -> list[ToolDefinition]:
+        return list(self._tools.values())
+
+    def get_tool(self, tool_id: str) -> ToolDefinition | None:
+        return self._tools.get(tool_id)
+
+    def tools_by_trigger(self) -> dict[str, list[ToolDefinition]]:
+        grouped: dict[str, list[ToolDefinition]] = {}
+        for tool in self.tools:
+            grouped.setdefault(tool.trigger, []).append(tool)
+        return grouped
+
+    def automatic_tools(self) -> list[ToolDefinition]:
+        return [tool for tool in self.tools if tool.trigger != "on-demand"]
+
+    def on_demand_tools(self) -> list[ToolDefinition]:
+        return [tool for tool in self.tools if tool.trigger == "on-demand"]

@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
 from rich.console import Console
 from rich.table import Table
 
+from ..output import emit_json, emit_kv, emit_rows, emit_status, emit_text, is_agent_mode
 from .resolver import TaskResolver
 from .tracker import SessionTracker, TaskState
 
@@ -19,6 +19,58 @@ console = Console()
 def show_task(
     task: TaskState, full_log: bool = False, tracker: SessionTracker | None = None
 ) -> None:
+    if is_agent_mode():
+        pairs: list[tuple[str, str]] = [
+            ("Status", task.status),
+            ("Summary", task.summary or "No summary"),
+        ]
+        if task.steps:
+            pairs.append(
+                (
+                    "Steps",
+                    "; ".join(
+                        f"{'✓' if s.get('done') else '□'} {s.get('text', '')}" for s in task.steps
+                    ),
+                )
+            )
+        if task.facts:
+            pairs.append(("Facts", "; ".join(fact.get("text", "") for fact in task.facts)))
+        if task.repos:
+            pairs.append(
+                (
+                    "Repositories",
+                    "; ".join(
+                        f"{r.get('path', '')} (branch: {r.get('branch') or '?'})"
+                        for r in task.repos
+                    ),
+                )
+            )
+        if task.links:
+            pairs.append(
+                (
+                    "Links",
+                    "; ".join(
+                        f"{link.get('title', '')}: {link.get('url', '')}" for link in task.links
+                    ),
+                )
+            )
+        if task.references:
+            pairs.append(
+                (
+                    "References",
+                    "; ".join(
+                        f"{ref.get('kind', '')}: {ref.get('value', '')}" for ref in task.references
+                    ),
+                )
+            )
+        emit_kv(pairs, title=f"Task: {task.id} — {task.title}", full=full_log)
+        if full_log and tracker:
+            log = tracker.read_log(task.id)
+            if log:
+                print("\nComplete Log:")
+                print(log)
+        return
+
     table = Table(title=f"Task: {task.id} — {task.title}", border_style="cyan")
     table.add_column("Property", style="bold green")
     table.add_column("Details", style="white")
@@ -155,16 +207,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd in ("list", "listar") or not args.cmd:
             tasks = tracker.list_tasks(include_closed=getattr(args, "all", False))
             if getattr(args, "json", False):
-                print(json.dumps([task.to_dict() for task in tasks], indent=2, ensure_ascii=False))
+                emit_json([task.to_dict() for task in tasks])
             else:
-                table = Table(title="Tasks", border_style="cyan")
-                table.add_column("Task ID")
-                table.add_column("Title")
-                table.add_column("Status")
-                table.add_column("Summary")
-                for task in tasks:
-                    table.add_row(task.id, task.title, task.status, task.summary)
-                console.print(table)
+                emit_rows(
+                    [(task.id, task.title, task.status, task.summary) for task in tasks],
+                    headers=("Task ID", "Title", "Status", "Summary"),
+                    title="Tasks",
+                    more_hint="progress list --json",
+                )
             return 0
 
         if args.cmd in ("here", "aqui"):
@@ -185,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
                 data = task.to_dict()
                 if args.full:
                     data["log"] = tracker.read_log(task.id)
-                print(json.dumps(data, indent=2, ensure_ascii=False))
+                emit_json(data)
             else:
                 show_task(task, args.full, tracker)
             return 0
@@ -234,18 +284,21 @@ def main(argv: list[str] | None = None) -> int:
             ids = [args.task_id] if args.task_id else [item.id for item in tracker.list_tasks()]
             for task_id in ids:
                 tracker.sync_repositories(task_id, TaskResolver._git_branch)
-            console.print(f"[green]Synced {len(ids)} task(s).[/green]")
+            emit_status("ok", f"Synced {len(ids)} task(s)")
             return 0
         elif args.cmd == "note":
             task = tracker.add_note(args.task_id, args.text)
         elif args.cmd == "digest":
             text = tracker.digest(args.task_id, args.max_chars)
-            print(json.dumps({"digest": text}) if args.json else text)
+            if args.json:
+                emit_json({"digest": text})
+            else:
+                emit_text(text, full=True)
             return 0
         elif args.cmd == "migrate-legacy":
             report = tracker.import_legacy_directory(args.path)
             if args.json:
-                print(json.dumps(report, indent=2))
+                emit_json(report)
             else:
                 print(
                     f"Imported {report['imported']}; skipped {report['skipped']}; "
@@ -256,13 +309,13 @@ def main(argv: list[str] | None = None) -> int:
             parser.print_help()
             return 0
 
-        console.print(f"[green]Updated task '{task.id}' ({task.status}).[/green]")
+        emit_status("ok", f"Updated task '{task.id}' ({task.status})")
         return 0
     except (ValueError, OSError) as exc:
         prefix = (
             "Error creating task" if getattr(args, "cmd", None) in ("new", "nueva") else "Error"
         )
-        console.print(f"[red]{prefix}: {exc}[/red]")
+        emit_status("error", f"{prefix}: {exc}")
         return 1
 
 

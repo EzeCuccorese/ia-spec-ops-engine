@@ -1,0 +1,191 @@
+"""Tests for workspace_engine.common.colors — agent mode output functions."""
+
+from __future__ import annotations
+
+import sys
+
+import pytest
+from workspace_engine.common.colors import (
+    emit_rows,
+    is_agent_mode,
+    log_error,
+    log_info,
+    log_success,
+    log_warning,
+    truncate,
+)
+
+
+class TestIsAgentMode:
+    """Test is_agent_mode() behavior (same 4 cases as ai_governance)."""
+
+    def test_agent_mode_forced_on_with_env_1(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """SPECOPS_AGENT=1 forces agent mode ON even if stdout is a TTY."""
+        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+        assert is_agent_mode() is True
+
+    def test_agent_mode_forced_off_with_env_0(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """SPECOPS_AGENT=0 forces agent mode OFF even if not a TTY."""
+        monkeypatch.setenv("SPECOPS_AGENT", "0")
+        monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
+        assert is_agent_mode() is False
+
+    def test_agent_mode_off_when_tty_and_env_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Unset env + TTY → agent mode OFF."""
+        monkeypatch.delenv("SPECOPS_AGENT", raising=False)
+        monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+        assert is_agent_mode() is False
+
+    def test_agent_mode_on_when_not_tty_and_env_unset(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Unset env + not TTY → agent mode ON."""
+        monkeypatch.delenv("SPECOPS_AGENT", raising=False)
+        monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
+        assert is_agent_mode() is True
+
+
+class TestTruncate:
+    """Test truncate() line and character limits (same as ai_governance)."""
+
+    def test_truncate_no_op_under_limits(self) -> None:
+        """Text under both limits is returned unchanged."""
+        text = "line1\nline2\nline3"
+        result = truncate(text, max_lines=20, max_chars=1500)
+        assert result == text
+
+    def test_truncate_line_cut_exact_max_lines(self) -> None:
+        """Exceeding max_lines cuts to exactly max_lines with 'more:' at end."""
+        lines = [f"line{i}" for i in range(30)]
+        text = "\n".join(lines)
+        result = truncate(text, max_lines=5, max_chars=1500)
+        result_lines = result.split("\n")
+        assert len(result_lines) == 5
+        assert result_lines[-1] == "more:"
+
+    def test_truncate_char_cut_respects_budget(self) -> None:
+        """Exceeding max_chars cuts at line boundary and adds 'more:'."""
+        lines = ["x" * 200 for _ in range(20)]
+        text = "\n".join(lines)
+        result = truncate(text, max_lines=100, max_chars=500)
+        assert len(result) <= 500
+        assert result.split("\n")[-1].startswith("more:")
+
+
+class TestEmitRows:
+    """Test emit_rows() in agent mode."""
+
+    def test_emit_rows_agent_mode_format(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Agent mode emits title, headers, and rows joined with ' | '."""
+        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        rows = [("a", "b", "c"), ("d", "e", "f")]
+        emit_rows(rows, headers=("H1", "H2", "H3"), title="Table")
+        out = capsys.readouterr().out
+        lines = out.strip().split("\n")
+        assert lines[0] == "Table"
+        assert lines[1] == "H1 | H2 | H3"
+        assert lines[2] == "a | b | c"
+        assert lines[3] == "d | e | f"
+
+    def test_emit_rows_agent_mode_full_true_no_truncate(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Agent mode with full=True never truncates."""
+        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        rows = [(f"r{i}", f"d{i}") for i in range(50)]
+        emit_rows(rows, headers=("ID", "Data"), full=True)
+        out = capsys.readouterr().out
+        assert "more:" not in out
+
+    def test_emit_rows_agent_mode_no_ansi(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Agent mode output contains no ANSI escape sequences."""
+        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        rows = [("cell1", "cell2")]
+        emit_rows(rows, headers=("H1", "H2"), title="Test")
+        out = capsys.readouterr().out
+        assert "\x1b" not in out
+
+
+class TestLogFunctions:
+    """Test log_info, log_success, log_warning, log_error in agent mode."""
+
+    def test_log_info_agent_mode_format(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Agent mode log_info() outputs 'INFO: message' to stdout."""
+        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        log_info("Test info message")
+        out = capsys.readouterr()
+        assert out.out == "INFO: Test info message\n"
+        assert out.err == ""
+
+    def test_log_info_tty_mode_has_ansi(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """TTY mode log_info() contains ANSI codes."""
+        monkeypatch.setenv("SPECOPS_AGENT", "0")
+        log_info("Test info")
+        out = capsys.readouterr().out
+        assert "\x1b" in out
+
+    def test_log_success_agent_mode_format(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Agent mode log_success() outputs 'OK: message' to stdout."""
+        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        log_success("Operation worked")
+        out = capsys.readouterr()
+        assert out.out == "OK: Operation worked\n"
+        assert out.err == ""
+
+    def test_log_success_tty_mode_has_ansi(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """TTY mode log_success() contains ANSI codes."""
+        monkeypatch.setenv("SPECOPS_AGENT", "0")
+        log_success("Operation worked")
+        out = capsys.readouterr().out
+        assert "\x1b" in out
+
+    def test_log_warning_agent_mode_format(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Agent mode log_warning() outputs 'WARN: message' to stdout."""
+        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        log_warning("Be careful")
+        out = capsys.readouterr()
+        assert out.out == "WARN: Be careful\n"
+        assert out.err == ""
+
+    def test_log_warning_tty_mode_has_ansi(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """TTY mode log_warning() contains ANSI codes."""
+        monkeypatch.setenv("SPECOPS_AGENT", "0")
+        log_warning("Be careful")
+        out = capsys.readouterr().out
+        assert "\x1b" in out
+
+    def test_log_error_agent_mode_format(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Agent mode log_error() outputs 'ERROR: message' to stderr."""
+        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        log_error("Something failed")
+        out = capsys.readouterr()
+        assert out.out == ""
+        assert out.err == "ERROR: Something failed\n"
+
+    def test_log_error_tty_mode_has_ansi(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """TTY mode log_error() contains ANSI codes."""
+        monkeypatch.setenv("SPECOPS_AGENT", "0")
+        log_error("Something failed")
+        out = capsys.readouterr().err
+        assert "\x1b" in out

@@ -116,13 +116,15 @@ def test_create_existing_fails_without_overwrite(tmp_path: Path, monkeypatch, ca
 
     # Verify CLI 'new' also fails with non-zero exit code on duplicate
     monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path))
+    monkeypatch.setenv("SPECOPS_AGENT", "1")
     monkeypatch.setattr(
         "sys.argv",
         ["progress", "new", "TASK-100", "--title", "CLI Duplicate", "--summary", "CLI summary"],
     )
     rc = cli_main()
     assert rc == 1
-    err_out = capsys.readouterr().out
+    # Agent mode routes ERROR status lines to stderr (see ai_governance.output.emit_status).
+    err_out = capsys.readouterr().err
     assert "Error creating task" in err_out
 
     # State still preserved after CLI attempt
