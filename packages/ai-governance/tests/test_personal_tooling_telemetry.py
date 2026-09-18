@@ -11,7 +11,6 @@ from ai_governance.telemetry.cost_monitor import CostMonitor
 from ai_governance.telemetry.prices import PriceCatalog
 from ai_governance.telemetry.ritmo import RitmoCalculator
 from ai_governance.telemetry.state import TelemetryConfig, ThresholdTracker
-from ai_governance.telemetry.statusline import format_statusline
 
 
 def test_cost_monitor_prices_cache_tiers_server_tools_and_provenance(tmp_path: Path) -> None:
@@ -100,22 +99,6 @@ def test_calibration_and_thresholds_are_explicit() -> None:
         )[0]
         == []
     )
-
-
-def test_statusline_passive_warning_never_reads_network() -> None:
-    rendered = format_statusline(
-        {
-            "cost": {"total_cost_usd": 1.0},
-            "context_window": {
-                "total_input_tokens": 1_000,
-                "total_output_tokens": 100,
-                "used_percentage": 61,
-            },
-        },
-        context_warning_pct=60,
-    )
-    assert "61% ctx" in rendered
-    assert "compact" in rendered.lower()
 
 
 def test_business_day_calendar_is_configurable() -> None:

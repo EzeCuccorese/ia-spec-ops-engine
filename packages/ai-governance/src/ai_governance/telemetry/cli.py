@@ -9,16 +9,11 @@ import sys
 from dataclasses import asdict, replace
 from pathlib import Path
 
-from rich.console import Console
-from rich.table import Table
-
+from ..output import emit_json, emit_kv, emit_status
 from .cost_monitor import CostMonitor
 from .prices import DEFAULT_FEED_URL, PriceCatalog
 from .ritmo import RitmoCalculator
 from .state import TelemetryConfig, ThresholdTracker, notify_macos
-from .statusline import format_statusline
-
-console = Console()
 
 
 def runtime_dir() -> Path:
@@ -31,39 +26,35 @@ def runtime_dir() -> Path:
 
 def show_ritmo_table(monthly_budget: float, actual_spend: float) -> None:
     status = RitmoCalculator.calculate_pace(monthly_budget, actual_spend_usd=actual_spend)
-    table = Table(title="Budget ritmo", border_style="cyan")
-    table.add_column("Metric")
-    table.add_column("Value")
-    table.add_row("Monthly budget", f"${monthly_budget:.2f} USD")
-    table.add_row("Business days", f"{status.elapsed_business_days}/{status.total_business_days}")
-    table.add_row("Expected spend", f"${status.expected_spend_usd:.2f} USD")
-    table.add_row("Estimated local spend", f"${status.actual_spend_usd:.2f} USD")
-    table.add_row("Status", status.status_label)
-    console.print(table)
+    pairs = [
+        ("Monthly budget", f"${monthly_budget:.2f} USD"),
+        ("Business days", f"{status.elapsed_business_days}/{status.total_business_days}"),
+        ("Expected spend", f"${status.expected_spend_usd:.2f} USD"),
+        ("Estimated local spend", f"${status.actual_spend_usd:.2f} USD"),
+        ("Status", status.status_label),
+    ]
+    emit_kv(pairs, title="Budget ritmo", full=True)
 
 
 def show_usage_report(summary: dict) -> None:
-    console.print(
-        "[yellow]Local transcript estimate; provider billing remains authoritative.[/yellow]"
-    )
-    table = Table(title="Claude usage estimate", border_style="cyan")
-    table.add_column("Metric")
-    table.add_column("Value")
-    table.add_row("Today", f"${summary['today_cost_usd']:.2f}")
-    table.add_row("Month", f"${summary['month_cost_usd']:.2f}")
-    table.add_row("Remaining workday allowance", f"${summary['daily_budget_usd']:.2f}")
+    emit_status("warn", "Local transcript estimate; provider billing remains authoritative.")
+    pairs = [
+        ("Today", f"${summary['today_cost_usd']:.2f}"),
+        ("Month", f"${summary['month_cost_usd']:.2f}"),
+        ("Remaining workday allowance", f"${summary['daily_budget_usd']:.2f}"),
+    ]
     cache_age = summary.get("price_cache_age_days")
     if cache_age is None:
-        table.add_row("Price cache", "not available; using bundled fallback")
+        pairs.append(("Price cache", "not available; using bundled fallback"))
     elif cache_age > 30:
-        table.add_row("Price cache", f"{cache_age} days old; run telemetry prices update")
+        pairs.append(("Price cache", f"{cache_age} days old; run telemetry prices update"))
     else:
-        table.add_row("Price cache", f"{cache_age} days old")
+        pairs.append(("Price cache", f"{cache_age} days old"))
     token_text = ", ".join(f"{name}={value}" for name, value in summary["tokens"].items())
-    table.add_row("Tokens", token_text)
+    pairs.append(("Tokens", token_text))
     for model, cost in sorted(summary["by_model"].items(), key=lambda item: -item[1]):
-        table.add_row(f"Model {model}", f"${cost:.2f}")
-    console.print(table)
+        pairs.append((f"Model {model}", f"${cost:.2f}"))
+    emit_kv(pairs, title="Claude usage estimate", full=True)
 
 
 def _monitor(base: Path, config: TelemetryConfig) -> CostMonitor:
@@ -86,10 +77,6 @@ def _build_parser() -> argparse.ArgumentParser:
     ritmo = sub.add_parser("ritmo")
     ritmo.add_argument("--budget", type=float, default=100.0)
     ritmo.add_argument("--spent", type=float, default=0.0)
-    statusline = sub.add_parser("statusline")
-    statusline.add_argument("--ritmo", action="store_true")
-    statusline.add_argument("--budget", type=float, default=100.0)
-    statusline.add_argument("--context-warning", type=float, default=60.0)
     for name in ("usage", "report"):
         report = sub.add_parser(name)
         report.add_argument("--budget", type=float)
@@ -117,21 +104,11 @@ def main(argv: list[str] | None = None) -> int:
         config = TelemetryConfig.load(config_path)
         if args.cmd == "ritmo":
             show_ritmo_table(args.budget, args.spent)
-        elif args.cmd == "statusline":
-            payload = json.loads(sys.stdin.read() or "{}")
-            output = format_statusline(
-                payload,
-                include_ritmo=args.ritmo,
-                monthly_budget=args.budget,
-                context_warning_pct=args.context_warning,
-            )
-            if output:
-                print(output)
         elif args.cmd in ("usage", "report"):
             budget = args.budget or config.effective_monthly_limit
             summary = _monitor(base, config).get_summary_report(budget)
             if args.json:
-                print(json.dumps(_summary_json(summary), indent=2))
+                emit_json(_summary_json(summary))
             else:
                 show_usage_report(summary)
         elif args.cmd == "calibrate":
@@ -153,14 +130,14 @@ def main(argv: list[str] | None = None) -> int:
             if args.notify and config.notify_macos and messages:
                 notify_macos("Claude usage estimate", " ".join(messages))
             if args.json:
-                print(json.dumps({"messages": messages, "state": state}, indent=2))
+                emit_json({"messages": messages, "state": state})
             elif messages:
-                console.print("\n".join(messages))
+                print("\n".join(messages))
         else:
             parser.print_help()
         return 0
     except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
-        console.print(f"[red]Telemetry error: {exc}[/red]")
+        emit_status("error", f"Telemetry error: {exc}")
         return 1
 
 

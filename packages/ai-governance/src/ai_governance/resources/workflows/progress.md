@@ -2,6 +2,8 @@
 
 This document defines the universal protocol for tracking and restoring task state across coding sessions using the `progress` CLI. It works across any AI coding agent (Antigravity, Codex, Claude Code, Cursor, Windsurf, Aider, terminal).
 
+> **Announce:** print one line — `⚙ progress <subcommand>` — before each call to the `progress` CLI. See rule `00-deterministic-first`.
+
 ## Core Principles
 1. **Zero Provider Coupling:** Operates strictly via the deterministic `progress` CLI and disk state (`~/.specops/progress/` or local repository state).
 2. **Verified Facts:** Record evidence and its context. Recheck facts when code, branches, configuration, or external state have changed.

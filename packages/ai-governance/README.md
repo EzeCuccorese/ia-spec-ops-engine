@@ -13,7 +13,7 @@ Continuous development with AI coding agents (Claude Code, Antigravity, Cursor, 
 `ai-governance` solves this via:
 - **Canonical 28-Rule Catalog**: Reversibly injectable into any AI coding agent configuration.
 - **Active Context Frugality**: Intelligent output condensation for test runners (`pytest`, `jest`, `vitest`, `go test`, `cargo test`) that hides passing test spam while preserving failure traces.
-- **Telemetry & Budget Pacing**: High-visibility real-time ANSI statusline and business-day budget pacing (`ritmo`).
+- **Telemetry & Budget Pacing**: Local usage estimates and business-day budget pacing (`ritmo`).
 - **Ultralight Cross-Session State (`progreso` / `progress`)**: Compact JSON state (~300 tokens) to effortlessly pause, clear, and resume multi-repo tasks without hauling dead conversational context.
 - **Zero-Overhead CLI Tools (`jira`, `confluence`)**: Native CLI tools outputting clean Markdown without MCP token tax.
 
@@ -37,7 +37,6 @@ Installation registers these commands on your PATH:
 - `governance`: Unified master CLI orchestrator.
 - `rules`: Engineering standards catalog and reversible multi-agent injector.
 - `frugal`: Context condenser and runtime trimmer.
-- `statusline`: Real-time ANSI telemetry statusline.
 - `telemetry`: Local usage estimates, price-cache maintenance, calibration, and thresholds.
 - `progreso`: Lightweight cross-session task tracking.
 - `jira`: Fast, lightweight Jira CLI client in Markdown.
@@ -69,7 +68,7 @@ packages/ai-governance/
 │   │   ├── agents.py          # Universal AGENTS.md rules injector & manager
 │   │   └── core/              # Catalog, injector, storage, and TUI components
 │   ├── frugality/             # Test trimmers and context guards (`frugal`)
-│   ├── telemetry/             # ANSI statusline, cost monitor, and `ritmo` algorithm
+│   ├── telemetry/             # Cost monitor and `ritmo` algorithm
 │   ├── session/               # Cross-session progress tracker (`progreso`)
 │   └── tools/                 # Native Markdown CLI tools (`jira`, `confluence`)
 └── tests/                     # Unit and integration test suites
@@ -89,7 +88,6 @@ Unified entrypoint for all subsystems:
 ```bash
 governance rules        # Launch rules manager
 governance frugal       # Launch context frugality engine
-governance statusline   # Display telemetry statusline
 governance ritmo        # Calculate monthly budget pacing
 governance usage        # Scan local Claude Code transcripts
 governance task         # Manage cross-session tasks
@@ -138,12 +136,9 @@ frugal --version
 
 ---
 
-### 4. Telemetry & Budget Pacing (`statusline` & `ritmo`)
+### 4. Telemetry & Budget Pacing (`ritmo`)
 
 ```bash
-# Real-time ANSI statusline (session cost, context window %, 5h rate limits)
-statusline
-
 # Business-Day Budget Pacing (algorithm factoring business days in month)
 ritmo --budget 150 --spent 42.50
 # Visualizes whether your burn rate is ahead or behind budget target.
@@ -154,7 +149,7 @@ governance usage --budget 150
 # Detailed machine-readable estimate with cache tiers and server tools
 telemetry report --json
 
-# Explicit maintenance operations (the statusline never uses the network)
+# Explicit maintenance operations (telemetry never uses the network by itself)
 telemetry prices update
 telemetry calibrate --from 2026-09-01 --to 2026-09-07 --actual 42.50
 telemetry thresholds --notify
@@ -231,3 +226,91 @@ confluence get 84920492
 # Search Confluence pages
 confluence search "Authentication Architecture"
 ```
+
+---
+
+### 7. Agent Output Mode
+
+All `ai-governance` CLIs share one output layer (`ai_governance/output.py`). When a
+command runs under an AI coding agent, output is compact and deterministic instead
+of the rich, human-oriented rendering used in an interactive terminal.
+
+- **Detection**: agent mode is ON whenever stdout is not a TTY, or when
+  `SPECOPS_AGENT=1` is set. `SPECOPS_AGENT=0` forces it off (useful for tests or a
+  human piping output). Detection is re-evaluated on every call — nothing is cached.
+- **Budget**: agent-mode output is truncated to roughly 20 lines / 1500 characters,
+  ending in a `more: <hint>` line when something was cut.
+- **Escaping the budget**: pass `--full` on commands that support it to disable
+  truncation, or `--json` to get a single dense JSON line instead of a table.
+- Status lines use plain `OK:` / `WARN:` / `ERROR:` / `INFO:` prefixes; `ERROR:`
+  lines go to stderr, everything else to stdout.
+
+---
+
+### 8. Harness Tools & Self-Wiring (`governance harness`)
+
+The rules catalog (`packages/ai-governance/src/ai_governance/catalog/manifest.json`)
+also declares a small set of **deterministic tools** — `frugal`,
+`telemetry`, `progress`, `jira`, `confluence`, and the `ws` tools from
+`packages/workspace` — each with a trigger (`before-shell-command`,
+`after-shell-command`, `on-turn-end`, `on-worktree-create`, or
+`on-demand`).
+
+```bash
+# List the deterministic tools catalog
+governance harness list
+governance harness list --json
+
+# Print the rendered self-wiring block without writing anything
+governance harness show
+
+# Inject the wiring block into AGENTS.md (idempotent, reversible)
+governance harness install --local --root .
+governance harness install --global
+
+# Remove it again
+governance harness uninstall --local --root .
+```
+
+**No installer, by design.** `governance harness install` never writes
+`~/.claude/settings.json` or any other host configuration file. It only injects a
+`<!-- harness:start --> ... <!-- harness:end -->` block into `AGENTS.md` (the same
+target the `rules` adapter uses) documenting, for every automatic-trigger tool,
+where that trigger lives on a known host (see `rules/core/hosts.py`) and what to do
+when the runtime does not support that hook at all: run the command manually at
+that point in the workflow. The agent reading `AGENTS.md` self-configures its own
+runtime from that documentation; `governance doctor` only reads and reports, it
+never writes host config either.
+
+Any on-demand deterministic tool should be announced with one line before use:
+`⚙ <tool-id> <args>` (see rule `00-deterministic-first`).
+
+---
+
+### 9. Doctor (`governance doctor`)
+
+A read-only, deterministic health check — it writes nothing.
+
+```bash
+governance doctor
+governance doctor --global
+governance doctor --json
+governance doctor --host claude-code
+```
+
+It reports one line per check (`STATUS  name — hint`) plus a
+`summary: N ok, M missing, K warn` line, and checks:
+
+1. **Tool presence**: each deterministic tool's command is on `PATH`
+   (`shutil.which`); hint is the `uv pip install -e packages/<pkg>` to run.
+2. **Host wiring**: for the detected (or `--host`-forced) host, whether each
+   automatic tool's trigger is actually wired in that host's config (e.g.
+   `~/.claude/settings.json` hooks for `claude-code`). `N/A` when no
+   supported host is detected.
+3. **`AGENTS.md` blocks**: whether the `rules:start` and `harness:start` blocks are
+   present at the resolved target (local or `--global`).
+4. **Runtime dir**: whether `SPECOPS_USAGE_DIR` (or `~/.specops/usage-monitor`)
+   exists and is writable.
+
+**Exit codes**: `0` when everything checked is `OK` or `WARN`/`N/A`, `1` when any
+check is `MISSING`, `2` on an unexpected internal error.

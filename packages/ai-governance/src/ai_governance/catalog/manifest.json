@@ -1,7 +1,18 @@
 {
   "schema_version": 1,
-  "total_rules": 28,
+  "total_rules": 29,
   "rules": [
+    {
+      "id": "00-deterministic-first",
+      "category": "0-harness",
+      "file": "0-harness/00-deterministic-first.md",
+      "description": "Prefer the harness's deterministic tools over manual work; announce usage; keep output frugal",
+      "triggers": {
+        "globs": [
+          "**/*"
+        ]
+      }
+    },
     {
       "id": "01-clean-code-solid",
       "category": "1-core",
@@ -364,6 +375,226 @@
           "**/*.puml"
         ]
       }
+    }
+  ],
+  "tools": [
+    {
+      "id": "frugal-pre-bash",
+      "package": "ai-governance",
+      "command": "frugal --pre-bash",
+      "purpose": "Warn the agent before running a shell command that a deterministic tool already covers.",
+      "trigger": "before-shell-command",
+      "io": {
+        "stdin": "json",
+        "stdout": "json"
+      },
+      "replaces": [],
+      "fail_mode": "open"
+    },
+    {
+      "id": "frugal-post-bash",
+      "package": "ai-governance",
+      "command": "frugal --post-bash",
+      "purpose": "Condense shell output; keep failures and summary; cite the full log path.",
+      "trigger": "after-shell-command",
+      "io": {
+        "stdin": "json",
+        "stdout": "json"
+      },
+      "replaces": [
+        "<runner> test with full output",
+        "docker logs without --tail",
+        "kubectl logs without --tail"
+      ],
+      "fail_mode": "open"
+    },
+    {
+      "id": "telemetry-thresholds",
+      "package": "ai-governance",
+      "command": "telemetry thresholds --notify",
+      "purpose": "Notify when spend or context usage crosses a configured threshold.",
+      "trigger": "on-turn-end",
+      "io": {
+        "stdin": "none",
+        "stdout": "text"
+      },
+      "replaces": [],
+      "fail_mode": "open"
+    },
+    {
+      "id": "worktree-create",
+      "package": "workspace",
+      "command": "ws hook claude-worktree-create",
+      "purpose": "Provision an isolated Git worktree when the host creates one for an agent.",
+      "trigger": "on-worktree-create",
+      "io": {
+        "stdin": "json",
+        "stdout": "json"
+      },
+      "replaces": [],
+      "fail_mode": "open"
+    },
+    {
+      "id": "progress-here",
+      "package": "ai-governance",
+      "command": "progress here --json",
+      "purpose": "Resolve and show the task tracked for the current branch or repository.",
+      "trigger": "on-demand",
+      "io": {
+        "stdin": "text",
+        "stdout": "json"
+      },
+      "replaces": [
+        "read progress.md",
+        "cat PROGRESS.md",
+        "git log to reconstruct task state"
+      ],
+      "fail_mode": "open"
+    },
+    {
+      "id": "progress-view",
+      "package": "ai-governance",
+      "command": "progress view <task-id> --json",
+      "purpose": "Show the full state of a single tracked task.",
+      "trigger": "on-demand",
+      "io": {
+        "stdin": "text",
+        "stdout": "json"
+      },
+      "replaces": [],
+      "fail_mode": "open"
+    },
+    {
+      "id": "progress-list",
+      "package": "ai-governance",
+      "command": "progress list --json",
+      "purpose": "List all tracked tasks and their status.",
+      "trigger": "on-demand",
+      "io": {
+        "stdin": "text",
+        "stdout": "json"
+      },
+      "replaces": [],
+      "fail_mode": "open"
+    },
+    {
+      "id": "progress-step",
+      "package": "ai-governance",
+      "command": "progress step <task-id> add|done <text>",
+      "purpose": "Add or complete a step on a tracked task.",
+      "trigger": "on-demand",
+      "io": {
+        "stdin": "text",
+        "stdout": "text"
+      },
+      "replaces": [
+        "edit a TODO/progress markdown by hand"
+      ],
+      "fail_mode": "open"
+    },
+    {
+      "id": "progress-fact",
+      "package": "ai-governance",
+      "command": "progress fact <task-id> <text>",
+      "purpose": "Record a verified fact on a tracked task.",
+      "trigger": "on-demand",
+      "io": {
+        "stdin": "text",
+        "stdout": "text"
+      },
+      "replaces": [],
+      "fail_mode": "open"
+    },
+    {
+      "id": "ws-worktree",
+      "package": "workspace",
+      "command": "ws worktree <repo> <target> <branch>",
+      "purpose": "Create an isolated Git worktree for a repository and branch.",
+      "trigger": "on-demand",
+      "io": {
+        "stdin": "text",
+        "stdout": "text"
+      },
+      "replaces": [
+        "git worktree add <path>"
+      ],
+      "fail_mode": "open"
+    },
+    {
+      "id": "ws-hooks",
+      "package": "workspace",
+      "command": "ws hooks status",
+      "purpose": "Report the installed state of the repository's quality-gate hooks.",
+      "trigger": "on-demand",
+      "io": {
+        "stdin": "text",
+        "stdout": "text"
+      },
+      "replaces": [
+        "cat .git/hooks/*",
+        "ls .githooks"
+      ],
+      "fail_mode": "open"
+    },
+    {
+      "id": "ws-doctor",
+      "package": "workspace",
+      "command": "ws doctor",
+      "purpose": "Verify system tools, compilers, and development environment are correctly set up.",
+      "trigger": "on-demand",
+      "io": {
+        "stdin": "text",
+        "stdout": "text"
+      },
+      "replaces": [
+        "which java node python go"
+      ],
+      "fail_mode": "open"
+    },
+    {
+      "id": "jira-issue",
+      "package": "ai-governance",
+      "command": "jira issue <KEY>",
+      "purpose": "Display a Jira issue as clean Markdown without raw API overhead.",
+      "trigger": "on-demand",
+      "io": {
+        "stdin": "text",
+        "stdout": "text"
+      },
+      "replaces": [
+        "curl <atlassian>/rest/api"
+      ],
+      "fail_mode": "open"
+    },
+    {
+      "id": "confluence-read",
+      "package": "ai-governance",
+      "command": "confluence read <page>",
+      "purpose": "Display a Confluence page as clean Markdown without raw API overhead.",
+      "trigger": "on-demand",
+      "io": {
+        "stdin": "text",
+        "stdout": "text"
+      },
+      "replaces": [
+        "curl <atlassian>/wiki/rest/api"
+      ],
+      "fail_mode": "open"
+    },
+    {
+      "id": "telemetry-usage",
+      "package": "ai-governance",
+      "command": "telemetry usage --json",
+      "purpose": "Report local usage estimate (spend and tokens) from session transcripts.",
+      "trigger": "on-demand",
+      "io": {
+        "stdin": "text",
+        "stdout": "json"
+      },
+      "replaces": [
+        "grep/parse ~/.claude/projects/**/*.jsonl"
+      ],
+      "fail_mode": "open"
     }
   ]
 }

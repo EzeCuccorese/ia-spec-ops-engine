@@ -2,9 +2,9 @@
 test_acceptance_utilities.py — Acceptance tests for utilities contracts U01–U10.
 
 Contracts from 02-CONTRATOS-DE-TEST.md:
-- U01 (test_monthly_pace_requires_monthly_input): When only single-session cost is provided
-      and no monthly spend is known, statusline and ritmo report monthly pace as unknown/omitted
-      rather than inventing or treating single-session cost as the full monthly spend.
+- U01 (test_monthly_pace_requires_monthly_input): When no monthly spend is known, ritmo
+      reports monthly pace as unknown/omitted rather than inventing or treating single-session
+      cost as the full monthly spend.
 - U02 (test_telemetry_unknown_and_dedup): Telemetry handles missing sources, duplicate
       transcript events (deduplication by event id/hash), and distinct time periods without distorting totals.
 - U03 (test_frugal_never_grants_permission): PreToolUse and PostToolUse hooks never emit
@@ -38,17 +38,16 @@ import pytest
 from ai_governance.frugality import cli as frugal_cli
 from ai_governance.telemetry.cost_monitor import CostMonitor
 from ai_governance.telemetry.ritmo import RitmoCalculator
-from ai_governance.telemetry.statusline import format_statusline
 from ai_governance.tools import confluence, jira
 
 # ── U01: Monthly Pace Requires Monthly Input ──────────────────────────────────
 
 
 def test_monthly_pace_requires_monthly_input() -> None:
-    """U01: When only single-session cost is provided and no monthly spend is known,
+    """U01: When no monthly spend is known, ritmo reports monthly pace as
 
-    statusline and ritmo report monthly pace as unknown/omitted rather than inventing
-    or treating single-session cost as the full monthly spend.
+    unknown/omitted rather than inventing or treating single-session cost as
+    the full monthly spend.
     """
     # 1. Ritmo pace calculation without monthly spend input must return unknown status
     status = RitmoCalculator.calculate_pace(
@@ -61,26 +60,15 @@ def test_monthly_pace_requires_monthly_input() -> None:
     assert status.is_under_budget is None
     assert "unknown" in status.status_label.lower()
 
-    # 2. Statusline with only single-session cost ($2.50) and NO monthly spend
-    payload_only_session = {
-        "cost": {"total_cost_usd": 2.50},
-        "context_window": {"total_input_tokens": 500, "total_output_tokens": 100},
-    }
-    rendered = format_statusline(payload_only_session, include_ritmo=True, monthly_budget=100.0)
-    assert "$2.50" in rendered  # session cost is preserved
-    assert "unknown" in rendered  # ritmo status indicates unknown monthly pace
-    # It must NOT report "OK" or "margin" derived from treating $2.50 as monthly spend
-    assert "margin" not in rendered
-    assert "EXCEEDED" not in rendered
-
-    # 3. Conversely, when monthly spend is explicitly known, ritmo reports pace accurately
-    payload_with_monthly = {
-        "cost": {"total_cost_usd": 2.50, "monthly_cost_usd": 150.0},
-    }
-    rendered_known = format_statusline(
-        payload_with_monthly, include_ritmo=True, monthly_budget=100.0
+    # 2. When monthly spend is explicitly known, ritmo reports pace accurately
+    status_known = RitmoCalculator.calculate_pace(
+        monthly_budget_usd=100.0,
+        actual_spend_usd=150.0,
+        target_date=date(2026, 9, 10),
     )
-    assert "EXCEEDED" in rendered_known
+    assert status_known.actual_spend_usd == 150.0
+    assert status_known.is_under_budget is False
+    assert "EXCEEDED" in status_known.status_label
 
 
 # ── U02: Telemetry Missing Sources & Deduplication ────────────────────────────

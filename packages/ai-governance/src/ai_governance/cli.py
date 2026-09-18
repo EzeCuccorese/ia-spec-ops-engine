@@ -8,10 +8,14 @@ import sys
 from rich.console import Console
 from rich.panel import Panel
 
+from .output import is_agent_mode
+
 console = Console()
 
 
 def show_banner() -> None:
+    if is_agent_mode():
+        return
     console.print(
         Panel.fit(
             "[bold cyan]🛡️  AI GOVERNANCE[/bold cyan]\n"
@@ -31,11 +35,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("rules", help="Software Engineering Standards Catalog & Reversible Injector")
     sub.add_parser("frugal", help="Context Frugality & Tool Output Condenser")
-    sub.add_parser("statusline", help="Real-time ANSI statusline for coding agents")
     sub.add_parser("telemetry", help="Usage estimates, prices, pacing, and thresholds")
     sub.add_parser("progress", help="Lightweight cross-session task tracker (~300 tokens)")
     sub.add_parser("jira", help="Jira ticket querying and transitions in Markdown")
     sub.add_parser("confluence", help="Confluence documentation reader and writer in Markdown")
+    sub.add_parser("harness", help="Deterministic tools index and self-wiring block for AGENTS.md")
+    sub.add_parser("doctor", help="Read-only check of tools, host wiring and AGENTS.md blocks")
 
     # Note: "ritmo"/"usage" (telemetry aliases) and "task" (progress alias) are
     # dispatched directly in main() below and intentionally omitted here so
@@ -65,10 +70,6 @@ def main(argv: list[str] | None = None) -> int:
         from .frugality.cli import main as frugal_main
 
         return frugal_main(remaining_args)
-    elif cmd == "statusline":
-        from .telemetry.statusline import main as status_main
-
-        return status_main()
     elif cmd == "telemetry":
         from .telemetry.cli import main as telemetry_main
 
@@ -91,6 +92,14 @@ def main(argv: list[str] | None = None) -> int:
 
         confluence_main(remaining_args)
         return 0
+    elif cmd == "harness":
+        from .harness.cli import main as harness_main
+
+        return harness_main(remaining_args)
+    elif cmd == "doctor":
+        from .harness.doctor import main as doctor_main
+
+        return doctor_main(remaining_args)
     else:
         parser.parse_args(args_list)
         return 0

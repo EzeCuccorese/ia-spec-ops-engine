@@ -23,12 +23,6 @@ def test_cli_dispatch_frugal() -> None:
         mock_frugal.assert_called_once_with(["--help"])
 
 
-def test_cli_dispatch_statusline() -> None:
-    with patch("ai_governance.telemetry.statusline.main", return_value=0) as mock_status:
-        assert main(["statusline"]) == 0
-        mock_status.assert_called_once_with()
-
-
 def test_cli_dispatch_telemetry() -> None:
     with patch("ai_governance.telemetry.cli.main", return_value=0) as mock_telemetry:
         assert main(["telemetry", "usage"]) == 0
@@ -71,6 +65,18 @@ def test_cli_dispatch_confluence() -> None:
         mock_confluence.assert_called_once_with(["help"])
 
 
+def test_cli_dispatch_harness() -> None:
+    with patch("ai_governance.harness.cli.main", return_value=0) as mock_harness:
+        assert main(["harness", "list"]) == 0
+        mock_harness.assert_called_once_with(["list"])
+
+
+def test_cli_dispatch_doctor() -> None:
+    with patch("ai_governance.harness.doctor.main", return_value=0) as mock_doctor:
+        assert main(["doctor"]) == 0
+        mock_doctor.assert_called_once_with([])
+
+
 def test_cli_does_not_import_optional_packages() -> None:
     with patch.dict(sys.modules, {"spec": None, "workspace_engine": None}):
         assert main([]) == 0
@@ -83,7 +89,6 @@ def test_cli_help_lists_all_canonical_subcommands(capsys: pytest.CaptureFixture[
     for subcommand in (
         "rules",
         "frugal",
-        "statusline",
         "telemetry",
         "progress",
         "jira",

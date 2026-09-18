@@ -37,7 +37,10 @@ if "ai_governance" in modules:
     from ai_governance.rules.core.catalog import RuleCatalog
     from ai_governance.rules.cli import main as rules
     from ai_governance.session.cli import main as progress
-    assert len(RuleCatalog().rules) == 28
+    catalog = RuleCatalog()
+    manifest = json.loads((catalog.root / "manifest.json").read_text())
+    assert len(catalog.rules) == manifest["total_rules"] >= 29
+    assert len(catalog.tools) == len(manifest["tools"]) >= 15
     resource = importlib.resources.files("ai_governance").joinpath("resources", "workflows", "progress.md")
     assert resource.is_file()
     rules(["install", "--local", "--all", "--root", "."])

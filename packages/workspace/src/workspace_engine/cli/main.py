@@ -27,18 +27,13 @@ import argparse
 import shutil
 import sys
 
-from rich.console import Console
-from rich.table import Table
-
-console = Console()
+from workspace_engine.common import emit_rows, is_agent_mode
 
 
 def doctor_check() -> None:
     """Diagnoses development environment tools and runtimes."""
-    table = Table(title="🏥 Development Environment Diagnostics (ws doctor)", border_style="green")
-    table.add_column("Tool / Runtime", style="bold cyan")
-    table.add_column("Status", justify="center")
-    table.add_column("Details", style="dim")
+    agent_mode = is_agent_mode()
+    rows: list[tuple[str, str, str]] = []
 
     tools = [
         ("git", "Git Version Control"),
@@ -54,9 +49,11 @@ def doctor_check() -> None:
     for tool, desc in tools:
         path = shutil.which(tool)
         if path:
-            table.add_row(tool, "[green]✓ Available[/green]", f"{desc} ({path})")
+            status = "Available" if agent_mode else "[green]✓ Available[/green]"
+            rows.append((tool, status, f"{desc} ({path})"))
         else:
-            table.add_row(tool, "[yellow]⚠ Not Found[/yellow]", desc)
+            status = "Not Found" if agent_mode else "[yellow]⚠ Not Found[/yellow]"
+            rows.append((tool, status, desc))
 
     from workspace_engine.services.git_hooks import get_hooks_status
 
@@ -67,17 +64,18 @@ def doctor_check() -> None:
             if (hooks_stat["local"]["is_active"] and hooks_stat["global"]["is_active"])
             else ("Local" if hooks_stat["local"]["is_active"] else "Global")
         )
-        table.add_row(
-            "git-hooks", "[green]✓ Active[/green]", f"Pre-Push Quality Gate ({active_scope})"
-        )
+        status = "Active" if agent_mode else "[green]✓ Active[/green]"
+        rows.append(("git-hooks", status, f"Pre-Push Quality Gate ({active_scope})"))
     else:
-        table.add_row(
-            "git-hooks",
-            "[yellow]⚠ Inactive[/yellow]",
-            "Run 'ws hooks install --global' to protect git push",
-        )
+        status = "Inactive" if agent_mode else "[yellow]⚠ Inactive[/yellow]"
+        rows.append(("git-hooks", status, "Run 'ws hooks install --global' to protect git push"))
 
-    console.print(table)
+    emit_rows(
+        rows,
+        headers=("Tool / Runtime", "Status", "Details"),
+        title="Development Environment Diagnostics (ws doctor)",
+        full=True,
+    )
 
 
 def main() -> None:

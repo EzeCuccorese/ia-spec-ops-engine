@@ -12,11 +12,12 @@ import json
 import os
 import sys
 import tempfile
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
 from .output_trimmer import OutputTrimmer
-from .pre_check import PreCheck
+from .pre_check import PreCheck, catalog_patterns
 from .test_trimmer import TestTrimmer
 
 try:
@@ -112,7 +113,20 @@ def run_pre_bash(cfg: dict) -> None:
 
     command = (payload.get("tool_input") or {}).get("command", "")
     session_id = payload.get("session_id")
-    advice = PreCheck.check_command(command, session_id=session_id, runtime_dir=get_runtime_dir())
+
+    # Fail-open: a missing/broken catalog must never block the hook.
+    extra_patterns: tuple[tuple[str, Callable[[str], bool], str], ...] = ()
+    with contextlib.suppress(Exception):
+        from ..rules.core.catalog import RuleCatalog
+
+        extra_patterns = catalog_patterns(RuleCatalog().tools)
+
+    advice = PreCheck.check_command(
+        command,
+        session_id=session_id,
+        runtime_dir=get_runtime_dir(),
+        extra_patterns=extra_patterns,
+    )
     if advice:
         print(
             json.dumps(

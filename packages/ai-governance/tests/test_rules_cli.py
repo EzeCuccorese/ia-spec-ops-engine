@@ -4,7 +4,9 @@ from ai_governance.rules.cli import main
 
 
 def test_cli_list_action(capsys) -> None:
-    main(["list"])
+    # --full disables agent-mode truncation so the full catalog is asserted here,
+    # independent of stdout being a TTY (see ai_governance.output truncation).
+    main(["list", "--full"])
     captured = capsys.readouterr().out
     assert "Engineering Rules Catalog" in captured
     assert "java-spring" in captured
