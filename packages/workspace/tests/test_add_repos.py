@@ -29,6 +29,29 @@ def test_setup_repo_worktree_already_exists(tmp_path: Path) -> None:
     mock_git.assert_called_once()
 
 
+def test_setup_repo_worktree_already_exists_among_multiple_lines(tmp_path: Path) -> None:
+    target = tmp_path / "wt"
+    cfg = RepoConfig(name="svc", mode="new", branch="feature", parent="main")
+    other = tmp_path / "other-wt"
+    listing = _completed(stdout=f"worktree {other}\nbranch refs/heads/x\nworktree {target}\n")
+    with patch.object(add_repos, "run_git", return_value=listing) as mock_git:
+        add_repos.setup_repo_worktree(tmp_path, target, cfg)
+    mock_git.assert_called_once()
+
+
+def test_setup_repo_worktree_unknown_mode_is_a_noop(tmp_path: Path) -> None:
+    target = tmp_path / "wt"
+    cfg = RepoConfig(name="svc", mode="skip", branch="feature")
+
+    def fake_git(repo_path, *args):
+        return _completed(stdout="")
+
+    with patch.object(add_repos, "run_git", side_effect=fake_git) as mock_git:
+        add_repos.setup_repo_worktree(tmp_path, target, cfg)
+    # Only the initial "worktree list" call happens; no add/fetch for an unknown mode.
+    mock_git.assert_called_once()
+
+
 def test_setup_repo_worktree_new_mode_uses_remote_ref(tmp_path: Path) -> None:
     target = tmp_path / "wt"
     cfg = RepoConfig(name="svc", mode="new", branch="feature", parent="main")
@@ -150,6 +173,61 @@ def test_add_repositories_selection_cancelled(tmp_path: Path) -> None:
     assert exc_info.value.code == 130
 
 
+def test_add_repositories_retries_after_configure_repos_cancelled(tmp_path: Path) -> None:
+    workspace_dir = tmp_path / "ws"
+    manifest_path = _make_manifest(workspace_dir, [])
+    repos_root = tmp_path / "repos"
+    (repos_root / "svc").mkdir(parents=True)
+
+    cfg = RepoConfig(name="svc", mode="new", branch="feature", parent="main")
+    configure_calls = []
+
+    def fake_configure(workspace_name, selected, repo_paths):
+        configure_calls.append(list(selected))
+        if len(configure_calls) == 1:
+            return None
+        return [cfg]
+
+    with (
+        patch.object(add_repos, "select_repos", return_value=["svc"]),
+        patch.object(add_repos, "configure_repos", side_effect=fake_configure),
+        patch.object(add_repos, "pre_validate", return_value=[]),
+        patch.object(add_repos, "setup_repo_worktree", return_value=None),
+        patch.object(add_repos, "update_workspace_agents", return_value=None),
+    ):
+        add_repos.add_repositories_to_workspace(workspace_dir, repos_root)
+
+    assert len(configure_calls) == 2
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert data["repositories"] == [{"name": "svc", "branch": "feature", "parent_branch": "main"}]
+
+
+def test_add_repositories_manifest_write_failure_exits(tmp_path: Path) -> None:
+    workspace_dir = tmp_path / "ws"
+    _make_manifest(workspace_dir, [])
+    repos_root = tmp_path / "repos"
+    (repos_root / "svc").mkdir(parents=True)
+
+    cfg = RepoConfig(name="svc", mode="new", branch="feature", parent="main")
+    with (
+        patch.object(add_repos, "select_repos", return_value=["svc"]),
+        patch.object(add_repos, "configure_repos", return_value=[cfg]),
+        patch.object(add_repos, "pre_validate", return_value=[]),
+        patch.object(add_repos, "setup_repo_worktree", return_value=None),
+        patch.object(
+            add_repos.json,
+            "loads",
+            side_effect=[
+                json.loads('{"workspace": "my-ws", "repositories": []}'),
+                json.JSONDecodeError("corrupt manifest", "doc", 0),
+            ],
+        ),
+        pytest.raises(SystemExit) as exc_info,
+    ):
+        add_repos.add_repositories_to_workspace(workspace_dir, repos_root)
+    assert exc_info.value.code == 1
+
+
 def test_add_repositories_pre_validate_errors(tmp_path: Path) -> None:
     workspace_dir = tmp_path / "ws"
     _make_manifest(workspace_dir, [])
@@ -231,6 +309,22 @@ def test_main_missing_repos_dir_env(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     ):
         add_repos.main()
     assert exc_info.value.code == 1
+
+
+def test_main_repos_dir_from_env_var(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace_dir = tmp_path / "ws"
+    workspace_dir.mkdir()
+    repos_dir = tmp_path / "env-repos"
+    repos_dir.mkdir()
+    monkeypatch.setenv("AI_REPOSITORIES_DIR", str(repos_dir))
+    with (
+        patch("sys.argv", ["add_repos.py", "--workspace-dir", str(workspace_dir)]),
+        patch.object(add_repos, "add_repositories_to_workspace") as mock_add,
+    ):
+        add_repos.main()
+    mock_add.assert_called_once()
+    _called_workspace_dir, called_repos_dir = mock_add.call_args[0]
+    assert called_repos_dir == repos_dir.resolve()
 
 
 def test_main_with_repos_dir_arg(tmp_path: Path) -> None:

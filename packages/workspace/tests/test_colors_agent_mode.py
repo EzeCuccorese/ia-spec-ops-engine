@@ -72,6 +72,12 @@ class TestTruncate:
         assert len(result) <= 500
         assert result.split("\n")[-1].startswith("more:")
 
+    def test_truncate_char_cut_with_empty_candidate_lines(self) -> None:
+        """A negative max_chars forces needs_char_cut on an already-empty candidate list."""
+        text = "line1\nline2\nline3"
+        result = truncate(text, max_lines=1, max_chars=-1)
+        assert result == "more:"
+
 
 class TestEmitRows:
     """Test emit_rows() in agent mode."""
@@ -109,6 +115,27 @@ class TestEmitRows:
         emit_rows(rows, headers=("H1", "H2"), title="Test")
         out = capsys.readouterr().out
         assert "\x1b" not in out
+
+    def test_emit_rows_agent_mode_without_headers(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Agent mode with no headers skips the header line."""
+        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        rows = [("a", "b")]
+        emit_rows(rows)
+        out = capsys.readouterr().out.strip()
+        assert out == "a | b"
+
+    def test_emit_rows_tty_mode_renders_table(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Non-agent mode renders a Rich table instead of plain lines."""
+        monkeypatch.setenv("SPECOPS_AGENT", "0")
+        rows = [("x", "y")]
+        emit_rows(rows, headers=("Col1", "Col2"), title="My Table")
+        out = capsys.readouterr().out
+        assert "My Table" in out
+        assert "Col1" in out
 
 
 class TestLogFunctions:

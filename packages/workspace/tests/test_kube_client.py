@@ -94,3 +94,62 @@ def test_get_pod_env_mock(mock_run):
     env_vars = get_pod_env("auth-service-pod")
     assert env_vars["SPRING_PROFILES_ACTIVE"] == "dev"
     assert env_vars["SERVER_PORT"] == "8081"
+
+
+@patch("workspace_engine.cli.kube.client.is_kubectl_available", return_value=False)
+def test_get_contexts_no_kubectl(_mock_available):
+    assert get_contexts() == []
+
+
+@patch("workspace_engine.cli.kube.client.run_command_safe")
+@patch("workspace_engine.cli.kube.client.is_kubectl_available", return_value=True)
+def test_get_contexts_command_failure(_mock_available, mock_run):
+    mock_run.return_value = (1, "", "boom")
+    assert get_contexts() == []
+
+
+@patch("workspace_engine.cli.kube.client.run_command_safe")
+@patch("workspace_engine.cli.kube.client.is_kubectl_available", return_value=True)
+def test_get_contexts_skips_blank_lines_and_current_lookup_failure(_mock_available, mock_run):
+    mock_run.side_effect = [
+        (0, "ctx-dev\n\nctx-prod\n", ""),  # get-contexts, includes a blank line
+        (1, "", "no current context"),  # current-context lookup fails
+    ]
+    contexts = get_contexts()
+    assert [c["name"] for c in contexts] == ["ctx-dev", "ctx-prod"]
+    assert all(c["is_current"] is False for c in contexts)
+
+
+@patch("workspace_engine.cli.kube.client.run_command_safe")
+def test_find_pod_with_context_and_namespace(mock_run):
+    mock_run.return_value = (0, "auth-service-abc", "")
+    pod = find_pod("auth-service", namespace="staging", context="ctx-dev")
+    assert pod == "auth-service-abc"
+    cmd = mock_run.call_args.args[0]
+    assert "--context" in cmd and "ctx-dev" in cmd
+    assert "-n" in cmd and "staging" in cmd
+
+
+@patch("workspace_engine.cli.kube.client.run_command_safe")
+def test_find_pod_command_failure_returns_none(mock_run):
+    mock_run.return_value = (1, "", "error")
+    assert find_pod("auth-service") is None
+
+
+@patch("workspace_engine.cli.kube.client.run_command_safe")
+def test_get_pod_env_with_context_and_namespace(mock_run):
+    mock_run.return_value = (0, "FOO=bar\nnoequalsline\n", "")
+    env_vars = get_pod_env("pod-1", namespace="staging", context="ctx-dev")
+    assert env_vars == {"FOO": "bar"}
+    cmd = mock_run.call_args.args[0]
+    assert "--context" in cmd and "ctx-dev" in cmd
+    assert "-n" in cmd and "staging" in cmd
+
+
+@patch("workspace_engine.cli.kube.client.log_warning")
+@patch("workspace_engine.cli.kube.client.run_command_safe")
+def test_get_pod_env_command_failure_logs_warning(mock_run, mock_warn):
+    mock_run.return_value = (1, "", "cannot exec")
+    env_vars = get_pod_env("pod-1")
+    assert env_vars == {}
+    mock_warn.assert_called_once()

@@ -3,7 +3,15 @@ from pathlib import Path
 
 import pytest
 from spec.core.result import CheckResult, CheckStatus, VerificationReport
-from spec.spec.workflow import ArtifactExistsError, InvalidTransitionError, Stage, Workflow
+from spec.spec.workflow import (
+    ArtifactExistsError,
+    CorruptStateError,
+    InvalidTransitionError,
+    Stage,
+    Workflow,
+    compute_tree_fingerprint,
+    slugify,
+)
 
 
 def test_create_spec_initializes_active_recoverable_state(tmp_path: Path) -> None:
@@ -208,3 +216,227 @@ def test_finish_rejects_modified_working_tree_after_verification(tmp_path: Path)
     workflow.record_verification(report)
     snapshot = workflow.finish()
     assert snapshot.stage is Stage.COMPLETE
+
+
+def test_slugify_rejects_names_without_letters_or_numbers() -> None:
+    with pytest.raises(ValueError, match="at least one letter or number"):
+        slugify("*** ---")
+
+
+def test_compute_tree_fingerprint_for_missing_root_is_stable_empty_hash(tmp_path: Path) -> None:
+    missing = tmp_path / "does-not-exist"
+    import hashlib
+
+    assert compute_tree_fingerprint(missing) == hashlib.sha256(b"").hexdigest()
+
+
+def test_compute_tree_fingerprint_excludes_evidence_directory(tmp_path: Path) -> None:
+    (tmp_path / ".spec").mkdir()
+    (tmp_path / ".spec" / "evidence").mkdir()
+    (tmp_path / ".spec" / "evidence" / "note.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "tracked.txt").write_text("hello\n", encoding="utf-8")
+
+    fingerprint_with_evidence = compute_tree_fingerprint(tmp_path)
+
+    (tmp_path / ".spec" / "evidence" / "note.json").write_text("{different}", encoding="utf-8")
+    fingerprint_after_evidence_change = compute_tree_fingerprint(tmp_path)
+
+    assert fingerprint_with_evidence == fingerprint_after_evidence_change
+
+
+def test_compute_tree_fingerprint_skips_broken_symlinks(tmp_path: Path) -> None:
+    (tmp_path / "tracked.txt").write_text("hello\n", encoding="utf-8")
+    broken_link = tmp_path / "broken-link"
+    broken_link.symlink_to(tmp_path / "does-not-exist-target")
+
+    # Must not raise even though the symlink target is missing (is_file() is False).
+    fingerprint = compute_tree_fingerprint(tmp_path)
+    assert isinstance(fingerprint, str)
+
+
+def test_status_rejects_unsupported_schema_version(tmp_path: Path) -> None:
+    state_dir = tmp_path / ".spec"
+    state_dir.mkdir()
+    (state_dir / "state.json").write_text(
+        json.dumps({"schema_version": 99, "active_feature": "x", "stage": "spec"}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CorruptStateError, match="Unsupported workflow state schema"):
+        Workflow(tmp_path).status()
+
+
+def test_status_rejects_malformed_state_payload(tmp_path: Path) -> None:
+    state_dir = tmp_path / ".spec"
+    state_dir.mkdir()
+    (state_dir / "state.json").write_text(
+        json.dumps({"schema_version": 1, "active_feature": "x"}),  # missing "stage"
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CorruptStateError, match="Invalid workflow state"):
+        Workflow(tmp_path).status()
+
+
+def test_create_spec_recovers_when_state_missing_but_spec_file_present(tmp_path: Path) -> None:
+    workflow = Workflow(tmp_path)
+    spec_dir = tmp_path / ".spec" / "specs" / "feature"
+    spec_dir.mkdir(parents=True)
+    (spec_dir / "spec.md").write_text("# Spec: Feature\n\nSome content\n", encoding="utf-8")
+
+    snapshot = workflow.create_spec("Feature", "Description")
+
+    assert snapshot.stage is Stage.SPEC
+    assert workflow.status().feature == "feature"
+
+
+def test_create_plan_requires_spec_stage(tmp_path: Path) -> None:
+    workflow = _workflow_at_work(tmp_path)
+
+    with pytest.raises(InvalidTransitionError, match="requires stage spec"):
+        workflow.create_plan()
+
+
+def test_rerunning_tasks_recovers_interruption_after_artifact_creation(tmp_path: Path) -> None:
+    workflow = Workflow(tmp_path)
+    workflow.create_spec("Feature", "Description")
+    workflow.create_plan()
+    tasks = tmp_path / ".spec/specs/feature/tasks.md"
+    tasks.write_text("# Recovered tasks\n")
+
+    snapshot = workflow.create_tasks()
+
+    assert snapshot.stage is Stage.TASKS
+    assert tasks.read_text() == "# Recovered tasks\n"
+
+
+def test_begin_work_requires_tasks_stage(tmp_path: Path) -> None:
+    workflow = Workflow(tmp_path)
+    workflow.create_spec("Feature", "Description")
+
+    with pytest.raises(InvalidTransitionError, match="requires active tasks"):
+        workflow.begin_work()
+
+
+def test_begin_work_preserves_existing_work_log(tmp_path: Path) -> None:
+    workflow = Workflow(tmp_path)
+    workflow.create_spec("Feature", "Description")
+    workflow.create_plan()
+    workflow.create_tasks()
+    work_md = tmp_path / ".spec/specs/feature/work.md"
+    work_md.parent.mkdir(parents=True, exist_ok=True)
+    work_md.write_text("# Recovered work log\n", encoding="utf-8")
+
+    snapshot = workflow.begin_work()
+
+    assert snapshot.stage is Stage.WORK
+    assert work_md.read_text() == "# Recovered work log\n"
+
+
+def test_finish_requires_verify_stage(tmp_path: Path) -> None:
+    workflow = _workflow_at_work(tmp_path)
+
+    with pytest.raises(InvalidTransitionError, match="requires a verification attempt"):
+        workflow.finish()
+
+
+def test_finish_requires_recorded_evidence_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workflow = _workflow_at_work(tmp_path)
+    report = VerificationReport(checks=(CheckResult(id="tests", status=CheckStatus.PASS),))
+    workflow.record_verification(report)
+
+    # Force a VERIFY-stage snapshot without an evidence path.
+    current = workflow.status()
+    workflow._persist(current.feature, Stage.VERIFY, verification_status=CheckStatus.PASS)
+
+    with pytest.raises(InvalidTransitionError, match="requires recorded verification evidence"):
+        workflow.finish()
+
+
+def test_finish_rejects_config_hash_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import spec.spec.workflow as workflow_module
+
+    workflow = _workflow_at_work(tmp_path)
+    verification_config = tmp_path / ".spec" / "verification.json"
+    verification_config.parent.mkdir(parents=True, exist_ok=True)
+    verification_config.write_text('{"schema_version": 1, "checks": []}\n', encoding="utf-8")
+
+    report = VerificationReport(checks=(CheckResult(id="tests", status=CheckStatus.PASS),))
+    workflow.record_verification(report)
+
+    # Recorded tree_fingerprint already reflects the config file above, so pin
+    # compute_tree_fingerprint to that recorded value at finish-time and force the
+    # direct config-hash lookup to disagree with it, isolating the config-hash guard
+    # from the (already covered) fingerprint guard.
+    recorded_fingerprint = compute_tree_fingerprint(tmp_path)
+    monkeypatch.setattr(
+        workflow_module, "compute_tree_fingerprint", lambda _root: recorded_fingerprint
+    )
+    monkeypatch.setattr(workflow_module, "sha256_file", lambda _path: "deadbeef")
+
+    with pytest.raises(InvalidTransitionError, match="Verification configuration was modified"):
+        workflow.finish()
+
+
+def test_finish_skips_traceability_when_spec_file_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import spec.spec.workflow as workflow_module
+
+    workflow = _workflow_at_work(tmp_path)
+    report = VerificationReport(checks=(CheckResult(id="tests", status=CheckStatus.PASS),))
+    workflow.record_verification(report)
+    recorded_fingerprint = compute_tree_fingerprint(tmp_path)
+
+    spec_md = workflow.feature_dir("feature") / "spec.md"
+    spec_md.unlink()
+
+    # Deleting spec.md changes the real tree fingerprint; pin it back to the
+    # recorded value so finish() reaches the (missing) spec-file branch under test
+    # instead of failing earlier on the fingerprint guard.
+    monkeypatch.setattr(
+        workflow_module, "compute_tree_fingerprint", lambda _root: recorded_fingerprint
+    )
+
+    snapshot = workflow.finish()
+
+    assert snapshot.stage is Stage.COMPLETE
+
+
+def test_compute_tree_fingerprint_excludes_evidence_file_at_spec_root(tmp_path: Path) -> None:
+    (tmp_path / ".spec").mkdir()
+    # An unusual layout where ".spec/evidence" is a plain file rather than a directory.
+    (tmp_path / ".spec" / "evidence").write_text("stray evidence file", encoding="utf-8")
+    (tmp_path / "tracked.txt").write_text("hello\n", encoding="utf-8")
+
+    before = compute_tree_fingerprint(tmp_path)
+    (tmp_path / ".spec" / "evidence").write_text("changed evidence file", encoding="utf-8")
+    after = compute_tree_fingerprint(tmp_path)
+
+    assert before == after
+
+
+def test_create_spec_after_completion_refuses_to_recreate_existing_artifact(
+    tmp_path: Path,
+) -> None:
+    workflow = _workflow_at_work(tmp_path)
+    report = VerificationReport(checks=(CheckResult(id="tests", status=CheckStatus.PASS),))
+    workflow.record_verification(report)
+    snapshot = workflow.finish()
+    assert snapshot.stage is Stage.COMPLETE
+
+    with pytest.raises(ArtifactExistsError, match="will not be overwritten"):
+        workflow.create_spec("Feature", "Description")
+
+
+def test_create_artifact_refuses_to_overwrite_existing_file(tmp_path: Path) -> None:
+    workflow = Workflow(tmp_path)
+    target = tmp_path / "artifact.txt"
+    target.write_text("first\n", encoding="utf-8")
+
+    with pytest.raises(ArtifactExistsError, match="will not be overwritten"):
+        workflow._create_artifact(target, "second\n")

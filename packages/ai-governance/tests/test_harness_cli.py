@@ -169,3 +169,58 @@ class TestHarnessUninstallCommand:
         result = harness_main(["uninstall", "--local", "--root", str(tmp_path)])
         assert result == 0
         assert not agents_md.exists()
+
+    def test_uninstall_reports_ok_when_target_missing(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        """uninstall is a no-op (status ok) when the target file doesn't exist."""
+        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        result = harness_main(["uninstall", "--local", "--root", str(tmp_path)])
+        out = capsys.readouterr().out
+        assert result == 0
+        assert "Nothing to uninstall" in out
+        assert not (tmp_path / "AGENTS.md").exists()
+
+
+class TestHarnessErrorHandling:
+    """Test harness install/uninstall failure paths and no-op dispatch."""
+
+    def test_install_reports_error_on_oserror(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("SPECOPS_AGENT", "1")
+
+        def boom(self: Path, *_a: object, **_kw: object) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(Path, "write_text", boom)
+        result = harness_main(["install", "--local", "--root", str(tmp_path)])
+        err = capsys.readouterr().err
+        assert result == 1
+        assert "Failed to write harness wiring" in err
+
+    def test_uninstall_reports_error_on_oserror(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        agents_md = tmp_path / "AGENTS.md"
+        harness_block = "<!-- harness:start -->\n## Harness\n<!-- harness:end -->\n"
+        agents_md.write_text(harness_block, encoding="utf-8")
+
+        def boom(self: Path) -> None:
+            raise OSError("permission denied")
+
+        monkeypatch.setattr(Path, "unlink", boom)
+        result = harness_main(["uninstall", "--local", "--root", str(tmp_path)])
+        err = capsys.readouterr().err
+        assert result == 1
+        assert "Failed to remove harness wiring" in err
+
+    def test_no_action_prints_help(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        result = harness_main([])
+        out = capsys.readouterr().out
+        assert result == 0
+        assert "harness" in out.lower()

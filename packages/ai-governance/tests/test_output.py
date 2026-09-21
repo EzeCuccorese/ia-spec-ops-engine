@@ -103,6 +103,11 @@ class TestTruncate:
         for line in result.split("\n")[:-1]:
             assert "\n" not in line
 
+    def test_truncate_empty_candidate_lines_skips_budget_loop(self) -> None:
+        """An empty candidate list (max_lines<=1, negative max_chars) skips the budget loop."""
+        result = truncate("", max_lines=1, max_chars=-1)
+        assert result == "more:"
+
 
 class TestEmitRows:
     """Test emit_rows() in both agent and TTY modes."""
@@ -165,6 +170,38 @@ class TestEmitRows:
         out = capsys.readouterr().out
         assert "\x1b" not in out
 
+    def test_emit_rows_tty_mode_prints_rich_table(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """TTY mode renders a rich table with headers and a title."""
+        monkeypatch.setenv("SPECOPS_AGENT", "0")
+        rows = [("a", "b"), ("c", "d")]
+        emit_rows(rows, headers=("H1", "H2"), title="Table")
+        out = capsys.readouterr().out
+        assert "Table" in out
+        assert "H1" in out
+        assert "a" in out
+
+    def test_emit_rows_agent_mode_no_headers(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Agent mode with no headers skips the headers line (if-headers branch)."""
+        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        rows = [("x", "y")]
+        emit_rows(rows)
+        out = capsys.readouterr().out
+        assert out.strip() == "x | y"
+
+    def test_emit_rows_tty_mode_no_headers(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """TTY mode with no headers still renders rows (headers-or-[] branch)."""
+        monkeypatch.setenv("SPECOPS_AGENT", "0")
+        rows = [("x", "y")]
+        emit_rows(rows)
+        out = capsys.readouterr().out
+        assert "x" in out
+
 
 class TestEmitKv:
     """Test emit_kv() in agent mode."""
@@ -213,6 +250,17 @@ class TestEmitKv:
         emit_kv(pairs, full=True)
         out = capsys.readouterr().out
         assert "more:" not in out
+
+    def test_emit_kv_tty_mode_prints_rich_table(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """TTY mode renders a two-column rich table."""
+        monkeypatch.setenv("SPECOPS_AGENT", "0")
+        pairs = [("name", "Alice")]
+        emit_kv(pairs, title="Info")
+        out = capsys.readouterr().out
+        assert "name" in out
+        assert "Alice" in out
 
 
 class TestEmitJson:
@@ -285,6 +333,25 @@ class TestEmitStatus:
         assert out.out == ""
         assert out.err == "ERROR: Failed\n"
 
+    def test_emit_status_tty_mode_ok(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """TTY mode renders a styled status line for 'ok' via the rich console."""
+        monkeypatch.setenv("SPECOPS_AGENT", "0")
+        emit_status("ok", "All good")
+        out = capsys.readouterr().out
+        assert "All good" in out
+
+    def test_emit_status_tty_mode_error(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """TTY mode renders 'error' status to stdout too (only agent mode uses stderr)."""
+        monkeypatch.setenv("SPECOPS_AGENT", "0")
+        emit_status("error", "Broken")
+        out = capsys.readouterr()
+        assert "Broken" in out.out
+        assert out.err == ""
+
 
 class TestEmitText:
     """Test emit_text() in agent mode."""
@@ -308,3 +375,13 @@ class TestEmitText:
         emit_text(text, full=True)
         out = capsys.readouterr().out
         assert "more:" not in out
+
+    def test_emit_text_tty_mode_prints_via_console(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """TTY mode prints text via the rich console, untruncated."""
+        monkeypatch.setenv("SPECOPS_AGENT", "0")
+        text = "\n".join(["line" + str(i) for i in range(100)])
+        emit_text(text)
+        out = capsys.readouterr().out
+        assert "line99" in out

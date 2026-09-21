@@ -34,6 +34,14 @@ def test_project_init_is_idempotent_and_preserves_configured_checks(tmp_path: Pa
     assert verification.read_text() == configured
 
 
+def test_project_governance_audit_delegates_to_project_auditor(tmp_path: Path) -> None:
+    ProjectGovernance(tmp_path).initialize()
+
+    report = ProjectGovernance(tmp_path).audit()
+
+    assert report is not None
+
+
 def test_agents_adapter_creates_governance_and_injects_agents_file(tmp_path: Path) -> None:
     ProjectGovernance(tmp_path).initialize()
 

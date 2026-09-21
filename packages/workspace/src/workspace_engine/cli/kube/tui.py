@@ -9,6 +9,7 @@ from typing import Any
 from rich.console import Console
 from rich.prompt import Prompt
 from rich.table import Table
+
 from workspace_engine.common import log_warning
 
 console = Console()
