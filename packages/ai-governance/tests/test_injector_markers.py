@@ -100,3 +100,9 @@ def test_remove_rules_block_preserves_harness_block() -> None:
     assert HARNESS_START_MARKER in cleaned
     assert HARNESS_END_MARKER in cleaned
     assert "## Harness Table" in cleaned
+
+
+def test_remove_without_markers_returns_content_unchanged() -> None:
+    """remove() is a no-op when the content has no start/end markers at all."""
+    content = "# Plain file\nNo markers here."
+    assert BlockInjector.remove(content) == content

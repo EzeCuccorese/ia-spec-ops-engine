@@ -32,3 +32,15 @@ def test_report_without_required_checks_is_incomplete() -> None:
 
     assert report.status is CheckStatus.INCOMPLETE
     assert report.passed is False
+
+
+def test_report_falls_back_to_incomplete_for_an_unrecognized_status() -> None:
+    # CheckStatus is a closed enum, so every real status is already handled by the
+    # explicit branches above. This exercises the defensive fallback by forcing a
+    # status value outside that enum, which the dataclass does not validate at runtime.
+    report = VerificationReport(
+        checks=(CheckResult(id="unknown", status="WEIRD", required=True),)  # type: ignore[arg-type]
+    )
+
+    assert report.status is CheckStatus.INCOMPLETE
+    assert report.passed is False

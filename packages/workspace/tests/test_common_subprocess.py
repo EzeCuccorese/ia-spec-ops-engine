@@ -5,9 +5,10 @@ Unit tests for workspace_engine.common.subprocess (run_command, run_command_safe
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 import pytest
-from workspace_engine.common.subprocess import run_command, run_command_safe
+from workspace_engine.common.subprocess import run_command, run_command_safe, run_git
 
 
 def test_run_command_success_string_command() -> None:
@@ -127,3 +128,61 @@ def test_run_command_safe_string_command() -> None:
     rc, out, _err = run_command_safe("echo from-string")
     assert rc == 0
     assert out.strip() == "from-string"
+
+
+def test_run_command_safe_env_override() -> None:
+    rc, out, _err = run_command_safe(["env"], env={"MY_SAFE_VAR": "7"})
+    assert rc == 0
+    assert "MY_SAFE_VAR=7" in out
+
+
+def test_run_command_capture_output_false_called_process_error_skips_stderr_print(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # capture_output=False, check=True: CalledProcessError has no captured stderr to print.
+    with pytest.raises(subprocess.CalledProcessError):
+        run_command(["false"], capture_output=False, check=True)
+    captured = capsys.readouterr()
+    assert captured.err == ""
+
+
+def test_run_command_called_process_error_prints_captured_stderr(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(subprocess.CalledProcessError):
+        run_command(["ls", "/nonexistent/path/xyz"], check=True)
+    captured = capsys.readouterr()
+    assert captured.err.strip() != ""
+
+
+def test_run_command_called_process_error_check_false_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # subprocess.run(check=False) never raises CalledProcessError on its own; this
+    # exercises the defensive `return None` branch by forcing that (unreachable in
+    # practice) condition directly.
+    def raise_called_process_error(*_args: object, **_kwargs: object) -> None:
+        raise subprocess.CalledProcessError(returncode=1, cmd=["ls"])
+
+    monkeypatch.setattr(subprocess, "run", raise_called_process_error)
+    result = run_command(["ls"], check=False)
+    assert result is None
+
+
+def test_run_command_unexpected_error_with_error_message(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(OSError):
+        run_command(["/nonexistent/binary/xyz"], check=True, error_message="binary missing")
+    captured = capsys.readouterr()
+    assert "binary missing" in captured.err
+
+
+def test_run_git_success(tmp_path: Path) -> None:
+    subprocess.run(
+        ["git", "init", "-b", "main", str(tmp_path)],
+        check=True,
+        capture_output=True,
+    )
+    result = run_git(tmp_path, "status", "--porcelain")
+    assert result.returncode == 0

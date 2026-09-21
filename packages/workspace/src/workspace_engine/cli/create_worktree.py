@@ -24,12 +24,15 @@ def _run_cmd(cmd: list[str]) -> tuple[int, str, str]:
 
 
 def create_worktree(
-    branch: str, from_branch: str | None = None, start_dir: Path | None = None
+    branch: str,
+    from_branch: str | None = None,
+    start_dir: Path | None = None,
+    target_dir: Path | None = None,
 ) -> int:
     """Creates a git worktree for the specified branch and copies local configurations."""
     repo_root = find_project_root(start_dir)
     sanitized_branch = branch.replace("/", "-")
-    worktree_dir = repo_root.parent / f"workspace-{sanitized_branch}"
+    worktree_dir = target_dir or (repo_root.parent / f"workspace-{sanitized_branch}")
 
     if worktree_dir.exists():
         log_error(f"Error: '{worktree_dir}' already exists")
@@ -119,13 +122,23 @@ def create_worktree(
     return 0
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    """Entry point for `ws worktree`.
+
+    Accepts the documented `<repo> <target> <branch>` form forwarded by the `ws`
+    dispatcher, and keeps the legacy single `<branch>` form for direct invocation.
+    """
     parser = argparse.ArgumentParser(
         description="Creates an isolated Git worktree at ../workspace-<branch>"
     )
+    parser.add_argument("repo", nargs="?", help="Base repository path or name")
+    parser.add_argument("target", nargs="?", help="Target path for new worktree")
     parser.add_argument("branch", help="Branch name for the worktree")
-    args = parser.parse_args()
-    sys.exit(create_worktree(args.branch))
+    args = parser.parse_args(sys.argv[1:] if argv is None else argv)
+
+    start_dir = Path(args.repo) if args.repo else None
+    target_dir = Path(args.target) if args.target else None
+    sys.exit(create_worktree(args.branch, start_dir=start_dir, target_dir=target_dir))
 
 
 if __name__ == "__main__":

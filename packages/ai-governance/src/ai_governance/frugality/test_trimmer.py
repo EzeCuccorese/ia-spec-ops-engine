@@ -77,9 +77,9 @@ class TestTrimmer:
                 previous_end = end
 
         if summary_start > previous_end + 1:
+            # summary_start > previous_end + 1 already guarantees omitted > 0 here.
             omitted = summary_start - previous_end - 1
-            if omitted > 0:
-                parts.append(f"[... {omitted} lines omitted ...]")
+            parts.append(f"[... {omitted} lines omitted ...]")
 
         parts.append("\n".join(final_summary))
 

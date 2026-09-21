@@ -276,7 +276,11 @@ def select_repos(
                         selected.clear()
                         custom_repos.clear()
                         cursor = 0
-                elif not toolkit_selected:
+                else:
+                    # `toolkit_selected` is only ever True while `show_toolkit and
+                    # cursor == 0` (the branch above), so it is always False by the
+                    # time control reaches here — this is a plain `else`, not a
+                    # meaningfully distinct condition.
                     item_idx = (cursor - 1) if show_toolkit else cursor
                     if 0 <= item_idx < len(filtered):
                         item = filtered[item_idx]

@@ -45,7 +45,7 @@ jobs:
 
       - name: Run Pytest Suite with Coverage
         run: |
-          uv run python -m pytest -v --cov=ai_governance --cov=spec --cov=workspace_engine --cov-report=term-missing \
+          uv run python -m pytest -v --cov --cov-report=term-missing --cov-fail-under=89 \
             packages/ai-governance/tests \
             packages/spec/tests \
             packages/workspace/tests \

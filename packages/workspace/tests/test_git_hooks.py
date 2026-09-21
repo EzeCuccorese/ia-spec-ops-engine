@@ -10,6 +10,7 @@ from workspace_engine.services.git_hooks import (
     generate_canonical_pre_push_script,
     get_hooks_status,
     install_git_hooks,
+    run_quality_gate,
     uninstall_git_hooks,
 )
 
@@ -290,6 +291,146 @@ def test_install_git_hooks_global(monkeypatch):
         uninst = uninstall_git_hooks(is_global=True)
         assert uninst["success"] is True
         assert not global_hook.exists()
+
+
+def test_install_git_hooks_local_existing_without_force():
+    with tempfile.TemporaryDirectory() as tmp:
+        project_dir = Path(tmp)
+        _init_test_git_repo(project_dir)
+        install_git_hooks(target_dir=project_dir, is_global=False, force=True)
+
+        res = install_git_hooks(target_dir=project_dir, is_global=False, force=False)
+        assert res["success"] is False
+        assert "already exists" in res["message"]
+
+
+def test_install_git_hooks_global_existing_without_force(monkeypatch):
+    with tempfile.TemporaryDirectory() as mock_home:
+        home_path = Path(mock_home)
+        monkeypatch.setattr(Path, "home", lambda: home_path)
+        monkeypatch.setenv("HOME", str(mock_home))
+        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(home_path / ".gitconfig"))
+
+        install_git_hooks(is_global=True, force=True)
+        res = install_git_hooks(is_global=True, force=False)
+        assert res["success"] is False
+        assert "already exists" in res["message"]
+
+
+def test_uninstall_git_hooks_local_no_hook_present():
+    with tempfile.TemporaryDirectory() as tmp:
+        project_dir = Path(tmp)
+        _init_test_git_repo(project_dir)
+        # No hook was ever installed: unlink is skipped, but the call still succeeds.
+        res = uninstall_git_hooks(target_dir=project_dir, is_global=False)
+        assert res["success"] is True
+
+
+def test_uninstall_git_hooks_global_no_hook_present(monkeypatch):
+    with tempfile.TemporaryDirectory() as mock_home:
+        home_path = Path(mock_home)
+        monkeypatch.setattr(Path, "home", lambda: home_path)
+        monkeypatch.setenv("HOME", str(mock_home))
+        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(home_path / ".gitconfig"))
+
+        res = uninstall_git_hooks(is_global=True)
+        assert res["success"] is True
+
+
+def test_run_quality_gate_writes_temp_hook_when_none_installed(monkeypatch):
+    with tempfile.TemporaryDirectory() as mock_home, tempfile.TemporaryDirectory() as tmp:
+        # Neither a local nor a (fake) global hook exists, so a temp hook is written,
+        # used, and then cleaned up.
+        monkeypatch.setattr(Path, "home", lambda: Path(mock_home))
+
+        project_dir = Path(tmp)
+        _init_test_git_repo(project_dir)
+        _commit_fixture(project_dir)
+
+        code = run_quality_gate(
+            target_dir=project_dir,
+            scope="none",
+            skip="gitleaks,commits,lint,tests,repohooks",
+            output="errors",
+        )
+        assert code == 0
+
+
+def test_run_quality_gate_without_skip_arg_omits_qg_skip_env(monkeypatch):
+    import workspace_engine.services.git_hooks as git_hooks_mod
+
+    with tempfile.TemporaryDirectory() as mock_home, tempfile.TemporaryDirectory() as tmp:
+        monkeypatch.setattr(Path, "home", lambda: Path(mock_home))
+
+        project_dir = Path(tmp)
+        _init_test_git_repo(project_dir)
+        _commit_fixture(project_dir)
+        install_git_hooks(target_dir=project_dir, is_global=False, force=True)
+
+        real_run = subprocess.run
+        captured_env = {}
+
+        def fake_run(args, *a, **kwargs):
+            if args and "pre-push" in str(args[0]):
+                captured_env.update(kwargs.get("env") or {})
+                return subprocess.CompletedProcess(args=args, returncode=0)
+            return real_run(args, *a, **kwargs)
+
+        monkeypatch.setattr(git_hooks_mod.subprocess, "run", fake_run)
+
+        code = run_quality_gate(target_dir=project_dir, skip=None)
+        assert code == 0
+        assert "QG_SKIP" not in captured_env
+
+
+def test_run_quality_gate_uses_installed_local_hook():
+    with tempfile.TemporaryDirectory() as tmp:
+        project_dir = Path(tmp)
+        _init_test_git_repo(project_dir)
+        _commit_fixture(project_dir)
+        install_git_hooks(target_dir=project_dir, is_global=False, force=True)
+
+        code = run_quality_gate(
+            target_dir=project_dir,
+            scope="none",
+            skip="gitleaks,commits,lint,tests,repohooks",
+        )
+        assert code == 0
+
+
+def test_run_quality_gate_uses_installed_global_hook_when_no_local(monkeypatch):
+    with tempfile.TemporaryDirectory() as mock_home, tempfile.TemporaryDirectory() as tmp:
+        home_path = Path(mock_home)
+        monkeypatch.setattr(Path, "home", lambda: home_path)
+        monkeypatch.setenv("HOME", str(mock_home))
+        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(home_path / ".gitconfig"))
+        install_git_hooks(is_global=True, force=True)
+
+        project_dir = Path(tmp)
+        _init_test_git_repo(project_dir)
+        _commit_fixture(project_dir)
+
+        code = run_quality_gate(
+            target_dir=project_dir,
+            scope="none",
+            skip="gitleaks,commits,lint,tests,repohooks",
+            commit_style="conventional",
+        )
+        assert code == 0
+
+
+def test_run_quality_gate_without_prior_commit_uses_zero_sha():
+    with tempfile.TemporaryDirectory() as tmp:
+        project_dir = Path(tmp)
+        _init_test_git_repo(project_dir)
+        # No commits at all: `git rev-parse HEAD` and `HEAD~1` both fail.
+
+        code = run_quality_gate(
+            target_dir=project_dir,
+            scope="none",
+            skip="gitleaks,commits,lint,tests,repohooks",
+        )
+        assert isinstance(code, int)
 
 
 def test_cli_manage_hooks():

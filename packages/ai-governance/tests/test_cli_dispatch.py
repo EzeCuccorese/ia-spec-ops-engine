@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import sys
 from unittest.mock import patch
 
@@ -9,6 +10,24 @@ from ai_governance.cli import main
 
 def test_cli_dispatch_help() -> None:
     assert main([]) == 0
+
+
+def test_cli_shows_banner_panel_when_not_in_agent_mode(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("SPECOPS_AGENT", "0")
+    assert main([]) == 0
+    assert "AI GOVERNANCE" in capsys.readouterr().out
+
+
+def test_cli_unmatched_subcommand_falls_through_to_bare_parse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Covers the defensive `else` branch: a cmd string that argparse's own subparser
+    choices would normally reject before reaching this line. We bypass that by making
+    ArgumentParser.parse_args a no-op, isolating the dispatch fallthrough itself."""
+    monkeypatch.setattr(argparse.ArgumentParser, "parse_args", lambda self, args=None: None)
+    assert main(["not-a-real-subcommand"]) == 0
 
 
 def test_cli_dispatch_rules() -> None:

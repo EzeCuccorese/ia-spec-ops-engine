@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 from workspace_engine.integrations.claude.worktree_hook import main, suggest_worktree_path
 
@@ -42,3 +43,45 @@ def test_hook_is_fail_open_for_invalid_payload(tmp_path: Path, monkeypatch, caps
     data = json.loads(capsys.readouterr().out)
     assert data["hookSpecificOutput"]["hookEventName"] == "WorktreeCreate"
     assert Path(data["hookSpecificOutput"]["workTreePath"]).is_relative_to(tmp_path)
+
+
+def test_suggest_worktree_path_rejects_non_string_values(tmp_path: Path) -> None:
+    assert suggest_worktree_path({"root_path": 42, "worktree_base": "branch"}, tmp_path) is None
+    assert suggest_worktree_path({"root_path": "/src/repo"}, tmp_path) is None
+
+
+def test_suggest_worktree_path_rejects_empty_slug(tmp_path: Path) -> None:
+    # A root whose basename slugifies to empty (only punctuation).
+    assert suggest_worktree_path({"root_path": "///", "worktree_base": "branch"}, tmp_path) is None
+    assert (
+        suggest_worktree_path({"root_path": "/src/repo", "worktree_base": "!!!"}, tmp_path) is None
+    )
+
+
+def test_suggest_worktree_path_rejects_escape_via_is_relative_to(tmp_path: Path) -> None:
+    payload = {"root_path": "/src/repo", "worktree_base": "branch"}
+    with patch("pathlib.Path.is_relative_to", return_value=False):
+        assert suggest_worktree_path(payload, tmp_path) is None
+
+
+def test_suggest_worktree_path_rejects_second_escape_after_collision(tmp_path: Path) -> None:
+    payload = {"root_path": "/src/repo", "worktree_base": "branch"}
+    first = tmp_path / "repo-branch"
+    first.mkdir()
+    with patch("pathlib.Path.is_relative_to", side_effect=[True, False]):
+        assert suggest_worktree_path(payload, tmp_path) is None
+
+
+def test_hook_main_ignores_non_dict_payload(monkeypatch, capsys) -> None:
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps([1, 2, 3])))
+    assert main([]) == 0
+    assert capsys.readouterr().out == ""
+
+
+def test_hook_main_no_destination_returns_zero(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.setenv("SPECOPS_WORKTREES_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        "sys.stdin", io.StringIO(json.dumps({"root_path": "", "worktree_base": "branch"}))
+    )
+    assert main([]) == 0
+    assert capsys.readouterr().out == ""

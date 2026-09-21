@@ -34,7 +34,17 @@ These practices apply everywhere, tool or no tool:
 - **Subagents**: delegate only when input is small, work is large, and required output is
   small. Don't delegate when you'll need the file contents afterward. Every delegation prompt
   ends with an explicit budget: "return ≤N lines, absolute paths, no code dumps".
+- **Delegation tiers**: when executing an approved plan, the orchestrating (top-tier) model
+  does not do the typing. Heavy implementation → a mid-tier model subagent (e.g. Claude
+  Sonnet); tests, docs, and mechanical changes → the cheapest tier (e.g. Claude Haiku). The
+  orchestrator coordinates, reviews each delivery, and runs the final verification. Work one
+  phase at a time and run the project's quality gates (lint, types, tests) between phases.
 
 ## 5. Context window
 - Your host may warn when context usage grows; it never blocks.
 - Save progress (`progress step`/`progress fact`/`progress note`) before `/compact` or `/clear`.
+
+## 6. Wording
+- Never use the word "honest" or its variants — "honestly", "to be honest", "honest warning"
+  — in any language (es: "honesto", "honestamente", "aviso honesto"), neither in replies nor in
+  generated documents. State caveats directly instead: "note that…", "keep in mind…".

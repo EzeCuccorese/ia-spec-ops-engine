@@ -6,7 +6,7 @@
       "id": "00-deterministic-first",
       "category": "0-harness",
       "file": "0-harness/00-deterministic-first.md",
-      "description": "Prefer the harness's deterministic tools over manual work; announce usage; keep output frugal",
+      "description": "Prefer the harness's deterministic tools over manual work; announce usage; keep output frugal; delegation tiers; wording",
       "triggers": {
         "globs": [
           "**/*"

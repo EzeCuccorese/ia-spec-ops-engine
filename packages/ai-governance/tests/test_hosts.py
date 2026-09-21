@@ -1,6 +1,8 @@
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
+from ai_governance.rules.core import hosts as hosts_module
 from ai_governance.rules.core.catalog import TRIGGERS
 from ai_governance.rules.core.hosts import (
     bindings_for,
@@ -43,3 +45,11 @@ def test_detect_host_returns_claude_code_when_settings_present(
     claude_dir.mkdir()
     (claude_dir / "settings.json").write_text("{}", encoding="utf-8")
     assert detect_host() == "claude-code"
+
+
+def test_validate_host_map_raises_when_binding_missing() -> None:
+    with (
+        patch.object(hosts_module, "HOST_TRIGGER_MAP", {"claude-code": ()}),
+        pytest.raises(ValueError, match="missing bindings"),
+    ):
+        validate_host_map()

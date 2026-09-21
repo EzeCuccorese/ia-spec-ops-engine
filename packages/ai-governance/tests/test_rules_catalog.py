@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from ai_governance.rules.core.catalog import FAIL_MODES, IO_KINDS, TRIGGERS, RuleCatalog
@@ -101,3 +102,121 @@ def test_manifest_without_tools_key_yields_empty_tools_and_loads_rules(tmp_path:
     catalog = RuleCatalog(catalog_root=tmp_path)
     assert catalog.tools == []
     assert catalog.rules == []
+
+
+def test_invalid_fail_mode_raises_value_error_naming_tool_id(tmp_path: Path) -> None:
+    root = _write_manifest(
+        tmp_path,
+        [
+            {
+                "id": "bad-fail-mode",
+                "package": "ai-governance",
+                "command": "bad-tool",
+                "purpose": "Broken",
+                "trigger": "on-demand",
+                "fail_mode": "not-a-real-mode",
+            }
+        ],
+    )
+    with pytest.raises(ValueError, match="bad-fail-mode"):
+        RuleCatalog(catalog_root=root)
+
+
+def test_invalid_io_stdin_raises_value_error_naming_tool_id(tmp_path: Path) -> None:
+    root = _write_manifest(
+        tmp_path,
+        [
+            {
+                "id": "bad-stdin",
+                "package": "ai-governance",
+                "command": "bad-tool",
+                "purpose": "Broken",
+                "trigger": "on-demand",
+                "io": {"stdin": "not-a-real-kind"},
+            }
+        ],
+    )
+    with pytest.raises(ValueError, match="bad-stdin"):
+        RuleCatalog(catalog_root=root)
+
+
+def test_invalid_io_stdout_raises_value_error_naming_tool_id(tmp_path: Path) -> None:
+    root = _write_manifest(
+        tmp_path,
+        [
+            {
+                "id": "bad-stdout",
+                "package": "ai-governance",
+                "command": "bad-tool",
+                "purpose": "Broken",
+                "trigger": "on-demand",
+                "io": {"stdout": "not-a-real-kind"},
+            }
+        ],
+    )
+    with pytest.raises(ValueError, match="bad-stdout"):
+        RuleCatalog(catalog_root=root)
+
+
+def test_catalog_root_without_manifest_yields_empty_catalog(tmp_path: Path) -> None:
+    """_load() returns early when manifest.json does not exist at catalog_root."""
+    catalog = RuleCatalog(catalog_root=tmp_path)
+    assert catalog.rules == []
+    assert catalog.tools == []
+
+
+def test_manifest_rule_entry_with_missing_file_is_skipped(tmp_path: Path) -> None:
+    """A rule item whose backing file does not exist on disk is silently skipped."""
+    manifest = {
+        "schema_version": 1,
+        "rules": [
+            {
+                "id": "ghost-rule",
+                "category": "1-core",
+                "file": "does-not-exist.md",
+                "description": "Ghost",
+                "triggers": {"globs": ["**/*"]},
+            }
+        ],
+        "tools": [],
+    }
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    catalog = RuleCatalog(catalog_root=tmp_path)
+    assert catalog.rules == []
+
+
+def test_root_resolution_falls_back_to_parent_search_when_importlib_fails(
+    tmp_path: Path,
+) -> None:
+    """When importlib.resources raises, RuleCatalog falls back to walking parent dirs
+    looking for a bundled catalog/ directory with a manifest.json."""
+    with patch(
+        "importlib.resources.files",
+        side_effect=ModuleNotFoundError("no such package"),
+    ):
+        catalog = RuleCatalog()
+    # The parent-directory fallback should still locate the real bundled catalog.
+    assert len(catalog.rules) >= 25
+
+
+def test_root_resolution_falls_back_when_importlib_resources_dir_incomplete(
+    tmp_path: Path,
+) -> None:
+    """When importlib.resources resolves but the package has no catalog/manifest.json,
+    RuleCatalog falls back to walking parent directories."""
+    with patch("importlib.resources.files", return_value=tmp_path):
+        catalog = RuleCatalog()
+    assert len(catalog.rules) >= 25
+
+
+def test_root_resolution_uses_default_when_no_catalog_dir_found_anywhere() -> None:
+    """When both importlib.resources and the parent-directory walk fail to locate a
+    catalog/manifest.json, RuleCatalog falls back to the default computed path."""
+    with (
+        patch("importlib.resources.files", side_effect=ModuleNotFoundError("missing")),
+        patch("pathlib.Path.is_dir", return_value=False),
+    ):
+        catalog = RuleCatalog()
+    # No manifest was found anywhere, so the catalog loads empty rather than raising.
+    assert catalog.rules == []
+    assert catalog.tools == []

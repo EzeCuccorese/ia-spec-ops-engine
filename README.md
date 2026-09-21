@@ -174,7 +174,9 @@ flowchart TD
 
 Frugality practices the rule carries: `git diff --stat` before `git diff`, `jq` with the
 minimal projection, `2>&1 | tail -40`, never print lockfiles, subagents with an explicit
-output budget, save progress before `/compact` or `/clear`.
+output budget, save progress before `/compact` or `/clear`. It also fixes the delegation
+tiers (heavy implementation → mid-tier model, tests/docs → cheapest tier, the orchestrator
+reviews and verifies) and a wording rule (never "honest"/"honestly" or their variants).
 
 This is the only non-deterministic part of the system, and `frugal --pre-bash` backs it
 up by reminding the agent of the tool when it forgets.
