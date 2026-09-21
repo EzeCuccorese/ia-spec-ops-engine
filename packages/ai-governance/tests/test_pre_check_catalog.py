@@ -69,11 +69,8 @@ def test_cat_readme_returns_none() -> None:
     assert advice is None
 
 
-def test_session_dedup_same_pattern_once() -> None:
+def test_session_dedup_same_pattern_once(tmp_path: Path) -> None:
     """Same pattern should only be returned once per session."""
-    tmp_path = Path("/tmp/test_session_dedup")
-    tmp_path.mkdir(parents=True, exist_ok=True)
-
     catalog = RuleCatalog()
     patterns = catalog_patterns(catalog.tools)
 
@@ -94,12 +91,6 @@ def test_session_dedup_same_pattern_once() -> None:
         extra_patterns=patterns,
     )
     assert advice2 is None
-
-    # Clean up
-    import shutil
-
-    if tmp_path.exists():
-        shutil.rmtree(tmp_path)
 
 
 def test_nofrugal_comment_suppresses_check() -> None:

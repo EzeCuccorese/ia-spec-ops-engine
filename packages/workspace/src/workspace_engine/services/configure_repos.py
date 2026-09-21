@@ -252,8 +252,9 @@ def _branch_config_panel(
         if editing:
             if mode == "new" and focused == 0:
                 return "Type the branch name   ENTER next field   ESC back"
-            if _is_picker(mode, focused):
-                return "Type to filter   up/down select   ENTER confirm   ESC back"
+            # The only other state reachable while editing is the branch picker
+            # (parent picker in "new" mode, or the branch list in "existing" mode).
+            return "Type to filter   up/down select   ENTER confirm   ESC back"
         return "up/down navigate   ENTER edit / confirm   left/right switch mode   ESC back"
 
     def _picker_section(ftext: str, fcur: int, lh: int, sep_s: str, cols: int) -> list[str]:
@@ -391,7 +392,10 @@ def _branch_config_panel(
                     new_branch_cur = max(0, min(len(new_branch_name), new_branch_cur + d))
                 elif mode == "new" and focused == 1:
                     parent_filter_cur = max(0, min(len(parent_filter), parent_filter_cur + d))
-                elif mode == "existing" and focused == 0:
+                else:
+                    # editing implies (mode, focused) is one of: ("new", 0),
+                    # ("new", 1), or ("existing", 0) — the two branches above
+                    # exhaust everything except this last state.
                     exist_filter_cur = max(0, min(len(exist_filter), exist_filter_cur + d))
             else:
                 if mode == "new":
@@ -412,7 +416,7 @@ def _branch_config_panel(
                     new_branch_cur = 0
                 elif mode == "new" and focused == 1:
                     parent_filter_cur = 0
-                elif mode == "existing":
+                else:
                     exist_filter_cur = 0
         elif key in (b"\x1b[F", b"\x1b[4~"):
             if editing:
@@ -420,7 +424,7 @@ def _branch_config_panel(
                     new_branch_cur = len(new_branch_name)
                 elif mode == "new" and focused == 1:
                     parent_filter_cur = len(parent_filter)
-                elif mode == "existing":
+                else:
                     exist_filter_cur = len(exist_filter)
         elif key == b"\x1b[3~":
             if editing:
@@ -535,7 +539,7 @@ def _branch_config_panel(
                         focused = cr
                         dropdown_idx = -1
                         dropdown_scroll = 0
-                elif mode == "existing" and focused == 0:
+                else:
                     sugg = _suggestions(exist_filter)
                     if branches_loaded and dropdown_idx >= 0 and dropdown_idx < len(sugg):
                         exist_branch = sugg[dropdown_idx]
@@ -593,7 +597,7 @@ def _branch_config_panel(
                     parent_filter_cur += 1
                     dropdown_idx = -1
                     dropdown_scroll = 0
-                elif mode == "existing" and focused == 0:
+                else:
                     exist_filter = (
                         exist_filter[:exist_filter_cur] + ch + exist_filter[exist_filter_cur:]
                     )
@@ -718,9 +722,10 @@ def configure_repos(
         termios.tcsetattr(tty_fd.fileno(), termios.TCSADRAIN, old_attrs)
         tty_fd.close()
 
-    if not confirmed:
-        return None
-
+    # The while-loop above only exits normally via `break` once `confirmed` is
+    # True (every other exit path returns or raises from within the loop), so
+    # `confirmed` is always True here.
+    assert confirmed
     resolved_configs = cast("list[RepoConfig]", configs)
     errors = pre_validate(resolved_configs, repo_paths)
     if errors:

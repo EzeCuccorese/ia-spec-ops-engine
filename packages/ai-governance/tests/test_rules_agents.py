@@ -1,6 +1,7 @@
 from pathlib import Path
 
-from ai_governance.rules.agents import ALL_ADAPTERS, AgentsRulesAdapter
+import pytest
+from ai_governance.rules.agents import ALL_ADAPTERS, AgentsRulesAdapter, filter_rules_by_tech
 from ai_governance.rules.core.catalog import RuleCatalog
 
 
@@ -33,3 +34,26 @@ def test_agents_adapter_install_and_uninstall_reversibly(tmp_path: Path) -> None
 def test_all_adapters_registry(tmp_path: Path) -> None:
     assert "agents" in ALL_ADAPTERS
     assert isinstance(ALL_ADAPTERS["agents"], AgentsRulesAdapter)
+
+
+def test_filter_rules_by_tech_returns_all_rules_when_tech_is_none() -> None:
+    catalog = RuleCatalog()
+    assert filter_rules_by_tech(catalog.rules, None) == catalog.rules
+
+
+def test_filter_rules_by_tech_returns_all_rules_when_tech_is_all() -> None:
+    catalog = RuleCatalog()
+    assert filter_rules_by_tech(catalog.rules, "all") == catalog.rules
+    assert filter_rules_by_tech(catalog.rules, "ALL") == catalog.rules
+
+
+def test_get_target_file_global_scope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    adapter = AgentsRulesAdapter()
+    target = adapter.get_target_file(tmp_path, is_global=True)
+    assert target == tmp_path / ".config" / "agents" / "AGENTS.md"
+
+
+def test_uninstall_when_target_file_missing_returns_none(tmp_path: Path) -> None:
+    adapter = AgentsRulesAdapter()
+    assert adapter.uninstall(tmp_path, is_global=False) is None

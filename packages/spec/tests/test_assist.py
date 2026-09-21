@@ -3,8 +3,10 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+import spec.spec.assist as assist_module
 from spec.governance.project import ProjectGovernance
 from spec.spec.assist import TestAssistant
+from spec.spec.trace import TraceabilityReport
 from spec.spec.workflow import Workflow
 
 
@@ -77,5 +79,68 @@ def test_assist_all_scenarios_covered():
 
         ctx = TestAssistant(root).inspect()
         assert ctx.uncovered == []
+        assert ctx.next_scenario is None
+        assert "All scenarios are covered" in ctx.actionable_instruction
+
+
+def test_assist_reports_missing_spec_file_for_active_feature():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        ProjectGovernance(root).initialize()
+        workflow = Workflow(root)
+        workflow.create_spec("Vanishing Feature", "Audit test")
+        spec_md = workflow.feature_dir("vanishing-feature") / "spec.md"
+        spec_md.unlink()
+
+        ctx = TestAssistant(root).inspect()
+        assert ctx.feature == "vanishing-feature"
+        assert ctx.total_scenarios == 0
+        assert "spec.md missing" in ctx.actionable_instruction
+
+
+def test_assist_instructs_to_advance_stage_before_tdd():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        ProjectGovernance(root).initialize()
+        workflow = Workflow(root)
+        workflow.create_spec("Early Stage Feature", "Audit test")
+        spec_md = workflow.feature_dir("early-stage-feature") / "spec.md"
+        spec_md.write_text(
+            "# Spec: Early Stage Feature\n\n@s1\nScenario: One\n  Given a\n  When b\n  Then c\n",
+            encoding="utf-8",
+        )
+
+        ctx = TestAssistant(root).inspect()
+        assert ctx.stage == "spec"
+        assert "Advance through plan/tasks" in ctx.actionable_instruction
+
+
+def test_assist_falls_back_when_no_scenario_matches_reported_uncovered_tag(
+    monkeypatch,
+):
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        ProjectGovernance(root).initialize()
+        workflow = Workflow(root)
+        workflow.create_spec("Mismatch Feature", "Audit test")
+        spec_md = workflow.feature_dir("mismatch-feature") / "spec.md"
+        spec_md.write_text(
+            "# Spec: Mismatch Feature\n\n@s1\nScenario: One\n  Given a\n  When b\n  Then c\n",
+            encoding="utf-8",
+        )
+        workflow.create_plan()
+        workflow.create_tasks()
+        workflow.begin_work()
+
+        # Force a traceability report whose uncovered tag does not correspond to any
+        # extracted scenario, so the lookup loop in inspect() exhausts without a match.
+        def fake_find_test_mappings(scenarios, root, feature_dir=None, check_results=None):
+            return TraceabilityReport(
+                feature="mismatch-feature", scenarios=scenarios, uncovered=["@does-not-exist"]
+            )
+
+        monkeypatch.setattr(assist_module, "find_test_mappings", fake_find_test_mappings)
+
+        ctx = TestAssistant(root).inspect()
         assert ctx.next_scenario is None
         assert "All scenarios are covered" in ctx.actionable_instruction

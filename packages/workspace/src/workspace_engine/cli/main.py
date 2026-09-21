@@ -238,7 +238,7 @@ def main() -> None:
     elif args.command == "worktree":
         from workspace_engine.cli.create_worktree import main as wt_main
 
-        wt_main()
+        wt_main([args.repo, args.target, args.branch])
     elif args.command == "clean":
         from workspace_engine.cli.clean_workspace import main as clean_main
 

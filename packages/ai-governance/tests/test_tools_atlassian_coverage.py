@@ -7,11 +7,13 @@ test_tools_atlassian.py). No network access is performed.
 
 from __future__ import annotations
 
+import io
 import json
+import urllib.error
 from unittest.mock import MagicMock, patch
 
 import pytest
-from ai_governance.tools import confluence, jira
+from ai_governance.tools import atlassian_common, confluence, jira
 
 
 @pytest.fixture(autouse=True)
@@ -429,3 +431,608 @@ def test_confluence_main_update_with_version_flag() -> None:
     current = {"title": "Doc", "space": {"key": "ENG"}, "version": {"number": 3}}
     with patch("urllib.request.urlopen", _mock_sequence(current)), pytest.raises(SystemExit):
         confluence.main(["update", "42", "new text", "--version", "1"])
+
+
+# ── jira: ADF rendering branches ────────────────────────────────────────────
+
+
+def test_jira_adf_to_md_empty_and_non_dict() -> None:
+    assert jira._adf_to_md(None) == ""
+    assert jira._adf_to_md("not-a-dict") == ""
+
+
+def test_jira_adf_to_md_marks() -> None:
+    node = {
+        "type": "paragraph",
+        "content": [
+            {"type": "text", "text": "em", "marks": [{"type": "em"}]},
+            {"type": "text", "text": "code", "marks": [{"type": "code"}]},
+            {"type": "text", "text": "strike", "marks": [{"type": "strike"}]},
+            {
+                "type": "text",
+                "text": "link",
+                "marks": [{"type": "link", "attrs": {"href": "https://x"}}],
+            },
+        ],
+    }
+    md = jira._adf_to_md(node)
+    assert "*em*" in md
+    assert "`code`" in md
+    assert "~~strike~~" in md
+    assert "[link](https://x)" in md
+
+
+def test_jira_adf_to_md_block_types() -> None:
+    doc = {
+        "type": "doc",
+        "content": [
+            {
+                "type": "heading",
+                "attrs": {"level": 2},
+                "content": [{"type": "text", "text": "Title"}],
+            },
+            {
+                "type": "bulletList",
+                "content": [
+                    {
+                        "type": "listItem",
+                        "content": [
+                            {"type": "paragraph", "content": [{"type": "text", "text": "a"}]}
+                        ],
+                    }
+                ],
+            },
+            {
+                "type": "orderedList",
+                "content": [
+                    {
+                        "type": "listItem",
+                        "content": [
+                            {"type": "paragraph", "content": [{"type": "text", "text": "b"}]}
+                        ],
+                    }
+                ],
+            },
+            {
+                "type": "codeBlock",
+                "attrs": {"language": "python"},
+                "content": [{"type": "text", "text": "print(1)"}],
+            },
+            {
+                "type": "blockquote",
+                "content": [{"type": "paragraph", "content": [{"type": "text", "text": "quoted"}]}],
+            },
+            {"type": "rule"},
+            {
+                "type": "table",
+                "content": [
+                    {
+                        "type": "tableRow",
+                        "content": [
+                            {
+                                "type": "tableHeader",
+                                "content": [
+                                    {
+                                        "type": "paragraph",
+                                        "content": [{"type": "text", "text": "H1"}],
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        "type": "tableRow",
+                        "content": [
+                            {
+                                "type": "tableCell",
+                                "content": [
+                                    {
+                                        "type": "paragraph",
+                                        "content": [{"type": "text", "text": "C1"}],
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                ],
+            },
+        ],
+    }
+    md = jira._adf_to_md(doc)
+    assert "## Title" in md
+    assert "- a" in md
+    assert "1. b" in md
+    assert "```python" in md
+    assert "> quoted" in md
+    assert "---" in md
+    assert "| H1 |" in md
+    assert "| C1 |" in md
+
+
+def test_jira_fmt_date_invalid_and_missing() -> None:
+    assert jira._fmt_date(None) == "—"
+    assert jira._fmt_date("not-a-date-at-all") == "not-a-date-at-all"[:16]
+
+
+def test_jira_inline_to_adf_code() -> None:
+    nodes = jira._inline_to_adf("plain `code` end")
+    marks = [n.get("marks", [{}])[0].get("type") for n in nodes if n.get("marks")]
+    assert "code" in marks
+
+
+def test_jira_parse_table_row_no_pipes() -> None:
+    assert jira._parse_table_row("a | b") == ["a", "b"]
+
+
+def test_jira_md_to_adf_single_row_table_fallback() -> None:
+    adf = jira._md_to_adf("| just one row |")
+    assert adf["content"][0]["type"] == "paragraph"
+
+
+def test_jira_md_to_adf_bullets_then_blank_line() -> None:
+    adf = jira._md_to_adf("- one\n- two\n\nmore text")
+    types = [c["type"] for c in adf["content"]]
+    assert types == ["bulletList", "paragraph"]
+
+
+# ── jira: command formatting (additional branches) ──────────────────────────
+
+
+def test_jira_cmd_issue_json(capsys: pytest.CaptureFixture[str]) -> None:
+    body = {"fields": {"summary": "S"}}
+    with patch("urllib.request.urlopen", _mock_sequence(body)):
+        jira.cmd_issue("PROJ-1", as_json=True)
+    assert json.loads(capsys.readouterr().out) == body
+
+
+def test_jira_cmd_issue_with_comments(capsys: pytest.CaptureFixture[str]) -> None:
+    body = {
+        "fields": {
+            "summary": "S",
+            "status": {"name": "Open"},
+            "issuetype": {"name": "Task"},
+            "comment": {
+                "comments": [
+                    {
+                        "author": {"displayName": "Dana"},
+                        "created": "2024-01-01T00:00:00.000+0000",
+                        "body": {"type": "paragraph", "content": [{"type": "text", "text": "hi"}]},
+                    }
+                ]
+            },
+        }
+    }
+    with patch("urllib.request.urlopen", _mock_sequence(body)):
+        jira.cmd_issue("PROJ-1")
+    out = capsys.readouterr().out
+    assert "Recent Comments" in out
+    assert "Dana" in out
+
+
+def test_jira_cmd_search_exact_total(capsys: pytest.CaptureFixture[str]) -> None:
+    body = {
+        "issues": [
+            {
+                "key": "PROJ-1",
+                "fields": {
+                    "summary": "s",
+                    "status": {"name": "Open"},
+                    "assignee": None,
+                    "issuetype": {"name": "Task"},
+                },
+            }
+        ],
+        "total": 1,
+        "startAt": 0,
+    }
+    with patch("urllib.request.urlopen", _mock_sequence(body)):
+        jira.cmd_search("q")
+    assert "More results exist" not in capsys.readouterr().out
+
+
+def test_jira_cmd_comments_json(capsys: pytest.CaptureFixture[str]) -> None:
+    body = {"comments": [{"id": "1"}]}
+    with patch("urllib.request.urlopen", _mock_sequence(body)):
+        jira.cmd_comments("PROJ-1", as_json=True)
+    assert json.loads(capsys.readouterr().out) == body
+
+
+def test_jira_cmd_transition_single_substring(capsys: pytest.CaptureFixture[str]) -> None:
+    transitions = {"transitions": [{"id": "5", "name": "In Progress"}]}
+    with patch("urllib.request.urlopen", _mock_sequence(transitions, {})):
+        jira.cmd_transition("PROJ-1", "progress")
+    assert "In Progress" in capsys.readouterr().out
+
+
+def test_jira_cmd_assign_single_result_not_exact(capsys: pytest.CaptureFixture[str]) -> None:
+    users = [{"accountId": "u9", "displayName": "Zara Q", "emailAddress": "zara@example.com"}]
+    with patch("urllib.request.urlopen", _mock_sequence(users, {})):
+        jira.cmd_assign("PROJ-1", "zar")
+    assert "assigned to zar" in capsys.readouterr().out
+
+
+def test_jira_cmd_sprint_not_found() -> None:
+    boards = {"values": [{"id": 1}]}
+    sprints = {"values": [{"name": "Alpha", "state": "closed", "id": 1}]}
+    with (
+        patch("urllib.request.urlopen", _mock_sequence(boards, sprints)),
+        pytest.raises(SystemExit),
+    ):
+        jira.cmd_sprint("PROJ-1", "zzz")
+
+
+def test_jira_cmd_sprint_ambiguous() -> None:
+    boards = {"values": [{"id": 1}]}
+    sprints = {
+        "values": [
+            {"name": "Sprint Alpha", "state": "active", "id": 1},
+            {"name": "Sprint Alpha Two", "state": "future", "id": 2},
+        ]
+    }
+    with (
+        patch("urllib.request.urlopen", _mock_sequence(boards, sprints)),
+        pytest.raises(SystemExit),
+    ):
+        jira.cmd_sprint("PROJ-1", "alpha")
+
+
+def test_jira_cmd_sprint_single_match(capsys: pytest.CaptureFixture[str]) -> None:
+    boards = {"values": [{"id": 1}]}
+    sprints = {"values": [{"name": "Sprint Beta", "state": "future", "id": 3}]}
+    with patch("urllib.request.urlopen", _mock_sequence(boards, sprints, {})):
+        jira.cmd_sprint("PROJ-1", "beta")
+    assert "Sprint Beta" in capsys.readouterr().out
+
+
+# ── jira: main() argument parsing (additional branches) ────────────────────
+
+
+def test_jira_main_json_flag(capsys: pytest.CaptureFixture[str]) -> None:
+    body = {"issues": [], "total": 0}
+    with patch("urllib.request.urlopen", _mock_sequence(body)):
+        jira.main(["search", "q", "--json"])
+    assert json.loads(capsys.readouterr().out) == body
+
+
+def test_jira_main_search_start_at_flag(capsys: pytest.CaptureFixture[str]) -> None:
+    body = {"issues": [], "total": 0}
+    with patch("urllib.request.urlopen", _mock_sequence(body)):
+        jira.main(["search", "q", "--start-at", "5"])
+    assert "No results found" in capsys.readouterr().out
+
+
+def test_jira_main_max_results_flag(capsys: pytest.CaptureFixture[str]) -> None:
+    body = {"issues": [], "total": 0}
+    with patch("urllib.request.urlopen", _mock_sequence(body)):
+        jira.main(["search", "q", "--max-results", "10"])
+    assert "No results found" in capsys.readouterr().out
+
+
+def test_jira_main_file_flag_comment(capsys: pytest.CaptureFixture[str], tmp_path) -> None:
+    f = tmp_path / "body.txt"
+    f.write_text("file body")
+    with patch("urllib.request.urlopen", _mock_sequence({"id": "1"})):
+        jira.main(["comment", "PROJ-1", "--file", str(f)])
+    assert "Comment added to PROJ-1" in capsys.readouterr().out
+
+
+def test_jira_main_comments_dispatch(capsys: pytest.CaptureFixture[str]) -> None:
+    with patch("urllib.request.urlopen", _mock_sequence({"comments": []})):
+        jira.main(["comments", "PROJ-1"])
+    assert "No comments." in capsys.readouterr().out
+
+
+def test_jira_main_comment_dispatch(capsys: pytest.CaptureFixture[str]) -> None:
+    with patch("urllib.request.urlopen", _mock_sequence({"id": "1"})):
+        jira.main(["comment", "PROJ-1", "text"])
+    assert "Comment added to PROJ-1" in capsys.readouterr().out
+
+
+def test_jira_main_comment_edit_dispatch(capsys: pytest.CaptureFixture[str]) -> None:
+    with patch("urllib.request.urlopen", _mock_sequence({})):
+        jira.main(["comment-edit", "PROJ-1", "5", "new text"])
+    assert "Comment 5 edited on PROJ-1" in capsys.readouterr().out
+
+
+def test_jira_main_transition_dispatch(capsys: pytest.CaptureFixture[str]) -> None:
+    transitions = {"transitions": [{"id": "1", "name": "Done"}]}
+    with patch("urllib.request.urlopen", _mock_sequence(transitions, {})):
+        jira.main(["transition", "PROJ-1", "done"])
+    assert "PROJ-1 → Done" in capsys.readouterr().out
+
+
+def test_jira_main_assign_dispatch(capsys: pytest.CaptureFixture[str]) -> None:
+    with patch("urllib.request.urlopen", _mock_sequence({"accountId": "abc"}, {})):
+        jira.main(["assign", "PROJ-1", "me"])
+    assert "assigned to you" in capsys.readouterr().out
+
+
+def test_jira_main_sprint_dispatch(capsys: pytest.CaptureFixture[str]) -> None:
+    boards = {"values": [{"id": 1}]}
+    sprints = {"values": [{"id": 2, "name": "Sprint X", "state": "active"}]}
+    with patch("urllib.request.urlopen", _mock_sequence(boards, sprints, {})):
+        jira.main(["sprint", "PROJ-1", "active"])
+    assert "Sprint X" in capsys.readouterr().out
+
+
+def test_jira_main_create_ignores_unknown_flag(capsys: pytest.CaptureFixture[str]) -> None:
+    with patch("urllib.request.urlopen", _mock_sequence({"key": "PROJ-1"})):
+        jira.main(["create", "PROJ", "Title", "extra-token", "--type", "Bug"])
+    assert "PROJ-1" in capsys.readouterr().out
+
+
+# ── confluence: HTML/Markdown rendering branches ────────────────────────────
+
+
+def test_confluence_html_to_md_empty() -> None:
+    assert confluence.html_to_md("") == ""
+
+
+def test_confluence_html_to_md_table_no_rows() -> None:
+    md = confluence.html_to_md("<table><tbody></tbody></table>")
+    assert "|" not in md
+
+
+def test_confluence_md_to_storage_passthrough_html_lines() -> None:
+    md = "<table>\n<tr><td>x</td></tr>\n</table>\n<ac:structured-macro/>"
+    storage = confluence.md_to_storage(md)
+    assert "<table>" in storage
+    assert "<ac:structured-macro/>" in storage
+
+
+# ── confluence: command formatting (additional branches) ───────────────────
+
+
+def test_confluence_cmd_read_json(capsys: pytest.CaptureFixture[str]) -> None:
+    body = {"title": "T"}
+    with patch("urllib.request.urlopen", _mock_sequence(body)):
+        confluence.cmd_read("1", as_json=True)
+    assert json.loads(capsys.readouterr().out) == body
+
+
+def test_confluence_cmd_spaces_json(capsys: pytest.CaptureFixture[str]) -> None:
+    body = {"results": []}
+    with patch("urllib.request.urlopen", _mock_sequence(body)):
+        confluence.cmd_spaces(as_json=True)
+    assert json.loads(capsys.readouterr().out) == body
+
+
+# ── confluence: main() argument parsing (additional branches) ──────────────
+
+
+def test_confluence_main_pagination_flags(capsys: pytest.CaptureFixture[str]) -> None:
+    body = {"results": [], "totalSize": 0}
+    with patch("urllib.request.urlopen", _mock_sequence(body)):
+        confluence.main(["search", "q", "--start", "2", "--limit", "5"])
+    assert "No results found" in capsys.readouterr().out
+
+
+def test_confluence_main_version_flag_no_conflict(capsys: pytest.CaptureFixture[str]) -> None:
+    current = {"title": "Doc", "space": {"key": "ENG"}, "version": {"number": 3}}
+    with patch("urllib.request.urlopen", _mock_sequence(current, {})):
+        confluence.main(["update", "42", "text", "--version", "3"])
+    assert "v4" in capsys.readouterr().out
+
+
+def test_confluence_main_file_flag(capsys: pytest.CaptureFixture[str], tmp_path) -> None:
+    f = tmp_path / "body.txt"
+    f.write_text("body from file")
+    with patch("urllib.request.urlopen", _mock_sequence({"id": "9"})):
+        confluence.main(["create", "ENG", "Title", "--file", str(f)])
+    assert "9" in capsys.readouterr().out
+
+
+def test_confluence_main_spaces_dispatch(capsys: pytest.CaptureFixture[str]) -> None:
+    with patch("urllib.request.urlopen", _mock_sequence({"results": []})):
+        confluence.main(["spaces"])
+    assert "No spaces found" in capsys.readouterr().out
+
+
+def test_confluence_main_append_dispatch(capsys: pytest.CaptureFixture[str]) -> None:
+    current = {
+        "title": "Doc",
+        "space": {"key": "ENG"},
+        "version": {"number": 1},
+        "body": {"storage": {"value": ""}},
+    }
+    with patch("urllib.request.urlopen", _mock_sequence(current, {})):
+        confluence.main(["append", "42", "more"])
+    assert "v2" in capsys.readouterr().out
+
+
+def test_confluence_main_comment_dispatch(capsys: pytest.CaptureFixture[str]) -> None:
+    with patch("urllib.request.urlopen", _mock_sequence({})):
+        confluence.main(["comment", "42", "a comment"])
+    assert "Comment added to page 42" in capsys.readouterr().out
+
+
+def test_confluence_main_space_flag_missing_value(capsys: pytest.CaptureFixture[str]) -> None:
+    body = {"results": [], "totalSize": 0}
+    with patch("urllib.request.urlopen", _mock_sequence(body)):
+        confluence.main(["search", "term", "--space"])
+    assert "No results found" in capsys.readouterr().out
+
+
+def test_confluence_main_parent_flag_missing_value(capsys: pytest.CaptureFixture[str]) -> None:
+    with patch("urllib.request.urlopen", _mock_sequence({"id": "9"})):
+        confluence.main(["create", "ENG", "Title", "Body", "--parent"])
+    assert "9" in capsys.readouterr().out
+
+
+# ── atlassian_common: profile resolution branches ───────────────────────────
+
+
+def test_load_profile_config_memory_override() -> None:
+    atlassian_common._PROFILE_OVERRIDES["memprofile"] = {
+        "email": "e@x.com",
+        "token": "tok",
+        "url": "https://company.atlassian.net",
+    }
+    try:
+        cfg = atlassian_common.load_profile_config("memprofile")
+        assert cfg["email"] == "e@x.com"
+    finally:
+        atlassian_common._PROFILE_OVERRIDES.pop("memprofile", None)
+
+
+def test_load_profile_config_from_file(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    profiles_file = tmp_path / "profiles.json"
+    profiles_file.write_text(
+        json.dumps(
+            {
+                "teamA": {
+                    "email": "a@x.com",
+                    "api_token": "tok123",
+                    "url": "https://company.atlassian.net/",
+                }
+            }
+        )
+    )
+    monkeypatch.setenv("ATLASSIAN_PROFILES_FILE", str(profiles_file))
+    cfg = atlassian_common.load_profile_config("teamA")
+    assert cfg["email"] == "a@x.com"
+    assert cfg["token"] == "tok123"
+    assert cfg["url"] == "https://company.atlassian.net"
+
+
+def test_load_profile_config_invalid_json_file(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    profiles_file = tmp_path / "profiles.json"
+    profiles_file.write_text("{not valid json")
+    monkeypatch.setenv("ATLASSIAN_PROFILES_FILE", str(profiles_file))
+    # Falls through past the broken file to the environment-variable fallback.
+    cfg = atlassian_common.load_profile_config("teamB")
+    assert "email" in cfg
+
+
+# ── atlassian_common: read_input_text branches ──────────────────────────────
+
+
+def test_read_input_text_stdin(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("sys.stdin", io.StringIO("piped text"))
+    assert atlassian_common.read_input_text("-") == "piped text"
+
+
+def test_read_input_text_at_file(tmp_path) -> None:
+    f = tmp_path / "body.txt"
+    f.write_text("file content")
+    assert atlassian_common.read_input_text(f"@{f}") == "file content"
+
+
+def test_read_input_text_plain_existing_path(tmp_path) -> None:
+    f = tmp_path / "body2.txt"
+    f.write_text("more content")
+    assert atlassian_common.read_input_text(str(f)) == "more content"
+
+
+def test_read_input_text_literal() -> None:
+    assert atlassian_common.read_input_text("just text") == "just text"
+
+
+# ── atlassian_common: execute_request error branches ────────────────────────
+
+
+@patch("urllib.request.urlopen")
+def test_execute_request_http_error_json_body(mock_urlopen: MagicMock) -> None:
+    err_resp = MagicMock()
+    err_resp.read.return_value = json.dumps({"errorMessages": ["Bad request"]}).encode()
+    mock_urlopen.side_effect = urllib.error.HTTPError("http://x", 400, "Bad Request", {}, err_resp)
+    with pytest.raises(SystemExit):
+        atlassian_common.execute_request("GET", "http://x")
+
+
+@patch("urllib.request.urlopen")
+def test_execute_request_http_error_non_json_body(mock_urlopen: MagicMock) -> None:
+    err_resp = MagicMock()
+    err_resp.read.return_value = b"plain text error"
+    mock_urlopen.side_effect = urllib.error.HTTPError("http://x", 500, "Server Error", {}, err_resp)
+    with pytest.raises(SystemExit):
+        atlassian_common.execute_request("GET", "http://x")
+
+
+@patch("urllib.request.urlopen")
+def test_execute_request_timeout_error(mock_urlopen: MagicMock) -> None:
+    mock_urlopen.side_effect = TimeoutError("timed out")
+    with pytest.raises(SystemExit):
+        atlassian_common.execute_request("GET", "http://x")
+
+
+# ── remaining branch coverage ────────────────────────────────────────────────
+
+
+def test_jira_adf_to_md_multiple_marks_on_one_text() -> None:
+    """Exercises the marks for-loop continuing to the next mark after an unrecognized one."""
+    node = {
+        "type": "text",
+        "text": "hi",
+        "marks": [{"type": "unknown"}, {"type": "strong"}],
+    }
+    md = jira._adf_to_md(node)
+    assert md == "**hi**"
+
+
+def test_jira_adf_to_md_table_single_row() -> None:
+    """A one-row table skips the header-separator insertion branch."""
+    node = {
+        "type": "table",
+        "content": [
+            {
+                "type": "tableRow",
+                "content": [
+                    {
+                        "type": "tableHeader",
+                        "content": [
+                            {"type": "paragraph", "content": [{"type": "text", "text": "H1"}]}
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    md = jira._adf_to_md(node)
+    assert md.strip() == "| H1 |"
+
+
+def test_jira_main_only_flags_no_command(capsys: pytest.CaptureFixture[str]) -> None:
+    jira.main(["--json"])
+    assert "jira — Lightweight CLI" in capsys.readouterr().out
+
+
+def test_confluence_html_to_md_table_single_row() -> None:
+    md = confluence.html_to_md("<table><tr><th>A</th></tr></table>")
+    assert "| A |" in md
+    assert "---" not in md
+
+
+def test_confluence_main_profile_flag(capsys: pytest.CaptureFixture[str]) -> None:
+    body = {"title": "T"}
+    with patch("urllib.request.urlopen", _mock_sequence(body)):
+        confluence.main(["--profile", "work", "read", "1"])
+    assert "# T" in capsys.readouterr().out
+    confluence.set_profile(None)  # reset global state for other tests
+
+
+def test_confluence_main_json_flag(capsys: pytest.CaptureFixture[str]) -> None:
+    body = {"results": [], "totalSize": 0}
+    with patch("urllib.request.urlopen", _mock_sequence(body)):
+        confluence.main(["search", "q", "--json"])
+    assert json.loads(capsys.readouterr().out) == body
+
+
+def test_confluence_main_only_flags_no_command(capsys: pytest.CaptureFixture[str]) -> None:
+    confluence.main(["--json"])
+    assert "confluence — Lightweight CLI" in capsys.readouterr().out
+
+
+def test_load_profile_config_from_file_target_missing(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Profile file exists and parses, but the requested profile key is absent."""
+    profiles_file = tmp_path / "profiles.json"
+    profiles_file.write_text(json.dumps({"other": {"email": "o@x.com"}}))
+    monkeypatch.setenv("ATLASSIAN_PROFILES_FILE", str(profiles_file))
+    cfg = atlassian_common.load_profile_config("teamC")
+    assert "email" in cfg
+
+
+def test_read_input_text_at_missing_file_falls_back_to_literal() -> None:
+    assert atlassian_common.read_input_text("@no-such-file.txt") == "@no-such-file.txt"

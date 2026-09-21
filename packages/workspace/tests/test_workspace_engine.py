@@ -83,6 +83,20 @@ def test_repository_updates_preserve_workspace_policy_and_notes(tmp_path):
     assert "Keep this decision." in content
 
 
+def test_update_workspace_agents_appends_section_when_missing(tmp_path):
+    workspace = tmp_path / "feature"
+    workspace.mkdir()
+    target = workspace / "AGENTS.md"
+    target.write_text("# Workspace: feature\n\nNo repositories section here.\n")
+
+    update_workspace_agents(workspace, ["api"])
+
+    content = target.read_text()
+    assert "No repositories section here." in content
+    assert "## Repositories" in content
+    assert "- api" in content
+
+
 def test_clean_workspace():
     with tempfile.TemporaryDirectory() as tmpdir:
         ws = Path(tmpdir)
