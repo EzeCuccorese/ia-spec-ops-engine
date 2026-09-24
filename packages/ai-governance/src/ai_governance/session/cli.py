@@ -115,36 +115,38 @@ def _add_json_flag(parser: argparse.ArgumentParser) -> None:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="progress", description="SpecOps task tracking")
+    parser = argparse.ArgumentParser(
+        prog="ai-governance progress", description="Compact cross-session task tracking"
+    )
     sub = parser.add_subparsers(dest="cmd")
 
-    item = sub.add_parser("list", aliases=["listar"], help="List tasks")
+    item = sub.add_parser("list", help="List tasks")
     item.add_argument("--all", action="store_true", help="Include closed tasks")
     _add_json_flag(item)
 
-    for name in ("show", "ver", "view"):
+    for name in ("show",):
         item = sub.add_parser(name, help="View task state")
         item.add_argument("task_id", nargs="?")
         item.add_argument("--full", action="store_true")
         _add_json_flag(item)
 
-    for name in ("here", "aqui"):
+    for name in ("here",):
         item = sub.add_parser(name, help="Resolve task by branch or registered repository")
         item.add_argument("--full", action="store_true")
         _add_json_flag(item)
 
-    for name in ("new", "nueva"):
+    for name in ("new",):
         item = sub.add_parser(name, help="Create task")
         item.add_argument("task_id")
-        item.add_argument("--title", "--titulo", required=True)
-        item.add_argument("--summary", "--resumen", default="")
+        item.add_argument("--title", required=True)
+        item.add_argument("--summary", default="")
 
-    for name in ("close", "cerrar", "reopen", "reabrir", "pause", "pausar"):
+    for name in ("close", "reopen", "pause"):
         item = sub.add_parser(name)
         item.add_argument("task_id")
-        item.add_argument("--reason", "--razon", default="")
+        item.add_argument("--reason", default="")
 
-    for name in ("resume", "reanudar"):
+    for name in ("resume",):
         item = sub.add_parser(name)
         item.add_argument("task_id", nargs="?")
         item.add_argument("--full", action="store_true")
@@ -193,9 +195,6 @@ def _build_parser() -> argparse.ArgumentParser:
     item.add_argument("--max-chars", type=int, default=1600)
     _add_json_flag(item)
 
-    item = sub.add_parser("migrate-legacy", help="Import old progress-to-md state once")
-    item.add_argument("path", type=Path)
-    _add_json_flag(item)
     return parser
 
 
@@ -204,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         tracker = SessionTracker()
-        if args.cmd in ("list", "listar") or not args.cmd:
+        if args.cmd == "list" or not args.cmd:
             tasks = tracker.list_tasks(include_closed=getattr(args, "all", False))
             if getattr(args, "json", False):
                 emit_json([task.to_dict() for task in tasks])
@@ -217,16 +216,16 @@ def main(argv: list[str] | None = None) -> int:
                 )
             return 0
 
-        if args.cmd in ("here", "aqui"):
+        if args.cmd == "here":
             target = TaskResolver.resolve_from_context(tracker.list_tasks(), Path.cwd())
-        elif args.cmd in ("show", "ver", "view", "resume", "reanudar"):
+        elif args.cmd in ("show", "resume"):
             target = args.task_id or TaskResolver.resolve_from_context(
                 tracker.list_tasks(), Path.cwd()
             )
         else:
             target = None
 
-        if args.cmd in ("show", "ver", "view", "here", "aqui"):
+        if args.cmd in ("show", "here"):
             found_task = tracker.get_task(target) if target else None
             if not found_task:
                 raise FileNotFoundError("No task matches the current context")
@@ -240,17 +239,17 @@ def main(argv: list[str] | None = None) -> int:
                 show_task(task, args.full, tracker)
             return 0
 
-        if args.cmd in ("new", "nueva"):
+        if args.cmd == "new":
             task = tracker.create_task(
                 TaskState(id=args.task_id, title=args.title, summary=args.summary)
             )
-        elif args.cmd in ("close", "cerrar"):
+        elif args.cmd == "close":
             task = tracker.close_task(args.task_id, args.reason)
-        elif args.cmd in ("reopen", "reabrir"):
+        elif args.cmd == "reopen":
             task = tracker.reopen_task(args.task_id, args.reason)
-        elif args.cmd in ("pause", "pausar"):
+        elif args.cmd == "pause":
             task = tracker.pause_task(args.task_id, args.reason)
-        elif args.cmd in ("resume", "reanudar"):
+        elif args.cmd == "resume":
             if not target:
                 raise FileNotFoundError("No task matches the current context")
             task = tracker.resume_task(target)
@@ -295,16 +294,6 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 emit_text(text, full=True)
             return 0
-        elif args.cmd == "migrate-legacy":
-            report = tracker.import_legacy_directory(args.path)
-            if args.json:
-                emit_json(report)
-            else:
-                print(
-                    f"Imported {report['imported']}; skipped {report['skipped']}; "
-                    f"invalid {report['invalid']}"
-                )
-            return 0
         else:
             parser.print_help()
             return 0
@@ -312,9 +301,7 @@ def main(argv: list[str] | None = None) -> int:
         emit_status("ok", f"Updated task '{task.id}' ({task.status})")
         return 0
     except (ValueError, OSError) as exc:
-        prefix = (
-            "Error creating task" if getattr(args, "cmd", None) in ("new", "nueva") else "Error"
-        )
+        prefix = "Error creating task" if getattr(args, "cmd", None) == "new" else "Error"
         emit_status("error", f"{prefix}: {exc}")
         return 1
 

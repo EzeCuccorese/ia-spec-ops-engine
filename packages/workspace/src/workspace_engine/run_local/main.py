@@ -127,7 +127,7 @@ def _launch_and_report(configs: list, db_cfg: dict) -> tuple:
 def main():
     if not _CONFIG_LOADED and "pytest" not in sys.modules:
         print(
-            f"{RED}Error: no configuration found at ~/.config/specops/config.json or config.json in the current directory.{RESET}"
+            f"{RED}Error: no configuration found at ~/.config/workspace/config.json or config.json in the current directory.{RESET}"
         )
         print(
             f"Run 'ws config init --global' or 'ws config init --local' and review the generated values.{RESET}"

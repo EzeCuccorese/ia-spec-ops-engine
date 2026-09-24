@@ -19,7 +19,7 @@ def test_scope_row_human_mode_active_and_executable():
         "hook_exists": True,
         "is_executable": True,
         "is_active": True,
-        "configured_hooks_path": "/repo/.githooks",
+        "configured_command": "/repo/.githooks",
         "hook_path": "/repo/.git/hooks/pre-push",
     }
     row = manage_hooks._scope_row("Local (Repo)", status, agent_mode=False)
@@ -32,7 +32,7 @@ def test_scope_row_human_mode_no_exec_and_inactive():
         "hook_exists": True,
         "is_executable": False,
         "is_active": False,
-        "configured_hooks_path": None,
+        "configured_command": None,
         "hook_path": "/repo/.git/hooks/pre-push",
     }
     row = manage_hooks._scope_row("Global (System)", status, agent_mode=False)
@@ -46,7 +46,7 @@ def test_scope_row_human_mode_not_installed():
         "hook_exists": False,
         "is_executable": False,
         "is_active": False,
-        "configured_hooks_path": None,
+        "configured_command": None,
         "hook_path": "/repo/.git/hooks/pre-push",
     }
     row = manage_hooks._scope_row("Local (Repo)", status, agent_mode=False)

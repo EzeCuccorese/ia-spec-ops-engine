@@ -52,33 +52,14 @@ def test_task_resolver_jira_regex() -> None:
     assert m3 is None
 
 
-def test_session_tracker_default_neutral_path(monkeypatch, tmp_path: Path) -> None:
-    fake_home = tmp_path / "home"
-    fake_home.mkdir()
-    monkeypatch.setattr(Path, "home", lambda: fake_home)
-    monkeypatch.delenv("SPECOPS_PROGRESS_DIR", raising=False)
-    monkeypatch.delenv("CLAUDE_PROGRESS_DIR", raising=False)
+def test_session_tracker_default_path_is_state_dir(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    monkeypatch.delenv("AI_GOVERNANCE_STATE_DIR", raising=False)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    assert SessionTracker().root_dir == tmp_path / ".local" / "state" / "ai-governance" / "progress"
 
-    # 1. Default: ~/.specops/progress
-    tracker = SessionTracker()
-    assert tracker.root_dir == fake_home / ".specops" / "progress"
-
-    # Remove the created specops dir to test fallback when only claude dir exists
-    import shutil
-
-    shutil.rmtree(fake_home / ".specops")
-
-    # 2. Fallback to ~/.claude/progress if it exists and specops doesn't
-    claude_dir = fake_home / ".claude" / "progress"
-    claude_dir.mkdir(parents=True)
-    tracker_legacy = SessionTracker()
-    assert tracker_legacy.root_dir == claude_dir
-
-    # 3. SPECOPS_PROGRESS_DIR env var takes highest precedence
-    custom_dir = tmp_path / "custom_progress"
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(custom_dir))
-    tracker_env = SessionTracker()
-    assert tracker_env.root_dir == custom_dir
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "custom"))
+    assert SessionTracker().root_dir == tmp_path / "custom" / "progress"
 
 
 def test_session_tracker_directory_traversal(tmp_path: Path) -> None:
@@ -139,7 +120,7 @@ def test_session_tracker_write_failure_raises_oserror(tmp_path: Path, monkeypatc
 def test_session_cli_error_handling(monkeypatch, capsys) -> None:
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     monkeypatch.setattr("sys.argv", ["progress", "new", "..", "--title", "Bad Task"])
     rc = cli.main()
     assert rc == 1
@@ -631,35 +612,6 @@ def test_digest_truncates_when_exceeding_max_chars(tmp_path: Path) -> None:
     assert len(text) <= 20
 
 
-def test_import_legacy_directory_imports_with_log_skip_and_invalid(tmp_path: Path) -> None:
-    import json
-
-    tracker = SessionTracker(root_dir=tmp_path / "progress")
-    legacy_root = tmp_path / "legacy"
-    tasks_dir = legacy_root / "tasks"
-    tasks_dir.mkdir(parents=True)
-    (tasks_dir / "LEG-1.json").write_text(json.dumps({"id": "LEG-1", "title": "Legacy"}))
-    (tasks_dir / "LEG-1.md").write_text("Old log body")
-    (tasks_dir / "BAD.json").write_text("not json")
-
-    report = tracker.import_legacy_directory(legacy_root)
-    assert report["imported"] == 1
-    assert report["invalid"] == 1
-    task = tracker.get_task("LEG-1")
-    assert task is not None
-    log = tracker.read_log("LEG-1")
-    assert "Old log body" in log
-
-    report2 = tracker.import_legacy_directory(legacy_root)
-    assert report2["skipped"] == 1
-
-
-def test_import_legacy_directory_missing_sources_is_noop(tmp_path: Path) -> None:
-    tracker = SessionTracker(root_dir=tmp_path / "progress")
-    report = tracker.import_legacy_directory(tmp_path / "nonexistent")
-    assert report == {"imported": 0, "skipped": 0, "invalid": 0}
-
-
 def test_task_lock_and_log_operations_without_fcntl(tmp_path: Path, monkeypatch) -> None:
     from ai_governance.session import tracker as tracker_module
 
@@ -698,7 +650,7 @@ def test_module_sets_fcntl_none_when_import_fails(monkeypatch) -> None:
 def test_show_task_agent_mode_full(monkeypatch, tmp_path: Path, capsys) -> None:
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     tracker = SessionTracker(root_dir=tmp_path)
     task = TaskState(
         id="T1",
@@ -727,7 +679,7 @@ def test_show_task_agent_mode_full(monkeypatch, tmp_path: Path, capsys) -> None:
 def test_show_task_agent_mode_minimal_no_log(monkeypatch, tmp_path: Path, capsys) -> None:
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     tracker = SessionTracker(root_dir=tmp_path)
     task = TaskState(id="T2", title="Title2")
     tracker.create_task(task)
@@ -740,7 +692,7 @@ def test_show_task_agent_mode_minimal_no_log(monkeypatch, tmp_path: Path, capsys
 def test_show_task_tty_mode_full(monkeypatch, tmp_path: Path, capsys) -> None:
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_AGENT", "0")
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "0")
     tracker = SessionTracker(root_dir=tmp_path)
     task = TaskState(
         id="T3",
@@ -764,7 +716,7 @@ def test_show_task_tty_mode_full(monkeypatch, tmp_path: Path, capsys) -> None:
 def test_show_task_tty_mode_minimal(monkeypatch, tmp_path: Path, capsys) -> None:
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_AGENT", "0")
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "0")
     task = TaskState(id="T4", title="Title4")
     cli.show_task(task, full_log=False, tracker=None)
     out = capsys.readouterr().out
@@ -776,8 +728,8 @@ def test_cli_show_json_full_includes_log(monkeypatch, tmp_path: Path, capsys) ->
 
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     assert cli.main(["new", "T10", "--title", "Hello"]) == 0
     capsys.readouterr()
     assert cli.main(["note", "T10", "some note"]) == 0
@@ -793,8 +745,8 @@ def test_cli_show_json_full_includes_log(monkeypatch, tmp_path: Path, capsys) ->
 def test_cli_reopen_task(monkeypatch, tmp_path: Path, capsys) -> None:
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     cli.main(["new", "T11", "--title", "H"])
     cli.main(["close", "T11"])
     capsys.readouterr()
@@ -807,8 +759,8 @@ def test_cli_reopen_task(monkeypatch, tmp_path: Path, capsys) -> None:
 def test_cli_resume_without_target_errors(monkeypatch, tmp_path: Path, capsys) -> None:
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     monkeypatch.chdir(tmp_path)
     rc = cli.main(["resume"])
     assert rc == 1
@@ -819,8 +771,8 @@ def test_cli_resume_without_target_errors(monkeypatch, tmp_path: Path, capsys) -
 def test_cli_reference_command(monkeypatch, tmp_path: Path, capsys) -> None:
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     cli.main(["new", "T12", "--title", "H"])
     capsys.readouterr()
     rc = cli.main(["reference", "T12", "jira", "T12", "--url", "http://x"])
@@ -830,8 +782,8 @@ def test_cli_reference_command(monkeypatch, tmp_path: Path, capsys) -> None:
 def test_cli_repo_add_and_remove(monkeypatch, tmp_path: Path, capsys) -> None:
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     cli.main(["new", "T13", "--title", "H"])
     capsys.readouterr()
     repo_dir = tmp_path / "myrepo"
@@ -848,8 +800,8 @@ def test_cli_repo_add_and_remove(monkeypatch, tmp_path: Path, capsys) -> None:
 def test_cli_sync_specific_task(monkeypatch, tmp_path: Path, capsys) -> None:
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     cli.main(["new", "T14", "--title", "H"])
     capsys.readouterr()
     rc = cli.main(["sync", "T14"])
@@ -861,8 +813,8 @@ def test_cli_sync_specific_task(monkeypatch, tmp_path: Path, capsys) -> None:
 def test_cli_sync_all_tasks(monkeypatch, tmp_path: Path, capsys) -> None:
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     cli.main(["new", "T15", "--title", "H"])
     capsys.readouterr()
     rc = cli.main(["sync"])
@@ -872,8 +824,8 @@ def test_cli_sync_all_tasks(monkeypatch, tmp_path: Path, capsys) -> None:
 def test_cli_note_command(monkeypatch, tmp_path: Path, capsys) -> None:
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     cli.main(["new", "T16", "--title", "H"])
     capsys.readouterr()
     rc = cli.main(["note", "T16", "note text"])
@@ -885,8 +837,8 @@ def test_cli_digest_json_and_text(monkeypatch, tmp_path: Path, capsys) -> None:
 
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     cli.main(["new", "T17", "--title", "H"])
     capsys.readouterr()
     rc = cli.main(["digest", "--id", "T17", "--json"])
@@ -898,41 +850,6 @@ def test_cli_digest_json_and_text(monkeypatch, tmp_path: Path, capsys) -> None:
     assert rc2 == 0
     out2 = capsys.readouterr().out
     assert "PROGRESS" in out2
-
-
-def test_cli_migrate_legacy_json(monkeypatch, tmp_path: Path, capsys) -> None:
-    import json
-
-    from ai_governance.session import cli
-
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path / "progress"))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
-    legacy = tmp_path / "legacy"
-    tasks_dir = legacy / "tasks"
-    tasks_dir.mkdir(parents=True)
-    (tasks_dir / "OLD-1.json").write_text(json.dumps({"id": "OLD-1", "title": "Old"}))
-    rc = cli.main(["migrate-legacy", str(legacy), "--json"])
-    assert rc == 0
-    out = capsys.readouterr().out
-    data = json.loads(out)
-    assert data["imported"] == 1
-
-
-def test_cli_migrate_legacy_text(monkeypatch, tmp_path: Path, capsys) -> None:
-    import json
-
-    from ai_governance.session import cli
-
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path / "progress"))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
-    legacy = tmp_path / "legacy2"
-    tasks_dir = legacy / "tasks"
-    tasks_dir.mkdir(parents=True)
-    (tasks_dir / "OLD-2.json").write_text(json.dumps({"id": "OLD-2", "title": "Old"}))
-    rc = cli.main(["migrate-legacy", str(legacy)])
-    assert rc == 0
-    out = capsys.readouterr().out
-    assert "Imported 1" in out
 
 
 def test_cli_unknown_cmd_falls_through_to_help(monkeypatch, tmp_path: Path, capsys) -> None:
@@ -948,8 +865,8 @@ def test_cli_unknown_cmd_falls_through_to_help(monkeypatch, tmp_path: Path, caps
             print("HELP TEXT")
 
     monkeypatch.setattr(cli, "_build_parser", lambda: FakeParser())
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     rc = cli.main([])
     assert rc == 0
     assert "HELP TEXT" in capsys.readouterr().out
@@ -983,20 +900,6 @@ def test_atomic_write_text_reraises_when_tempfile_creation_fails(
     monkeypatch.setattr(tempfile, "NamedTemporaryFile", boom)
     with pytest.raises(OSError, match="no space left"):
         _atomic_write_text(tmp_path / "out.json", "content")
-
-
-def test_session_tracker_uses_legacy_tareas_dir(tmp_path: Path) -> None:
-    root = tmp_path / "root_tareas"
-    (root / "tareas").mkdir(parents=True)
-    tracker = SessionTracker(root_dir=root)
-    assert tracker.tasks_dir == root / "tareas"
-
-
-def test_session_tracker_uses_legacy_archivadas_dir(tmp_path: Path) -> None:
-    root = tmp_path / "root_archivadas"
-    (root / "archivadas").mkdir(parents=True)
-    tracker = SessionTracker(root_dir=root)
-    assert tracker.archive_dir == root / "archivadas"
 
 
 def test_session_tracker_init_raises_oserror_when_dir_creation_fails(tmp_path: Path) -> None:
@@ -1092,7 +995,7 @@ def test_list_tasks_excludes_closed_by_default(tmp_path: Path) -> None:
 def test_show_task_agent_mode_no_full_log(monkeypatch, tmp_path: Path, capsys) -> None:
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     task = TaskState(id="T5", title="T5")
     cli.show_task(task, full_log=False, tracker=None)
     out = capsys.readouterr().out
@@ -1102,7 +1005,7 @@ def test_show_task_agent_mode_no_full_log(monkeypatch, tmp_path: Path, capsys) -
 def test_show_task_tty_mode_full_log_empty(monkeypatch, tmp_path: Path, capsys) -> None:
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_AGENT", "0")
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "0")
     tracker = SessionTracker(root_dir=tmp_path)
     task = TaskState(id="T6", title="T6")
     tracker.create_task(task)
@@ -1117,8 +1020,8 @@ def test_cli_main_list_default_and_json(monkeypatch, tmp_path: Path, capsys) -> 
 
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     cli.main(["new", "L1", "--title", "One"])
     capsys.readouterr()
     rc = cli.main(["list"])
@@ -1135,8 +1038,8 @@ def test_cli_main_list_default_and_json(monkeypatch, tmp_path: Path, capsys) -> 
 def test_cli_main_no_cmd_defaults_to_list(monkeypatch, tmp_path: Path, capsys) -> None:
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     rc = cli.main([])
     assert rc == 0
 
@@ -1145,8 +1048,8 @@ def test_cli_here_command_resolves_task(monkeypatch, tmp_path: Path, capsys) -> 
     from ai_governance.session import cli
 
     progress_dir = tmp_path / "progress"
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(progress_dir))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(progress_dir))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     repo = tmp_path / "repo_here"
     _init_git_repo(repo, branch="chore/plain")
     cli.main(["new", "HERE1", "--title", "H"])
@@ -1163,8 +1066,8 @@ def test_cli_here_command_resolves_task(monkeypatch, tmp_path: Path, capsys) -> 
 def test_cli_show_missing_task_raises(monkeypatch, tmp_path: Path, capsys) -> None:
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     rc = cli.main(["show", "NOPE"])
     assert rc == 1
 
@@ -1174,8 +1077,8 @@ def test_cli_show_json_without_full(monkeypatch, tmp_path: Path, capsys) -> None
 
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     cli.main(["new", "SJ1", "--title", "H"])
     capsys.readouterr()
     rc = cli.main(["show", "SJ1", "--json"])
@@ -1187,8 +1090,8 @@ def test_cli_show_json_without_full(monkeypatch, tmp_path: Path, capsys) -> None
 def test_cli_show_non_json(monkeypatch, tmp_path: Path, capsys) -> None:
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     cli.main(["new", "SN1", "--title", "H"])
     capsys.readouterr()
     rc = cli.main(["show", "SN1"])
@@ -1200,8 +1103,8 @@ def test_cli_show_non_json(monkeypatch, tmp_path: Path, capsys) -> None:
 def test_cli_pause_command(monkeypatch, tmp_path: Path, capsys) -> None:
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     cli.main(["new", "PZ", "--title", "H"])
     capsys.readouterr()
     rc = cli.main(["pause", "PZ", "--reason", "later"])
@@ -1211,8 +1114,8 @@ def test_cli_pause_command(monkeypatch, tmp_path: Path, capsys) -> None:
 def test_cli_resume_with_explicit_task_id(monkeypatch, tmp_path: Path, capsys) -> None:
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     cli.main(["new", "RS1", "--title", "H"])
     capsys.readouterr()
     cli.main(["pause", "RS1"])
@@ -1224,8 +1127,8 @@ def test_cli_resume_with_explicit_task_id(monkeypatch, tmp_path: Path, capsys) -
 def test_cli_summary_command(monkeypatch, tmp_path: Path, capsys) -> None:
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     cli.main(["new", "SM1", "--title", "H"])
     capsys.readouterr()
     rc = cli.main(["summary", "SM1", "New summary text"])
@@ -1235,8 +1138,8 @@ def test_cli_summary_command(monkeypatch, tmp_path: Path, capsys) -> None:
 def test_cli_step_command_add_done_remove(monkeypatch, tmp_path: Path, capsys) -> None:
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     cli.main(["new", "STP1", "--title", "H"])
     capsys.readouterr()
     assert cli.main(["step", "STP1", "add", "first step"]) == 0
@@ -1249,8 +1152,8 @@ def test_cli_step_command_add_done_remove(monkeypatch, tmp_path: Path, capsys) -
 def test_cli_fact_command(monkeypatch, tmp_path: Path, capsys) -> None:
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     cli.main(["new", "FC1", "--title", "H"])
     capsys.readouterr()
     rc = cli.main(["fact", "FC1", "verified fact"])
@@ -1260,8 +1163,8 @@ def test_cli_fact_command(monkeypatch, tmp_path: Path, capsys) -> None:
 def test_cli_link_command(monkeypatch, tmp_path: Path, capsys) -> None:
     from ai_governance.session import cli
 
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     cli.main(["new", "LK1", "--title", "H"])
     capsys.readouterr()
     rc = cli.main(["link", "LK1", "Docs", "http://example.com"])

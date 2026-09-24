@@ -84,7 +84,7 @@ def test_create_existing_fails_without_overwrite(tmp_path: Path, monkeypatch, ca
 
     FileExistsError or ValueError) without overwriting previous state or history.
     """
-    tracker = SessionTracker(root_dir=tmp_path)
+    tracker = SessionTracker(root_dir=tmp_path / "progress")
 
     # Create original task
     original = TaskState(
@@ -115,8 +115,8 @@ def test_create_existing_fails_without_overwrite(tmp_path: Path, monkeypatch, ca
     assert "Overwriting Title" not in tracker.read_log("TASK-100")
 
     # Verify CLI 'new' also fails with non-zero exit code on duplicate
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     monkeypatch.setattr(
         "sys.argv",
         ["progress", "new", "TASK-100", "--title", "CLI Duplicate", "--summary", "CLI summary"],
@@ -218,7 +218,7 @@ def test_close_reopen_and_resume_are_neutral(tmp_path: Path, monkeypatch) -> Non
     Jira, Git, or Claude dependencies.
     """
     # Ensure no Jira, Git, or Claude env vars
-    monkeypatch.delenv("SPECOPS_PROGRESS_DIR", raising=False)
+    monkeypatch.delenv("AI_GOVERNANCE_STATE_DIR", raising=False)
     monkeypatch.delenv("CLAUDE_PROGRESS_DIR", raising=False)
     monkeypatch.delenv("JIRA_API_TOKEN", raising=False)
     monkeypatch.delenv("JIRA_SERVER", raising=False)

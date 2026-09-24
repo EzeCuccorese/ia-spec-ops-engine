@@ -1,108 +1,40 @@
-"""
-cli.py — Entrypoint for `frugal` hooks.
-Invoked via Claude Code hooks PreToolUse and PostToolUse for Bash.
-Fail-open: never breaks agent execution.
+"""Frugality hooks: pre-shell advice and post-shell output condensing (via ``ws``).
+
+Invoked through ``ai-governance hook <agent> <event>``. Fail-open: never breaks
+agent execution.
 """
 
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import json
 import os
+import re
+import shutil
+import subprocess
 import sys
-import tempfile
-from collections.abc import Callable
-from datetime import UTC, datetime
 from pathlib import Path
 
-from .output_trimmer import OutputTrimmer
-from .pre_check import PreCheck, catalog_patterns
-from .test_trimmer import TestTrimmer
+from ..paths import config_dir, state_dir
+from .pre_check import PreCheck, replacement_patterns
 
-try:
-    import fcntl
-except ImportError:
-    fcntl = None  # type: ignore
-
-DEFAULT_CONFIG = {
-    "umbral_chars": 12000,
-    "min_lineas_listado": 120,
-    "prefijo_homogeneo_pct": 0.7,
-    "head_lineas": 30,
-    "tail_lineas": 20,
-    "test_umbral_chars": 2000,
-    "test_head_lineas": 3,
-    "test_tail_lineas": 15,
-    "test_contexto_antes": 3,
-    "test_contexto_despues": 30,
-}
+# Condense outputs above threshold_chars down to budget_chars (~600 tokens).
+DEFAULT_CONFIG = {"threshold_chars": 4000, "budget_chars": 2500}
 
 
 def get_runtime_dir() -> Path:
-    base = (
-        os.environ.get("SPECOPS_USAGE_DIR")
-        or os.environ.get("CLAUDE_USAGE_DIR")
-        or str(Path.home() / ".specops" / "usage-monitor")
-    )
-    p = Path(base)
+    p = state_dir() / "frugal"
     p.mkdir(parents=True, exist_ok=True)
     return p
 
 
 def load_config() -> dict:
     cfg = dict(DEFAULT_CONFIG)
-    cfg_file = get_runtime_dir() / "frugal.json"
+    cfg_file = config_dir() / "frugal.json"
     if cfg_file.exists():
         with contextlib.suppress(json.JSONDecodeError, UnicodeDecodeError, OSError):
             cfg.update(json.loads(cfg_file.read_text(encoding="utf-8")))
     return cfg
-
-
-def _atomic_output_copy(runtime: Path, identifier: str, stdout: str) -> Path | None:
-    output_dir = runtime / "outputs"
-    safe_name = hashlib.sha256(identifier.encode("utf-8")).hexdigest()[:24] + ".txt"
-    temporary: Path | None = None
-    try:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        destination = output_dir / safe_name
-        with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=output_dir, delete=False
-        ) as handle:
-            handle.write(stdout)
-            handle.flush()
-            os.fsync(handle.fileno())
-            temporary = Path(handle.name)
-        temporary.replace(destination)
-        return destination
-    except OSError:
-        return None
-    finally:
-        if temporary and temporary.exists():
-            temporary.unlink(missing_ok=True)
-
-
-def _audit_trim(runtime: Path, command: str, original: int, trimmed: int) -> None:
-    record = {
-        "timestamp": datetime.now(UTC).isoformat(),
-        "command_sha256": hashlib.sha256(command.encode("utf-8")).hexdigest(),
-        "original_chars": original,
-        "trimmed_chars": trimmed,
-    }
-    try:
-        runtime.mkdir(parents=True, exist_ok=True)
-        with open(runtime / "trim-audit.jsonl", "a", encoding="utf-8") as handle:
-            if fcntl:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            try:
-                handle.write(json.dumps(record, sort_keys=True) + "\n")
-                handle.flush()
-                os.fsync(handle.fileno())
-            finally:
-                if fcntl:
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-    except OSError:
-        pass
 
 
 def run_pre_bash(cfg: dict) -> None:
@@ -114,18 +46,11 @@ def run_pre_bash(cfg: dict) -> None:
     command = (payload.get("tool_input") or {}).get("command", "")
     session_id = payload.get("session_id")
 
-    # Fail-open: a missing/broken catalog must never block the hook.
-    extra_patterns: tuple[tuple[str, Callable[[str], bool], str], ...] = ()
-    with contextlib.suppress(Exception):
-        from ..rules.core.catalog import RuleCatalog
-
-        extra_patterns = catalog_patterns(RuleCatalog().tools)
-
     advice = PreCheck.check_command(
         command,
         session_id=session_id,
         runtime_dir=get_runtime_dir(),
-        extra_patterns=extra_patterns,
+        extra_patterns=replacement_patterns(),
     )
     if advice:
         print(
@@ -140,98 +65,73 @@ def run_pre_bash(cfg: dict) -> None:
         )
 
 
+# Output the agent asked for explicitly (diffs, file dumps) is never condensed.
+SKIP_CONDENSE = re.compile(
+    r"^\s*(git\s+(diff|show|log\s+-p|grep)|cat|head|tail|sed\s+-n|jq|grep|rg|nl|awk|ws\s+log)\b"
+)
+
+
+def condense_with_ws(text: str, command: str, budget: int) -> dict | None:
+    """Condenses via the ``ws condense --json`` contract; None when ws is unavailable."""
+    ws = shutil.which("ws")
+    if ws is None:
+        return None
+    try:
+        proc = subprocess.run(
+            [ws, "condense", "--json", "--command", command, "--budget", str(budget)],
+            input=text,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        result = json.loads(proc.stdout)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    if proc.returncode != 0 or result.get("schema_version") != 1:
+        return None
+    return result
+
+
+def condensed_output(payload: dict, cfg: dict) -> tuple[str, dict | str] | None:
+    """Returns (condensed text, replacement tool response) or None to keep the original."""
+    command = (payload.get("tool_input") or {}).get("command", "")
+    if "#nofrugal" in command or os.environ.get("FRUGAL") == "0" or SKIP_CONDENSE.match(command):
+        return None
+    resp = payload.get("tool_response")
+    if isinstance(resp, dict):
+        stdout, stderr = resp.get("stdout") or "", resp.get("stderr") or ""
+    else:
+        stdout, stderr = payload.get("tool_output") or (resp if isinstance(resp, str) else ""), ""
+    text = stdout + (f"\n{stderr}" if stderr else "")
+    if len(text) <= cfg["threshold_chars"]:
+        return None
+    result = condense_with_ws(text, command, cfg["budget_chars"])
+    if not result or not result.get("truncated") or len(result["text"]) >= len(text):
+        return None
+    note = f"\n[condensed by ws: ws log {result['log_id']} --grep RE | --lines A-B]"
+    condensed = result["text"] + (note if result.get("log_id") else "")
+    if isinstance(resp, dict):
+        return condensed, {**resp, "stdout": condensed, "stderr": ""}
+    return condensed, condensed
+
+
 def run_post_bash(cfg: dict) -> None:
+    """Claude Code PostToolUse(Bash): replace large output with the ws summary."""
     try:
         payload = json.load(sys.stdin)
     except (json.JSONDecodeError, UnicodeDecodeError, OSError):
         return
-
-    command = (payload.get("tool_input") or {}).get("command", "")
-    if "#nofrugal" in command or os.environ.get("FRUGAL") == "0":
+    replaced = condensed_output(payload, cfg)
+    if replaced is None:
         return
-
-    resp = payload.get("tool_response")
-    is_dict = isinstance(resp, dict)
-    if is_dict:
-        stdout = resp.get("stdout") or ""
-        persisted = resp.get("persistedOutputPath")
-    else:
-        stdout = payload.get("tool_output") or (resp if isinstance(resp, str) else "") or ""
-        persisted = None
-
-    if not stdout:
-        return
-
-    is_test = TestTrimmer.is_test_command(command)
-    threshold = cfg["test_umbral_chars"] if is_test else cfg["umbral_chars"]
-
-    if len(stdout) <= threshold:
-        return
-    if not is_test and OutputTrimmer.should_skip(command):
-        return
-
-    candidate: str | None
-    if is_test:
-        candidate = TestTrimmer.trim(stdout, cfg)
-    else:
-        candidate = OutputTrimmer.trim_listing(stdout, cfg)
-
-    if candidate and len(candidate) < len(stdout):
-        runtime = get_runtime_dir()
-        generated = None
-        if not persisted:
-            identifier = str(payload.get("tool_use_id") or payload.get("session_id") or command)
-            generated = _atomic_output_copy(runtime, identifier, stdout)
-            persisted = str(generated) if generated else None
-        ref = f"full output: {persisted}" if persisted else "full output unavailable"
-        new_output: str | None
-        if is_test:
-            new_output = TestTrimmer.trim(stdout, cfg, ref)
-        else:
-            new_output = OutputTrimmer.trim_listing(stdout, cfg, ref)
-        if not new_output or len(new_output) >= len(stdout):
-            return
-        _audit_trim(runtime, command, len(stdout), len(new_output))
-        updated_val: dict | str
-        if is_dict:
-            updated_val = dict(resp)
-            updated_val["stdout"] = new_output
-            if persisted:
-                updated_val["persistedOutputPath"] = persisted
-        else:
-            updated_val = new_output
-
-        print(
-            json.dumps(
-                {
-                    "hookSpecificOutput": {
-                        "hookEventName": "PostToolUse",
-                        "updatedToolOutput": updated_val,
-                    }
+    print(
+        json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PostToolUse",
+                    "updatedToolOutput": replaced[1],
                 }
-            )
+            }
         )
-
-
-def main(argv: list[str] | None = None) -> int:
-    args = sys.argv[1:] if argv is None else list(argv)
-    cfg = load_config()
-    try:
-        if "--post-bash" in args:
-            run_post_bash(cfg)
-        elif "--pre-bash" in args:
-            run_pre_bash(cfg)
-        else:
-            print("SpecOps Frugal Context Optimizer")
-            print("Usage: frugal --post-bash | frugal --pre-bash")
-    except Exception:
-        # Top-level hook boundary: never disrupt active agent execution. The
-        # exception is surfaced to stderr instead of being silently dropped.
-        import traceback
-
-        traceback.print_exc(file=sys.stderr)
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+    )

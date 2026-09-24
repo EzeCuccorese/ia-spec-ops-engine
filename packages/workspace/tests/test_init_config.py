@@ -43,13 +43,13 @@ def test_generate_default_config_enterprise() -> None:
 def test_resolve_config_target(tmp_path: Path, monkeypatch) -> None:
     # Local target
     local_target = resolve_config_target(is_local=True, cwd=tmp_path)
-    assert local_target == tmp_path / ".specops" / "config.json"
+    assert local_target == tmp_path / ".workspace" / "config.json"
 
     # Global target with XDG_CONFIG_HOME
     xdg = tmp_path / "xdg_config"
     monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
     global_target = resolve_config_target(is_local=False, cwd=tmp_path)
-    assert global_target == xdg / "specops" / "config.json"
+    assert global_target == xdg / "workspace" / "config.json"
 
 
 def test_resolve_config_target_mutually_exclusive() -> None:
@@ -76,7 +76,7 @@ def test_init_config_local_creation(tmp_path: Path) -> None:
         cwd=tmp_path,
     )
     assert target.exists()
-    assert target == tmp_path / ".specops" / "config.json"
+    assert target == tmp_path / ".workspace" / "config.json"
 
     data = json.loads(target.read_text(encoding="utf-8"))
     assert data["project_name"] == "custom-project"
@@ -101,7 +101,7 @@ def test_init_config_enterprise_creation(tmp_path: Path) -> None:
 
 
 def test_init_config_existing_preserves_without_force(tmp_path: Path) -> None:
-    target = tmp_path / ".specops" / "config.json"
+    target = tmp_path / ".workspace" / "config.json"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({"project_name": "original"}), encoding="utf-8")
 
@@ -119,7 +119,7 @@ def test_init_config_existing_preserves_without_force(tmp_path: Path) -> None:
 
 
 def test_init_config_force_overwrites(tmp_path: Path) -> None:
-    target = tmp_path / ".specops" / "config.json"
+    target = tmp_path / ".workspace" / "config.json"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({"project_name": "original"}), encoding="utf-8")
 
@@ -144,7 +144,7 @@ def test_run_config_init_cli(tmp_path: Path, monkeypatch) -> None:
     )
     assert exit_code == 0
 
-    target = tmp_path / ".specops" / "config.json"
+    target = tmp_path / ".workspace" / "config.json"
     assert target.exists()
     data = json.loads(target.read_text(encoding="utf-8"))
     assert data["project_name"] == "cli-proj"
@@ -159,7 +159,7 @@ def test_run_config_init_enterprise_cli(tmp_path: Path, monkeypatch) -> None:
     )
     assert exit_code == 0
 
-    target = tmp_path / ".specops" / "config.json"
+    target = tmp_path / ".workspace" / "config.json"
     assert target.exists()
     data = json.loads(target.read_text(encoding="utf-8"))
     assert data["project_name"] == "ent-proj"
@@ -184,11 +184,11 @@ def test_resolve_config_target_default_global_no_xdg(tmp_path: Path, monkeypatch
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     target = resolve_config_target(is_local=False, cwd=tmp_path)
-    assert target == tmp_path / ".config" / "specops" / "config.json"
+    assert target == tmp_path / ".config" / "workspace" / "config.json"
 
 
 def test_init_config_interactive_overwrite_declined(tmp_path: Path, monkeypatch) -> None:
-    target = tmp_path / ".specops" / "config.json"
+    target = tmp_path / ".workspace" / "config.json"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({"project_name": "original"}), encoding="utf-8")
 
@@ -201,7 +201,7 @@ def test_init_config_interactive_overwrite_declined(tmp_path: Path, monkeypatch)
 
 
 def test_init_config_interactive_overwrite_confirmed(tmp_path: Path, monkeypatch) -> None:
-    target = tmp_path / ".specops" / "config.json"
+    target = tmp_path / ".workspace" / "config.json"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({"project_name": "original"}), encoding="utf-8")
 
@@ -270,7 +270,7 @@ def test_run_config_init_devops_cli(tmp_path: Path, monkeypatch) -> None:
     )
     assert exit_code == 0
 
-    target = tmp_path / ".specops" / "config.json"
+    target = tmp_path / ".workspace" / "config.json"
     assert target.exists()
     data = json.loads(target.read_text(encoding="utf-8"))
     assert data["project_name"] == "devops-proj"

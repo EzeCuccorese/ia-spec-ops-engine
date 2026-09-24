@@ -6,25 +6,15 @@ from pathlib import Path
 
 import pytest
 from ai_governance.frugality import pre_check
-from ai_governance.frugality.pre_check import PreCheck, catalog_patterns
+from ai_governance.frugality.pre_check import PreCheck, replacement_patterns
 
 
-class _FakeTool:
-    def __init__(self, tool_id: str, replaces: tuple[str, ...]) -> None:
-        self.id = tool_id
-        self.replaces = replaces
-        self.command = f"ws {tool_id}"
-        self.purpose = "test purpose"
-
-
-def test_catalog_patterns_skips_entries_whose_matcher_is_none(
+def test_replacement_patterns_skip_entries_whose_matcher_is_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When `_build_matcher` cannot compile an entry, that entry is skipped."""
     monkeypatch.setattr(pre_check, "_build_matcher", lambda entry: None)
-    tool = _FakeTool("fake-tool", ("some entry",))
-    patterns = catalog_patterns([tool])
-    assert patterns == ()
+    assert replacement_patterns() == ()
 
 
 def test_check_command_ignores_corrupted_warnings_file(tmp_path: Path) -> None:

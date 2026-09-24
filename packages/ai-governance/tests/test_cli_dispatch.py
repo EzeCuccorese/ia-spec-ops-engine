@@ -12,14 +12,6 @@ def test_cli_dispatch_help() -> None:
     assert main([]) == 0
 
 
-def test_cli_shows_banner_panel_when_not_in_agent_mode(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    monkeypatch.setenv("SPECOPS_AGENT", "0")
-    assert main([]) == 0
-    assert "AI GOVERNANCE" in capsys.readouterr().out
-
-
 def test_cli_unmatched_subcommand_falls_through_to_bare_parse(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -36,39 +28,15 @@ def test_cli_dispatch_rules() -> None:
         mock_rules.assert_called_once_with(["list"])
 
 
-def test_cli_dispatch_frugal() -> None:
-    with patch("ai_governance.frugality.cli.main", return_value=0) as mock_frugal:
-        assert main(["frugal", "--help"]) == 0
-        mock_frugal.assert_called_once_with(["--help"])
-
-
 def test_cli_dispatch_telemetry() -> None:
     with patch("ai_governance.telemetry.cli.main", return_value=0) as mock_telemetry:
-        assert main(["telemetry", "usage"]) == 0
-        mock_telemetry.assert_called_once_with(["usage"])
-
-
-def test_cli_dispatch_ritmo() -> None:
-    with patch("ai_governance.telemetry.cli.main", return_value=0) as mock_telemetry:
-        assert main(["ritmo", "--budget", "100"]) == 0
-        mock_telemetry.assert_called_once_with(["ritmo", "--budget", "100"])
-
-
-def test_cli_dispatch_usage_alias() -> None:
-    with patch("ai_governance.telemetry.cli.main", return_value=0) as mock_telemetry:
-        assert main(["usage", "--budget", "50"]) == 0
-        mock_telemetry.assert_called_once_with(["usage", "--budget", "50"])
+        assert main(["telemetry", "report"]) == 0
+        mock_telemetry.assert_called_once_with(["report"])
 
 
 def test_cli_dispatch_progress() -> None:
     with patch("ai_governance.session.cli.main", return_value=0) as mock_session:
         assert main(["progress", "list"]) == 0
-        mock_session.assert_called_once_with(["list"])
-
-
-def test_cli_dispatch_task_alias() -> None:
-    with patch("ai_governance.session.cli.main", return_value=0) as mock_session:
-        assert main(["task", "list"]) == 0
         mock_session.assert_called_once_with(["list"])
 
 
@@ -84,38 +52,19 @@ def test_cli_dispatch_confluence() -> None:
         mock_confluence.assert_called_once_with(["help"])
 
 
-def test_cli_dispatch_harness() -> None:
-    with patch("ai_governance.harness.cli.main", return_value=0) as mock_harness:
-        assert main(["harness", "list"]) == 0
-        mock_harness.assert_called_once_with(["list"])
-
-
-def test_cli_dispatch_doctor() -> None:
-    with patch("ai_governance.harness.doctor.main", return_value=0) as mock_doctor:
-        assert main(["doctor"]) == 0
-        mock_doctor.assert_called_once_with([])
-
-
 def test_cli_does_not_import_optional_packages() -> None:
     with patch.dict(sys.modules, {"spec": None, "workspace_engine": None}):
         assert main([]) == 0
 
 
 def test_cli_help_lists_all_canonical_subcommands(capsys: pytest.CaptureFixture[str]) -> None:
-    with pytest.raises(SystemExit):
-        main(["--help"])
+    assert main(["--help"]) == 0
     out = capsys.readouterr().out
-    for subcommand in (
-        "rules",
-        "frugal",
-        "telemetry",
-        "progress",
-        "jira",
-        "confluence",
-    ):
+    for subcommand in ("install", "update", "doctor", "rules", "telemetry", "progress", "hook"):
         assert subcommand in out
-    # Hidden legacy aliases stay functional but are not advertised in --help.
-    assert "progreso" not in out
+    listing = out.split("{", 1)[1].split("}", 1)[0].split(",")
+    for removed in ("frugal", "harness", "progreso", "ritmo", "specops"):
+        assert removed not in listing
 
 
 def test_rules_subcommand_help_delegates_to_rules_parser(
@@ -124,9 +73,21 @@ def test_rules_subcommand_help_delegates_to_rules_parser(
     with pytest.raises(SystemExit):
         main(["rules", "--help"])
     out = capsys.readouterr().out
-    assert "SpecOps Rules" in out
+    assert "ai-governance rules" in out
 
 
 def test_cli_unknown_subcommand_errors() -> None:
     with pytest.raises(SystemExit):
         main(["not-a-real-subcommand"])
+
+
+def test_cli_dispatch_install_commands() -> None:
+    with patch("ai_governance.install.cli.main", return_value=0) as mock_install:
+        assert main(["doctor", "--root", "."]) == 0
+        mock_install.assert_called_once_with("doctor", ["--root", "."])
+
+
+def test_cli_dispatch_hook() -> None:
+    with patch("ai_governance.hooks.main", return_value=0) as mock_hook:
+        assert main(["hook", "claude", "stop"]) == 0
+        mock_hook.assert_called_once_with(["claude", "stop"])

@@ -56,7 +56,7 @@ packages/workspace/
 │   │   ├── create_worktree.py # Atomic Git worktree generator
 │   │   ├── kube/              # Modular Kubernetes pod manager (`ws kube`)
 │   │   └── ...
-│   ├── config/                # `ws config` — SpecOps config.json bootstrapping
+│   ├── config/                # `ws config` — workspace config.json bootstrapping
 │   │   └── init_config.py     # Local/global/custom config generation
 │   ├── integrations/claude/   # Coding-agent integration hooks (`ws hook ...`)
 │   │   └── worktree_hook.py   # Claude WorktreeCreate destination suggestion
@@ -99,9 +99,13 @@ packages/workspace/
 | `ws run-local` | Orchestrate and launch local microservices with live TUI |
 | `ws kube` | Kubernetes pod manager for environment extraction and shells |
 | `ws hooks` | Multi-stack Git Hooks & Quality Gates manager |
+| `ws check` | Run the quality gate with condensed output (`--changed`, `--cache`, `--json`) |
+| `ws changed` | Files changed vs. the base branch |
+| `ws run` / `ws log` / `ws condense` | Condensed command output and saved full logs |
+| `ws detect` | Detect repository technology stacks |
 | `ws hook` | Run a coding-agent integration hook |
 | `ws doctor` | Verify system tools, compilers, and development environment |
-| `ws config` | Initialize and manage SpecOps workspace configuration |
+| `ws config` | Initialize and manage workspace configuration |
 
 ---
 
@@ -119,7 +123,7 @@ ws generate my-feature
 ws worktree /path/to/base-repo /path/to/target-worktree feature/new-api
 
 # Claude WorktreeCreate hook: suggest a confined central location (never creates files)
-export SPECOPS_WORKTREES_DIR="$HOME/projects/worktree"
+export WORKSPACE_WORKTREES_DIR="$HOME/projects/worktree"
 ws hook claude-worktree-create
 
 # Modify repositories linked in an active workspace
@@ -137,7 +141,7 @@ ws delete my-feature
 
 The Claude hook consumes the native JSON payload on stdin and is fail-open: malformed,
 unsafe, or colliding inputs emit no suggestion and exit successfully. Suggested names are
-sanitized and confined to `SPECOPS_WORKTREES_DIR`; the hook itself never creates or removes
+sanitized and confined to `WORKSPACE_WORKTREES_DIR`; the hook itself never creates or removes
 a worktree.
 
 ---
@@ -165,52 +169,54 @@ ws stop my-feature
 
 ---
 
-### 3. Git Hooks & Multi-Stack Quality Gate (`ws hooks`)
+### 3. Git Hooks & Multi-Stack Quality Gate (`ws hooks`, `ws check`)
 
-An automated, deterministic quality gate executed locally prior to every `git push` to catch issues before CI.
+The gate is registered as **Git config-based hooks** (`hook.<name>.event/command`, Git with
+`git hook list` support), never through `core.hooksPath`. Git runs them first and the
+repository's own hooks (`.git/hooks`, Husky or any local `core.hooksPath`) last, so no project
+hook of any type is shadowed, and the gate also runs in Husky repositories.
 
-Command output is compact by default: successful subprocess output is hidden,
-while a failed command prints its diagnostic and retains the full transcript at
-`.git/specops/quality-gate/latest.log`. Use `QG_OUTPUT=verbose git push` or
-`ws hooks run --output verbose` to stream every command as it runs.
+| Friendly name | Event | Checks |
+|---|---|---|
+| `workspace-pre-commit` | pre-commit | `gitleaks protect --staged` (skipped if gitleaks is absent) |
+| `workspace-commit-msg` | commit-msg | Conventional Commits subject, max 100 characters |
+| `workspace-gate` | pre-push | 4 stages: secrets (gitleaks), commit policies, linters, test suites |
 
-#### The 5 Quality Gate Stages
-1. 🔒 **Security & Secrets**: Fast diff scan with `gitleaks` to block private keys, API tokens, JWTs, or accidental `.env` files.
-2. 📝 **Git Policies**: Conventional Commits enforcement in imperative English and **ZERO AI mentions or robot emojis (🤖)**.
-3. 🔍 **Static Analysis & Linters**: Stack auto-detection (Python/Ruff, Node/ESLint, Go/vet, Rust/clippy, Flutter/dart analyze).
-4. 🧪 **Test Suites**: Execution of project unit tests (`pytest`, `jest`, `vitest`, `phpunit`, `mvn`, `gradle`, `cargo test`, `go test`).
-5. 🪝 **Delegation to Repository Hooks**: Runs existing project hooks (Husky or custom hooks).
+Output is compact by default; a failing command keeps its full transcript at
+`.git/workspace/quality-gate/latest.log` (`QG_OUTPUT=verbose` streams everything).
+Skip stages with `QG_SKIP=gitleaks,commits,lint,tests`.
 
-#### `ws hooks` Command Reference
 ```bash
-# Diagnose local and global hook status
-ws hooks status
+ws hooks install            # this repository (keys in .git/config, scripts in .git/workspace/hooks)
+ws hooks install --global   # every repository (keys in ~/.gitconfig, scripts in ~/.config/workspace/hooks)
+ws hooks status             # registration status per scope
+ws hooks uninstall [--global]  # removes only the workspace-* hook sections
 
-# Install Quality Gate into local repository (.githooks/pre-push)
-ws hooks install
-
-# Install Quality Gate GLOBALLY across entire machine
-ws hooks install --global
-
-# Run Quality Gate on-demand (without pushing)
-ws hooks run
-
-# Run on changed files only or skip specific stages
-ws hooks run --scope changed
-ws hooks run --skip gitleaks,commits
-
-# Restore full live output for diagnosis
-ws hooks run --output verbose
-
-# Test hook execution
-ws hooks test
-
-# Uninstall hooks (locally or globally)
-ws hooks uninstall
-ws hooks uninstall --global
+ws check                    # run the gate now; condensed output, exit code preserved
+ws check --changed --cache  # only changed files; skip if the tree is unchanged since the last pass
+ws check --json             # versioned contract used by agent hooks
+ws changed [--json]         # files changed vs. the base branch plus the working tree
 ```
 
----
+### Condensed command output for agents (`ws run`, `ws log`, `ws condense`)
+
+```bash
+ws run -- mvn test          # runs, keeps the exit code, prints a condensed summary
+ws log <id> --grep ERROR    # read the saved full output (0600, 7 days / 200 logs)
+ws log <id> --lines 120-180
+ws condense --command "pytest" --json < output.txt   # contract used by ai-governance hooks
+```
+
+The condenser is deterministic: tool profiles (pytest, jest/vitest, go, cargo,
+maven/gradle, linters) keep the summary and every failure with context; ANSI codes,
+progress bars, timestamps and repeated lines are removed; successful runs collapse to one
+line; output never exceeds the character budget.
+
+### Stack detection (`ws detect`)
+
+`ws detect [--json]` reports stacks (java, kotlin, node, typescript, react, python, go, rust,
+php, flutter, dotnet, docker, kubernetes, sql, migrations, github-actions, gitlab-ci, jenkins)
+from marker files. ai-governance uses it to install only the rules a project needs.
 
 ### 4. Runtime, Build & Kubernetes Utilities
 
@@ -241,11 +247,11 @@ ws kube shell
 
 ---
 
-### 5. SpecOps Configuration (`ws config`)
+### 5. Workspace Configuration (`ws config`)
 
 Bootstraps the `config.json` that `ws` reads for project naming, namespaces, and
 (optionally) enterprise environments/VPN settings. Written project-locally
-(`.specops/config.json`) or user-globally (under `XDG_CONFIG_HOME`, see below).
+(`.workspace/config.json`) or user-globally (under `XDG_CONFIG_HOME`, see below).
 
 ```bash
 # Interactively initialize project-local configuration
@@ -274,8 +280,8 @@ or `ws config init --help` for the full, up-to-date list of subcommands and flag
 | Variable | Used by | Description | Default |
 | --- | --- | --- | --- |
 | `AI_REPOSITORIES_DIR` | `ws generate`, `ws edit` | Directory containing local project repositories used when wiring up a new/edited workspace. | none (falls back to values already present in the workspace's `.env`) |
-| `SPECOPS_WORKTREES_DIR` | `ws hook claude-worktree-create` | Confines suggested Git worktree destinations for the Claude WorktreeCreate integration hook; suggestions are sanitized and never leave this directory, and the hook never creates the worktree itself. | `~/projects/worktree` |
-| `XDG_CONFIG_HOME` | `ws config init` (global scope), config discovery | Base directory for the user-global SpecOps configuration file. | `~/.config` (i.e. config lives at `~/.config/specops/config.json`) |
+| `WORKSPACE_WORKTREES_DIR` | `ws hook claude-worktree-create` | Confines suggested Git worktree destinations for the Claude WorktreeCreate integration hook; suggestions are sanitized and never leave this directory, and the hook never creates the worktree itself. | `~/projects/worktree` |
+| `XDG_CONFIG_HOME` | `ws config init` (global scope), config discovery | Base directory for the user-global workspace configuration file. | `~/.config` (i.e. config lives at `~/.config/workspace/config.json`) |
 | `JAVA_HOME` | `ws run-local` (process manager) | JDK home used when launching Java-based services locally. | whatever is already set in the environment; unset means the system default `java` is used |
 | `QG_OUTPUT` | `ws hooks run` / the installed `pre-push` Quality Gate hook | Controls verbosity of Quality Gate output: `errors` hides successful command output, `verbose` streams every command live. | `errors` |
 

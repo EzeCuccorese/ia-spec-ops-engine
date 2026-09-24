@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Workspace commit-msg hook: Conventional Commits subject (registered as hook.workspace-commit-msg).
+# Skip once with: QG_SKIP=commits git commit ...
+set -uo pipefail
+case ",${QG_SKIP:-}," in *,commits,*|*,all,*) exit 0 ;; esac
+subject="$(grep -v '^#' "$1" | head -n 1)"
+case "$subject" in Merge\ *|Revert\ *|fixup!\ *|squash!\ *) exit 0 ;; esac
+if ! printf '%s' "$subject" | grep -Eq '^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([^)]+\))?!?: .+'; then
+  echo "commit-msg: subject must follow Conventional Commits: type(scope): description" >&2
+  echo "  got: $subject" >&2
+  exit 1
+fi
+if [ "${#subject}" -gt 100 ]; then
+  echo "commit-msg: subject is ${#subject} characters (max 100)" >&2
+  exit 1
+fi
+exit 0
