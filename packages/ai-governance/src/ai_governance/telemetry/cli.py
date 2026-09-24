@@ -1,31 +1,32 @@
-"""CLI for local usage estimates, pacing, price maintenance, and notifications."""
+"""Telemetry CLI: local Claude Code spend estimates, claude-usage pacing, prices and alerts."""
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from dataclasses import asdict, replace
+from datetime import date
 from pathlib import Path
 
 from ..output import emit_json, emit_kv, emit_status
+from ..paths import state_dir
+from .claude_usage import ClaudeUsageCalculator
 from .cost_monitor import CostMonitor
 from .prices import DEFAULT_FEED_URL, PriceCatalog
-from .ritmo import RitmoCalculator
-from .state import TelemetryConfig, ThresholdTracker, notify_macos
+from .state import ThresholdTracker, UsageConfig, notify_macos
 
 
 def runtime_dir() -> Path:
-    return Path(
-        os.environ.get("SPECOPS_USAGE_DIR")
-        or os.environ.get("CLAUDE_USAGE_DIR")
-        or Path.home() / ".specops" / "usage-monitor"
+    return state_dir() / "telemetry"
+
+
+def show_claude_usage_table(
+    monthly_budget: float, actual_spend: float, holidays: set[date] | None = None
+) -> None:
+    status = ClaudeUsageCalculator.calculate_pace(
+        monthly_budget, actual_spend_usd=actual_spend, holidays=holidays
     )
-
-
-def show_ritmo_table(monthly_budget: float, actual_spend: float) -> None:
-    status = RitmoCalculator.calculate_pace(monthly_budget, actual_spend_usd=actual_spend)
     pairs = [
         ("Monthly budget", f"${monthly_budget:.2f} USD"),
         ("Business days", f"{status.elapsed_business_days}/{status.total_business_days}"),
@@ -33,7 +34,7 @@ def show_ritmo_table(monthly_budget: float, actual_spend: float) -> None:
         ("Estimated local spend", f"${status.actual_spend_usd:.2f} USD"),
         ("Status", status.status_label),
     ]
-    emit_kv(pairs, title="Budget ritmo", full=True)
+    emit_kv(pairs, title="Claude usage vs. budget", full=True)
 
 
 def show_usage_report(summary: dict) -> None:
@@ -47,7 +48,9 @@ def show_usage_report(summary: dict) -> None:
     if cache_age is None:
         pairs.append(("Price cache", "not available; using bundled fallback"))
     elif cache_age > 30:
-        pairs.append(("Price cache", f"{cache_age} days old; run telemetry prices update"))
+        pairs.append(
+            ("Price cache", f"{cache_age} days old; run ai-governance telemetry prices update")
+        )
     else:
         pairs.append(("Price cache", f"{cache_age} days old"))
     token_text = ", ".join(f"{name}={value}" for name, value in summary["tokens"].items())
@@ -57,7 +60,7 @@ def show_usage_report(summary: dict) -> None:
     emit_kv(pairs, title="Claude usage estimate", full=True)
 
 
-def _monitor(base: Path, config: TelemetryConfig) -> CostMonitor:
+def _monitor(base: Path, config: UsageConfig) -> CostMonitor:
     return CostMonitor(
         price_cache_path=base / "prices-cache.json",
         calibration=config.calibration,
@@ -67,20 +70,24 @@ def _monitor(base: Path, config: TelemetryConfig) -> CostMonitor:
 
 def _summary_json(summary: dict) -> dict:
     value = dict(summary)
-    value["ritmo"] = asdict(value["ritmo"])
+    value["pace"] = asdict(value["pace"])
     return value
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="telemetry", description="SpecOps local telemetry")
+    parser = argparse.ArgumentParser(
+        prog="ai-governance telemetry",
+        description="Local Claude Code spend estimates (for plans whose UI hides running spend)",
+    )
     sub = parser.add_subparsers(dest="cmd")
-    ritmo = sub.add_parser("ritmo")
-    ritmo.add_argument("--budget", type=float, default=100.0)
-    ritmo.add_argument("--spent", type=float, default=0.0)
-    for name in ("usage", "report"):
-        report = sub.add_parser(name)
-        report.add_argument("--budget", type=float)
-        report.add_argument("--json", action="store_true")
+    usage = sub.add_parser(
+        "claude-usage", help="Month-to-date Claude spend vs. business-day budget pace"
+    )
+    usage.add_argument("--budget", type=float, help="Monthly budget (default: config)")
+    usage.add_argument("--spent", type=float, help="Override the scanned month spend")
+    report = sub.add_parser("report", help="Today/month estimate by model and token type")
+    report.add_argument("--budget", type=float)
+    report.add_argument("--json", action="store_true")
     calibrate = sub.add_parser("calibrate")
     calibrate.add_argument("--from", dest="from_date", required=True)
     calibrate.add_argument("--to", dest="to_date", required=True)
@@ -101,10 +108,14 @@ def main(argv: list[str] | None = None) -> int:
     base = runtime_dir()
     config_path = base / "config.json"
     try:
-        config = TelemetryConfig.load(config_path)
-        if args.cmd == "ritmo":
-            show_ritmo_table(args.budget, args.spent)
-        elif args.cmd in ("usage", "report"):
+        config = UsageConfig.load(config_path)
+        if args.cmd == "claude-usage":
+            budget = args.budget or config.effective_monthly_limit
+            spent = args.spent
+            if spent is None:
+                spent = _monitor(base, config).get_summary_report(budget)["month_cost_usd"]
+            show_claude_usage_table(budget, spent, config.holidays)
+        elif args.cmd == "report":
             budget = args.budget or config.effective_monthly_limit
             summary = _monitor(base, config).get_summary_report(budget)
             if args.json:

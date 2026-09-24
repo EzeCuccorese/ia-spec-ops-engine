@@ -1,7 +1,5 @@
-from .cli import main
-from .guard import ContextGuard
-from .output_trimmer import OutputTrimmer
-from .pre_check import PreCheck
-from .test_trimmer import TestTrimmer
+"""Token frugality: pre-shell advice and output condensing hooks."""
 
-__all__ = ["TestTrimmer", "OutputTrimmer", "PreCheck", "ContextGuard", "main"]
+from .pre_check import PreCheck
+
+__all__ = ["PreCheck"]

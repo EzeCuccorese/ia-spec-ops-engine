@@ -31,13 +31,12 @@ def atomic_json_write(path: Path, value: dict[str, Any]) -> None:
 
 
 @dataclass(frozen=True)
-class TelemetryConfig:
+class UsageConfig:
     monthly_budget_usd: float = 100.0
     monthly_hard_limit_usd: float | None = None
     calibration: float = 1.0
     daily_thresholds_pct: tuple[int, ...] = (50, 75, 90, 100)
     monthly_thresholds_pct: tuple[int, ...] = (50, 75, 90, 100)
-    context_warning_pct: float = 60.0
     notify_macos: bool = False
     holiday_dates: tuple[str, ...] = ()
 
@@ -55,7 +54,7 @@ class TelemetryConfig:
         return min(self.monthly_budget_usd, self.monthly_hard_limit_usd)
 
     @classmethod
-    def load(cls, path: Path) -> TelemetryConfig:
+    def load(cls, path: Path) -> UsageConfig:
         if not path.exists():
             return cls()
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -93,7 +92,7 @@ class ThresholdTracker:
     def evaluate(
         cls,
         summary: dict[str, float],
-        config: TelemetryConfig,
+        config: UsageConfig,
         state: dict[str, Any],
         *,
         today: date | None = None,

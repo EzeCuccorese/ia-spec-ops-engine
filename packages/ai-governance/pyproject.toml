@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "ai-governance"
 version = "0.1.0"
-description = "AI Governance — Engineering Standards, Token Frugality, Telemetry, Ritmo Pacing & Light Session Management."
+description = "AI Governance — per-agent engineering standards, token frugality, telemetry and lightweight task tracking."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -20,14 +20,7 @@ dev = [
 ]
 
 [project.scripts]
-specops = "ai_governance.cli:main"
-governance = "ai_governance.cli:main"
-rules = "ai_governance.rules.cli:main"
-frugal = "ai_governance.frugality.cli:main"
-telemetry = "ai_governance.telemetry.cli:main"
-progress = "ai_governance.session.cli:main"
-jira = "ai_governance.tools.jira:main"
-confluence = "ai_governance.tools.confluence:main"
+ai-governance = "ai_governance.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ai_governance"]

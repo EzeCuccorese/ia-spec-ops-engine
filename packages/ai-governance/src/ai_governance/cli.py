@@ -1,108 +1,91 @@
-"""Master CLI for AI Governance tools."""
+"""``ai-governance`` — the single entry point of the package."""
 
 from __future__ import annotations
 
 import argparse
 import sys
 
-from rich.console import Console
-from rich.panel import Panel
-
-from .output import is_agent_mode
-
-console = Console()
-
-
-def show_banner() -> None:
-    if is_agent_mode():
-        return
-    console.print(
-        Panel.fit(
-            "[bold cyan]🛡️  AI GOVERNANCE[/bold cyan]\n"
-            "[white]Autonomous Standards, Context Frugality, Token Optimization & Telemetry[/white]",
-            border_style="cyan",
-        )
-    )
+COMMANDS: dict[str, str] = {
+    "install": "Install for the chosen agent(s): --scope user|project --agent <name>",
+    "uninstall": "Remove exactly what was installed for the chosen agent(s)",
+    "update": "Refresh project rules for the detected stacks (--all, --check, --dry-run)",
+    "status": "What is installed where",
+    "doctor": "Read-only health checks for user and project installs",
+    "agents": "Capability matrix of the supported agents",
+    "budget": "Fixed context (bytes/tokens) loaded per agent every session",
+    "probe": "Verify on this machine what an agent loads and which hooks fire",
+    "rules": "Browse the engineering-rules catalog (list, show)",
+    "progress": "Compact cross-session task tracker",
+    "telemetry": "Claude spend estimates (claude-usage), prices and threshold alerts",
+    "jira": "Jira issues and transitions in Markdown",
+    "confluence": "Confluence pages in Markdown",
+    "hook": "Agent hook entry point (used by installed hooks)",
+}
+INSTALL_COMMANDS = (
+    "install",
+    "uninstall",
+    "update",
+    "status",
+    "doctor",
+    "agents",
+    "budget",
+    "probe",
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="governance",
-        description="AI Governance — Engineering Standards, Token Frugality & Telemetry Engine.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        prog="ai-governance",
+        description="Per-agent engineering standards, token frugality, telemetry and progress.",
     )
-    sub = parser.add_subparsers(dest="subcommand", help="Available Governance subcommands")
-
-    sub.add_parser("rules", help="Software Engineering Standards Catalog & Reversible Injector")
-    sub.add_parser("frugal", help="Context Frugality & Tool Output Condenser")
-    sub.add_parser("telemetry", help="Usage estimates, prices, pacing, and thresholds")
-    sub.add_parser("progress", help="Lightweight cross-session task tracker (~300 tokens)")
-    sub.add_parser("jira", help="Jira ticket querying and transitions in Markdown")
-    sub.add_parser("confluence", help="Confluence documentation reader and writer in Markdown")
-    sub.add_parser("harness", help="Deterministic tools index and self-wiring block for AGENTS.md")
-    sub.add_parser("doctor", help="Read-only check of tools, host wiring and AGENTS.md blocks")
-
-    # Note: "ritmo"/"usage" (telemetry aliases) and "task" (progress alias) are
-    # dispatched directly in main() below and intentionally omitted here so
-    # they stay out of --help output while remaining functional.
-
+    sub = parser.add_subparsers(dest="subcommand")
+    for name, help_text in COMMANDS.items():
+        sub.add_parser(name, help=help_text, add_help=False)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = _build_parser()
+    args = sys.argv[1:] if argv is None else list(argv)
+    if args[:1] == ["probe-record"] and len(args) == 3:
+        from .install.probe import record
 
-    args_list = sys.argv[1:] if argv is None else list(argv)
-    if not args_list:
-        show_banner()
+        return record(args[1], args[2])
+    if not args or args[0] not in COMMANDS:
+        parser = _build_parser()
+        if args and args[0] not in ("-h", "--help"):
+            parser.parse_args(args)
         parser.print_help()
         return 0
+    cmd, rest = args[0], args[1:]
+    if cmd in INSTALL_COMMANDS:
+        from .install.cli import main as install_main
 
-    cmd = args_list[0]
-    remaining_args = args_list[1:]
-
+        return install_main(cmd, rest)
     if cmd == "rules":
         from .rules.cli import main as rules_main
 
-        rules_main(remaining_args)
-        return 0
-    elif cmd == "frugal":
-        from .frugality.cli import main as frugal_main
-
-        return frugal_main(remaining_args)
-    elif cmd == "telemetry":
-        from .telemetry.cli import main as telemetry_main
-
-        return telemetry_main(remaining_args)
-    elif cmd in ("ritmo", "usage"):
-        from .telemetry.cli import main as telemetry_main
-
-        return telemetry_main([cmd] + remaining_args)
-    elif cmd in ("progress", "task"):
+        return rules_main(rest)
+    if cmd == "progress":
         from .session.cli import main as session_main
 
-        return session_main(remaining_args)
-    elif cmd == "jira":
+        return session_main(rest)
+    if cmd == "telemetry":
+        from .telemetry.cli import main as telemetry_main
+
+        return telemetry_main(rest)
+    if cmd == "jira":
         from .tools.jira import main as jira_main
 
-        jira_main(remaining_args)
+        jira_main(rest)
         return 0
-    elif cmd == "confluence":
+    if cmd == "confluence":
         from .tools.confluence import main as confluence_main
 
-        confluence_main(remaining_args)
+        confluence_main(rest)
         return 0
-    elif cmd == "harness":
-        from .harness.cli import main as harness_main
+    from .hooks import main as hook_main
 
-        return harness_main(remaining_args)
-    elif cmd == "doctor":
-        from .harness.doctor import main as doctor_main
-
-        return doctor_main(remaining_args)
-    else:
-        parser.parse_args(args_list)
-        return 0
+    return hook_main(rest)
 
 
 if __name__ == "__main__":

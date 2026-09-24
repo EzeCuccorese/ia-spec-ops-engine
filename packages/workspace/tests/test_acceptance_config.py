@@ -3,7 +3,7 @@ test_acceptance_config.py â€” Acceptance tests for configuration contracts F01â€
 
 Contracts from 02-CONTRATOS-DE-TEST.md:
 - F01 (test_local_generate_load_roundtrip): Initializing from repo root and loading
-      from deep subdirectories loads the root .specops/config.json without creating
+      from deep subdirectories loads the root .workspace/config.json without creating
       an unintended nested config.
 - F02 (test_global_and_local_precedence): Local config takes precedence over XDG/global config.
 - F03 (test_custom_path_roundtrip): Loading with custom path loads exactly that file.
@@ -35,7 +35,7 @@ from workspace_engine.run_local.constants import (
 def test_local_generate_load_roundtrip(tmp_path: Path) -> None:
     """F01: Initializing from repo root and loading from deep subdirectories loads the root
 
-    .specops/config.json without creating an unintended nested config.
+    .workspace/config.json without creating an unintended nested config.
     """
     repo_root = tmp_path / "my_project"
     repo_root.mkdir()
@@ -49,7 +49,7 @@ def test_local_generate_load_roundtrip(tmp_path: Path) -> None:
         domain="roundtrip.dev",
         non_interactive=True,
     )
-    root_config_path = repo_root / ".specops" / "config.json"
+    root_config_path = repo_root / ".workspace" / "config.json"
     assert root_config_path.exists()
 
     # 2. Query from deep subdirectory
@@ -60,10 +60,10 @@ def test_local_generate_load_roundtrip(tmp_path: Path) -> None:
     assert loaded_cfg["project_name"] == "roundtrip-project"
     assert loaded_cfg["domain"] == "roundtrip.dev"
 
-    # Verify no accidental nested .specops was created anywhere in the tree
-    assert not (deep_dir / ".specops").exists()
-    assert not (deep_dir.parent / ".specops").exists()
-    assert not (deep_dir.parent.parent / ".specops").exists()
+    # Verify no accidental nested .workspace was created anywhere in the tree
+    assert not (deep_dir / ".workspace").exists()
+    assert not (deep_dir.parent / ".workspace").exists()
+    assert not (deep_dir.parent.parent / ".workspace").exists()
 
     # 3. Running init_config from deep subdirectory resolves to project root
     init_config(
@@ -73,19 +73,19 @@ def test_local_generate_load_roundtrip(tmp_path: Path) -> None:
         domain="nested.dev",
         non_interactive=True,
     )
-    # Still no nested .specops in deep_dir
-    assert not (deep_dir / ".specops").exists()
+    # Still no nested .workspace in deep_dir
+    assert not (deep_dir / ".workspace").exists()
 
 
 def test_global_and_local_precedence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """F02: Local config takes precedence over XDG/global config."""
     # 1. Establish global configuration via XDG_CONFIG_HOME
     xdg_dir = tmp_path / "global_xdg"
-    global_cfg_dir = xdg_dir / "specops"
+    global_cfg_dir = xdg_dir / "workspace"
     global_cfg_dir.mkdir(parents=True)
     global_cfg_file = global_cfg_dir / "config.json"
     global_cfg_file.write_text(
-        json.dumps({"project_name": "global-specops", "domain": "global.org"}),
+        json.dumps({"project_name": "global-workspace", "domain": "global.org"}),
         encoding="utf-8",
     )
     monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg_dir))
@@ -94,23 +94,23 @@ def test_global_and_local_precedence(tmp_path: Path, monkeypatch: pytest.MonkeyP
     repo = tmp_path / "local_repo"
     repo.mkdir()
     (repo / ".git").mkdir()
-    local_cfg_dir = repo / ".specops"
+    local_cfg_dir = repo / ".workspace"
     local_cfg_dir.mkdir()
     local_cfg_file = local_cfg_dir / "config.json"
     local_cfg_file.write_text(
-        json.dumps({"project_name": "local-specops", "domain": "local.dev"}),
+        json.dumps({"project_name": "local-workspace", "domain": "local.dev"}),
         encoding="utf-8",
     )
 
     # When both exist, local config takes precedence
     cfg = load_project_config(start_dir=repo)
-    assert cfg["project_name"] == "local-specops"
+    assert cfg["project_name"] == "local-workspace"
     assert cfg["domain"] == "local.dev"
 
     # When local config is deleted, it falls back to global
     local_cfg_file.unlink()
     cfg_fallback = load_project_config(start_dir=repo)
-    assert cfg_fallback["project_name"] == "global-specops"
+    assert cfg_fallback["project_name"] == "global-workspace"
     assert cfg_fallback["domain"] == "global.org"
 
 
@@ -149,9 +149,9 @@ def test_conflicting_flags_and_bad_config_fail(tmp_path: Path) -> None:
 
     # 2. Malformed JSON raises explicit informative ValueError
     corrupt_repo = tmp_path / "corrupt_repo"
-    corrupt_specops = corrupt_repo / ".specops"
-    corrupt_specops.mkdir(parents=True)
-    corrupt_cfg = corrupt_specops / "config.json"
+    corrupt_workspace = corrupt_repo / ".workspace"
+    corrupt_workspace.mkdir(parents=True)
+    corrupt_cfg = corrupt_workspace / "config.json"
     corrupt_cfg.write_text("{ 'broken': json without quotes ...", encoding="utf-8")
 
     with pytest.raises(ValueError, match="Invalid JSON in config file"):
@@ -162,7 +162,7 @@ def test_existing_config_preserved(tmp_path: Path) -> None:
     """F05: init_config preserves existing config unless explicit overwrite/force is given."""
     repo = tmp_path / "existing_repo"
     repo.mkdir()
-    cfg_file = repo / ".specops" / "config.json"
+    cfg_file = repo / ".workspace" / "config.json"
     cfg_file.parent.mkdir(parents=True)
     cfg_file.write_text(
         json.dumps({"project_name": "precious-project", "domain": "precious.dev"}),

@@ -24,6 +24,7 @@ Unifies workspace management operations into a single command:
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import sys
 
@@ -78,7 +79,23 @@ def doctor_check() -> None:
     )
 
 
+CONDENSE_COMMANDS = ("run", "condense", "log", "check", "changed")
+
+
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] in CONDENSE_COMMANDS:
+        from workspace_engine.cli import check as check_cli
+        from workspace_engine.condense import cli as condense_cli
+
+        handler = {
+            "run": condense_cli.run,
+            "condense": condense_cli.condense_stdin,
+            "log": condense_cli.show_log,
+            "check": check_cli.check,
+            "changed": check_cli.changed,
+        }[sys.argv[1]]
+        sys.exit(handler(sys.argv[2:]))
+
     parser = argparse.ArgumentParser(
         prog="ws",
         description="ia-spec-ops-engine — deterministic workspace, Git worktree & local microservices manager.",
@@ -188,6 +205,21 @@ def main() -> None:
     )
 
     # ws hook (host integration hooks)
+    subparsers.add_parser(
+        "run", help="Run a command and print a condensed summary (ws run -- <cmd>)"
+    )
+    subparsers.add_parser("condense", help="Condense command output read from stdin")
+    subparsers.add_parser("log", help="Read a saved full output (ws log <id> --grep RE)")
+    subparsers.add_parser(
+        "check", help="Run the quality gate with condensed output (--changed, --cache, --json)"
+    )
+    subparsers.add_parser("changed", help="Files changed vs. the base branch (--json)")
+    p_detect = subparsers.add_parser(
+        "detect", help="Detect the repository technology stacks (deterministic)"
+    )
+    p_detect.add_argument("--dir", "-d", default=".", help="Repository root (defaults to cwd)")
+    p_detect.add_argument("--json", action="store_true", help="Emit the versioned JSON contract")
+
     p_host_hook = subparsers.add_parser("hook", help="Run a coding-agent integration hook")
     p_host_hook.add_argument("hook_name", choices=["claude-worktree-create"])
     p_host_hook.add_argument("hook_args", nargs=argparse.REMAINDER)
@@ -198,9 +230,7 @@ def main() -> None:
     )
 
     # ws config
-    p_config = subparsers.add_parser(
-        "config", help="Initialize and manage SpecOps workspace configuration"
-    )
+    p_config = subparsers.add_parser("config", help="Initialize and manage workspace configuration")
     from workspace_engine.config.init_config import add_config_arguments
 
     add_config_arguments(p_config)
@@ -212,7 +242,16 @@ def main() -> None:
         sys.exit(0)
 
     # Delegate to corresponding modules
-    if args.command == "config":
+    if args.command == "detect":
+        from workspace_engine.services.detect import detect_stacks
+
+        detection = detect_stacks(args.dir)
+        if args.json:
+            print(json.dumps(detection.to_dict(), separators=(",", ":")))
+        else:
+            print(" ".join(detection.stacks) or "(no known stack detected)")
+        sys.exit(0)
+    elif args.command == "config":
         from workspace_engine.config.init_config import run_config
 
         sys.exit(run_config(args))

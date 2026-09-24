@@ -49,7 +49,7 @@ def main(argv: list[str] | None = None) -> int:
         if not isinstance(payload, dict):
             return 0
         base = args.base_dir or Path(
-            os.environ.get("SPECOPS_WORKTREES_DIR") or Path.home() / "projects" / "worktree"
+            os.environ.get("WORKSPACE_WORKTREES_DIR") or Path.home() / "projects" / "worktree"
         )
         destination = suggest_worktree_path(payload, base)
         if destination is None:

@@ -14,6 +14,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from ..paths import config_dir
+
 EMAIL = os.environ.get("ATLASSIAN_EMAIL", "")
 TOKEN = os.environ.get("ATLASSIAN_API_TOKEN", "")
 BASE_URL = os.environ.get("ATLASSIAN_URL", "").rstrip("/")
@@ -48,7 +50,7 @@ def load_profile_config(profile_name: str | None = None) -> dict[str, str]:
     if os.environ.get("ATLASSIAN_PROFILES_FILE"):
         profiles_paths.append(Path(os.environ["ATLASSIAN_PROFILES_FILE"]))
     profiles_paths.append(Path.home() / ".config" / "atlassian" / "profiles.json")
-    profiles_paths.append(Path.home() / ".specops" / "atlassian.json")
+    profiles_paths.append(config_dir() / "atlassian.json")
 
     for p in profiles_paths:
         if p.is_file():

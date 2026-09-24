@@ -26,18 +26,29 @@ DEFAULT_MAX_LINES = 20
 DEFAULT_MAX_CHARS = 1500
 
 
+# Environment variables set by supported agents for the commands they spawn.
+# Kept identical to ai_governance.output.AGENT_ENV_MARKERS (contract test at repo root).
+AGENT_ENV_MARKERS: tuple[str, ...] = (
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDECODE",
+    "CODEX_SANDBOX",
+    "ANTIGRAVITY_AGENT",
+)
+
+
 def is_agent_mode() -> bool:
     """Returns True when output should be compact/plain for an AI agent.
 
-    ``SPECOPS_AGENT=1`` forces agent mode on; ``SPECOPS_AGENT=0`` forces it
-    off. Otherwise, agent mode is on whenever stdout is not a TTY.
+    ``WORKSPACE_AGENT=1`` forces agent mode on; ``WORKSPACE_AGENT=0`` forces it
+    off. Otherwise agent mode is on when an agent env marker is present; a plain
+    pipe keeps full human output.
     """
-    forced = os.environ.get("SPECOPS_AGENT")
+    forced = os.environ.get("WORKSPACE_AGENT")
     if forced == "1":
         return True
     if forced == "0":
         return False
-    return not sys.stdout.isatty()
+    return any(os.environ.get(name) for name in AGENT_ENV_MARKERS)
 
 
 def truncate(

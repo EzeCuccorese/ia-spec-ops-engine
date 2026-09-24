@@ -1,0 +1,256 @@
+"""Per-agent installer: scopes, isolation between agents, idempotency, reversibility."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+from ai_governance.install import installer
+from ai_governance.install.agents import AGENTS, capability_table
+from ai_governance.install.cli import main as install_cli
+from ai_governance.install.doctor import FAIL, check
+from ai_governance.install.installer import (
+    ProjectConfig,
+    install_user,
+    registered_projects,
+    sync_project,
+    uninstall_user,
+)
+
+
+@pytest.fixture
+def home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(home / "state"))
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    return home
+
+
+@pytest.fixture
+def project(home: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    root = home / "repo"
+    (root / "src").mkdir(parents=True)
+    (root / "pom.xml").write_text("<project/>")
+    monkeypatch.setattr(installer, "detect_stacks", lambda root: {"java"})
+    return root
+
+
+def _tree(root: Path) -> dict[str, str]:
+    return {str(p.relative_to(root)): p.read_text() for p in sorted(root.rglob("*")) if p.is_file()}
+
+
+# -- user scope ---------------------------------------------------------------------
+
+
+def test_user_install_touches_only_the_chosen_agent(home: Path) -> None:
+    install_user(["claude"])
+    assert (home / ".claude" / "rules" / "ai-governance.md").exists()
+    assert (home / ".claude" / "agents" / "scout.md").read_text().count("effort: medium") == 1
+    assert not (home / ".codex").exists()
+    assert not (home / ".gemini").exists()
+    settings = json.loads((home / ".claude" / "settings.json").read_text())
+    commands = [h["command"] for g in settings["hooks"]["PostToolUse"] for h in g["hooks"]]
+    assert commands == ["ai-governance hook claude post-tool-use"]
+
+
+def test_user_install_preserves_foreign_settings_and_is_idempotent(home: Path) -> None:
+    settings = home / ".claude" / "settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text(
+        json.dumps(
+            {
+                "theme": "dark",
+                "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "mine"}]}]},
+            }
+        )
+    )
+    install_user(["claude"])
+    second = install_user(["claude"])
+    assert not second.changed
+    data = json.loads(settings.read_text())
+    assert data["theme"] == "dark"
+    stop = [h["command"] for g in data["hooks"]["Stop"] for h in g["hooks"]]
+    assert stop == ["mine", "ai-governance hook claude stop"]
+
+    uninstall_user(["claude"])
+    data = json.loads(settings.read_text())
+    assert data == {
+        "theme": "dark",
+        "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "mine"}]}]},
+    }
+    assert not (home / ".claude" / "rules" / "ai-governance.md").exists()
+
+
+def test_codex_and_antigravity_use_marker_blocks(home: Path) -> None:
+    (home / ".codex").mkdir()
+    (home / ".codex" / "AGENTS.md").write_text("# My rules\n")
+    install_user(["codex", "antigravity"])
+    codex = (home / ".codex" / "AGENTS.md").read_text()
+    assert codex.startswith("# My rules") and "<!-- ai-governance:start -->" in codex
+    assert "model: flash" in (home / ".gemini" / "config" / "agents" / "scout.md").read_text()
+    uninstall_user(["codex"])
+    assert (home / ".codex" / "AGENTS.md").read_text() == "# My rules\n"
+    assert (home / ".gemini" / "GEMINI.md").exists()
+
+
+def test_foreign_file_is_never_overwritten_without_force(home: Path) -> None:
+    scout = home / ".claude" / "agents" / "scout.md"
+    scout.parent.mkdir(parents=True)
+    scout.write_text("my own scout")
+    report = install_user(["claude"])
+    assert scout.read_text() == "my own scout"
+    assert any("not created by ai-governance" in w for w in report.warnings)
+    install_user(["claude"], force=True)
+    assert "read-only scout" in scout.read_text()
+
+
+# -- project scope ------------------------------------------------------------------
+
+
+def test_project_rules_are_written_once_and_linked_for_claude(project: Path) -> None:
+    sync_project(project, add_agents=["claude", "antigravity"])
+    canonical = project / ".agents" / "rules" / "ai-governance-java-spring.md"
+    text = canonical.read_text()
+    assert text.startswith("---\npaths:\n") and "trigger: glob" in text
+    link = project / ".claude" / "rules" / "ai-governance-java-spring.md"
+    assert link.is_symlink() and link.resolve() == canonical.resolve()
+    assert (
+        (project / ".agents/rules/ai-governance-06-security-privacy.md")
+        .read_text()
+        .startswith("---\ntrigger: always_on")
+    )
+    assert not (project / ".agents" / "rules" / "ai-governance-python-async.md").exists()
+    assert not (project / ".codex").exists()
+    assert ".agents/rules/" in (project / "AGENTS.md").read_text()
+    assert ProjectConfig.load(project).agents == ["claude", "antigravity"]
+    assert project.resolve() in registered_projects()
+    assert not sync_project(project).changed
+
+
+def test_codex_only_project_uses_the_shared_rules_without_claude_links(project: Path) -> None:
+    sync_project(project, add_agents=["codex"])
+    assert (project / ".agents" / "rules" / "ai-governance-java-spring.md").is_file()
+    assert not (project / ".claude").exists()
+
+
+def test_project_install_then_uninstall_restores_tree(project: Path) -> None:
+    (project / "AGENTS.md").write_text("# Team notes\n")
+    before = _tree(project)
+    sync_project(project, add_agents=["codex"])
+    sync_project(project, remove_agents=["codex"])
+    assert _tree(project) == before
+    assert project.resolve() not in registered_projects()
+
+
+def test_update_follows_stack_changes_and_keeps_local_edits(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sync_project(project, add_agents=["claude"])
+    rules = project / ".claude" / "rules"
+    security = rules / "ai-governance-06-security-privacy.md"
+    security.write_text(security.read_text() + "\n- team-specific addition\n")
+
+    monkeypatch.setattr(installer, "detect_stacks", lambda root: {"python"})
+    report = sync_project(project)
+    assert not (rules / "ai-governance-java-spring.md").exists()
+    assert (rules / "ai-governance-python-async.md").exists()
+    assert "team-specific addition" in security.read_text()
+    assert any("edited locally" in w for w in report.warnings)
+
+
+def test_claude_memory_is_migrated_into_agents_md(project: Path) -> None:
+    (project / "CLAUDE.md").write_text("Use tabs.\n")
+    sync_project(project, add_agents=["claude"])
+    assert not (project / "CLAUDE.md").exists()
+    assert (project / "AGENTS.md").read_text().startswith("Use tabs.")
+
+
+def test_dry_run_writes_nothing(project: Path) -> None:
+    before = _tree(project)
+    report = sync_project(project, add_agents=["claude"], dry_run=True)
+    assert report.changed
+    assert _tree(project) == before
+
+
+def test_missing_ws_selects_general_rules_and_warns(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(installer, "detect_stacks", lambda root: None)
+    report = sync_project(project, add_agents=["claude"])
+    assert any("`ws` not found" in w for w in report.warnings)
+    assert not (project / ".claude" / "rules" / "ai-governance-java-spring.md").exists()
+
+
+def test_no_agent_is_an_error(project: Path) -> None:
+    with pytest.raises(ValueError, match="No agent selected"):
+        sync_project(project)
+
+
+# -- cli / doctor ---------------------------------------------------------------------
+
+
+def test_cli_requires_explicit_agent_without_tty(project: Path, capsys) -> None:
+    assert install_cli("install", ["--root", str(project)]) == 1
+    captured = capsys.readouterr()
+    assert "--agent" in captured.err + captured.out
+
+
+def test_update_check_reports_stale_projects(project: Path, monkeypatch) -> None:
+    sync_project(project, add_agents=["claude"])
+    assert install_cli("update", ["--root", str(project), "--check"]) == 0
+    monkeypatch.setattr(installer, "detect_stacks", lambda root: {"go"})
+    assert install_cli("update", ["--all", "--check"]) == 1
+
+
+def test_doctor_flags_claude_memory_and_duplicate_hooks(project: Path, home: Path) -> None:
+    install_user(["claude"])
+    sync_project(project, add_agents=["claude"])
+    (project / "CLAUDE.local.md").write_text("x")
+    (project / ".claude" / "settings.json").write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "Stop": [
+                        {
+                            "hooks": [
+                                {"type": "command", "command": "ai-governance hook claude stop"}
+                            ]
+                        }
+                    ]
+                }
+            }
+        )
+    )
+    rows = check(project)
+    assert any(s == FAIL and "CLAUDE.local.md" in d for _, s, d in rows)
+    assert any("run twice" in d for _, _, d in rows)
+
+
+def test_capability_table_covers_every_agent() -> None:
+    table = capability_table()
+    for spec in AGENTS.values():
+        assert spec.name in table
+
+
+def test_report_collapses_many_files_per_folder(project: Path) -> None:
+    lines = sync_project(project, add_agents=["claude"]).lines()
+    assert any(line.startswith("created: ") and " files in " in line for line in lines)
+    assert len(lines) < 10
+
+
+def test_project_gate_hook_is_configurable(project: Path) -> None:
+    sync_project(project, add_agents=["claude"])
+    settings = json.loads((project / ".claude" / "settings.json").read_text())
+    stop = [h["command"] for g in settings["hooks"]["Stop"] for h in g["hooks"]]
+    assert stop == ["ai-governance hook claude stop-gate"]
+
+    config = project / ".ai-governance" / "config.toml"
+    config.write_text(config.read_text().replace("gate = true", "gate = false"))
+    sync_project(project)
+    assert (
+        not (project / ".claude" / "settings.json").exists()
+        or "stop-gate" not in (project / ".claude" / "settings.json").read_text()
+    )

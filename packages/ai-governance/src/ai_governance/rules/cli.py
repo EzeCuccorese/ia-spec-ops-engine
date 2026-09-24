@@ -1,272 +1,31 @@
+"""``ai-governance rules`` — browse the bundled engineering-rules catalog."""
+
 from __future__ import annotations
 
 import argparse
-import sys
-from pathlib import Path
 
-from rich.console import Console
-from rich.panel import Panel
-
-from ..output import emit_rows, emit_status, is_agent_mode
-from .agents import ALL_ADAPTERS, filter_rules_by_tech
-from .core.catalog import RuleCatalog, RuleDefinition
-from .core.storage import RuleStorage
-from .core.tui import select_multiple, select_one
-
-console = Console()
+from ..output import emit_rows, emit_status, emit_text
+from .catalog import RuleCatalog
 
 
-def show_banner() -> None:
-    if is_agent_mode():
-        return
-    console.print(
-        Panel.fit(
-            "[bold cyan]🛠️  SPECOPS RULES[/bold cyan] — [white]Software Engineering Standards & Multi-Agent Harness[/white]",
-            border_style="cyan",
-        )
-    )
-
-
-def list_catalog(catalog: RuleCatalog, *, full: bool = False) -> None:
-    rows = [
-        (
-            rule.id,
-            rule.category,
-            rule.description,
-            ", ".join(rule.globs[:3]) + ("..." if len(rule.globs) > 3 else ""),
-        )
-        for rule in catalog.rules
-    ]
-    emit_rows(
-        rows,
-        headers=("ID", "Category", "Description", "Globs / Triggers"),
-        title="Canonical Engineering Rules Catalog",
-        full=full,
-        more_hint="rules list --full",
-    )
-
-
-def run_interactive_installer(catalog: RuleCatalog, root: Path) -> None:
-    show_banner()
-
-    # 1. Scope selection
-    scope_idx = select_one(
-        "Select target installation scope:",
-        [
-            "🌐 Global (Machine-wide in ~/.specops/rules/ for all projects)",
-            "📁 Local (Project-local in .specops/rules/)",
-        ],
-        default_index=0,
-    )
-    is_global = scope_idx == 0
-    storage = RuleStorage.global_storage() if is_global else RuleStorage.local_storage(root)
-
-    # 2. Agent selection
-    agent_options = [(aid, adapter.display_name) for aid, adapter in ALL_ADAPTERS.items()]
-    selected_agent_ids = select_multiple(
-        "Select AI coding agents to configure:",
-        agent_options,
-        default_checked=[aid for aid, _ in agent_options],
-    )
-    selected_adapters = [ALL_ADAPTERS[aid] for aid in selected_agent_ids if aid in ALL_ADAPTERS]
-
-    # 3. Rule category / stacks selection
-    category_options = [
-        ("all", "✨ Select ALL 29 Rules (Full Enterprise Suite)"),
-        (
-            "0-harness",
-            "⚙  Harness (deterministic-first behaviour, output discipline, context frugality)",
-        ),
-        (
-            "1-core",
-            "🏛️  Core Rules (Clean Code, SOLID, DDD, Clean Architecture, Testing, Security, EDA)",
-        ),
-        ("2-stacks", "💻 Language Stacks (Python, React, Java, C#, Go, Rust, Kotlin, PHP, Dart)"),
-        (
-            "3-infrastructure",
-            "☁️  Infrastructure & DB (Migrations, SQL, Docker, K8s, CI/CD, APIs, Observability)",
-        ),
-        ("4-docs", "📐 Documentation & Diagrams (C4 Architecture Model, Mermaid, ADRs)"),
-    ]
-    selected_cats = select_multiple(
-        "Select Rule Categories to install:",
-        category_options,
-        default_checked=["all"],
-    )
-
-    chosen_rules: list[RuleDefinition] = []
-    by_cat = catalog.by_category()
-
-    if "all" in selected_cats:
-        chosen_rules = catalog.rules
-    else:
-        for cat_id in selected_cats:
-            chosen_rules.extend(by_cat.get(cat_id, []))
-
-    if not chosen_rules:
-        chosen_rules = catalog.rules
-
-    # Save to storage
-    saved_path = storage.save_rules(chosen_rules)
-    emit_status("ok", f"Saved {len(chosen_rules)} rules to {saved_path}")
-
-    # Install into selected adapters
-    for adapter in selected_adapters:
-        target = adapter.install(chosen_rules, saved_path, root, is_global, tools=catalog.tools)
-        emit_status("ok", f"Configured {adapter.display_name}: {target}")
-
-    emit_status("ok", "Rules installation completed successfully")
-
-
-def run_uninstaller(root: Path) -> None:
-    show_banner()
-    scope_idx = select_one(
-        "Select scope to uninstall:",
-        [
-            "🌐 Global (~/)",
-            "📁 Local (Current Project)",
-        ],
-        default_index=0,
-    )
-    is_global = scope_idx == 0
-
-    storage = RuleStorage.global_storage() if is_global else RuleStorage.local_storage(root)
-    storage.delete_owned()
-
-    for adapter in ALL_ADAPTERS.values():
-        res = adapter.uninstall(root, is_global)
-        if res:
-            emit_status("ok", f"Cleaned {adapter.display_name}: {res}")
-
-    emit_status("ok", "All rules successfully uninstalled and user files preserved")
-
-
-def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(
-        prog="rules", description="SpecOps Rules — Software Engineering Standards TUI"
-    )
-    parser.add_argument(
-        "action",
-        nargs="?",
-        choices=["install", "uninstall", "list", "menu"],
-        default="menu",
-        help="Action to perform",
-    )
-    parser.add_argument("--root", type=Path, default=Path.cwd(), help="Target root directory")
-    parser.add_argument(
-        "--global", dest="is_global", action="store_true", help="Force global scope"
-    )
-    parser.add_argument("--local", dest="is_local", action="store_true", help="Force local scope")
-    parser.add_argument("--all", dest="all_rules", action="store_true", help="Select all rules")
-    parser.add_argument(
-        "--tech",
-        dest="tech",
-        type=str,
-        default=None,
-        help="Filter rules by technology stack (e.g. python, java, all)",
-    )
-    parser.add_argument(
-        "--agent",
-        dest="agent",
-        type=str,
-        default="agents",
-        choices=["agents", "all"],
-        help="Write shared rules to AGENTS.md; provider-specific bridges remain optional",
-    )
-    parser.add_argument(
-        "--full",
-        dest="full",
-        action="store_true",
-        help="Disable output truncation in agent mode (list action)",
-    )
-    args = parser.parse_args(argv or sys.argv[1:])
-
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="ai-governance rules")
+    sub = parser.add_subparsers(dest="cmd")
+    sub.add_parser("list", help="List catalog rules with their stacks (details: show <id>)")
+    show = sub.add_parser("show", help="Print one rule")
+    show.add_argument("rule_id")
+    args = parser.parse_args(argv)
     catalog = RuleCatalog()
-
-    if args.action == "list":
-        list_catalog(catalog, full=args.full)
-        return
-
-    if args.action == "uninstall":
-        if args.is_global or args.is_local:
-            storage = (
-                RuleStorage.global_storage()
-                if args.is_global
-                else RuleStorage.local_storage(args.root)
-            )
-            storage.delete_owned()
-
-            # Select adapters to uninstall
-            if args.agent == "all":
-                adapters_to_uninstall = list(ALL_ADAPTERS.values())
-            elif args.agent in ALL_ADAPTERS:
-                # If explicitly specified (or default), uninstall for all if default, or specific if non-default
-                if "--agent" in (argv or sys.argv[1:]):
-                    adapters_to_uninstall = [ALL_ADAPTERS[args.agent]]
-                else:
-                    adapters_to_uninstall = list(ALL_ADAPTERS.values())
-            else:
-                adapters_to_uninstall = list(ALL_ADAPTERS.values())
-
-            for adapter in adapters_to_uninstall:
-                adapter.uninstall(args.root, args.is_global)
-            return
-        run_uninstaller(args.root)
-        return
-
-    if args.action == "install":
-        if args.is_global or args.is_local or args.tech:
-            storage = (
-                RuleStorage.global_storage()
-                if args.is_global
-                else RuleStorage.local_storage(args.root)
-            )
-            rules_to_save = catalog.rules
-            if args.tech:
-                rules_to_save = filter_rules_by_tech(rules_to_save, args.tech)
-
-            saved = storage.save_rules(rules_to_save)
-
-            # Target selected adapters
-            if args.agent == "all":
-                selected_adapters = list(ALL_ADAPTERS.values())
-            elif args.agent in ALL_ADAPTERS:
-                selected_adapters = [ALL_ADAPTERS[args.agent]]
-            else:
-                selected_adapters = [ALL_ADAPTERS["agents"]]
-
-            for adapter in selected_adapters:
-                adapter.install(
-                    rules_to_save,
-                    saved,
-                    args.root,
-                    args.is_global,
-                    tech=args.tech,
-                    tools=catalog.tools,
-                )
-            return
-        run_interactive_installer(catalog, args.root)
-        return
-
-    # Default interactive menu
-    show_banner()
-    action_idx = select_one(
-        "What would you like to do?",
-        [
-            "📥 Install / Update Rules",
-            "🗑️  Uninstall Rules",
-            "📚 List Rule Catalog",
-        ],
-        default_index=0,
-    )
-
-    if action_idx == 0:
-        run_interactive_installer(catalog, args.root)
-    elif action_idx == 1:
-        run_uninstaller(args.root)
-    else:
-        list_catalog(catalog)
-
-
-if __name__ == "__main__":
-    main()
+    if args.cmd == "show":
+        rule = catalog.get(args.rule_id)
+        if rule is None:
+            emit_status("error", f"Unknown rule: {args.rule_id}")
+            return 1
+        emit_text(rule.content, full=True)
+        return 0
+    rows = [
+        (rule.id, ",".join(rule.stacks) or "general")
+        for rule in sorted(catalog.rules, key=lambda r: r.id)
+    ]
+    emit_rows(rows, headers=("Rule", "Stacks"), full=True)
+    return 0

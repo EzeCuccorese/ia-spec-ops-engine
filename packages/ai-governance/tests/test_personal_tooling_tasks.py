@@ -75,35 +75,6 @@ def test_concurrent_structured_mutations_do_not_lose_updates(tmp_path: Path) -> 
     assert {f["text"] for f in task.facts} == {f"fact-{i}" for i in range(30)}
 
 
-def test_legacy_import_is_additive_and_keeps_modern_status(tmp_path: Path) -> None:
-    legacy = tmp_path / "legacy"
-    (legacy / "tasks").mkdir(parents=True)
-    (legacy / "tasks" / "old.json").write_text(
-        json.dumps(
-            {
-                "id": "old",
-                "title": "Old task",
-                "status": "paused",
-                "summary": "legacy summary",
-                "done": [{"text": "verified"}],
-                "jira": ["ONB-7"],
-                "steps": [{"text": "next", "done": False}],
-            }
-        ),
-        encoding="utf-8",
-    )
-    destination = tmp_path / "modern"
-    tracker = SessionTracker(root_dir=destination)
-    report = tracker.import_legacy_directory(legacy)
-    assert report == {"imported": 1, "skipped": 0, "invalid": 0}
-    task = tracker.get_task("old")
-    assert task is not None
-    assert task.status == "paused"
-    assert task.facts[0]["text"] == "verified"
-    assert task.references[0] == {"kind": "jira", "value": "ONB-7", "url": ""}
-    assert tracker.import_legacy_directory(legacy)["skipped"] == 1
-
-
 def test_list_all_and_digest_are_compact(tmp_path: Path) -> None:
     tracker = SessionTracker(root_dir=tmp_path)
     tracker.create_task(TaskState(id="active", title="Active", summary="Now"))
@@ -117,14 +88,14 @@ def test_list_all_and_digest_are_compact(tmp_path: Path) -> None:
 
 
 def test_progress_cli_exposes_modern_mutations(tmp_path: Path, monkeypatch, capsys) -> None:
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
     assert progress_main(["new", "cli-task", "--title", "CLI"]) == 0
     assert progress_main(["pause", "cli-task", "--reason", "wait"]) == 0
     assert progress_main(["step", "cli-task", "add", "test it"]) == 0
     assert progress_main(["fact", "cli-task", "verified"]) == 0
     assert progress_main(["link", "cli-task", "PR", "https://example.test/1"]) == 0
     capsys.readouterr()
-    assert progress_main(["view", "cli-task", "--json"]) == 0
+    assert progress_main(["show", "cli-task", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
     assert data["status"] == "paused"
     assert data["steps"][0]["text"] == "test it"

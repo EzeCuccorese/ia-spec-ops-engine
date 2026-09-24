@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Workspace pre-commit hook: fast secret scan of staged changes (registered as hook.workspace-pre-commit).
+# Skip once with: QG_SKIP=gitleaks git commit ...
+set -uo pipefail
+case ",${QG_SKIP:-}," in *,gitleaks,*|*,all,*) exit 0 ;; esac
+command -v gitleaks >/dev/null 2>&1 || exit 0
+if ! out="$(gitleaks protect --staged --redact --no-banner 2>&1)"; then
+  printf '%s\n' "$out" | tail -n 20 >&2
+  echo "pre-commit: possible secret in staged changes (QG_SKIP=gitleaks to bypass)" >&2
+  exit 1
+fi
+exit 0

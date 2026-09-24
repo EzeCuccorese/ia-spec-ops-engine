@@ -16,9 +16,9 @@ class TestTelemetryThresholdsOutput:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
     ) -> None:
         """telemetry thresholds --json output ≤ 2000 chars, no ANSI."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         monkeypatch.setenv("HOME", str(tmp_path))
-        monkeypatch.setenv("SPECOPS_USAGE_DIR", str(tmp_path / "usage"))
+        monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "usage"))
 
         # Create empty usage directory
         (tmp_path / "usage").mkdir(exist_ok=True)
@@ -38,14 +38,14 @@ class TestTelemetryUsageOutput:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
     ) -> None:
         """telemetry usage --json output ≤ 2000 chars with default budget."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         monkeypatch.setenv("HOME", str(tmp_path))
-        monkeypatch.setenv("SPECOPS_USAGE_DIR", str(tmp_path / "usage"))
+        monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "usage"))
 
         # Create empty usage directory
         (tmp_path / "usage").mkdir(exist_ok=True)
 
-        telemetry_main(["usage", "--json"])
+        telemetry_main(["report", "--json"])
         out = capsys.readouterr().out
 
         # Tolerate non-zero return for empty data, but check output size
@@ -56,13 +56,13 @@ class TestTelemetryUsageOutput:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
     ) -> None:
         """telemetry usage --json with --budget 4000 under budget."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         monkeypatch.setenv("HOME", str(tmp_path))
-        monkeypatch.setenv("SPECOPS_USAGE_DIR", str(tmp_path / "usage"))
+        monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "usage"))
 
         (tmp_path / "usage").mkdir(exist_ok=True)
 
-        telemetry_main(["usage", "--json", "--budget", "4000"])
+        telemetry_main(["report", "--json", "--budget", "4000"])
         out = capsys.readouterr().out
 
         # Tolerate non-zero return for empty data, check output size
@@ -77,9 +77,9 @@ class TestTelemetryReportOutput:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
     ) -> None:
         """telemetry report --json output ≤ 2000 chars, no ANSI."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         monkeypatch.setenv("HOME", str(tmp_path))
-        monkeypatch.setenv("SPECOPS_USAGE_DIR", str(tmp_path / "usage"))
+        monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "usage"))
 
         (tmp_path / "usage").mkdir(exist_ok=True)
 
@@ -97,9 +97,9 @@ class TestTelemetryJsonValid:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
     ) -> None:
         """telemetry thresholds --json produces valid JSON when it has output."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         monkeypatch.setenv("HOME", str(tmp_path))
-        monkeypatch.setenv("SPECOPS_USAGE_DIR", str(tmp_path / "usage"))
+        monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "usage"))
 
         (tmp_path / "usage").mkdir(exist_ok=True)
 
@@ -118,9 +118,9 @@ class TestTelemetryNoAnsi:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
     ) -> None:
         """telemetry thresholds text output has no ANSI codes."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         monkeypatch.setenv("HOME", str(tmp_path))
-        monkeypatch.setenv("SPECOPS_USAGE_DIR", str(tmp_path / "usage"))
+        monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "usage"))
 
         (tmp_path / "usage").mkdir(exist_ok=True)
 
@@ -133,13 +133,13 @@ class TestTelemetryNoAnsi:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
     ) -> None:
         """telemetry usage text output has no ANSI codes."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         monkeypatch.setenv("HOME", str(tmp_path))
-        monkeypatch.setenv("SPECOPS_USAGE_DIR", str(tmp_path / "usage"))
+        monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "usage"))
 
         (tmp_path / "usage").mkdir(exist_ok=True)
 
-        telemetry_main(["usage"])
+        telemetry_main(["report"])
         out = capsys.readouterr().out
 
         assert "\x1b" not in out

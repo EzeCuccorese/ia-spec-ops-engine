@@ -10,6 +10,7 @@ from workspace_engine.services.git_hooks import (
     generate_canonical_pre_push_script,
     get_hooks_status,
     install_git_hooks,
+    local_hook_path,
     run_quality_gate,
     uninstall_git_hooks,
 )
@@ -110,11 +111,11 @@ def _write_fake_pytest(project_dir: Path, *, exit_code: int, detail_lines: int =
 def test_generate_canonical_pre_push_script():
     script = generate_canonical_pre_push_script()
     assert "#!/usr/bin/env bash" in script
-    assert "[1/5] Checking for secrets" in script
-    assert "[2/5] Checking commit policies" in script
-    assert "[3/5] Running static analysis" in script
-    assert "[4/5] Running test suites" in script
-    assert "[5/5] Delegating to the repository's pre-push hook" in script
+    assert "[1/4] Checking for secrets" in script
+    assert "[2/4] Checking commit policies" in script
+    assert "[3/4] Running static analysis" in script
+    assert "[4/4] Running test suites" in script
+    assert "core.hooksPath ~/" not in script
     assert "ruff" in script
     assert "npm test" in script
     assert "go test" in script
@@ -164,7 +165,7 @@ def test_compact_output_shows_failed_command_and_preserves_full_log():
         assert "PYTEST_STDOUT_SENTINEL" in combined
         assert "PYTEST_STDERR_SENTINEL" in combined
         assert "Test Suites: FAIL" in combined
-        failure_log = project_dir / ".git" / "specops" / "quality-gate" / "latest.log"
+        failure_log = project_dir / ".git" / "workspace" / "quality-gate" / "latest.log"
         assert failure_log.is_file()
         assert stat.S_IMODE(failure_log.stat().st_mode) == 0o600
         log_text = failure_log.read_text(encoding="utf-8")
@@ -186,7 +187,7 @@ def test_compact_failure_is_bounded_while_full_log_is_complete():
         assert proc.returncode == 1
         assert "output truncated:" in combined
         assert "DETAIL_100" not in combined
-        failure_log = project_dir / ".git" / "specops" / "quality-gate" / "latest.log"
+        failure_log = project_dir / ".git" / "workspace" / "quality-gate" / "latest.log"
         assert "DETAIL_100" in failure_log.read_text(encoding="utf-8")
 
 
@@ -205,34 +206,66 @@ def test_verbose_output_streams_successful_command_output():
         assert "PYTEST_STDERR_SENTINEL" in proc.stderr
 
 
-@pytest.mark.parametrize(
-    ("exit_code", "sentinel_visible", "expected_gate_code"),
-    [(0, False, 0), (9, True, 1)],
-)
-def test_compact_output_applies_to_delegated_repository_hook(
-    exit_code: int, sentinel_visible: bool, expected_gate_code: int
-):
-    # @s4
-    with tempfile.TemporaryDirectory() as tmp:
-        project_dir = Path(tmp)
-        _init_test_git_repo(project_dir)
-        _commit_fixture(project_dir)
-        delegated = project_dir / ".husky" / "pre-push"
-        delegated.parent.mkdir()
-        delegated.write_text(
-            f"#!/bin/sh\necho DELEGATED_HOOK_SENTINEL\nexit {exit_code}\n",
-            encoding="utf-8",
-        )
-        delegated.chmod(delegated.stat().st_mode | stat.S_IXUSR)
+def _push_with_gate(project_dir: Path) -> subprocess.CompletedProcess[str]:
+    """Pushes to a bare remote with the gate's stages skipped (only wiring is under test)."""
+    remote = project_dir.parent / f"{project_dir.name}-remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+    subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=project_dir, check=True)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(
+        QG_SKIP="gitleaks,commits,lint,tests",
+        GIT_CONFIG_GLOBAL="/dev/null",
+        GIT_CONFIG_SYSTEM="/dev/null",
+    )
+    return subprocess.run(
+        ["git", "push", "origin", "HEAD:refs/heads/feature"],
+        cwd=project_dir,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
 
-        proc = _run_generated_hook(
-            project_dir,
-            skip="gitleaks,commits,lint,tests",
-        )
 
-        assert proc.returncode == expected_gate_code
-        combined = proc.stdout + proc.stderr
-        assert ("DELEGATED_HOOK_SENTINEL" in combined) is sentinel_visible
+def _write_hook(path: Path, sentinel: str, exit_code: int = 0) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"#!/bin/sh\necho {sentinel}\nexit {exit_code}\n", encoding="utf-8")
+    path.chmod(path.stat().st_mode | stat.S_IXUSR)
+
+
+@pytest.mark.parametrize("repo_exit", [0, 3])
+def test_gate_runs_before_repository_hook_without_shadowing_it(tmp_path: Path, repo_exit: int):
+    project_dir = tmp_path / "repo"
+    project_dir.mkdir()
+    _init_test_git_repo(project_dir)
+    _commit_fixture(project_dir)
+    _write_hook(project_dir / ".git" / "hooks" / "pre-push", "REPO_HOOK_SENTINEL", repo_exit)
+    assert install_git_hooks(target_dir=project_dir)["success"] is True
+
+    proc = _push_with_gate(project_dir)
+
+    combined = proc.stdout + proc.stderr
+    assert "Quality Gate" in combined or "All good" in combined
+    assert "REPO_HOOK_SENTINEL" in combined
+    assert combined.index("All good") < combined.index("REPO_HOOK_SENTINEL")
+    assert (proc.returncode == 0) is (repo_exit == 0)
+
+
+def test_gate_also_runs_when_repository_uses_local_hooks_path(tmp_path: Path):
+    """Husky-style repos (local core.hooksPath) keep their hook and still get the gate."""
+    project_dir = tmp_path / "repo"
+    project_dir.mkdir()
+    _init_test_git_repo(project_dir)
+    _commit_fixture(project_dir)
+    _write_hook(project_dir / ".husky" / "_" / "pre-push", "HUSKY_SENTINEL")
+    subprocess.run(["git", "config", "core.hooksPath", ".husky/_"], cwd=project_dir, check=True)
+    assert install_git_hooks(target_dir=project_dir)["success"] is True
+
+    proc = _push_with_gate(project_dir)
+
+    combined = proc.stdout + proc.stderr
+    assert proc.returncode == 0
+    assert "All good" in combined
+    assert "HUSKY_SENTINEL" in combined
 
 
 def test_install_git_hooks_local():
@@ -244,10 +277,14 @@ def test_install_git_hooks_local():
         assert res["success"] is True
         assert res["is_global"] is False
 
-        hook_file = project_dir / ".githooks" / "pre-push"
+        hook_file = local_hook_path(project_dir)
         assert hook_file.exists()
-        mode = hook_file.stat().st_mode
-        assert mode & stat.S_IXUSR
+        assert hook_file.stat().st_mode & stat.S_IXUSR
+        assert not (project_dir / ".githooks").exists()
+        hooks_path = subprocess.run(
+            ["git", "config", "--get", "core.hooksPath"], cwd=project_dir, capture_output=True
+        )
+        assert hooks_path.returncode != 0
 
         status = get_hooks_status(target_dir=project_dir)
         assert status["local"]["hook_exists"] is True
@@ -255,42 +292,57 @@ def test_install_git_hooks_local():
         assert status["local"]["is_active"] is True
 
 
-def test_uninstall_git_hooks_local():
+def test_uninstall_git_hooks_local_only_removes_gate_keys():
     with tempfile.TemporaryDirectory() as tmp:
         project_dir = Path(tmp)
         _init_test_git_repo(project_dir)
+        subprocess.run(["git", "config", "hook.other.event", "pre-push"], cwd=project_dir)
+        subprocess.run(["git", "config", "hook.other.command", "true"], cwd=project_dir)
 
         install_git_hooks(target_dir=project_dir, is_global=False, force=True)
-        hook_file = project_dir / ".githooks" / "pre-push"
+        hook_file = local_hook_path(project_dir)
         assert hook_file.exists()
 
         uninst = uninstall_git_hooks(target_dir=project_dir, is_global=False)
         assert uninst["success"] is True
         assert not hook_file.exists()
+        other = subprocess.run(
+            ["git", "config", "--get", "hook.other.command"],
+            cwd=project_dir,
+            capture_output=True,
+            text=True,
+        )
+        assert other.stdout.strip() == "true"
 
         status = get_hooks_status(target_dir=project_dir)
         assert status["local"]["hook_exists"] is False
         assert status["local"]["is_active"] is False
 
 
-def test_install_git_hooks_global(monkeypatch):
-    with tempfile.TemporaryDirectory() as mock_home:
-        home_path = Path(mock_home)
-        monkeypatch.setattr(Path, "home", lambda: home_path)
-        monkeypatch.setenv("HOME", str(mock_home))
-        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(home_path / ".gitconfig"))
+def test_install_git_hooks_global(monkeypatch, tmp_path: Path):
+    home_path = tmp_path / "home"
+    home_path.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: home_path)
+    monkeypatch.setenv("HOME", str(home_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(home_path / ".config"))
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(home_path / ".gitconfig"))
 
-        res = install_git_hooks(is_global=True, force=True)
-        assert res["success"] is True
-        assert res["is_global"] is True
+    res = install_git_hooks(is_global=True, force=True)
+    assert res["success"] is True
+    assert res["is_global"] is True
 
-        global_hook = home_path / ".githooks" / "pre-push"
-        assert global_hook.exists()
-        assert global_hook.stat().st_mode & stat.S_IXUSR
+    global_hook = home_path / ".config" / "workspace" / "hooks" / "pre-push"
+    assert global_hook.exists()
+    assert global_hook.stat().st_mode & stat.S_IXUSR
+    config = (home_path / ".gitconfig").read_text()
+    assert "workspace-gate" in config
+    assert "hooksPath" not in config
+    assert get_hooks_status(tmp_path)["global"]["is_active"] is True
 
-        uninst = uninstall_git_hooks(is_global=True)
-        assert uninst["success"] is True
-        assert not global_hook.exists()
+    uninst = uninstall_git_hooks(is_global=True)
+    assert uninst["success"] is True
+    assert not global_hook.exists()
+    assert "workspace-gate" not in (home_path / ".gitconfig").read_text()
 
 
 def test_install_git_hooks_local_existing_without_force():
@@ -445,12 +497,12 @@ def test_cli_manage_hooks():
         # Test install CLI
         code = manage_hooks_cli(["install", "--dir", str(project_dir)])
         assert code == 0
-        assert (project_dir / ".githooks" / "pre-push").exists()
+        assert local_hook_path(project_dir).exists()
 
         # Test uninstall CLI
         code = manage_hooks_cli(["uninstall", "--dir", str(project_dir)])
         assert code == 0
-        assert not (project_dir / ".githooks" / "pre-push").exists()
+        assert not local_hook_path(project_dir).exists()
 
 
 def test_cli_manage_hooks_run_and_test(monkeypatch):
@@ -499,3 +551,31 @@ def test_cli_manage_hooks_run_and_test(monkeypatch):
 
     with pytest.raises(SystemExit):
         mh.main(["run", "--output", "unsupported"])
+
+
+def test_commit_msg_hook_enforces_conventional_commits(tmp_path: Path):
+    project_dir = tmp_path / "repo"
+    project_dir.mkdir()
+    _init_test_git_repo(project_dir)
+    assert install_git_hooks(target_dir=project_dir)["success"] is True
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(
+        GIT_CONFIG_GLOBAL="/dev/null",
+        GIT_AUTHOR_NAME="t",
+        GIT_AUTHOR_EMAIL="t@e.x",
+        GIT_COMMITTER_NAME="t",
+        GIT_COMMITTER_EMAIL="t@e.x",
+    )
+
+    def commit(message: str) -> int:
+        return subprocess.run(
+            ["git", "commit", "-q", "--allow-empty", "-m", message],
+            cwd=project_dir,
+            env=env,
+            capture_output=True,
+        ).returncode
+
+    assert commit("added stuff") != 0
+    assert commit("feat(core): add stuff") == 0
+    uninstall_git_hooks(target_dir=project_dir)
+    assert commit("added stuff without hook") == 0

@@ -8,8 +8,8 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
+from .claude_usage import ClaudeUsageCalculator
 from .prices import PriceCatalog
-from .ritmo import RitmoCalculator
 
 WEB_SEARCH_USD = 10.0 / 1000.0
 WEB_FETCH_USD = 10.0 / 1000.0
@@ -184,18 +184,18 @@ class CostMonitor:
         first_of_month = now.strftime("%Y-%m-01")
         data = self.scan_transcripts(since_iso_date=first_of_month)
         month_cost = data["total_cost_usd"]
-        ritmo = RitmoCalculator.calculate_pace(
+        pace = ClaudeUsageCalculator.calculate_pace(
             monthly_budget_usd, actual_spend_usd=month_cost, holidays=self.holidays
         )
         today_cost = data["by_day"].get(now.strftime("%Y-%m-%d"), 0.0)
-        remaining_days = max(1, ritmo.days_remaining + 1)
+        remaining_days = max(1, pace.days_remaining + 1)
         return {
             "estimate": True,
             "month_cost_usd": month_cost,
             "today_cost_usd": today_cost,
             "daily_budget_usd": (monthly_budget_usd - month_cost) / remaining_days,
             "monthly_budget_usd": monthly_budget_usd,
-            "ritmo": ritmo,
+            "pace": pace,
             "by_day": data["by_day"],
             "by_model": data["by_model"],
             "tokens": data["tokens"],

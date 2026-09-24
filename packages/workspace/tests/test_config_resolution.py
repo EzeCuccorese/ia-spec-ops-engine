@@ -11,10 +11,10 @@ from workspace_engine.run_local.constants import (
 )
 
 
-def test_find_project_root_with_specops(tmp_path: Path) -> None:
+def test_find_project_root_with_workspace(tmp_path: Path) -> None:
     root = tmp_path / "my_project"
     root.mkdir()
-    (root / ".specops").mkdir()
+    (root / ".workspace").mkdir()
 
     nested = root / "src" / "deep" / "nested"
     nested.mkdir(parents=True)
@@ -37,7 +37,7 @@ def test_find_project_root_fallback(tmp_path: Path) -> None:
     nested = tmp_path / "standalone" / "dir"
     nested.mkdir(parents=True)
 
-    # When no .specops or .git exists in ancestors, return the resolved path
+    # When no .workspace or .git exists in ancestors, return the resolved path
     assert find_project_root(nested) == nested.resolve()
 
 
@@ -77,14 +77,14 @@ def test_load_project_config_deep_subdirectory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "my_repo"
-    specops_dir = root / ".specops"
-    specops_dir.mkdir(parents=True)
-    cfg_file = specops_dir / "config.json"
+    workspace_dir = root / ".workspace"
+    workspace_dir.mkdir(parents=True)
+    cfg_file = workspace_dir / "config.json"
     cfg_file.write_text(
         json.dumps(
             {
-                "project_name": "custom-specops-project",
-                "domain": "specops.local",
+                "project_name": "custom-workspace-project",
+                "domain": "workspace.local",
             }
         ),
         encoding="utf-8",
@@ -95,21 +95,21 @@ def test_load_project_config_deep_subdirectory(
 
     # 1. Test passing start_dir explicitly
     cfg = load_project_config(start_dir=deep_dir)
-    assert cfg["project_name"] == "custom-specops-project"
-    assert cfg["domain"] == "specops.local"
+    assert cfg["project_name"] == "custom-workspace-project"
+    assert cfg["domain"] == "workspace.local"
 
     # 2. Test using cwd
     monkeypatch.chdir(deep_dir)
     cfg_cwd = load_project_config()
-    assert cfg_cwd["project_name"] == "custom-specops-project"
-    assert cfg_cwd["domain"] == "specops.local"
+    assert cfg_cwd["project_name"] == "custom-workspace-project"
+    assert cfg_cwd["domain"] == "workspace.local"
 
 
 def test_load_project_config_malformed_json(tmp_path: Path) -> None:
     root = tmp_path / "broken_repo"
-    specops_dir = root / ".specops"
-    specops_dir.mkdir(parents=True)
-    cfg_file = specops_dir / "config.json"
+    workspace_dir = root / ".workspace"
+    workspace_dir.mkdir(parents=True)
+    cfg_file = workspace_dir / "config.json"
     cfg_file.write_text("{ this is malformed json !!! }", encoding="utf-8")
 
     deep_dir = root / "sub"
@@ -148,7 +148,7 @@ def test_find_project_root_home_lookup_failures(
     monkeypatch.setattr(Path, "home", _raise_home)
     monkeypatch.setattr(pwd, "getpwuid", _raise_pwd)
 
-    # No .git/.specops anywhere up to "/" -> eventually stops at filesystem root.
+    # No .git/.workspace anywhere up to "/" -> eventually stops at filesystem root.
     result = find_project_root(nested)
     assert result in (nested.resolve(), Path("/"))
 
@@ -217,9 +217,9 @@ def test_load_project_config_os_error_on_open(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "os_error_repo"
-    specops_dir = root / ".specops"
-    specops_dir.mkdir(parents=True)
-    cfg_file = specops_dir / "config.json"
+    config_dir = root / ".workspace"
+    config_dir.mkdir(parents=True)
+    cfg_file = config_dir / "config.json"
     cfg_file.write_text("{}", encoding="utf-8")
 
     import builtins
@@ -249,7 +249,7 @@ def test_load_project_config_xdg_config_home(
 ) -> None:
     root = tmp_path / "xdg_repo"
     root.mkdir()
-    xdg_dir = tmp_path / "xdg" / "specops"
+    xdg_dir = tmp_path / "xdg" / "workspace"
     xdg_dir.mkdir(parents=True)
     (xdg_dir / "config.json").write_text(
         json.dumps({"project_name": "xdg-project"}), encoding="utf-8"
@@ -262,9 +262,9 @@ def test_load_project_config_xdg_config_home(
 
 def test_load_project_config_non_dict_json_keeps_defaults(tmp_path: Path) -> None:
     root = tmp_path / "list_repo"
-    specops_dir = root / ".specops"
-    specops_dir.mkdir(parents=True)
-    (specops_dir / "config.json").write_text("[1, 2, 3]", encoding="utf-8")
+    config_dir = root / ".workspace"
+    config_dir.mkdir(parents=True)
+    (config_dir / "config.json").write_text("[1, 2, 3]", encoding="utf-8")
 
     cfg = load_project_config(start_dir=root)
     assert cfg["project_name"] == "generic"
@@ -279,7 +279,7 @@ def test_load_project_config_default_fallback(
     monkeypatch.chdir(empty_dir)
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
 
-    # Ensure ~/.config/specops/config.json is not picked up by setting HOME to empty_dir
+    # Ensure ~/.config/workspace/config.json is not picked up by setting HOME to empty_dir
     monkeypatch.setenv("HOME", str(empty_dir))
 
     cfg = load_project_config(start_dir=empty_dir)
