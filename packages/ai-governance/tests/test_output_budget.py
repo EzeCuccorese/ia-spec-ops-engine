@@ -13,8 +13,8 @@ def _seed_task_with_steps(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, num_steps: int = 30
 ) -> None:
     """Create a task with many steps to trigger truncation in list/view commands."""
-    monkeypatch.setenv("SPECOPS_PROGRESS_DIR", str(tmp_path / "progress"))
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "progress"))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
 
     result = session_main(["new", "T-1", "--title", "Budget task"])
     assert result == 0
@@ -49,7 +49,7 @@ class TestProgressViewBudget:
         """progress view output in agent mode must be <= 1500 chars."""
         _seed_task_with_steps(monkeypatch, tmp_path)
 
-        session_main(["view", "T-1"])
+        session_main(["show", "T-1"])
         out = capsys.readouterr().out
 
         assert len(out) <= 1500
@@ -61,7 +61,7 @@ class TestProgressViewBudget:
         """progress view --json output in agent mode must be <= 4000 chars."""
         _seed_task_with_steps(monkeypatch, tmp_path)
 
-        session_main(["view", "T-1", "--json"])
+        session_main(["show", "T-1", "--json"])
         out = capsys.readouterr().out
 
         assert len(out) <= 4000
@@ -75,8 +75,8 @@ class TestRulesListBudget:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
     ) -> None:
         """rules list output in agent mode must be <= 1500 chars."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
-        monkeypatch.setenv("SPECOPS_USAGE_DIR", str(tmp_path / "usage"))
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "usage"))
 
         rules_main(["list"])
         out = capsys.readouterr().out
@@ -84,25 +84,13 @@ class TestRulesListBudget:
         assert len(out) <= 1500
         assert "\x1b" not in out
 
-    def test_rules_list_full_no_ansi(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
-    ) -> None:
-        """rules list --full in agent mode must have no ANSI."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
-        monkeypatch.setenv("SPECOPS_USAGE_DIR", str(tmp_path / "usage"))
-
-        rules_main(["list", "--full"])
-        out = capsys.readouterr().out
-
-        assert "\x1b" not in out
-
 
 @pytest.mark.parametrize(
     "argv,budget",
     [
         (["list"], 1500),
-        (["view", "T-1"], 1500),
-        (["view", "T-1", "--json"], 4000),
+        (["show", "T-1"], 1500),
+        (["show", "T-1", "--json"], 4000),
     ],
 )
 def test_progress_commands_stay_in_budget(

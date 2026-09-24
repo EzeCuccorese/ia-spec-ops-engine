@@ -12,10 +12,6 @@ import re
 import tempfile
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from ai_governance.rules.core.catalog import ToolDefinition
 
 LOCKFILES = (
     "package-lock.json",
@@ -37,13 +33,13 @@ PATTERNS = (
         "use `rg '\"package\":' <file>` or package-specific dependency inspection tools.",
     ),
     (
-        "curl_sin_jq",
+        "curl_without_jq",
         lambda c: bool(re.search(r"\bcurl\b", c) and "jq" not in c and re.search(r"https?://", c)),
         "This API call may return a large payload. Append `| jq -r '...'` "
         "with the minimal projection needed.",
     ),
     (
-        "git_log_sin_limite",
+        "git_log_without_limit",
         lambda c: bool(
             re.search(r"\bgit\s+log\b", c) and not re.search(r"(-n\s*\d+|--oneline|-\d+\b)", c)
         ),
@@ -55,14 +51,14 @@ PATTERNS = (
         "`find /` without `-maxdepth` may traverse the entire filesystem. Add `-maxdepth N`.",
     ),
     (
-        "logs_sin_tail",
+        "logs_without_tail",
         lambda c: bool(
             re.search(r"\b(docker|kubectl)\s+logs\b", c) and "--tail" not in c and "-n" not in c
         ),
         "Log streams can be huge. Append `--tail 100`.",
     ),
     (
-        "build_sin_filtro",
+        "build_without_filter",
         lambda c: bool(
             re.search(r"\b(npm|yarn|pnpm)\s+(run\s+)?build\b", c)
             and "tail" not in c
@@ -113,27 +109,57 @@ def _build_matcher(entry: str) -> Callable[[str], bool] | None:
     return positive_matcher
 
 
-def catalog_patterns(
-    tools: Sequence[ToolDefinition],
-) -> tuple[tuple[str, Callable[[str], bool], str], ...]:
-    """Derive pre-check patterns from the rule catalog's deterministic tools.
+# (id, deterministic command, purpose, manual commands it replaces)
+REPLACEMENTS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
+    (
+        "progress-here",
+        "ai-governance progress here",
+        "resume the task bound to this repository/branch",
+        ("cat PROGRESS.md", "git log to reconstruct task state"),
+    ),
+    (
+        "ws-worktree",
+        "ws worktree <repo> <target> <branch>",
+        "create an isolated worktree with workspace conventions",
+        ("git worktree add <path>",),
+    ),
+    ("ws-hooks", "ws hooks status", "inspect the quality gate", ("cat .git/hooks/*",)),
+    (
+        "ws-detect",
+        "ws detect --json",
+        "detect the repository stacks",
+        ("which java node python go",),
+    ),
+    (
+        "jira-issue",
+        "ai-governance jira issue <KEY>",
+        "read Jira issues as compact Markdown",
+        ("curl <atlassian>/rest/api",),
+    ),
+    (
+        "confluence-read",
+        "ai-governance confluence read <page>",
+        "read Confluence pages as compact Markdown",
+        ("curl <atlassian>/wiki/rest/api",),
+    ),
+    (
+        "claude-usage",
+        "ai-governance telemetry claude-usage",
+        "estimate Claude spend from local transcripts",
+        ("grep/parse ~/.claude/projects/**/*.jsonl",),
+    ),
+)
 
-    For every ``replaces`` entry declared on a tool, build a case-insensitive
-    matcher and an advice message pointing the agent at the deterministic
-    tool. Checked after the built-in :data:`PATTERNS`, in the same
-    first-match, per-session-dedup flow.
-    """
+
+def replacement_patterns() -> tuple[tuple[str, Callable[[str], bool], str], ...]:
+    """Advice pointing the agent at deterministic tools that replace manual commands."""
     patterns: list[tuple[str, Callable[[str], bool], str]] = []
-    for tool in tools:
-        for index, entry in enumerate(tool.replaces):
+    for tool_id, command, purpose, replaces in REPLACEMENTS:
+        for index, entry in enumerate(replaces):
             matcher = _build_matcher(entry)
-            if matcher is None:
-                continue
-            advice = (
-                f"Deterministic alternative: `{tool.command}` — {tool.purpose}. "
-                f"Announce it as `⚙ {tool.id}`."
-            )
-            patterns.append((f"tool:{tool.id}:{index}", matcher, advice))
+            if matcher is not None:
+                advice = f"Deterministic alternative: `{command}` — {purpose}."
+                patterns.append((f"tool:{tool_id}:{index}", matcher, advice))
     return tuple(patterns)
 
 

@@ -1,19 +1,14 @@
-"""ai_governance.output — Agent-aware output primitives for SpecOps CLIs.
+"""ai_governance.output — Agent-aware output primitives for ai-governance CLIs.
 
-CLIs in this repo traditionally print rich tables, banners, emojis and
-``json.dumps(indent=2)``. When an AI coding agent runs them, that verbose
-output lands in its context window and wastes tokens.
+When a coding agent runs these CLIs, verbose output (rich tables, banners,
+indented JSON) lands in its context window and wastes tokens. "Agent mode"
+emits compact plain text instead: one line per row, ``key: value`` pairs,
+dense JSON and short ``OK:``/``WARN:``/``ERROR:``/``INFO:`` status lines.
 
-This module centralizes an "agent mode" that, when active, emits compact
-plain text instead: one line per row, ``key: value`` pairs, dense JSON, and
-short ``OK:``/``WARN:``/``ERROR:``/``INFO:`` status lines. When not active
-(interactive TTY use), the previous rich-formatted behaviour is preserved.
-
-Agent mode is ON when stdout is not a TTY, or when the environment variable
-``SPECOPS_AGENT`` is set to ``"1"``. Setting ``SPECOPS_AGENT=0`` forces it
-OFF (useful for tests or humans piping output). The check is evaluated
-lazily via :func:`is_agent_mode` on every call, never cached at import time,
-so tests can monkeypatch ``sys.stdout.isatty`` or the environment freely.
+Agent mode is detected from the environment each supported agent sets for
+the commands it spawns (see :data:`AGENT_ENV_MARKERS`). ``AI_GOVERNANCE_AGENT``
+overrides detection: ``1`` forces agent mode, ``0`` forces human mode. A plain
+pipe (``| grep``) is NOT agent mode, so humans and scripts get full output.
 """
 
 from __future__ import annotations
@@ -35,18 +30,23 @@ DEFAULT_MAX_CHARS = 1500
 _console = Console()
 
 
-def is_agent_mode() -> bool:
-    """Returns True when output should be compact/plain for an AI agent.
+# Environment variables set by supported agents for the commands they spawn.
+AGENT_ENV_MARKERS: tuple[str, ...] = (
+    "CLAUDE_CODE_CHILD_SESSION",  # Claude Code (tool and hook subprocesses)
+    "CLAUDECODE",  # Claude Code (any subprocess)
+    "CODEX_SANDBOX",  # OpenAI Codex (spawned commands; experimental upstream)
+    "ANTIGRAVITY_AGENT",  # Google Antigravity agent terminal
+)
 
-    ``SPECOPS_AGENT=1`` forces agent mode on; ``SPECOPS_AGENT=0`` forces it
-    off. Otherwise, agent mode is on whenever stdout is not a TTY.
-    """
-    forced = os.environ.get("SPECOPS_AGENT")
+
+def is_agent_mode() -> bool:
+    """Returns True when output should be compact/plain for an AI agent."""
+    forced = os.environ.get("AI_GOVERNANCE_AGENT")
     if forced == "1":
         return True
     if forced == "0":
         return False
-    return not sys.stdout.isatty()
+    return any(os.environ.get(name) for name in AGENT_ENV_MARKERS)
 
 
 def truncate(

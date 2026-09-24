@@ -11,41 +11,19 @@ from ai_governance.telemetry.cli import main as telemetry_main
 
 
 def _set_usage_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-    usage_dir = tmp_path / "usage"
-    usage_dir.mkdir(exist_ok=True)
-    monkeypatch.setenv("SPECOPS_AGENT", "1")
+    usage_dir = tmp_path / "state" / "telemetry"
+    usage_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("SPECOPS_USAGE_DIR", str(usage_dir))
-    monkeypatch.delenv("CLAUDE_USAGE_DIR", raising=False)
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
     return usage_dir
-
-
-def test_runtime_dir_prefers_specops_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("SPECOPS_USAGE_DIR", str(tmp_path / "a"))
-    monkeypatch.setenv("CLAUDE_USAGE_DIR", str(tmp_path / "b"))
-    assert telemetry_cli.runtime_dir() == tmp_path / "a"
-
-
-def test_runtime_dir_falls_back_to_claude_env(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.delenv("SPECOPS_USAGE_DIR", raising=False)
-    monkeypatch.setenv("CLAUDE_USAGE_DIR", str(tmp_path / "b"))
-    assert telemetry_cli.runtime_dir() == tmp_path / "b"
-
-
-def test_runtime_dir_falls_back_to_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.delenv("SPECOPS_USAGE_DIR", raising=False)
-    monkeypatch.delenv("CLAUDE_USAGE_DIR", raising=False)
-    monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    assert telemetry_cli.runtime_dir() == tmp_path / ".specops" / "usage-monitor"
 
 
 def test_ritmo_command_prints_table(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     _set_usage_dir(monkeypatch, tmp_path)
-    result = telemetry_main(["ritmo", "--budget", "100", "--spent", "10"])
+    result = telemetry_main(["claude-usage", "--budget", "100", "--spent", "10"])
     out = capsys.readouterr().out
     assert result == 0
     assert "Monthly budget" in out
@@ -56,7 +34,7 @@ def test_usage_report_with_price_cache_recent_and_model_breakdown(
 ) -> None:
     """Exercises the non-JSON usage report with a recent price cache and model rows."""
     usage_dir = _set_usage_dir(monkeypatch, tmp_path)
-    monkeypatch.setenv("SPECOPS_AGENT", "0")
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "0")
     cache = usage_dir / "prices-cache.json"
     from datetime import UTC, datetime
 
@@ -81,7 +59,7 @@ def test_usage_report_with_price_cache_recent_and_model_breakdown(
             holidays=config.holidays,
         ),
     )
-    result = telemetry_main(["usage"])
+    result = telemetry_main(["report"])
     out = capsys.readouterr().out
     assert result == 0
     assert "Claude usage estimate" in out
@@ -93,23 +71,23 @@ def test_usage_report_with_stale_price_cache(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     usage_dir = _set_usage_dir(monkeypatch, tmp_path)
-    monkeypatch.setenv("SPECOPS_AGENT", "0")
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "0")
     cache = usage_dir / "prices-cache.json"
     cache.write_text(
         json.dumps({"fetched_at": "2020-01-01T00:00:00+00:00", "prices": {}}), encoding="utf-8"
     )
-    result = telemetry_main(["usage"])
+    result = telemetry_main(["report"])
     out = capsys.readouterr().out
     assert result == 0
-    assert "run telemetry prices update" in out
+    assert "prices update" in out
 
 
 def test_usage_report_without_price_cache(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     _set_usage_dir(monkeypatch, tmp_path)
-    monkeypatch.setenv("SPECOPS_AGENT", "0")
-    result = telemetry_main(["usage"])
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "0")
+    result = telemetry_main(["report"])
     out = capsys.readouterr().out
     assert result == 0
     assert "not available; using bundled fallback" in out
@@ -209,7 +187,14 @@ def test_main_reports_error_on_invalid_config(
 ) -> None:
     usage_dir = _set_usage_dir(monkeypatch, tmp_path)
     (usage_dir / "config.json").write_text(json.dumps({"monthly_budget_usd": -5}), encoding="utf-8")
-    result = telemetry_main(["ritmo"])
+    result = telemetry_main(["claude-usage"])
     err = capsys.readouterr().err
     assert result == 1
     assert "Telemetry error" in err
+
+
+def test_runtime_dir_is_under_state_dir(monkeypatch, tmp_path) -> None:
+    from ai_governance.telemetry import cli as telemetry_cli
+
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
+    assert telemetry_cli.runtime_dir() == tmp_path / "telemetry"

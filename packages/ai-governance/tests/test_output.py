@@ -20,29 +20,37 @@ class TestIsAgentMode:
     """Test is_agent_mode() behavior under different environment conditions."""
 
     def test_agent_mode_forced_on_with_env_1(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """SPECOPS_AGENT=1 forces agent mode ON even if stdout is a TTY."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        """AI_GOVERNANCE_AGENT=1 forces agent mode ON even if stdout is a TTY."""
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
         assert is_agent_mode() is True
 
     def test_agent_mode_forced_off_with_env_0(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """SPECOPS_AGENT=0 forces agent mode OFF even if not a TTY."""
-        monkeypatch.setenv("SPECOPS_AGENT", "0")
+        """AI_GOVERNANCE_AGENT=0 forces agent mode OFF even if not a TTY."""
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "0")
         monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
         assert is_agent_mode() is False
 
     def test_agent_mode_off_when_tty_and_env_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Unset env + TTY → agent mode OFF."""
-        monkeypatch.delenv("SPECOPS_AGENT", raising=False)
+        monkeypatch.delenv("AI_GOVERNANCE_AGENT", raising=False)
         monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
         assert is_agent_mode() is False
 
-    def test_agent_mode_on_when_not_tty_and_env_unset(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Unset env + not TTY → agent mode ON."""
-        monkeypatch.delenv("SPECOPS_AGENT", raising=False)
+    def test_agent_mode_off_on_plain_pipe(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A plain pipe (no agent markers) is human mode: full output for scripts."""
+        monkeypatch.delenv("AI_GOVERNANCE_AGENT", raising=False)
         monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
+        assert is_agent_mode() is False
+
+    @pytest.mark.parametrize(
+        "marker", ["CLAUDE_CODE_CHILD_SESSION", "CLAUDECODE", "CODEX_SANDBOX", "ANTIGRAVITY_AGENT"]
+    )
+    def test_agent_mode_on_when_agent_marker_set(
+        self, monkeypatch: pytest.MonkeyPatch, marker: str
+    ) -> None:
+        monkeypatch.delenv("AI_GOVERNANCE_AGENT", raising=False)
+        monkeypatch.setenv(marker, "1")
         assert is_agent_mode() is True
 
 
@@ -116,7 +124,7 @@ class TestEmitRows:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Agent mode emits title, headers, and rows joined with ' | '."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         rows = [("a", "b", "c"), ("d", "e", "f")]
         emit_rows(rows, headers=("H1", "H2", "H3"), title="Table")
         out = capsys.readouterr().out
@@ -130,7 +138,7 @@ class TestEmitRows:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Agent mode without title omits title line."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         rows = [("x", "y")]
         emit_rows(rows, headers=("C1", "C2"))
         out = capsys.readouterr().out
@@ -142,7 +150,7 @@ class TestEmitRows:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Agent mode with full=True never truncates, even with many rows."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         rows = [(f"r{i}", f"d{i}") for i in range(50)]
         emit_rows(rows, headers=("ID", "Data"), full=True)
         out = capsys.readouterr().out
@@ -154,7 +162,7 @@ class TestEmitRows:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Agent mode with full=False truncates large output and adds 'more:'."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         rows = [(f"r{i}", f"d{i}") for i in range(50)]
         emit_rows(rows, headers=("ID", "Data"), full=False)
         out = capsys.readouterr().out
@@ -164,7 +172,7 @@ class TestEmitRows:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Agent mode output contains no ANSI escape sequences."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         rows = [("cell1", "cell2")]
         emit_rows(rows, headers=("H1", "H2"), title="Test")
         out = capsys.readouterr().out
@@ -174,7 +182,7 @@ class TestEmitRows:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """TTY mode renders a rich table with headers and a title."""
-        monkeypatch.setenv("SPECOPS_AGENT", "0")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "0")
         rows = [("a", "b"), ("c", "d")]
         emit_rows(rows, headers=("H1", "H2"), title="Table")
         out = capsys.readouterr().out
@@ -186,7 +194,7 @@ class TestEmitRows:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Agent mode with no headers skips the headers line (if-headers branch)."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         rows = [("x", "y")]
         emit_rows(rows)
         out = capsys.readouterr().out
@@ -196,7 +204,7 @@ class TestEmitRows:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """TTY mode with no headers still renders rows (headers-or-[] branch)."""
-        monkeypatch.setenv("SPECOPS_AGENT", "0")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "0")
         rows = [("x", "y")]
         emit_rows(rows)
         out = capsys.readouterr().out
@@ -210,7 +218,7 @@ class TestEmitKv:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Agent mode emits 'key: value' lines."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         pairs = [("name", "Alice"), ("age", "30"), ("city", "NYC")]
         emit_kv(pairs)
         out = capsys.readouterr().out
@@ -223,7 +231,7 @@ class TestEmitKv:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Agent mode with title prepends title line."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         pairs = [("key1", "val1")]
         emit_kv(pairs, title="My Data")
         out = capsys.readouterr().out
@@ -235,7 +243,7 @@ class TestEmitKv:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Agent mode with full=False truncates large KV output."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         pairs = [(f"k{i}", f"v{i}" * 50) for i in range(50)]
         emit_kv(pairs, full=False)
         out = capsys.readouterr().out
@@ -245,7 +253,7 @@ class TestEmitKv:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Agent mode with full=True never truncates."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         pairs = [(f"k{i}", f"v{i}" * 50) for i in range(50)]
         emit_kv(pairs, full=True)
         out = capsys.readouterr().out
@@ -255,7 +263,7 @@ class TestEmitKv:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """TTY mode renders a two-column rich table."""
-        monkeypatch.setenv("SPECOPS_AGENT", "0")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "0")
         pairs = [("name", "Alice")]
         emit_kv(pairs, title="Info")
         out = capsys.readouterr().out
@@ -270,7 +278,7 @@ class TestEmitJson:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Agent mode emits dense JSON: single line, no spaces after ':' or ','."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         data = {"key": "value", "num": 42, "nested": {"a": 1}}
         emit_json(data)
         out = capsys.readouterr().out.strip()
@@ -282,7 +290,7 @@ class TestEmitJson:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """TTY mode emits indented JSON with indent=2."""
-        monkeypatch.setenv("SPECOPS_AGENT", "0")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "0")
         data = {"key": "value", "nested": {"a": 1}}
         emit_json(data)
         out = capsys.readouterr().out
@@ -297,7 +305,7 @@ class TestEmitStatus:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Agent mode 'ok' status goes to stdout as 'OK: message'."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         emit_status("ok", "Operation succeeded")
         out = capsys.readouterr()
         assert out.out == "OK: Operation succeeded\n"
@@ -307,7 +315,7 @@ class TestEmitStatus:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Agent mode 'warn' status goes to stdout as 'WARN: message'."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         emit_status("warn", "Be careful")
         out = capsys.readouterr()
         assert out.out == "WARN: Be careful\n"
@@ -317,7 +325,7 @@ class TestEmitStatus:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Agent mode 'info' status goes to stdout as 'INFO: message'."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         emit_status("info", "FYI")
         out = capsys.readouterr()
         assert out.out == "INFO: FYI\n"
@@ -327,7 +335,7 @@ class TestEmitStatus:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Agent mode 'error' status goes to stderr as 'ERROR: message'."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         emit_status("error", "Failed")
         out = capsys.readouterr()
         assert out.out == ""
@@ -337,7 +345,7 @@ class TestEmitStatus:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """TTY mode renders a styled status line for 'ok' via the rich console."""
-        monkeypatch.setenv("SPECOPS_AGENT", "0")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "0")
         emit_status("ok", "All good")
         out = capsys.readouterr().out
         assert "All good" in out
@@ -346,7 +354,7 @@ class TestEmitStatus:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """TTY mode renders 'error' status to stdout too (only agent mode uses stderr)."""
-        monkeypatch.setenv("SPECOPS_AGENT", "0")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "0")
         emit_status("error", "Broken")
         out = capsys.readouterr()
         assert "Broken" in out.out
@@ -360,7 +368,7 @@ class TestEmitText:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Agent mode with full=False truncates long text."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         text = "\n".join(["line" + str(i) for i in range(100)])
         emit_text(text, full=False)
         out = capsys.readouterr().out
@@ -370,7 +378,7 @@ class TestEmitText:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Agent mode with full=True never truncates."""
-        monkeypatch.setenv("SPECOPS_AGENT", "1")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         text = "\n".join(["line" + str(i) for i in range(100)])
         emit_text(text, full=True)
         out = capsys.readouterr().out
@@ -380,7 +388,7 @@ class TestEmitText:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """TTY mode prints text via the rich console, untruncated."""
-        monkeypatch.setenv("SPECOPS_AGENT", "0")
+        monkeypatch.setenv("AI_GOVERNANCE_AGENT", "0")
         text = "\n".join(["line" + str(i) for i in range(100)])
         emit_text(text)
         out = capsys.readouterr().out

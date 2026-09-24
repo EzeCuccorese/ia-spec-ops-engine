@@ -41,7 +41,7 @@ def find_project_root(
     start_dir: Path | None = None,
     boundary: Path | None = None,
 ) -> Path:
-    """Walks upwards from start_dir (default: Path.cwd()) looking for a directory containing .specops or .git.
+    """Walks upwards from start_dir (default: Path.cwd()) looking for a directory containing .workspace or .git.
 
     Does not escape into Path.home() or root filesystem when boundary is reached or when .git in $HOME is encountered.
     """
@@ -81,7 +81,7 @@ def find_project_root(
         if current != parent and _is_home_or_root(parent):
             break
 
-        if (parent / ".specops").exists() or (parent / ".git").exists():
+        if (parent / ".workspace").exists() or (parent / ".git").exists():
             return parent
 
         if boundary_path is not None and parent == boundary_path:
@@ -120,11 +120,13 @@ def load_project_config(
     else:
         root = find_project_root(start_dir)
         candidate_paths = [
-            root / ".specops" / "config.json",
+            root / ".workspace" / "config.json",
         ]
         if "XDG_CONFIG_HOME" in os.environ:
-            candidate_paths.append(Path(os.environ["XDG_CONFIG_HOME"]) / "specops" / "config.json")
-        candidate_paths.append(Path.home() / ".config" / "specops" / "config.json")
+            candidate_paths.append(
+                Path(os.environ["XDG_CONFIG_HOME"]) / "workspace" / "config.json"
+            )
+        candidate_paths.append(Path.home() / ".config" / "workspace" / "config.json")
         candidate_paths.append(root / "config.json")
 
         target_path = next((p for p in candidate_paths if p.exists()), None)

@@ -1,18 +1,7 @@
 {
-  "schema_version": 1,
-  "total_rules": 29,
+  "schema_version": 2,
+  "total_rules": 28,
   "rules": [
-    {
-      "id": "00-deterministic-first",
-      "category": "0-harness",
-      "file": "0-harness/00-deterministic-first.md",
-      "description": "Prefer the harness's deterministic tools over manual work; announce usage; keep output frugal; delegation tiers; wording",
-      "triggers": {
-        "globs": [
-          "**/*"
-        ]
-      }
-    },
     {
       "id": "01-clean-code-solid",
       "category": "1-core",
@@ -20,9 +9,21 @@
       "description": "Universal clean code and SOLID design principles",
       "triggers": {
         "globs": [
-          "**/*"
+          "**/*.py",
+          "**/*.java",
+          "**/*.kt",
+          "**/*.ts",
+          "**/*.tsx",
+          "**/*.js",
+          "**/*.jsx",
+          "**/*.go",
+          "**/*.rs",
+          "**/*.cs",
+          "**/*.php",
+          "**/*.dart"
         ]
-      }
+      },
+      "stacks": []
     },
     {
       "id": "02-clean-architecture-hexagonal",
@@ -35,7 +36,8 @@
           "app/**",
           "domain/**"
         ]
-      }
+      },
+      "stacks": []
     },
     {
       "id": "03-ddd-domain-modeling",
@@ -48,7 +50,8 @@
           "**/model/**",
           "**/entities/**"
         ]
-      }
+      },
+      "stacks": []
     },
     {
       "id": "04-testing-patterns",
@@ -62,19 +65,21 @@
           "**/*_test.*",
           "**/*Test.*"
         ]
-      }
+      },
+      "stacks": []
     },
     {
       "id": "05-git-commits",
       "category": "1-core",
       "file": "1-core/05-git-commits.md",
-      "description": "Git commit formatting, Conventional Commits, and zero AI attribution",
+      "description": "Git commit formatting and Conventional Commits",
       "triggers": {
         "globs": [
           ".git/**",
           ".github/**"
         ]
-      }
+      },
+      "stacks": []
     },
     {
       "id": "06-security-privacy",
@@ -85,7 +90,8 @@
         "globs": [
           "**/*"
         ]
-      }
+      },
+      "stacks": []
     },
     {
       "id": "07-event-driven-architecture",
@@ -99,7 +105,8 @@
           "**/rabbit/**",
           "**/messaging/**"
         ]
-      }
+      },
+      "stacks": []
     },
     {
       "id": "08-resilience-fault-tolerance",
@@ -112,7 +119,8 @@
           "**/http/**",
           "**/services/**"
         ]
-      }
+      },
+      "stacks": []
     },
     {
       "id": "09-concurrency-locking",
@@ -125,7 +133,8 @@
           "**/cache/**",
           "**/concurrency/**"
         ]
-      }
+      },
+      "stacks": []
     },
     {
       "id": "10-refactoring-strangler",
@@ -134,9 +143,21 @@
       "description": "Refactoring rules, Strangler Fig pattern, and Anti-Corruption Layers",
       "triggers": {
         "globs": [
-          "**/*"
+          "**/*.py",
+          "**/*.java",
+          "**/*.kt",
+          "**/*.ts",
+          "**/*.tsx",
+          "**/*.js",
+          "**/*.jsx",
+          "**/*.go",
+          "**/*.rs",
+          "**/*.cs",
+          "**/*.php",
+          "**/*.dart"
         ]
-      }
+      },
+      "stacks": []
     },
     {
       "id": "java-spring",
@@ -150,7 +171,10 @@
           "build.gradle",
           "build.gradle.kts"
         ]
-      }
+      },
+      "stacks": [
+        "java"
+      ]
     },
     {
       "id": "csharp-dotnet",
@@ -163,7 +187,10 @@
           "**/*.csproj",
           "**/*.sln"
         ]
-      }
+      },
+      "stacks": [
+        "dotnet"
+      ]
     },
     {
       "id": "typescript-nodejs",
@@ -177,7 +204,11 @@
           "tsconfig.json",
           "package.json"
         ]
-      }
+      },
+      "stacks": [
+        "node",
+        "typescript"
+      ]
     },
     {
       "id": "react-frontend",
@@ -191,7 +222,10 @@
           "src/components/**",
           "src/pages/**"
         ]
-      }
+      },
+      "stacks": [
+        "react"
+      ]
     },
     {
       "id": "python-async",
@@ -204,7 +238,10 @@
           "pyproject.toml",
           "requirements.txt"
         ]
-      }
+      },
+      "stacks": [
+        "python"
+      ]
     },
     {
       "id": "go-idiomatic",
@@ -217,7 +254,10 @@
           "go.mod",
           "go.sum"
         ]
-      }
+      },
+      "stacks": [
+        "go"
+      ]
     },
     {
       "id": "rust-safety",
@@ -230,7 +270,10 @@
           "Cargo.toml",
           "Cargo.lock"
         ]
-      }
+      },
+      "stacks": [
+        "rust"
+      ]
     },
     {
       "id": "kotlin",
@@ -242,7 +285,10 @@
           "**/*.kt",
           "**/*.kts"
         ]
-      }
+      },
+      "stacks": [
+        "kotlin"
+      ]
     },
     {
       "id": "php-modern",
@@ -254,7 +300,10 @@
           "**/*.php",
           "composer.json"
         ]
-      }
+      },
+      "stacks": [
+        "php"
+      ]
     },
     {
       "id": "flutter-dart",
@@ -266,7 +315,10 @@
           "**/*.dart",
           "pubspec.yaml"
         ]
-      }
+      },
+      "stacks": [
+        "flutter"
+      ]
     },
     {
       "id": "database-migrations",
@@ -279,7 +331,10 @@
           "**/db/**",
           "**/resources/db/**"
         ]
-      }
+      },
+      "stacks": [
+        "migrations"
+      ]
     },
     {
       "id": "sql-database-modeling",
@@ -292,7 +347,11 @@
           "**/queries/**",
           "**/repositories/**"
         ]
-      }
+      },
+      "stacks": [
+        "sql",
+        "migrations"
+      ]
     },
     {
       "id": "api-design",
@@ -307,7 +366,8 @@
           "**/*.openapi.*",
           "**/*.swagger.*"
         ]
-      }
+      },
+      "stacks": []
     },
     {
       "id": "observability",
@@ -320,7 +380,8 @@
           "**/telemetry/**",
           "**/monitoring/**"
         ]
-      }
+      },
+      "stacks": []
     },
     {
       "id": "docker-containers",
@@ -333,7 +394,10 @@
           "docker-compose*.yml",
           ".dockerignore"
         ]
-      }
+      },
+      "stacks": [
+        "docker"
+      ]
     },
     {
       "id": "kubernetes-cloudnative",
@@ -347,7 +411,10 @@
           "**/*.yaml",
           "**/*.yml"
         ]
-      }
+      },
+      "stacks": [
+        "kubernetes"
+      ]
     },
     {
       "id": "cicd-supply-chain",
@@ -360,7 +427,12 @@
           ".gitlab-ci.yml",
           "Jenkinsfile"
         ]
-      }
+      },
+      "stacks": [
+        "github-actions",
+        "gitlab-ci",
+        "jenkins"
+      ]
     },
     {
       "id": "diagrams-and-docs",
@@ -374,227 +446,8 @@
           "**/*.mmd",
           "**/*.puml"
         ]
-      }
-    }
-  ],
-  "tools": [
-    {
-      "id": "frugal-pre-bash",
-      "package": "ai-governance",
-      "command": "frugal --pre-bash",
-      "purpose": "Warn the agent before running a shell command that a deterministic tool already covers.",
-      "trigger": "before-shell-command",
-      "io": {
-        "stdin": "json",
-        "stdout": "json"
       },
-      "replaces": [],
-      "fail_mode": "open"
-    },
-    {
-      "id": "frugal-post-bash",
-      "package": "ai-governance",
-      "command": "frugal --post-bash",
-      "purpose": "Condense shell output; keep failures and summary; cite the full log path.",
-      "trigger": "after-shell-command",
-      "io": {
-        "stdin": "json",
-        "stdout": "json"
-      },
-      "replaces": [
-        "<runner> test with full output",
-        "docker logs without --tail",
-        "kubectl logs without --tail"
-      ],
-      "fail_mode": "open"
-    },
-    {
-      "id": "telemetry-thresholds",
-      "package": "ai-governance",
-      "command": "telemetry thresholds --notify",
-      "purpose": "Notify when spend or context usage crosses a configured threshold.",
-      "trigger": "on-turn-end",
-      "io": {
-        "stdin": "none",
-        "stdout": "text"
-      },
-      "replaces": [],
-      "fail_mode": "open"
-    },
-    {
-      "id": "worktree-create",
-      "package": "workspace",
-      "command": "ws hook claude-worktree-create",
-      "purpose": "Provision an isolated Git worktree when the host creates one for an agent.",
-      "trigger": "on-worktree-create",
-      "io": {
-        "stdin": "json",
-        "stdout": "json"
-      },
-      "replaces": [],
-      "fail_mode": "open"
-    },
-    {
-      "id": "progress-here",
-      "package": "ai-governance",
-      "command": "progress here --json",
-      "purpose": "Resolve and show the task tracked for the current branch or repository.",
-      "trigger": "on-demand",
-      "io": {
-        "stdin": "text",
-        "stdout": "json"
-      },
-      "replaces": [
-        "read progress.md",
-        "cat PROGRESS.md",
-        "git log to reconstruct task state"
-      ],
-      "fail_mode": "open"
-    },
-    {
-      "id": "progress-view",
-      "package": "ai-governance",
-      "command": "progress view <task-id> --json",
-      "purpose": "Show the full state of a single tracked task.",
-      "trigger": "on-demand",
-      "io": {
-        "stdin": "text",
-        "stdout": "json"
-      },
-      "replaces": [],
-      "fail_mode": "open"
-    },
-    {
-      "id": "progress-list",
-      "package": "ai-governance",
-      "command": "progress list --json",
-      "purpose": "List all tracked tasks and their status.",
-      "trigger": "on-demand",
-      "io": {
-        "stdin": "text",
-        "stdout": "json"
-      },
-      "replaces": [],
-      "fail_mode": "open"
-    },
-    {
-      "id": "progress-step",
-      "package": "ai-governance",
-      "command": "progress step <task-id> add|done <text>",
-      "purpose": "Add or complete a step on a tracked task.",
-      "trigger": "on-demand",
-      "io": {
-        "stdin": "text",
-        "stdout": "text"
-      },
-      "replaces": [
-        "edit a TODO/progress markdown by hand"
-      ],
-      "fail_mode": "open"
-    },
-    {
-      "id": "progress-fact",
-      "package": "ai-governance",
-      "command": "progress fact <task-id> <text>",
-      "purpose": "Record a verified fact on a tracked task.",
-      "trigger": "on-demand",
-      "io": {
-        "stdin": "text",
-        "stdout": "text"
-      },
-      "replaces": [],
-      "fail_mode": "open"
-    },
-    {
-      "id": "ws-worktree",
-      "package": "workspace",
-      "command": "ws worktree <repo> <target> <branch>",
-      "purpose": "Create an isolated Git worktree for a repository and branch.",
-      "trigger": "on-demand",
-      "io": {
-        "stdin": "text",
-        "stdout": "text"
-      },
-      "replaces": [
-        "git worktree add <path>"
-      ],
-      "fail_mode": "open"
-    },
-    {
-      "id": "ws-hooks",
-      "package": "workspace",
-      "command": "ws hooks status",
-      "purpose": "Report the installed state of the repository's quality-gate hooks.",
-      "trigger": "on-demand",
-      "io": {
-        "stdin": "text",
-        "stdout": "text"
-      },
-      "replaces": [
-        "cat .git/hooks/*",
-        "ls .githooks"
-      ],
-      "fail_mode": "open"
-    },
-    {
-      "id": "ws-doctor",
-      "package": "workspace",
-      "command": "ws doctor",
-      "purpose": "Verify system tools, compilers, and development environment are correctly set up.",
-      "trigger": "on-demand",
-      "io": {
-        "stdin": "text",
-        "stdout": "text"
-      },
-      "replaces": [
-        "which java node python go"
-      ],
-      "fail_mode": "open"
-    },
-    {
-      "id": "jira-issue",
-      "package": "ai-governance",
-      "command": "jira issue <KEY>",
-      "purpose": "Display a Jira issue as clean Markdown without raw API overhead.",
-      "trigger": "on-demand",
-      "io": {
-        "stdin": "text",
-        "stdout": "text"
-      },
-      "replaces": [
-        "curl <atlassian>/rest/api"
-      ],
-      "fail_mode": "open"
-    },
-    {
-      "id": "confluence-read",
-      "package": "ai-governance",
-      "command": "confluence read <page>",
-      "purpose": "Display a Confluence page as clean Markdown without raw API overhead.",
-      "trigger": "on-demand",
-      "io": {
-        "stdin": "text",
-        "stdout": "text"
-      },
-      "replaces": [
-        "curl <atlassian>/wiki/rest/api"
-      ],
-      "fail_mode": "open"
-    },
-    {
-      "id": "telemetry-usage",
-      "package": "ai-governance",
-      "command": "telemetry usage --json",
-      "purpose": "Report local usage estimate (spend and tokens) from session transcripts.",
-      "trigger": "on-demand",
-      "io": {
-        "stdin": "text",
-        "stdout": "json"
-      },
-      "replaces": [
-        "grep/parse ~/.claude/projects/**/*.jsonl"
-      ],
-      "fail_mode": "open"
+      "stacks": []
     }
   ]
 }

@@ -30,7 +30,7 @@ def test_collision_uses_deterministic_suffix_and_never_escapes(tmp_path: Path) -
 
 
 def test_hook_is_fail_open_for_invalid_payload(tmp_path: Path, monkeypatch, capsys) -> None:
-    monkeypatch.setenv("SPECOPS_WORKTREES_DIR", str(tmp_path))
+    monkeypatch.setenv("WORKSPACE_WORKTREES_DIR", str(tmp_path))
     monkeypatch.setattr("sys.stdin", io.StringIO("not-json"))
     assert main([]) == 0
     assert capsys.readouterr().out == ""
@@ -79,7 +79,7 @@ def test_hook_main_ignores_non_dict_payload(monkeypatch, capsys) -> None:
 
 
 def test_hook_main_no_destination_returns_zero(tmp_path: Path, monkeypatch, capsys) -> None:
-    monkeypatch.setenv("SPECOPS_WORKTREES_DIR", str(tmp_path))
+    monkeypatch.setenv("WORKSPACE_WORKTREES_DIR", str(tmp_path))
     monkeypatch.setattr(
         "sys.stdin", io.StringIO(json.dumps({"root_path": "", "worktree_base": "branch"}))
     )

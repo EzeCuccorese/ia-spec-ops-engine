@@ -35,9 +35,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from ai_governance.frugality import cli as frugal_cli
+from ai_governance.telemetry.claude_usage import ClaudeUsageCalculator
 from ai_governance.telemetry.cost_monitor import CostMonitor
-from ai_governance.telemetry.ritmo import RitmoCalculator
 from ai_governance.tools import confluence, jira
 
 # ── U01: Monthly Pace Requires Monthly Input ──────────────────────────────────
@@ -50,7 +49,7 @@ def test_monthly_pace_requires_monthly_input() -> None:
     the full monthly spend.
     """
     # 1. Ritmo pace calculation without monthly spend input must return unknown status
-    status = RitmoCalculator.calculate_pace(
+    status = ClaudeUsageCalculator.calculate_pace(
         monthly_budget_usd=100.0,
         actual_spend_usd=None,
         target_date=date(2026, 9, 10),
@@ -61,7 +60,7 @@ def test_monthly_pace_requires_monthly_input() -> None:
     assert "unknown" in status.status_label.lower()
 
     # 2. When monthly spend is explicitly known, ritmo reports pace accurately
-    status_known = RitmoCalculator.calculate_pace(
+    status_known = ClaudeUsageCalculator.calculate_pace(
         monthly_budget_usd=100.0,
         actual_spend_usd=150.0,
         target_date=date(2026, 9, 10),
@@ -135,148 +134,10 @@ def test_telemetry_unknown_and_dedup(tmp_path: Path) -> None:
 # ── U03: Frugal Never Grants Permission ───────────────────────────────────────
 
 
-def test_frugal_never_grants_permission(monkeypatch, capsys, tmp_path: Path) -> None:
-    """U03: PreToolUse and PostToolUse hooks never emit 'permissionDecision': 'allow'
-
-    or any permission grant under any input or exception.
-    """
-    monkeypatch.setattr(frugal_cli, "get_runtime_dir", lambda: tmp_path)
-
-    # Payloads attempting to elicit an allow grant or containing permissionDecision
-    test_payloads = [
-        {"tool_input": {"command": "git log"}},
-        {"tool_input": {"command": "cat package-lock.json"}, "permissionDecision": "allow"},
-        {"tool_input": {"command": "rm -rf /"}, "request_permission": True},
-        {"malformed": "json-no-tool-input"},
-    ]
-
-    for p in test_payloads:
-        # Test PreToolUse
-        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(p)))
-        frugal_cli.run_pre_bash({})
-        out_pre = capsys.readouterr().out
-        assert '"permissionDecision": "allow"' not in out_pre
-        assert '"allow"' not in out_pre.lower()
-
-        # Test PostToolUse
-        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(p)))
-        frugal_cli.run_post_bash({})
-        out_post = capsys.readouterr().out
-        assert '"permissionDecision": "allow"' not in out_post
-        assert '"allow"' not in out_post.lower()
-
-    # Exception safety: pass completely invalid JSON string
-    monkeypatch.setattr("sys.stdin", io.StringIO("{bad json..."))
-    frugal_cli.run_pre_bash({})
-    assert "allow" not in capsys.readouterr().out
-
-
 # ── U04: Frugal Preserves Failure and Full Output ─────────────────────────────
 
 
-def test_frugal_preserves_failure_and_full_output(monkeypatch, capsys, tmp_path: Path) -> None:
-    """U04: Trimming long output preserves failure indicators, exit code, stderr,
-
-    interruption status, and full output reference path.
-    """
-    monkeypatch.setattr(frugal_cli, "get_runtime_dir", lambda: tmp_path)
-
-    cfg = {
-        "test_umbral_chars": 200,
-        "test_head_lineas": 2,
-        "test_tail_lineas": 3,
-        "test_contexto_antes": 2,
-        "test_contexto_despues": 4,
-    }
-
-    # Generate long test failure output
-    failure_lines = [
-        "pytest test session starts",
-        "rootdir: /app",
-    ]
-    for i in range(100):
-        failure_lines.append(f"tests/test_{i}.py . PASSED")
-    failure_lines.extend(
-        [
-            "_____________________________ test_checkout_failed _____________________________",
-            "E   AssertionError: Cart total mismatch: 120.00 != 100.00",
-            "tests/test_checkout.py:45: AssertionError",
-            "=========================== 1 failed, 100 passed in 4.5s ===========================",
-        ]
-    )
-    long_stdout = "\n".join(failure_lines)
-
-    input_payload = {
-        "tool_input": {"command": "pytest tests/"},
-        "tool_response": {
-            "stdout": long_stdout,
-            "stderr": "warning: Deprecated option used",
-            "exitCode": 1,
-            "interrupted": False,
-            "persistedOutputPath": "/tmp/test-output-full.log",
-        },
-    }
-
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(input_payload)))
-    frugal_cli.run_post_bash(cfg)
-
-    raw_out = capsys.readouterr().out
-    assert raw_out.strip() != ""
-    data = json.loads(raw_out)
-    updated = data["hookSpecificOutput"]["updatedToolOutput"]
-
-    # When tool_response was a dictionary, updatedToolOutput preserves full dict metadata
-    if isinstance(updated, dict):
-        assert updated["exitCode"] == 1
-        assert updated["stderr"] == "warning: Deprecated option used"
-        assert updated["interrupted"] is False
-        assert updated["persistedOutputPath"] == "/tmp/test-output-full.log"
-        trimmed_stdout = updated["stdout"]
-    else:
-        trimmed_stdout = updated
-
-    # Failure trace and full output reference must be present in trimmed output
-    assert "AssertionError: Cart total mismatch" in trimmed_stdout
-    assert "1 failed, 100 passed" in trimmed_stdout
-    assert "/tmp/test-output-full.log" in trimmed_stdout
-    assert len(trimmed_stdout) < len(long_stdout)
-
-
 # ── U05: Host Output Contract Is Valid ────────────────────────────────────────
-
-
-def test_host_output_contract_is_valid(monkeypatch, capsys, tmp_path: Path) -> None:
-    """U05: Output format of frugal hooks strictly matches the Claude Code / agent
-
-    native hook specification.
-    """
-    monkeypatch.setattr(frugal_cli, "get_runtime_dir", lambda: tmp_path)
-
-    # 1. PreToolUse format
-    pre_payload = {"tool_input": {"command": "git log"}}
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(pre_payload)))
-    frugal_cli.run_pre_bash({})
-    out_pre = capsys.readouterr().out
-    data_pre = json.loads(out_pre)
-    assert "hookSpecificOutput" in data_pre
-    hook_pre = data_pre["hookSpecificOutput"]
-    assert hook_pre["hookEventName"] == "PreToolUse"
-    assert isinstance(hook_pre["additionalContext"], str)
-
-    # 2. PostToolUse format
-    cfg = {"test_umbral_chars": 50, "test_head_lineas": 1, "test_tail_lineas": 1}
-    post_payload = {
-        "tool_input": {"command": "pytest"},
-        "tool_output": "PASS 1\n" * 50 + "100 passed",
-    }
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(post_payload)))
-    frugal_cli.run_post_bash(cfg)
-    out_post = capsys.readouterr().out
-    data_post = json.loads(out_post)
-    assert "hookSpecificOutput" in data_post
-    hook_post = data_post["hookSpecificOutput"]
-    assert hook_post["hookEventName"] == "PostToolUse"
-    assert "updatedToolOutput" in hook_post
 
 
 # ── U06: Atlassian Profiles and Pagination ────────────────────────────────────

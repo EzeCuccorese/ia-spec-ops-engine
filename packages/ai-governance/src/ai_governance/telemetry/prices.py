@@ -29,7 +29,7 @@ DEFAULT_FEED_URL = (
 
 
 def _fetch_json(url: str, timeout: float) -> dict[str, Any]:
-    request = urllib.request.Request(url, headers={"User-Agent": "specops-telemetry/1"})
+    request = urllib.request.Request(url, headers={"User-Agent": "ai-governance-telemetry/1"})
     with urllib.request.urlopen(request, timeout=timeout) as response:
         value = json.loads(response.read().decode("utf-8"))
     if not isinstance(value, dict):

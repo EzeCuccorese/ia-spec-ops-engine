@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 from ai_governance.telemetry.state import (
-    TelemetryConfig,
     ThresholdTracker,
+    UsageConfig,
     atomic_json_write,
     notify_macos,
 )
@@ -33,36 +33,36 @@ def test_atomic_json_write_cleans_up_temp_file_on_failure(
 
 
 def test_config_holidays_parses_iso_dates() -> None:
-    config = TelemetryConfig(holiday_dates=("2026-01-01", "2026-12-25"))
+    config = UsageConfig(holiday_dates=("2026-01-01", "2026-12-25"))
     assert config.holidays == {date(2026, 1, 1), date(2026, 12, 25)}
 
 
 def test_config_holidays_invalid_date_raises() -> None:
-    config = TelemetryConfig(holiday_dates=("not-a-date",))
+    config = UsageConfig(holiday_dates=("not-a-date",))
     with pytest.raises(ValueError, match="Invalid holiday date"):
         _ = config.holidays
 
 
 def test_effective_monthly_limit_with_hard_limit_below_budget() -> None:
-    config = TelemetryConfig(monthly_budget_usd=100.0, monthly_hard_limit_usd=40.0)
+    config = UsageConfig(monthly_budget_usd=100.0, monthly_hard_limit_usd=40.0)
     assert config.effective_monthly_limit == 40.0
 
 
 def test_effective_monthly_limit_with_hard_limit_above_budget() -> None:
-    config = TelemetryConfig(monthly_budget_usd=100.0, monthly_hard_limit_usd=500.0)
+    config = UsageConfig(monthly_budget_usd=100.0, monthly_hard_limit_usd=500.0)
     assert config.effective_monthly_limit == 100.0
 
 
 def test_config_load_missing_file_returns_defaults(tmp_path: Path) -> None:
-    config = TelemetryConfig.load(tmp_path / "missing.json")
-    assert config == TelemetryConfig()
+    config = UsageConfig.load(tmp_path / "missing.json")
+    assert config == UsageConfig()
 
 
 def test_config_load_non_dict_raises(tmp_path: Path) -> None:
     path = tmp_path / "config.json"
     path.write_text("[1, 2, 3]", encoding="utf-8")
     with pytest.raises(ValueError, match="must be a JSON object"):
-        TelemetryConfig.load(path)
+        UsageConfig.load(path)
 
 
 def test_config_load_coerces_thresholds_and_holidays(tmp_path: Path) -> None:
@@ -79,7 +79,7 @@ def test_config_load_coerces_thresholds_and_holidays(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    config = TelemetryConfig.load(path)
+    config = UsageConfig.load(path)
     assert config.daily_thresholds_pct == (50, 90)
     assert config.monthly_thresholds_pct == (80,)
     assert config.holiday_dates == ("2026-01-01",)
@@ -90,31 +90,31 @@ def test_config_load_rejects_non_positive_budget(tmp_path: Path) -> None:
     path = tmp_path / "config.json"
     path.write_text(json.dumps({"monthly_budget_usd": 0}), encoding="utf-8")
     with pytest.raises(ValueError, match="greater than zero"):
-        TelemetryConfig.load(path)
+        UsageConfig.load(path)
 
 
 def test_config_load_rejects_non_positive_calibration(tmp_path: Path) -> None:
     path = tmp_path / "config.json"
     path.write_text(json.dumps({"calibration": -1}), encoding="utf-8")
     with pytest.raises(ValueError, match="greater than zero"):
-        TelemetryConfig.load(path)
+        UsageConfig.load(path)
 
 
 def test_config_save_round_trips(tmp_path: Path) -> None:
     path = tmp_path / "config.json"
-    config = TelemetryConfig(
+    config = UsageConfig(
         monthly_budget_usd=50.0,
         daily_thresholds_pct=(25, 75),
         monthly_thresholds_pct=(60,),
         holiday_dates=("2026-05-01",),
     )
     config.save(path)
-    reloaded = TelemetryConfig.load(path)
+    reloaded = UsageConfig.load(path)
     assert reloaded == config
 
 
 def test_threshold_tracker_evaluate_monthly_crossing() -> None:
-    config = TelemetryConfig(monthly_budget_usd=100, monthly_thresholds_pct=(50, 90))
+    config = UsageConfig(monthly_budget_usd=100, monthly_thresholds_pct=(50, 90))
     messages, state = ThresholdTracker.evaluate(
         {"today_cost_usd": 1, "daily_budget_usd": 10, "month_cost_usd": 60},
         config,

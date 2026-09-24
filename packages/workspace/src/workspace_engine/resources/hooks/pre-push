@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# Global Quality Gate pre-push hook
-# Installed with: git config --global core.hooksPath ~/.githooks
+# Workspace Quality Gate pre-push hook
+# Registered as a Git config-based hook (never core.hooksPath):
+#   git config [--global] hook.workspace-gate.event pre-push
+#   git config [--global] hook.workspace-gate.command <path-to-this-script>
+# Git runs it first and the repository's own pre-push hook (Husky, .git/hooks) last.
 #
 # Environment variables:
 #   QG_SCOPE=all|changed        Scope of linters and tests (default: all)
-#   QG_SKIP=a,b,c               Skip checks: gitleaks,commits,lint,tests,repohooks,all
+#   QG_SKIP=a,b,c               Skip checks: gitleaks,commits,lint,tests,all
 #   QG_TIMEOUT=900              Timeout in seconds per step
 #   QG_COMMIT_STYLE=conventional  Require Conventional Commits in messages
 #   QG_PROTECTED="^(main)$"     Regex of protected branches (override)
@@ -35,9 +38,6 @@ cd "$REPO_ROOT" || exit 1
 # into test subprocesses that create or inspect a different temporary repo.
 unset $(git rev-parse --local-env-vars)
 
-abspath() { (cd "$(dirname "$1")" 2>/dev/null && printf '%s/%s\n' "$(pwd -P)" "$(basename "$1")"); }
-SELF_ABS="$(abspath "$0")"
-SELF_DIR="$(dirname "$SELF_ABS")"
 
 FAILED=0
 FAILED_STEPS=""
@@ -154,7 +154,7 @@ TMPD="$(mktemp -d "${TMPDIR:-/tmp}/qg.XXXXXX")" || exit 1
 trap 'rm -rf "$TMPD"' EXIT INT TERM
 RUN_SEQUENCE=0
 FAILURE_LOG_READY=0
-FAILURE_LOG_DIR="$(git rev-parse --git-path specops/quality-gate 2>/dev/null || printf '%s' "$TMPD")"
+FAILURE_LOG_DIR="$(git rev-parse --git-path workspace/quality-gate 2>/dev/null || printf '%s' "$TMPD")"
 FAILURE_LOG="$FAILURE_LOG_DIR/latest.log"
 
 # --- stdin -------------------------------------------------------------------
@@ -241,9 +241,9 @@ changed_files() {
   done < "$DIFF_FILES_FILE"
 }
 
-# ---------- [1/5] Security and secret scanning ----------
+# ---------- [1/4] Security and secret scanning ----------
 echo ""
-echo "🔒 [1/5] Checking for secrets in the commits being pushed..."
+echo "🔒 [1/4] Checking for secrets in the commits being pushed..."
 if skipped gitleaks; then
   warn "Security and Secrets: skipped by QG_SKIP"
 elif [ "$NOTHING_NEW" = "1" ]; then
@@ -283,9 +283,9 @@ else
   fi
 fi
 
-# ---------- [2/5] Commit policies ----------
+# ---------- [2/4] Commit policies ----------
 echo ""
-echo "📝 [2/5] Checking commit policies..."
+echo "📝 [2/4] Checking commit policies..."
 if skipped commits; then
   warn "Git Policies: skipped by QG_SKIP"
 elif [ "$NOTHING_NEW" = "1" ]; then
@@ -330,9 +330,9 @@ else
   fi
 fi
 
-# ---------- [3/5] Linters and static analysis ----------
+# ---------- [3/4] Linters and static analysis ----------
 echo ""
-echo "🔍 [3/5] Running static analysis and linters..."
+echo "🔍 [3/4] Running static analysis and linters..."
 if skipped lint; then
   warn "Linters and Static Analysis: skipped by QG_SKIP"
 else
@@ -469,9 +469,9 @@ else
   fi
 fi
 
-# ---------- [4/5] Test suites ----------
+# ---------- [4/4] Test suites ----------
 echo ""
-echo "🧪 [4/5] Running test suites..."
+echo "🧪 [4/4] Running test suites..."
 if skipped tests; then
   warn "Test Suites: skipped by QG_SKIP"
 else
@@ -639,62 +639,13 @@ else
   fi
 fi
 
-# ---------- [5/5] Repository's own hooks ----------
-# core.hooksPath being global makes git IGNORE the repo's own pre-push (Husky included).
-# Here we recover it: we look for the repo's hook and run it with the same stdin and arguments.
-echo ""
-echo "🪝 [5/5] Delegating to the repository's pre-push hook (Husky or other)..."
-if [ "${QG_IN_REPO_HOOK:-0}" = "1" ]; then
-  note "Already inside a delegated hook; not re-delegating."
-elif skipped repohooks; then
-  warn "REPOSITORY HOOKS SKIPPED by QG_SKIP=repohooks. The project's own checks did NOT run."
-else
-  HOOK_CANDS=()
-  LOCAL_HP="$(git config --local --get core.hooksPath 2>/dev/null || true)"
-  [ -n "$LOCAL_HP" ] && HOOK_CANDS+=("$LOCAL_HP/pre-push")
-  HOOK_CANDS+=(".husky/_/pre-push" ".husky/pre-push" ".git/hooks/pre-push" ".githooks/pre-push")
-
-  REPO_HOOK=""
-  for cand in "${HOOK_CANDS[@]}"; do
-    [ -f "$cand" ] || continue
-    case "$cand" in *.sample) continue ;; esac
-    cand_abs="$(abspath "$cand")" || continue
-    [ -n "$cand_abs" ] || continue
-    # Never delegate to ourselves or to another hook in this same directory: that would be infinite recursion.
-    [ "$cand_abs" = "$SELF_ABS" ] && continue
-    [ "$(dirname "$cand_abs")" = "$SELF_DIR" ] && continue
-    REPO_HOOK="$cand_abs"
-    break
-  done
-
-  if [ -z "$REPO_HOOK" ]; then
-    note "The repo has no pre-push hook of its own."
-    pass "Repository Hooks"
-  else
-    note "Running ${REPO_HOOK#$REPO_ROOT/}"
-    export QG_IN_REPO_HOOK=1
-    rh_rc=0
-    if [ -x "$REPO_HOOK" ]; then
-      run_to "$QG_TIMEOUT" "$REPO_HOOK" "$@" < "$STDIN_FILE" || rh_rc=$?
-    else
-      run_to "$QG_TIMEOUT" sh "$REPO_HOOK" "$@" < "$STDIN_FILE" || rh_rc=$?
-    fi
-    unset QG_IN_REPO_HOOK
-    if [ "$rh_rc" = "0" ]; then
-      pass "Repository Hooks"
-    else
-      fail "Repository Hooks (${REPO_HOOK#$REPO_ROOT/} exited with code $rh_rc)"
-    fi
-  fi
-fi
-
 echo ""
 if [ "$FAILED" = "1" ]; then
   echo "🛑 Quality Gate failed. Push canceled. Failing checks:"
   printf '%s' "$FAILED_STEPS"
   echo ""
   echo "To skip a specific check (not the whole gate):"
-  echo "  QG_SKIP=gitleaks git push          # gitleaks,commits,lint,tests,repohooks"
+  echo "  QG_SKIP=gitleaks git push          # gitleaks,commits,lint,tests"
   echo "To scope lint and tests to the files in the push:"
   echo "  QG_SCOPE=changed git push"
   exit 1

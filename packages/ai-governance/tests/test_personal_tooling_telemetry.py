@@ -7,10 +7,10 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+from ai_governance.telemetry.claude_usage import ClaudeUsageCalculator
 from ai_governance.telemetry.cost_monitor import CostMonitor
 from ai_governance.telemetry.prices import PriceCatalog
-from ai_governance.telemetry.ritmo import RitmoCalculator
-from ai_governance.telemetry.state import TelemetryConfig, ThresholdTracker
+from ai_governance.telemetry.state import ThresholdTracker, UsageConfig
 
 
 def test_cost_monitor_prices_cache_tiers_server_tools_and_provenance(tmp_path: Path) -> None:
@@ -81,7 +81,7 @@ def test_price_refresh_validates_before_replacing_cache(tmp_path: Path) -> None:
 
 def test_calibration_and_thresholds_are_explicit() -> None:
     assert CostMonitor.calibration_factor(estimated=80, actual=100) == pytest.approx(1.25)
-    cfg = TelemetryConfig(monthly_budget_usd=100, daily_thresholds_pct=(50, 90))
+    cfg = UsageConfig(monthly_budget_usd=100, daily_thresholds_pct=(50, 90))
     messages, state = ThresholdTracker.evaluate(
         {"today_cost_usd": 6, "daily_budget_usd": 10, "month_cost_usd": 20},
         cfg,
@@ -102,8 +102,8 @@ def test_calibration_and_thresholds_are_explicit() -> None:
 
 
 def test_business_day_calendar_is_configurable() -> None:
-    without_holiday = RitmoCalculator.calculate_pace(100, 10, target_date=date(2026, 9, 14))
-    with_holiday = RitmoCalculator.calculate_pace(
+    without_holiday = ClaudeUsageCalculator.calculate_pace(100, 10, target_date=date(2026, 9, 14))
+    with_holiday = ClaudeUsageCalculator.calculate_pace(
         100,
         10,
         target_date=date(2026, 9, 14),

@@ -15,7 +15,7 @@ from pathlib import Path
 PACKAGES = {
     "ai_governance": (
         "ai_governance",
-        ["specops", "governance", "rules", "progress", "jira", "confluence"],
+        ["ai-governance"],
     ),
     "spec": ("spec", ["spec"]),
     "workspace": ("workspace_engine", ["ws"]),
@@ -34,17 +34,17 @@ for module in modules:
     assert importlib.resources.files(module).is_dir()
 
 if "ai_governance" in modules:
-    from ai_governance.rules.core.catalog import RuleCatalog
-    from ai_governance.rules.cli import main as rules
+    from ai_governance.cli import main as governance
+    from ai_governance.rules.catalog import RuleCatalog
     from ai_governance.session.cli import main as progress
     catalog = RuleCatalog()
     manifest = json.loads((catalog.root / "manifest.json").read_text())
-    assert len(catalog.rules) == manifest["total_rules"] >= 29
-    assert len(catalog.tools) == len(manifest["tools"]) >= 15
-    resource = importlib.resources.files("ai_governance").joinpath("resources", "workflows", "progress.md")
-    assert resource.is_file()
-    rules(["install", "--local", "--all", "--root", "."])
-    assert "<!-- rules:start -->" in pathlib.Path("AGENTS.md").read_text()
+    assert len(catalog.rules) == manifest["total_rules"] >= 28
+    assert governance(["install", "--scope", "project", "--agent", "claude", "--root", "."]) == 0
+    assert "<!-- ai-governance:start -->" in pathlib.Path("AGENTS.md").read_text()
+    assert pathlib.Path(".claude/rules/ai-governance-06-security-privacy.md").is_file()
+    assert governance(["uninstall", "--scope", "project", "--agent", "claude", "--root", "."]) == 0
+    assert not pathlib.Path(".ai-governance").exists()
     assert progress(["new", "wheel-smoke", "--title", "Wheel smoke"]) == 0
     assert progress(["summary", "wheel-smoke", "Verified installed wheel"]) == 0
     assert progress(["step", "wheel-smoke", "add", "Verify resources"]) == 0
@@ -72,7 +72,7 @@ def verify(wheel_dir: Path) -> None:
         wheels[distribution] = matches[0].resolve()
 
     for selected in [*[[name] for name in PACKAGES], list(PACKAGES)]:
-        with tempfile.TemporaryDirectory(prefix="specops-wheel-") as directory:
+        with tempfile.TemporaryDirectory(prefix="wheel-check-") as directory:
             root = Path(directory)
             venv = root / "venv"
             cwd = root / "project"
@@ -84,7 +84,7 @@ def verify(wheel_dir: Path) -> None:
             # All runtime writes remain in this disposable environment.
             env["HOME"] = str(root)
             env["XDG_CONFIG_HOME"] = str(root / "config")
-            env["SPECOPS_PROGRESS_DIR"] = str(root / "progress")
+            env["AI_GOVERNANCE_STATE_DIR"] = str(root / "state")
             env["GIT_CONFIG_GLOBAL"] = os.devnull
             env["GIT_CONFIG_SYSTEM"] = os.devnull
             subprocess.run(["uv", "venv", "--python", sys.executable, str(venv)], check=True)

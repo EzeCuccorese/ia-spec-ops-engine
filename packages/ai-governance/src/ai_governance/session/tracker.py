@@ -17,6 +17,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from ..paths import state_dir
+
 try:
     import fcntl
 except ImportError:
@@ -147,35 +149,11 @@ class SessionTracker:
     def __init__(
         self, root_dir: Path | None = None, compact_limits: dict[str, int] | None = None
     ) -> None:
-        if root_dir is not None:
-            self.root_dir = root_dir
-        else:
-            env_dir = os.environ.get("SPECOPS_PROGRESS_DIR") or os.environ.get(
-                "CLAUDE_PROGRESS_DIR"
-            )
-            if env_dir:
-                self.root_dir = Path(env_dir)
-            else:
-                specops_dir = Path.home() / ".specops" / "progress"
-                claude_dir = Path.home() / ".claude" / "progress"
-                if claude_dir.exists() and not specops_dir.exists():
-                    self.root_dir = claude_dir
-                else:
-                    self.root_dir = specops_dir
-
-        legacy_dir = self.root_dir / "tareas"
+        self.root_dir = root_dir if root_dir is not None else state_dir() / "progress"
         self.tasks_dir = self.root_dir / "tasks"
-        if legacy_dir.exists() and not self.tasks_dir.exists():
-            self.tasks_dir = legacy_dir
-
-        legacy_archive = self.root_dir / "archivadas"
-        self.archive_dir = self.root_dir / "archived"
-        if legacy_archive.exists() and not self.archive_dir.exists():
-            self.archive_dir = legacy_archive
 
         try:
             self.tasks_dir.mkdir(parents=True, exist_ok=True)
-            self.archive_dir.mkdir(parents=True, exist_ok=True)
         except OSError as e:
             raise OSError(
                 f"Configured progress directory {self.root_dir} is inaccessible or cannot be created: {e}"
@@ -510,29 +488,3 @@ class SessionTracker:
         if max_chars > 0 and len(text) > max_chars:
             return text[: max(0, max_chars - 1)].rstrip() + "…"
         return text
-
-    def import_legacy_directory(self, legacy_root: Path) -> dict[str, int]:
-        report = {"imported": 0, "skipped": 0, "invalid": 0}
-        sources = [legacy_root / "tasks", legacy_root / "archived"]
-        for source in sources:
-            if not source.exists():
-                continue
-            for path in sorted(source.glob("*.json")):
-                try:
-                    data = json.loads(path.read_text(encoding="utf-8"))
-                    task = TaskState.from_dict(data)
-                    self._validate_task_id(task.id)
-                    if self.get_task(task.id) is not None:
-                        report["skipped"] += 1
-                        continue
-                    self.create_task(task)
-                    legacy_log = path.with_suffix(".md")
-                    if legacy_log.exists():
-                        self.append_log(
-                            task.id,
-                            "Imported legacy log:\n\n" + legacy_log.read_text(encoding="utf-8"),
-                        )
-                    report["imported"] += 1
-                except (OSError, ValueError, TypeError):
-                    report["invalid"] += 1
-        return report

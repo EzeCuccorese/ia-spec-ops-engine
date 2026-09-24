@@ -23,7 +23,7 @@ def _scope_row(
     hook_exists = bool(scope_status["hook_exists"])
     is_executable = bool(scope_status["is_executable"])
     is_active = bool(scope_status["is_active"])
-    configured_hooks_path = scope_status["configured_hooks_path"] or (
+    configured_command = scope_status["configured_command"] or (
         "Not configured" if agent_mode else "[dim]Not configured[/dim]"
     )
 
@@ -38,7 +38,7 @@ def _scope_row(
         )
         active = "[green]✓ ACTIVE[/green]" if is_active else "[dim]Inactive[/dim]"
 
-    return (label, str(scope_status["hook_path"]), str(configured_hooks_path), perm, active)
+    return (label, str(scope_status["hook_path"]), str(configured_command), perm, active)
 
 
 def render_hooks_status(target_dir: Path | None = None) -> None:
@@ -52,7 +52,13 @@ def render_hooks_status(target_dir: Path | None = None) -> None:
     ]
     emit_rows(
         rows,
-        headers=("Scope", "Hook Location", "core.hooksPath", "Permissions", "Active Status"),
+        headers=(
+            "Scope",
+            "Hook Location",
+            "hook.workspace-gate.command",
+            "Permissions",
+            "Active Status",
+        ),
         title="Git Hooks & Quality Gate Status",
         full=True,
     )
@@ -77,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
         "-g",
         dest="is_global",
         action="store_true",
-        help="Install globally in ~/.githooks",
+        help="Register globally (git config --global hook.workspace-gate.*)",
     )
     p_inst.add_argument("--dir", "-d", help="Repository root directory (defaults to cwd)")
     p_inst.add_argument(

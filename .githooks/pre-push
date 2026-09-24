@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
-# Use the packaged source while retaining this hook's identity for delegation.
+# Run the in-repo (development) copy of the workspace quality gate.
 HOOK_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$HOOK_ROOT/packages/workspace/src/workspace_engine/resources/hooks/pre-push" "$@"

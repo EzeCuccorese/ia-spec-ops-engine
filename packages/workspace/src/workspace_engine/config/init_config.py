@@ -1,6 +1,6 @@
 """
-workspace_engine.config.init_config — Auto-bootstrapping and configuration generator for SpecOps.
-Generates project-local (.specops/config.json) or user-global (~/.config/specops/config.json) configurations.
+workspace_engine.config.init_config — Auto-bootstrapping and configuration generator for workspace.
+Generates project-local (.workspace/config.json) or user-global (~/.config/workspace/config.json) configurations.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from workspace_engine.common import log_error, log_success, log_warning
 
 
 def generate_default_config(project_name: str, domain: str, *, enterprise: bool = False) -> dict:
-    """Returns a SpecOps configuration dictionary (minimal by default, or full enterprise profile)."""
+    """Returns a workspace configuration dictionary (minimal by default, or full enterprise profile)."""
     cfg: dict[str, object] = {
         "project_name": project_name,
         "domain": domain,
@@ -92,13 +92,13 @@ def resolve_config_target(
         from workspace_engine.run_local.constants import find_project_root
 
         root = find_project_root(current_dir)
-        return root / ".specops" / "config.json"
+        return root / ".workspace" / "config.json"
 
     # Default to global configuration unless local was explicitly requested
     xdg_home = os.environ.get("XDG_CONFIG_HOME")
     if xdg_home:
-        return Path(xdg_home) / "specops" / "config.json"
-    return Path.home() / ".config" / "specops" / "config.json"
+        return Path(xdg_home) / "workspace" / "config.json"
+    return Path.home() / ".config" / "workspace" / "config.json"
 
 
 def init_config(
@@ -114,7 +114,7 @@ def init_config(
     enterprise: bool = False,
     devops: bool = False,
 ) -> Path:
-    """Initializes a new SpecOps config.json file.
+    """Initializes a new workspace config.json file.
 
     Returns the Path to the written configuration file.
     """
@@ -137,7 +137,7 @@ def init_config(
         from workspace_engine.run_local.constants import find_project_root
 
         resolved_root = find_project_root(current_dir) if is_local else current_dir
-        default_name = resolved_root.name or current_dir.name or "specops-project"
+        default_name = resolved_root.name or current_dir.name or "workspace-project"
         if non_interactive or not sys.stdin.isatty():
             project_name = default_name
         else:
@@ -159,7 +159,7 @@ def init_config(
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(config_data, indent=2) + "\n", encoding="utf-8")
 
-    log_success(f"Initialized SpecOps configuration at {target}")
+    log_success(f"Initialized workspace configuration at {target}")
     return target
 
 
@@ -173,19 +173,19 @@ def add_config_arguments(parser: argparse.ArgumentParser) -> None:
 
     p_init = config_subparsers.add_parser(
         "init",
-        help="Initialize SpecOps configuration (.specops/config.json or ~/.config/specops/config.json)",
+        help="Initialize workspace configuration (.workspace/config.json or ~/.config/workspace/config.json)",
     )
     scope_group = p_init.add_mutually_exclusive_group()
     scope_group.add_argument(
         "--local",
         action="store_true",
-        help="Initialize project-local configuration (.specops/config.json)",
+        help="Initialize project-local configuration (.workspace/config.json)",
     )
     scope_group.add_argument(
         "--global",
         dest="is_global",
         action="store_true",
-        help="Initialize user-global configuration (~/.config/specops/config.json)",
+        help="Initialize user-global configuration (~/.config/workspace/config.json)",
     )
     p_init.add_argument(
         "--enterprise",
