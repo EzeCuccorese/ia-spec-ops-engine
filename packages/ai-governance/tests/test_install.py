@@ -241,6 +241,94 @@ def test_report_collapses_many_files_per_folder(project: Path) -> None:
     assert len(lines) < 10
 
 
+# -- profiles ------------------------------------------------------------------------
+
+
+def test_project_config_round_trip_preserves_profiles(project: Path) -> None:
+    sync_project(project, add_agents=["claude"], add_profiles=("architecture",))
+    config = ProjectConfig.load(project)
+    assert config.agents == ["claude"]
+    assert config.profiles == ["architecture"]
+
+
+def test_project_config_preserves_foreign_toml_table(project: Path) -> None:
+    sync_project(project, add_agents=["claude"])
+    config_path = project / ".ai-governance" / "config.toml"
+    config_path.write_text(config_path.read_text() + '\n[design]\nkey = "value"\n')
+    sync_project(project)
+    text = config_path.read_text()
+    assert "[design]" in text
+    assert 'key = "value"' in text
+
+
+def test_install_profile_writes_canonical_rule(project: Path) -> None:
+    sync_project(project, add_agents=["claude"], add_profiles=("architecture",))
+    assert (
+        project / ".agents" / "rules" / "ai-governance-02-clean-architecture-hexagonal.md"
+    ).is_file()
+
+
+def test_uninstall_profile_removes_rule_keeps_agents_and_other_rules(project: Path) -> None:
+    sync_project(project, add_agents=["claude"], add_profiles=("architecture",))
+    report = sync_project(project, remove_profiles=("architecture",))
+    assert not (
+        project / ".agents" / "rules" / "ai-governance-02-clean-architecture-hexagonal.md"
+    ).exists()
+    assert (project / ".agents" / "rules" / "ai-governance-06-security-privacy.md").exists()
+    assert ProjectConfig.load(project).agents == ["claude"]
+    assert not report.changed or ProjectConfig.load(project).profiles == []
+
+
+def test_update_reports_removed_rules_for_disabled_profile(project: Path) -> None:
+    sync_project(project, add_agents=["claude"], add_profiles=("architecture",))
+    config_path = project / ".ai-governance" / "config.toml"
+    config_path.write_text(
+        config_path.read_text().replace('profiles = ["architecture"]', "profiles = []")
+    )
+    report = sync_project(project)
+    assert any(
+        'Rules of profile "architecture" removed because it is not enabled' in w
+        and "02-clean-architecture-hexagonal" in w
+        for w in report.warnings
+    )
+
+
+def test_unknown_profile_raises(project: Path) -> None:
+    with pytest.raises(ValueError, match="Unknown profile"):
+        sync_project(project, add_agents=["claude"], add_profiles=("bogus",))
+
+
+def test_profile_cli_flag_requires_project_scope(
+    home: Path, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
+    assert (
+        install_cli(
+            "install", ["--scope", "user", "--agent", "claude", "--profile", "architecture"]
+        )
+        == 2
+    )
+
+
+def test_rules_cli_lists_profiles(capsys, monkeypatch: pytest.MonkeyPatch) -> None:
+    from ai_governance.rules.cli import main as rules_cli
+
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
+    assert rules_cli(["profiles"]) == 0
+    out = capsys.readouterr().out
+    assert "architecture" in out
+    assert "02-clean-architecture-hexagonal" in out
+
+
+def test_rules_cli_list_shows_profile_column(capsys, monkeypatch: pytest.MonkeyPatch) -> None:
+    from ai_governance.rules.cli import main as rules_cli
+
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
+    assert rules_cli(["list"]) == 0
+    out = capsys.readouterr().out
+    assert "Profile" in out
+
+
 def test_project_gate_hook_is_configurable(project: Path) -> None:
     sync_project(project, add_agents=["claude"])
     settings = json.loads((project / ".claude" / "settings.json").read_text())
