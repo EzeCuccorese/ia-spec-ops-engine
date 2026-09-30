@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # Workspace commit-msg hook: Conventional Commits subject (registered as hook.workspace-commit-msg).
+# Opt-in per repository, like the pre-push commit policy, so a global install never
+# imposes a style on projects with their own conventions:
+#   git config workspace.commitStyle conventional   (or QG_COMMIT_STYLE=conventional)
 # Skip once with: QG_SKIP=commits git commit ...
 set -uo pipefail
 case ",${QG_SKIP:-}," in *,commits,*|*,all,*) exit 0 ;; esac
+style="${QG_COMMIT_STYLE:-$(git config --get workspace.commitStyle 2>/dev/null || true)}"
+[ "$style" = "conventional" ] || exit 0
 subject="$(grep -v '^#' "$1" | head -n 1)"
 case "$subject" in Merge\ *|Revert\ *|fixup!\ *|squash!\ *) exit 0 ;; esac
 if ! printf '%s' "$subject" | grep -Eq '^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([^)]+\))?!?: .+'; then

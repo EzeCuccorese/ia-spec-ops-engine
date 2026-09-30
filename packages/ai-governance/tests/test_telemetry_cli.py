@@ -198,3 +198,67 @@ def test_runtime_dir_is_under_state_dir(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
     assert telemetry_cli.runtime_dir() == tmp_path / "telemetry"
+
+
+def test_format_effort_shares_and_thinking() -> None:
+    text = telemetry_cli.format_effort(
+        {
+            "low": {"cost": 1.0, "output": 100, "thinking": 0},
+            "high": {"cost": 3.0, "output": 100, "thinking": 50},
+        }
+    )
+    assert text == "high $3.00 (75%, thinking 50%) | low $1.00 (25%)"
+    assert telemetry_cli.format_effort({}) == ""
+
+
+def test_statusline_uses_todays_hook_cache(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    from datetime import date
+
+    usage_dir = _set_usage_dir(monkeypatch, tmp_path)
+    (usage_dir / "config.json").write_text(json.dumps({"monthly_budget_usd": 750}))
+    (usage_dir / "state.json").write_text(
+        json.dumps({"day": date.today().isoformat(), "last_day_cost": 5, "last_month_cost": 150})
+    )
+    monkeypatch.setattr(
+        telemetry_cli, "_monitor", lambda *a: pytest.fail("must not rescan transcripts")
+    )
+    assert telemetry_main(["statusline"]) == 0
+    out = capsys.readouterr().out
+    assert "today $5.00/" in out and "left $600" in out
+
+
+def test_statusline_rescans_when_cache_is_stale_and_never_fails(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    _set_usage_dir(monkeypatch, tmp_path)
+    assert telemetry_main(["statusline"]) == 0
+    assert "today $0.00/" in capsys.readouterr().out
+
+    def boom(*args: object) -> None:
+        raise RuntimeError("scan failed")
+
+    monkeypatch.setattr(telemetry_cli, "_monitor", boom)
+    assert telemetry_main(["statusline"]) == 0
+    assert capsys.readouterr().out == ""
+
+
+def test_report_warns_about_fast_calls(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    summary = {
+        "today_cost_usd": 1.0,
+        "month_cost_usd": 2.0,
+        "daily_budget_usd": 3.0,
+        "tokens": {"output": 1},
+        "by_model": {},
+        "effort_today": {"low": {"cost": 1.0, "output": 1, "thinking": 0}},
+        "effort_month": {},
+        "fast_calls": 2,
+        "price_cache_age_days": 1,
+    }
+    telemetry_cli.show_usage_report(summary)
+    captured = capsys.readouterr()
+    assert "low $1.00 (100%)" in captured.out
+    assert "2 fast-mode calls" in captured.out + captured.err

@@ -17,6 +17,7 @@ package = false
 
 [tool.uv.workspace]
 members = ["packages/*"]
+exclude = ["packages/corporate-rules"]
 
 [tool.uv.sources]
 ai-governance = { workspace = true }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
 from dataclasses import asdict, replace
@@ -57,7 +58,76 @@ def show_usage_report(summary: dict) -> None:
     pairs.append(("Tokens", token_text))
     for model, cost in sorted(summary["by_model"].items(), key=lambda item: -item[1]):
         pairs.append((f"Model {model}", f"${cost:.2f}"))
+    for label, key in (("Effort today", "effort_today"), ("Effort month", "effort_month")):
+        text = format_effort(summary.get(key) or {})
+        if text:
+            pairs.append((label, text))
     emit_kv(pairs, title="Claude usage estimate", full=True)
+    if summary.get("fast_calls"):
+        emit_status(
+            "warn",
+            f"{summary['fast_calls']} fast-mode calls priced as standard (no fast rate in the feed).",
+        )
+
+
+def format_effort(efforts: dict[str, dict[str, float]]) -> str:
+    """Cost share per effort level; thinking share is diagnostic (already in output)."""
+    total = sum(values["cost"] for values in efforts.values())
+    if total <= 0:
+        return ""
+    parts = []
+    for effort, values in sorted(efforts.items(), key=lambda item: -item[1]["cost"]):
+        share = round(values["cost"] * 100 / total)
+        thinking = ""
+        if values["output"] and values["thinking"]:
+            thinking = f", thinking {round(values['thinking'] * 100 / values['output'])}%"
+        parts.append(f"{effort} ${values['cost']:.2f} ({share}%{thinking})")
+    return " | ".join(parts)
+
+
+GREEN, YELLOW, RED, BOLD, DIM, RESET = (
+    "\033[32m",
+    "\033[33m",
+    "\033[31m",
+    "\033[1m",
+    "\033[2m",
+    "\033[0m",
+)
+
+
+def _color(percent: float) -> str:
+    if percent >= 90:
+        return RED + BOLD
+    return YELLOW if percent >= 50 else GREEN
+
+
+def statusline_segment(base: Path, config: UsageConfig, *, today: date | None = None) -> str:
+    """Today's spend vs. its business-day allowance and what is left this month.
+
+    Reads the costs the Stop hook (`thresholds`) caches in state.json; rescans the
+    transcripts only when that cache is from another day, since the status line
+    renders on every turn.
+    """
+    current = today or date.today()
+    state = ThresholdTracker.load(base / "state.json")
+    if state.get("day") == current.isoformat():
+        day_cost = float(state.get("last_day_cost") or 0)
+        month_cost = float(state.get("last_month_cost") or 0)
+    else:
+        summary = _monitor(base, config).get_summary_report(config.effective_monthly_limit)
+        day_cost, month_cost = summary["today_cost_usd"], summary["month_cost_usd"]
+    limit = config.effective_monthly_limit
+    pace = ClaudeUsageCalculator.calculate_pace(
+        limit, actual_spend_usd=month_cost, holidays=config.holidays
+    )
+    left = limit - month_cost
+    daily = left / max(1, pace.days_remaining + 1)
+    day_pct = day_cost / daily * 100 if daily > 0 else 100.0
+    month_pct = month_cost / limit * 100 if limit else 0.0
+    return (
+        f"{_color(day_pct)}today ${day_cost:.2f}/{daily:.0f} {day_pct:.0f}%{RESET} "
+        f"{DIM}·{RESET} {_color(month_pct)}left ${left:.0f}{RESET}"
+    )
 
 
 def _monitor(base: Path, config: UsageConfig) -> CostMonitor:
@@ -96,56 +166,84 @@ def _build_parser() -> argparse.ArgumentParser:
     prices_sub = prices.add_subparsers(dest="prices_cmd")
     update = prices_sub.add_parser("update")
     update.add_argument("--url", default=DEFAULT_FEED_URL)
+    sub.add_parser("statusline", help="Compact spend segment for the Claude Code status line")
     thresholds = sub.add_parser("thresholds")
     thresholds.add_argument("--notify", action="store_true")
     thresholds.add_argument("--json", action="store_true")
     return parser
 
 
+def _claude_usage(args: argparse.Namespace, base: Path, config: UsageConfig) -> None:
+    budget = args.budget or config.effective_monthly_limit
+    spent = args.spent
+    if spent is None:
+        spent = _monitor(base, config).get_summary_report(budget)["month_cost_usd"]
+    show_claude_usage_table(budget, spent, config.holidays)
+
+
+def _report(args: argparse.Namespace, base: Path, config: UsageConfig) -> None:
+    budget = args.budget or config.effective_monthly_limit
+    summary = _monitor(base, config).get_summary_report(budget)
+    if args.json:
+        emit_json(_summary_json(summary))
+    else:
+        show_usage_report(summary)
+
+
+def _calibrate(args: argparse.Namespace, base: Path, config: UsageConfig) -> None:
+    raw_monitor = CostMonitor(price_cache_path=base / "prices-cache.json")
+    estimate = raw_monitor.scan_transcripts(args.from_date, args.to_date)["total_cost_usd"]
+    factor = CostMonitor.calibration_factor(estimated=estimate, actual=args.actual)
+    replace(config, calibration=factor).save(base / "config.json")
+    print(f"Calibration saved: {factor:.3f}")
+
+
+def _prices(args: argparse.Namespace, base: Path, config: UsageConfig) -> None:
+    if args.prices_cmd != "update":
+        return
+    document = PriceCatalog.refresh_cache(base / "prices-cache.json", args.url)
+    print(f"Updated {len(document['prices'])} direct Anthropic model prices.")
+
+
+def _statusline(args: argparse.Namespace, base: Path, config: UsageConfig) -> None:
+    # The status line must never break a session.
+    with contextlib.suppress(Exception):
+        sys.stdout.write(statusline_segment(base, config))
+
+
+def _thresholds(args: argparse.Namespace, base: Path, config: UsageConfig) -> None:
+    summary = _monitor(base, config).get_summary_report(config.effective_monthly_limit)
+    state_path = base / "state.json"
+    messages, state = ThresholdTracker.evaluate(summary, config, ThresholdTracker.load(state_path))
+    ThresholdTracker.save(state_path, state)
+    if args.notify and config.notify_macos and messages:
+        notify_macos("Claude usage estimate", " ".join(messages))
+    if args.json:
+        emit_json({"messages": messages, "state": state})
+    elif messages:
+        print("\n".join(messages))
+
+
+COMMANDS = {
+    "claude-usage": _claude_usage,
+    "report": _report,
+    "calibrate": _calibrate,
+    "prices": _prices,
+    "statusline": _statusline,
+    "thresholds": _thresholds,
+}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    handler = COMMANDS.get(args.cmd)
+    if handler is None:
+        parser.print_help()
+        return 0
     base = runtime_dir()
-    config_path = base / "config.json"
     try:
-        config = UsageConfig.load(config_path)
-        if args.cmd == "claude-usage":
-            budget = args.budget or config.effective_monthly_limit
-            spent = args.spent
-            if spent is None:
-                spent = _monitor(base, config).get_summary_report(budget)["month_cost_usd"]
-            show_claude_usage_table(budget, spent, config.holidays)
-        elif args.cmd == "report":
-            budget = args.budget or config.effective_monthly_limit
-            summary = _monitor(base, config).get_summary_report(budget)
-            if args.json:
-                emit_json(_summary_json(summary))
-            else:
-                show_usage_report(summary)
-        elif args.cmd == "calibrate":
-            raw_monitor = CostMonitor(price_cache_path=base / "prices-cache.json")
-            estimate = raw_monitor.scan_transcripts(args.from_date, args.to_date)["total_cost_usd"]
-            factor = CostMonitor.calibration_factor(estimated=estimate, actual=args.actual)
-            replace(config, calibration=factor).save(config_path)
-            print(f"Calibration saved: {factor:.3f}")
-        elif args.cmd == "prices" and args.prices_cmd == "update":
-            document = PriceCatalog.refresh_cache(base / "prices-cache.json", args.url)
-            print(f"Updated {len(document['prices'])} direct Anthropic model prices.")
-        elif args.cmd == "thresholds":
-            summary = _monitor(base, config).get_summary_report(config.effective_monthly_limit)
-            state_path = base / "state.json"
-            messages, state = ThresholdTracker.evaluate(
-                summary, config, ThresholdTracker.load(state_path)
-            )
-            ThresholdTracker.save(state_path, state)
-            if args.notify and config.notify_macos and messages:
-                notify_macos("Claude usage estimate", " ".join(messages))
-            if args.json:
-                emit_json({"messages": messages, "state": state})
-            elif messages:
-                print("\n".join(messages))
-        else:
-            parser.print_help()
+        handler(args, base, UsageConfig.load(base / "config.json"))
         return 0
     except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
         emit_status("error", f"Telemetry error: {exc}")

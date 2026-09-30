@@ -16,7 +16,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .. import __version__
+from .. import __version__, corporate
 from ..paths import state_dir
 from ..rules.catalog import RuleCatalog
 from . import content
@@ -25,6 +25,7 @@ from .agents import (
     RULES_DIR,
     BlockArtifact,
     FileArtifact,
+    LinkArtifact,
     canonical_rule_path,
     render_canonical_rule,
     resolve_agents,
@@ -137,22 +138,112 @@ def registered_projects() -> list[Path]:
 # -- user scope --------------------------------------------------------------------
 
 
-def install_user(agents: list[str], *, dry_run: bool = False, force: bool = False) -> Report:
-    specs = resolve_agents(agents)
-    ledger = global_ledger()
-    desired = [Owned(spec.id, artifact) for spec in specs for artifact in spec.global_artifacts()]
-    report = sync(
-        desired, ledger, agents_in_scope={s.id for s in specs}, dry_run=dry_run, force=force
+def _corporate_owner(pack: str) -> str:
+    return f"corporate:{pack}"
+
+
+def _corporate_desired(pack: str, agents: list[str], report: Report) -> list[Owned]:
+    """Rules for each agent that supports them, plus the pack's scripts in the bin dir."""
+    loaded = corporate.load(pack)
+    rules = loaded.rules()
+    owner = _corporate_owner(pack)
+    desired: list[Owned] = []
+    for spec in resolve_agents(agents):
+        artifacts = spec.corporate_artifacts(rules)
+        if rules and not artifacts:
+            report.warnings.append(
+                f"{spec.name} has no per-file global rules: {pack} rules skipped."
+            )
+        desired.extend(Owned(owner, artifact) for artifact in artifacts)
+    desired.extend(
+        Owned(owner, LinkArtifact(corporate.bin_dir() / script.name, str(script)))
+        for script in loaded.scripts()
     )
+    return desired
+
+
+def _corporate_packs(ledger: Ledger) -> dict[str, list[str]]:
+    return {pack: list(agents) for pack, agents in ledger.extra.get("corporate", {}).items()}
+
+
+@dataclass
+class _UserPlan:
+    """What a user-scope sync owns: agent artifacts in ``scope`` plus the ``touched`` packs."""
+
+    base: list[Owned]
+    scope: set[str]
+    packs: dict[str, list[str]]
+    touched: set[str]
+
+
+def _sync_user(ledger: Ledger, plan: _UserPlan, *, dry_run: bool, force: bool = False) -> Report:
+    report = Report()
+    desired = list(plan.base)
+    for pack in sorted(plan.touched):
+        if plan.packs.get(pack):
+            desired.extend(_corporate_desired(pack, plan.packs[pack], report))
+    sync(
+        desired,
+        ledger,
+        agents_in_scope=plan.scope | {_corporate_owner(pack) for pack in plan.touched},
+        dry_run=dry_run,
+        force=force,
+        report=report,
+    )
+    remaining = {pack: agents for pack, agents in sorted(plan.packs.items()) if agents}
+    if remaining:
+        ledger.extra["corporate"] = remaining
+    else:
+        ledger.extra.pop("corporate", None)
+    return report
+
+
+def install_user(
+    agents: list[str],
+    *,
+    corporate_packs: tuple[str, ...] = (),
+    dry_run: bool = False,
+    force: bool = False,
+) -> Report:
+    specs = resolve_agents(agents)
+    for pack in corporate_packs:
+        corporate.load(pack)
+    ledger = global_ledger()
+    packs = _corporate_packs(ledger)
+    for pack in corporate_packs:
+        packs[pack] = list(dict.fromkeys([*packs.get(pack, []), *agents]))
+    base = [Owned(spec.id, artifact) for spec in specs for artifact in spec.global_artifacts()]
+    plan = _UserPlan(base, {s.id for s in specs}, packs, set(packs))
+    report = _sync_user(ledger, plan, dry_run=dry_run, force=force)
     ledger.extra["package_version"] = __version__
     ledger.save(report, dry_run)
     return report
 
 
-def uninstall_user(agents: list[str], *, dry_run: bool = False) -> Report:
-    specs = resolve_agents(agents)
+def _uninstall_plan(
+    agents: list[str], packs: dict[str, list[str]], corporate_packs: tuple[str, ...]
+) -> _UserPlan:
+    if corporate_packs:
+        for pack in corporate_packs:
+            packs[pack] = [a for a in packs.get(pack, []) if agents and a not in agents]
+        return _UserPlan([], set(), packs, set(corporate_packs))
+    scope = {spec.id for spec in resolve_agents(agents)}
+    for pack in packs:
+        packs[pack] = [a for a in packs[pack] if a not in scope]
+    return _UserPlan([], scope, packs, set(packs))
+
+
+def uninstall_user(
+    agents: list[str], *, corporate_packs: tuple[str, ...] = (), dry_run: bool = False
+) -> Report:
+    """Removes the agents' artifacts; with ``corporate_packs`` only those packs.
+
+    ``--corporate`` without ``--agent`` removes the whole pack (rules and scripts).
+    """
+    resolve_agents(agents)
     ledger = global_ledger()
-    report = sync([], ledger, agents_in_scope={s.id for s in specs}, dry_run=dry_run)
+    plan = _uninstall_plan(agents, _corporate_packs(ledger), corporate_packs)
+    report = _sync_user(ledger, plan, dry_run=dry_run)
     ledger.save(report, dry_run)
     return report
 
@@ -210,6 +301,109 @@ def _project_desired(
     return desired
 
 
+def _merged(
+    current: list[str], add: tuple[str, ...] | list[str], remove: tuple[str, ...] | list[str]
+) -> list[str]:
+    return [value for value in dict.fromkeys([*current, *add]) if value not in remove]
+
+
+Change = tuple[tuple[str, ...] | list[str], tuple[str, ...] | list[str]]
+
+
+def _changed_config(config: ProjectConfig, *, agents: Change, profiles: Change) -> ProjectConfig:
+    """Applies (add, remove) agent and profile changes; a project needs at least one agent."""
+    resolve_agents([*agents[0], *agents[1]])
+    had_agents = bool(config.agents)
+    config.agents = _merged(config.agents, *agents)
+    if not config.agents and not had_agents:
+        raise ValueError("No agent selected. Pass --agent claude|codex|antigravity.")
+    config.profiles = _merged(config.profiles, *profiles)
+    return config
+
+
+def _stacks_or_warn(root: Path, report: Report) -> set[str]:
+    stacks = detect_stacks(root)
+    if stacks is not None:
+        return stacks
+    report.warnings.append(
+        "`ws` not found: stack detection skipped, only general rules selected. "
+        "Install the workspace package and run `ai-governance update`."
+    )
+    return set()
+
+
+def _prepare_project(
+    root: Path, config: ProjectConfig, report: Report, *, dry_run: bool
+) -> set[str]:
+    """Detects the stacks and moves CLAUDE.md into AGENTS.md for Claude projects."""
+    stacks = _stacks_or_warn(root, report)
+    if "claude" in config.agents:
+        _migrate_claude_memory(root, report, dry_run)
+    return stacks
+
+
+def _installed_rule_ids(ledger: Ledger) -> set[str]:
+    prefix = f"{RULES_DIR.as_posix()}/"
+    return {
+        entry["path"].removeprefix(f"{prefix}ai-governance-").removesuffix(".md")
+        for entry in ledger.entries
+        if entry["kind"] == "file" and entry["path"].startswith(prefix)
+    }
+
+
+def _selected_rule_ids(catalog: RuleCatalog, config: ProjectConfig, stacks: set[str]) -> set[str]:
+    rules = catalog.select(
+        stacks,
+        profiles=tuple(config.profiles),
+        extra=tuple(config.extra_rules),
+        excluded=tuple(config.excluded_rules),
+    )
+    return {rule.id for rule in rules}
+
+
+def _warn_disabled_profiles(
+    catalog: RuleCatalog, config: ProjectConfig, dropped: set[str], report: Report
+) -> None:
+    removed_by_profile: dict[str, list[str]] = {}
+    for rule_id in sorted(dropped):
+        rule = catalog.get(rule_id)
+        if rule is None or rule.profile is None or rule.profile in config.profiles:
+            continue
+        removed_by_profile.setdefault(rule.profile, []).append(rule_id)
+    for profile, ids in removed_by_profile.items():
+        report.warnings.append(
+            f'Rules of profile "{profile}" removed because it is not enabled: '
+            f"{', '.join(ids)}. Enable with: ai-governance install --scope project "
+            f"--profile {profile}"
+        )
+
+
+def _write_project_config(
+    root: Path, config: ProjectConfig, report: Report, *, dry_run: bool
+) -> None:
+    config_path = root / PROJECT_DIR / "config.toml"
+    text = config.render()
+    current = config_path.read_text(encoding="utf-8") if config_path.exists() else None
+    if current == text:
+        return
+    if not dry_run:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(text, encoding="utf-8")
+    report.add("updated" if current else "created", config_path)
+
+
+def _remove_project_state(root: Path, ledger: Ledger, report: Report, *, dry_run: bool) -> None:
+    for path in (root / PROJECT_DIR / "config.toml", ledger.path):
+        if not path.exists():
+            continue
+        if not dry_run:
+            path.unlink()
+        report.add("removed", path)
+    folder = root / PROJECT_DIR
+    if not dry_run and folder.is_dir() and not any(folder.iterdir()):
+        folder.rmdir()
+
+
 def sync_project(
     root: Path,
     *,
@@ -224,89 +418,32 @@ def sync_project(
     root = root.resolve()
     catalog = RuleCatalog()
     catalog.check_profiles((*add_profiles, *remove_profiles))
-    config = ProjectConfig.load(root)
-    resolve_agents([*add_agents, *remove_agents])
-    before = set(config.agents)
-    config.agents = [
-        a for a in dict.fromkeys([*config.agents, *add_agents]) if a not in remove_agents
-    ]
-    if not config.agents and not before:
-        raise ValueError("No agent selected. Pass --agent claude|codex|antigravity.")
-    config.profiles = [
-        p for p in dict.fromkeys([*config.profiles, *add_profiles]) if p not in remove_profiles
-    ]
+    config = _changed_config(
+        ProjectConfig.load(root),
+        agents=(add_agents, remove_agents),
+        profiles=(add_profiles, remove_profiles),
+    )
 
     report = Report()
-    stacks = detect_stacks(root)
-    if stacks is None:
-        report.warnings.append(
-            "`ws` not found: stack detection skipped, only general rules selected. "
-            "Install the workspace package and run `ai-governance update`."
-        )
-        stacks = set()
-    if "claude" in config.agents:
-        _migrate_claude_memory(root, report, dry_run)
-
+    stacks = _prepare_project(root, config, report, dry_run=dry_run)
     ledger = Ledger(root / PROJECT_DIR / "lock.json", base=root)
-    installed_ids = {
-        entry["path"].removeprefix(f"{RULES_DIR.as_posix()}/ai-governance-").removesuffix(".md")
-        for entry in ledger.entries
-        if entry["kind"] == "file" and entry["path"].startswith(f"{RULES_DIR.as_posix()}/")
-    }
-    scope = set(AGENTS) | {"project"}
+    installed_ids = _installed_rule_ids(ledger)
     sync(
         _project_desired(root, config, stacks, catalog),
         ledger,
-        agents_in_scope=scope,
+        agents_in_scope=set(AGENTS) | {"project"},
         dry_run=dry_run,
         force=force,
         report=report,
     )
-    selected_ids = {
-        rule.id
-        for rule in catalog.select(
-            stacks,
-            profiles=tuple(config.profiles),
-            extra=tuple(config.extra_rules),
-            excluded=tuple(config.excluded_rules),
-        )
-    }
-    removed_by_profile: dict[str, list[str]] = {}
-    for rule_id in sorted(installed_ids - selected_ids):
-        rule = catalog.get(rule_id)
-        if rule is None or rule.profile is None or rule.profile in config.profiles:
-            continue
-        removed_by_profile.setdefault(rule.profile, []).append(rule_id)
-    for profile, ids in removed_by_profile.items():
-        report.warnings.append(
-            f'Rules of profile "{profile}" removed because it is not enabled: '
-            f"{', '.join(ids)}. Enable with: ai-governance install --scope project "
-            f"--profile {profile}"
-        )
+    dropped = installed_ids - _selected_rule_ids(catalog, config, stacks)
+    _warn_disabled_profiles(catalog, config, dropped, report)
 
-    config_path = root / PROJECT_DIR / "config.toml"
     if config.agents:
         ledger.extra.update(package_version=__version__, stacks=sorted(stacks))
-        text = config.render()
-        current = config_path.read_text(encoding="utf-8") if config_path.exists() else None
-        if current != text:
-            if not dry_run:
-                config_path.parent.mkdir(parents=True, exist_ok=True)
-                config_path.write_text(text, encoding="utf-8")
-            report.add("updated" if current else "created", config_path)
+        _write_project_config(root, config, report, dry_run=dry_run)
         ledger.save(report, dry_run)
-        _register_project(root, present=True, dry_run=dry_run)
     else:
-        for path in (config_path, ledger.path):
-            if path.exists():
-                if not dry_run:
-                    path.unlink()
-                report.add("removed", path)
-        if (
-            not dry_run
-            and (root / PROJECT_DIR).is_dir()
-            and not any((root / PROJECT_DIR).iterdir())
-        ):
-            (root / PROJECT_DIR).rmdir()
-        _register_project(root, present=False, dry_run=dry_run)
+        _remove_project_state(root, ledger, report, dry_run=dry_run)
+    _register_project(root, present=bool(config.agents), dry_run=dry_run)
     return report

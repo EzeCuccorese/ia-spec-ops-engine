@@ -10,19 +10,28 @@ import pytest
 from ai_governance.tools import confluence, jira
 
 
-def test_jira_check_env_missing(monkeypatch):
-    monkeypatch.delenv("ATLASSIAN_EMAIL", raising=False)
-    monkeypatch.delenv("ATLASSIAN_API_TOKEN", raising=False)
-    monkeypatch.delenv("ATLASSIAN_URL", raising=False)
+def _without_credentials(monkeypatch, tmp_path):
+    """No Atlassian credentials anywhere: env, profiles file, or the values the module
+    captured from the developer's environment at import time."""
+    from ai_governance.tools import atlassian_common
+
+    for name in ("ATLASSIAN_EMAIL", "ATLASSIAN_API_TOKEN", "ATLASSIAN_URL", "ATLASSIAN_PROFILE"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("ATLASSIAN_PROFILES_FILE", raising=False)
+    monkeypatch.setenv("AI_GOVERNANCE_CONFIG_DIR", str(tmp_path))
+    for name in ("EMAIL", "TOKEN", "BASE_URL"):
+        monkeypatch.setattr(atlassian_common, name, "")
+
+
+def test_jira_check_env_missing(monkeypatch, tmp_path):
+    _without_credentials(monkeypatch, tmp_path)
 
     with pytest.raises(SystemExit):
         jira.check_env()
 
 
-def test_confluence_check_env_missing(monkeypatch):
-    monkeypatch.delenv("ATLASSIAN_EMAIL", raising=False)
-    monkeypatch.delenv("ATLASSIAN_API_TOKEN", raising=False)
-    monkeypatch.delenv("ATLASSIAN_URL", raising=False)
+def test_confluence_check_env_missing(monkeypatch, tmp_path):
+    _without_credentials(monkeypatch, tmp_path)
 
     with pytest.raises(SystemExit):
         confluence.check_env()
