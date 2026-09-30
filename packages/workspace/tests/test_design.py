@@ -8,7 +8,8 @@ from pathlib import Path
 import pytest
 from workspace_engine.cli import design as design_cli
 from workspace_engine.design.changes import _parse_unified_diff, changed_lines
-from workspace_engine.design.config import DesignConfig
+from workspace_engine.design.config import DesignConfig, LayersConfig
+from workspace_engine.design.layers import extract_imports, go_module_name, layer_violations
 from workspace_engine.design.metrics import measure, supported
 from workspace_engine.design.report import format_text, to_dict
 
@@ -885,3 +886,343 @@ def test_cli_focus_truncates_long_function_source(
     out = capsys.readouterr().out
     assert code == 1
     assert "more line(s) omitted" in out
+
+
+# --- layers: architecture profile boundary check ---------------------------------
+
+_LAYERS = LayersConfig(order=("adapters", "application", "domain"), paths={})
+
+
+def _write_config(root: Path, extra: str = "") -> None:
+    (root / ".ai-governance").mkdir(exist_ok=True)
+    (root / ".ai-governance" / "config.toml").write_text(
+        'profiles = ["architecture"]\n[design.layers]\norder = ["adapters", "application", "domain"]\n'
+        + extra
+    )
+
+
+def test_java_domain_importing_adapters_is_violation(tmp_path: Path) -> None:
+    domain = tmp_path / "com/acme/domain"
+    domain.mkdir(parents=True)
+    (domain / "Order.java").write_text(
+        "package com.acme.domain;\nimport com.acme.adapters.Db;\npublic class Order {}\n"
+    )
+    violations = layer_violations(tmp_path, [domain / "Order.java"], _LAYERS)
+    assert len(violations) == 1
+    assert violations[0].metric == "layers"
+    assert "domain → adapters" in violations[0].symbol
+
+
+def test_java_adapters_importing_domain_is_ok(tmp_path: Path) -> None:
+    adapters = tmp_path / "com/acme/adapters"
+    adapters.mkdir(parents=True)
+    (adapters / "Db.java").write_text(
+        "package com.acme.adapters;\nimport com.acme.domain.Order;\npublic class Db {}\n"
+    )
+    assert layer_violations(tmp_path, [adapters / "Db.java"], _LAYERS) == []
+
+
+def test_java_commented_import_ignored(tmp_path: Path) -> None:
+    domain = tmp_path / "com/acme/domain"
+    domain.mkdir(parents=True)
+    (domain / "Order.java").write_text(
+        "package com.acme.domain;\n// import com.acme.adapters.Db;\npublic class Order {}\n"
+    )
+    assert layer_violations(tmp_path, [domain / "Order.java"], _LAYERS) == []
+
+
+def test_python_relative_import_violation(tmp_path: Path) -> None:
+    domain = tmp_path / "app/domain"
+    adapters = tmp_path / "app/adapters"
+    domain.mkdir(parents=True)
+    adapters.mkdir(parents=True)
+    (domain / "order.py").write_text("from ..adapters import db\n")
+    violations = layer_violations(tmp_path, [domain / "order.py"], _LAYERS)
+    assert len(violations) == 1
+    assert violations[0].metric == "layers"
+
+
+def test_ts_relative_violation_bare_ignored(tmp_path: Path) -> None:
+    domain = tmp_path / "src/domain"
+    adapters = tmp_path / "src/adapters"
+    domain.mkdir(parents=True)
+    adapters.mkdir(parents=True)
+    (domain / "order.ts").write_text(
+        "import { Db } from '../adapters/db';\nimport React from 'react';\n"
+    )
+    violations = layer_violations(tmp_path, [domain / "order.ts"], _LAYERS)
+    assert len(violations) == 1
+    assert "db" in violations[0].symbol
+
+
+def test_go_module_stripped_from_import_path(tmp_path: Path) -> None:
+    (tmp_path / "go.mod").write_text("module example.com/app\n")
+    domain = tmp_path / "domain"
+    domain.mkdir()
+    (domain / "order.go").write_text(
+        'package domain\n\nimport (\n\t"example.com/app/adapters"\n\t"fmt"\n)\n'
+    )
+    module = go_module_name(tmp_path)
+    assert module == "example.com/app"
+    violations = layer_violations(tmp_path, [domain / "order.go"], _LAYERS)
+    assert len(violations) == 1
+
+
+def test_custom_layer_paths(tmp_path: Path) -> None:
+    config = LayersConfig(
+        order=("adapters", "domain"),
+        paths={"adapters": ("**/infra/**",)},
+    )
+    infra = tmp_path / "infra"
+    infra.mkdir()
+    (infra / "Order.java").write_text(
+        "package infra;\nimport core.domain.Order;\npublic class Order {}\n"
+    )
+    assert layer_violations(tmp_path, [infra / "Order.java"], config) == []
+    core = tmp_path / "core/domain"
+    core.mkdir(parents=True)
+    (core / "Order.java").write_text(
+        "package core.domain;\nimport infra.Db;\npublic class Order {}\n"
+    )
+    assert len(layer_violations(tmp_path, [core / "Order.java"], config)) == 1
+
+
+def test_extract_imports_unknown_extension_returns_empty() -> None:
+    assert extract_imports("f.txt", "txt", "irrelevant", None) == []
+
+
+def test_kotlin_import_violation(tmp_path: Path) -> None:
+    domain = tmp_path / "app/domain"
+    domain.mkdir(parents=True)
+    (domain / "Order.kt").write_text("package app.domain\nimport app.adapters.Db\nclass Order\n")
+    violations = layer_violations(tmp_path, [domain / "Order.kt"], _LAYERS)
+    assert len(violations) == 1
+    assert "domain → adapters" in violations[0].symbol
+
+
+def test_csharp_using_violation(tmp_path: Path) -> None:
+    domain = tmp_path / "app/domain"
+    domain.mkdir(parents=True)
+    (domain / "Order.cs").write_text(
+        "using app.adapters;\nnamespace app.domain { class Order {} }\n"
+    )
+    violations = layer_violations(tmp_path, [domain / "Order.cs"], _LAYERS)
+    assert len(violations) == 1
+    assert "domain → adapters" in violations[0].symbol
+
+
+def test_csharp_using_static_ignored(tmp_path: Path) -> None:
+    domain = tmp_path / "app/domain"
+    domain.mkdir(parents=True)
+    (domain / "Order.cs").write_text(
+        "using static app.adapters.Db;\nnamespace app.domain { class Order {} }\n"
+    )
+    assert layer_violations(tmp_path, [domain / "Order.cs"], _LAYERS) == []
+
+
+def test_php_use_violation(tmp_path: Path) -> None:
+    domain = tmp_path / "app/domain"
+    domain.mkdir(parents=True)
+    (domain / "Order.php").write_text(
+        "<?php\nnamespace app\\domain;\nuse app\\adapters\\Db;\nclass Order {}\n"
+    )
+    violations = layer_violations(tmp_path, [domain / "Order.php"], _LAYERS)
+    assert len(violations) == 1
+    assert "domain → adapters" in violations[0].symbol
+
+
+def test_rust_use_violation(tmp_path: Path) -> None:
+    domain = tmp_path / "app/domain"
+    domain.mkdir(parents=True)
+    (domain / "order.rs").write_text("use crate::app::adapters::Db;\nfn f() {}\n")
+    violations = layer_violations(tmp_path, [domain / "order.rs"], _LAYERS)
+    assert len(violations) == 1
+    assert "domain → adapters" in violations[0].symbol
+
+
+def test_dart_package_import_violation(tmp_path: Path) -> None:
+    domain = tmp_path / "app/domain"
+    domain.mkdir(parents=True)
+    (domain / "order.dart").write_text("import 'package:app/adapters/db.dart';\nclass Order {}\n")
+    violations = layer_violations(tmp_path, [domain / "order.dart"], _LAYERS)
+    assert len(violations) == 1
+    assert "domain → adapters" in violations[0].symbol
+
+
+def test_dart_relative_import_violation(tmp_path: Path) -> None:
+    domain = tmp_path / "app/domain"
+    adapters = tmp_path / "app/adapters"
+    domain.mkdir(parents=True)
+    adapters.mkdir(parents=True)
+    (domain / "order.dart").write_text("import '../adapters/db.dart';\nclass Order {}\n")
+    violations = layer_violations(tmp_path, [domain / "order.dart"], _LAYERS)
+    assert len(violations) == 1
+
+
+def test_js_dynamic_import_and_require_violations(tmp_path: Path) -> None:
+    domain = tmp_path / "app/domain"
+    adapters = tmp_path / "app/adapters"
+    domain.mkdir(parents=True)
+    adapters.mkdir(parents=True)
+    (domain / "order.mjs").write_text(
+        "const db = require('../adapters/db');\n"
+        "async function load() { await import('../adapters/other'); }\n"
+    )
+    violations = layer_violations(tmp_path, [domain / "order.mjs"], _LAYERS)
+    assert len(violations) == 2
+
+
+def test_python_plain_dotted_import_violation(tmp_path: Path) -> None:
+    domain = tmp_path / "app/domain"
+    domain.mkdir(parents=True)
+    (domain / "order.py").write_text("x = 1\nimport app.adapters.db\ny = 2\n")
+    violations = layer_violations(tmp_path, [domain / "order.py"], _LAYERS)
+    assert len(violations) == 1
+
+
+def test_python_absolute_from_import_violation(tmp_path: Path) -> None:
+    domain = tmp_path / "app/domain"
+    domain.mkdir(parents=True)
+    (domain / "order.py").write_text("from app.adapters import db\n")
+    violations = layer_violations(tmp_path, [domain / "order.py"], _LAYERS)
+    assert len(violations) == 1
+
+
+def test_python_bare_relative_from_import_no_dotted(tmp_path: Path) -> None:
+    domain = tmp_path / "app/domain"
+    domain.mkdir(parents=True)
+    (domain / "order.py").write_text("from . import sibling\n")
+    assert layer_violations(tmp_path, [domain / "order.py"], _LAYERS) == []
+
+
+def test_go_import_block_with_blank_line_and_self_import(tmp_path: Path) -> None:
+    (tmp_path / "go.mod").write_text("module example.com/app\n")
+    domain = tmp_path / "domain"
+    domain.mkdir()
+    (domain / "order.go").write_text(
+        'package domain\n\nimport (\n\t"example.com/app"\n\n\t"fmt"\n)\n'
+    )
+    violations = layer_violations(tmp_path, [domain / "order.go"], _LAYERS)
+    # "example.com/app" resolves to the repo root, which is not a configured layer.
+    assert violations == []
+
+
+def test_go_module_name_skips_leading_comment_line(tmp_path: Path) -> None:
+    (tmp_path / "go.mod").write_text("// generated\nmodule example.com/app\n")
+    assert go_module_name(tmp_path) == "example.com/app"
+
+
+def test_go_module_name_missing_module_line_returns_none(tmp_path: Path) -> None:
+    (tmp_path / "go.mod").write_text("go 1.21\n")
+    assert go_module_name(tmp_path) is None
+
+
+def test_file_outside_any_layer_is_ignored(tmp_path: Path) -> None:
+    other = tmp_path / "scripts"
+    other.mkdir()
+    (other / "tool.py").write_text("import app.adapters.db\n")
+    assert layer_violations(tmp_path, [other / "tool.py"], _LAYERS) == []
+
+
+def test_layer_violations_skips_unrecognized_extension(tmp_path: Path) -> None:
+    domain = tmp_path / "app/domain"
+    domain.mkdir(parents=True)
+    (domain / "notes.txt").write_text("import app.adapters.db\n")
+    assert layer_violations(tmp_path, [domain / "notes.txt"], _LAYERS) == []
+
+
+def test_layer_violations_skips_undecodable_file(tmp_path: Path) -> None:
+    domain = tmp_path / "app/domain"
+    domain.mkdir(parents=True)
+    path = domain / "order.py"
+    path.write_bytes(b"\xff\xfeimport app.adapters.db\n")
+    assert layer_violations(tmp_path, [path], _LAYERS) == []
+
+
+def test_unresolvable_relative_import_is_not_a_violation(tmp_path: Path) -> None:
+    domain = tmp_path / "app/domain"
+    domain.mkdir(parents=True)
+    (domain / "order.ts").write_text("import something from 'plain-package';\n")
+    assert layer_violations(tmp_path, [domain / "order.ts"], _LAYERS) == []
+
+
+def test_layers_violation_origin_new_when_import_line_changed(tmp_path: Path) -> None:
+    from workspace_engine.design.layers import violations_for_file
+
+    domain = tmp_path / "app/domain"
+    domain.mkdir(parents=True)
+    path = domain / "order.py"
+    path.write_text("x = 1\nimport app.adapters.db\n")
+    violations = violations_for_file(
+        tmp_path, path, _LAYERS, None, changed={"app/domain/order.py": {2}}
+    )
+    assert len(violations) == 1
+    assert violations[0].origin == "new"
+
+
+def test_layers_violation_origin_legacy_when_untouched(tmp_path: Path) -> None:
+    from workspace_engine.design.layers import violations_for_file
+
+    domain = tmp_path / "app/domain"
+    domain.mkdir(parents=True)
+    path = domain / "order.py"
+    path.write_text("x = 1\nimport app.adapters.db\n")
+    violations = violations_for_file(
+        tmp_path, path, _LAYERS, None, changed={"app/domain/order.py": {1}}
+    )
+    assert len(violations) == 1
+    assert violations[0].origin == "legacy"
+
+
+def test_config_layers_none_by_default(tmp_path: Path) -> None:
+    config = DesignConfig.load(tmp_path)
+    assert config.layers is None
+    assert config.profiles == ()
+
+
+def test_config_layers_parsed(tmp_path: Path) -> None:
+    _write_config(tmp_path, '[design.layers.paths]\nadapters = ["**/infra/**"]\n')
+    config = DesignConfig.load(tmp_path)
+    assert config.profiles == ("architecture",)
+    assert config.layers is not None
+    assert config.layers.order == ("adapters", "application", "domain")
+
+
+def test_cli_profile_off_no_layer_check(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    domain = tmp_path / "com/acme/domain"
+    domain.mkdir(parents=True)
+    (domain / "Order.java").write_text(
+        "package com.acme.domain;\nimport com.acme.adapters.Db;\npublic class Order {}\n"
+    )
+    code = design_cli.design(["--dir", str(tmp_path), str(domain / "Order.java")])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "layers" not in out
+
+
+def test_cli_profile_on_no_layers_configured_note(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / ".ai-governance").mkdir()
+    (tmp_path / ".ai-governance" / "config.toml").write_text('profiles = ["architecture"]\n')
+    (tmp_path / "small.py").write_text(PY_CLEAN)
+    code = design_cli.design(["--dir", str(tmp_path), str(tmp_path / "small.py")])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "layers: not configured ([design.layers])" in out
+
+
+def test_cli_profile_on_layers_violation_blocks(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    domain = tmp_path / "com/acme/domain"
+    domain.mkdir(parents=True)
+    (domain / "Order.java").write_text(
+        "package com.acme.domain;\nimport com.acme.adapters.Db;\npublic class Order {}\n"
+    )
+    _write_config(tmp_path)
+    code = design_cli.design(["--dir", str(tmp_path), str(domain / "Order.java")])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "layers" in out
+    assert "domain → adapters" in out
