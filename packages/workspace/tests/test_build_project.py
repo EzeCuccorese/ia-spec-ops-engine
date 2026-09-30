@@ -58,44 +58,24 @@ def test_build_project_gradle_kts(tmp_path: Path) -> None:
         assert build_project.build_project(tmp_path) == 0
 
 
-def test_build_project_npm_with_build_script(tmp_path: Path) -> None:
-    (tmp_path / "package.json").write_text('{"scripts": {"build": "x"}}', encoding="utf-8")
+@pytest.mark.parametrize(
+    ("manifest", "content", "command"),
+    [
+        ("package.json", '{"scripts": {"build": "x"}}', "npm run build"),
+        ("package.json", '{"scripts": {}}', "npm test"),
+        ("go.mod", "module x", "go build ./..."),
+        ("Cargo.toml", "[package]", "cargo build"),
+        ("pyproject.toml", "[project]", "python3 -m pip install -e ."),
+    ],
+    ids=["npm-build-script", "npm-no-build-script", "go", "cargo", "python"],
+)
+def test_build_project_runs_the_ecosystem_command(
+    tmp_path: Path, manifest: str, content: str, command: str
+) -> None:
+    (tmp_path / manifest).write_text(content, encoding="utf-8")
     with patch.object(build_project, "run_command", return_value=None) as mock_run:
         assert build_project.build_project(tmp_path) == 0
-    build_call = mock_run.call_args_list[0]
-    assert build_call.args[0] == "npm run build"
-
-
-def test_build_project_npm_without_build_script(tmp_path: Path) -> None:
-    (tmp_path / "package.json").write_text('{"scripts": {}}', encoding="utf-8")
-    with patch.object(build_project, "run_command", return_value=None) as mock_run:
-        assert build_project.build_project(tmp_path) == 0
-    build_call = mock_run.call_args_list[0]
-    assert build_call.args[0] == "npm test"
-
-
-def test_build_project_go(tmp_path: Path) -> None:
-    (tmp_path / "go.mod").write_text("module x", encoding="utf-8")
-    with patch.object(build_project, "run_command", return_value=None) as mock_run:
-        assert build_project.build_project(tmp_path) == 0
-    build_call = mock_run.call_args_list[0]
-    assert build_call.args[0] == "go build ./..."
-
-
-def test_build_project_cargo(tmp_path: Path) -> None:
-    (tmp_path / "Cargo.toml").write_text("[package]", encoding="utf-8")
-    with patch.object(build_project, "run_command", return_value=None) as mock_run:
-        assert build_project.build_project(tmp_path) == 0
-    build_call = mock_run.call_args_list[0]
-    assert build_call.args[0] == "cargo build"
-
-
-def test_build_project_python(tmp_path: Path) -> None:
-    (tmp_path / "pyproject.toml").write_text("[project]", encoding="utf-8")
-    with patch.object(build_project, "run_command", return_value=None) as mock_run:
-        assert build_project.build_project(tmp_path) == 0
-    build_call = mock_run.call_args_list[0]
-    assert build_call.args[0] == "python3 -m pip install -e ."
+    assert mock_run.call_args_list[0].args[0] == command
 
 
 def test_build_project_build_failure_returns_1(tmp_path: Path) -> None:

@@ -67,8 +67,8 @@ def test_save_and_load_state():
 
 
 def test_graceful_kill_pid_already_dead():
-    # Killing a nonexistent PID must be a no-op without raising
-    graceful_kill_pid(99999999, timeout=0.1)
+    # Killing a nonexistent PID is a successful no-op
+    assert graceful_kill_pid(99999999, timeout=0.1) is True
 
 
 @patch("os.kill")
@@ -113,9 +113,7 @@ def test_stop_all_clean_pids():
 @patch("os.kill")
 def test_graceful_kill_pid_safety_guards(mock_kill):
     """Immediately reject pids <= 1 or the current process's pid without sending signals."""
-    graceful_kill_pid(0)
-    graceful_kill_pid(1)
-    graceful_kill_pid(os.getpid())
+    assert [graceful_kill_pid(pid) for pid in (0, 1, os.getpid())] == [False, False, False]
     mock_kill.assert_not_called()
 
 
@@ -126,8 +124,8 @@ def test_graceful_kill_pid_pid_reuse_prevention(mock_kill):
         "workspace_engine.common.get_process_cmdline",
         return_value="postgres: background worker",
     ):
-        graceful_kill_pid(12345, service_name="auth-service")
-        mock_kill.assert_not_called()
+        assert graceful_kill_pid(12345, service_name="auth-service") is False
+    mock_kill.assert_not_called()
 
 
 @patch("os.kill")

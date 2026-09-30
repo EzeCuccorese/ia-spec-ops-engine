@@ -152,10 +152,11 @@ def test_run_config_init_cli(tmp_path: Path, monkeypatch) -> None:
     assert "vpn" not in data
 
 
-def test_run_config_init_enterprise_cli(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("flag", ["--enterprise", "--devops"])
+def test_run_config_init_enterprise_cli(tmp_path: Path, monkeypatch, flag: str) -> None:
     monkeypatch.chdir(tmp_path)
     exit_code = run_config_init(
-        ["init", "--local", "--yes", "--enterprise", "--name", "ent-proj", "--domain", "ent.test"]
+        ["init", "--local", "--yes", flag, "--name", "ent-proj", "--domain", "ent.test"]
     )
     assert exit_code == 0
 
@@ -261,18 +262,3 @@ def test_run_config_error_path(tmp_path: Path, monkeypatch) -> None:
         side_effect=ValueError("bad config"),
     ):
         assert run_config(args) == 1
-
-
-def test_run_config_init_devops_cli(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    exit_code = run_config_init(
-        ["init", "--local", "--yes", "--devops", "--name", "devops-proj", "--domain", "devops.test"]
-    )
-    assert exit_code == 0
-
-    target = tmp_path / ".workspace" / "config.json"
-    assert target.exists()
-    data = json.loads(target.read_text(encoding="utf-8"))
-    assert data["project_name"] == "devops-proj"
-    assert "vpn" in data
-    assert "environments" in data

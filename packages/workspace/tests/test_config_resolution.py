@@ -11,23 +11,12 @@ from workspace_engine.run_local.constants import (
 )
 
 
-def test_find_project_root_with_workspace(tmp_path: Path) -> None:
+@pytest.mark.parametrize("marker", [".workspace", ".git"])
+def test_find_project_root_finds_marker_in_ancestor(tmp_path: Path, marker: str) -> None:
     root = tmp_path / "my_project"
     root.mkdir()
-    (root / ".workspace").mkdir()
-
+    (root / marker).mkdir()
     nested = root / "src" / "deep" / "nested"
-    nested.mkdir(parents=True)
-
-    assert find_project_root(nested) == root
-
-
-def test_find_project_root_with_git(tmp_path: Path) -> None:
-    root = tmp_path / "git_project"
-    root.mkdir()
-    (root / ".git").mkdir()
-
-    nested = root / "a" / "b" / "c"
     nested.mkdir(parents=True)
 
     assert find_project_root(nested) == root

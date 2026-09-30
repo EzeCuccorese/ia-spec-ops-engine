@@ -20,54 +20,46 @@ from workspace_engine.cli.set_java import (
 )
 
 
-def test_detect_required_java_version_from_pom(tmp_path: Path) -> None:
-    pom = tmp_path / "pom.xml"
-    pom.write_text(
-        "<project><properties><maven.compiler.target>17</maven.compiler.target>"
-        "</properties></project>",
-        encoding="utf-8",
-    )
-    assert detect_required_java_version(tmp_path) == "17"
-
-
-def test_detect_required_java_version_from_pom_java_version_tag(tmp_path: Path) -> None:
-    pom = tmp_path / "pom.xml"
-    pom.write_text(
-        "<project><properties><java.version>21</java.version></properties></project>",
-        encoding="utf-8",
-    )
-    assert detect_required_java_version(tmp_path) == "21"
-
-
-def test_detect_required_java_version_from_gradle_kts(tmp_path: Path) -> None:
-    gradle_kts = tmp_path / "build.gradle.kts"
-    gradle_kts.write_text(
-        "java { toolchain { languageVersion.set(JavaLanguageVersion.of(11)) } }",
-        encoding="utf-8",
-    )
-    assert detect_required_java_version(tmp_path) == "11"
-
-
-def test_detect_required_java_version_from_gradle_source_compatibility(tmp_path: Path) -> None:
-    gradle = tmp_path / "build.gradle"
-    gradle.write_text("sourceCompatibility = '1.8'", encoding="utf-8")
-    assert detect_required_java_version(tmp_path) == "1.8"
-
-
-def test_detect_required_java_version_none(tmp_path: Path) -> None:
-    assert detect_required_java_version(tmp_path) is None
-
-
-def test_detect_required_java_version_pom_without_matching_tags(tmp_path: Path) -> None:
-    pom = tmp_path / "pom.xml"
-    pom.write_text("<project><properties></properties></project>", encoding="utf-8")
-    assert detect_required_java_version(tmp_path) is None
-
-
-def test_detect_required_java_version_gradle_without_matching_pattern(tmp_path: Path) -> None:
-    gradle = tmp_path / "build.gradle"
-    gradle.write_text("dependencies { implementation 'foo:bar:1.0' }", encoding="utf-8")
-    assert detect_required_java_version(tmp_path) is None
+@pytest.mark.parametrize(
+    ("filename", "content", "expected"),
+    [
+        (
+            "pom.xml",
+            "<project><properties><maven.compiler.target>17</maven.compiler.target>"
+            "</properties></project>",
+            "17",
+        ),
+        (
+            "pom.xml",
+            "<project><properties><java.version>21</java.version></properties></project>",
+            "21",
+        ),
+        (
+            "build.gradle.kts",
+            "java { toolchain { languageVersion.set(JavaLanguageVersion.of(11)) } }",
+            "11",
+        ),
+        ("build.gradle", "sourceCompatibility = '1.8'", "1.8"),
+        ("pom.xml", "<project><properties></properties></project>", None),
+        ("build.gradle", "dependencies { implementation 'foo:bar:1.0' }", None),
+        (None, "", None),
+    ],
+    ids=[
+        "pom-compiler-target",
+        "pom-java-version",
+        "gradle-kts-toolchain",
+        "gradle-source-compatibility",
+        "pom-without-tags",
+        "gradle-without-pattern",
+        "no-build-file",
+    ],
+)
+def test_detect_required_java_version(
+    tmp_path: Path, filename: str | None, content: str, expected: str | None
+) -> None:
+    if filename:
+        (tmp_path / filename).write_text(content, encoding="utf-8")
+    assert detect_required_java_version(tmp_path) == expected
 
 
 def test_get_current_java_version_parses_stderr() -> None:
@@ -148,26 +140,17 @@ def test_find_best_java_match_falls_back_to_regex(tmp_path: Path) -> None:
     assert result == "17.0.2-graal"
 
 
-def test_find_best_java_match_regex_fallback_also_empty(tmp_path: Path) -> None:
+@pytest.mark.parametrize("table", ["nothing relevant here\n", None], ids=["no-match", "no-output"])
+def test_find_best_java_match_returns_none_without_candidates(
+    tmp_path: Path, table: str | None
+) -> None:
     sdkman_init = tmp_path / "sdkman-init.sh"
     sdkman_init.write_text("", encoding="utf-8")
-    table = "nothing relevant here\n"
     with (
         patch("os.path.expanduser", return_value=str(sdkman_init)),
         patch("workspace_engine.cli.set_java.run_command", return_value=table),
     ):
-        result = find_best_java_match("17.0.2")
-    assert result is None
-
-
-def test_find_best_java_match_empty_output(tmp_path: Path) -> None:
-    sdkman_init = tmp_path / "sdkman-init.sh"
-    sdkman_init.write_text("", encoding="utf-8")
-    with (
-        patch("os.path.expanduser", return_value=str(sdkman_init)),
-        patch("workspace_engine.cli.set_java.run_command", return_value=None),
-    ):
-        assert find_best_java_match("17") is None
+        assert find_best_java_match("17.0.2") is None
 
 
 def test_get_java_env_no_sdkman(tmp_path: Path) -> None:

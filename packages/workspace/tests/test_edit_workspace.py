@@ -34,28 +34,25 @@ def test_remove_repositories_missing_manifest_exits(tmp_path: Path) -> None:
     assert exc.value.code == 1
 
 
-def test_remove_repositories_no_repos_in_workspace(tmp_path: Path) -> None:
-    workspace_dir = _make_workspace(tmp_path, [])
-    # Should just print an info message and return without raising.
-    edit_workspace.remove_repositories_from_workspace(workspace_dir)
+@pytest.mark.parametrize(
+    ("repos", "answer"),
+    [([], "1"), (["repo-a"], ""), (["repo-a"], "q"), (["repo-a"], "not-a-number")],
+    ids=["no-repos", "empty-input", "quit", "no-valid-selection"],
+)
+def test_remove_repositories_without_selection_changes_nothing(
+    tmp_path: Path, repos: list[str], answer: str
+) -> None:
+    workspace_dir = _make_workspace(tmp_path, repos)
+    for name in repos:
+        (workspace_dir / "repositories" / name).mkdir()
+    manifest_path = workspace_dir / ".ai-toolkit" / "workspace.json"
+    before = manifest_path.read_text(encoding="utf-8")
 
-
-def test_remove_repositories_cancelled_with_empty_input(tmp_path: Path) -> None:
-    workspace_dir = _make_workspace(tmp_path, ["repo-a"])
-    with patch("builtins.input", return_value=""):
+    with patch("builtins.input", return_value=answer):
         edit_workspace.remove_repositories_from_workspace(workspace_dir)
 
-
-def test_remove_repositories_cancelled_with_q(tmp_path: Path) -> None:
-    workspace_dir = _make_workspace(tmp_path, ["repo-a"])
-    with patch("builtins.input", return_value="q"):
-        edit_workspace.remove_repositories_from_workspace(workspace_dir)
-
-
-def test_remove_repositories_no_valid_selection(tmp_path: Path) -> None:
-    workspace_dir = _make_workspace(tmp_path, ["repo-a"])
-    with patch("builtins.input", return_value="not-a-number"):
-        edit_workspace.remove_repositories_from_workspace(workspace_dir)
+    assert manifest_path.read_text(encoding="utf-8") == before
+    assert all((workspace_dir / "repositories" / name).is_dir() for name in repos)
 
 
 def test_remove_repositories_removes_selected_repo(tmp_path: Path) -> None:
@@ -109,9 +106,18 @@ def test_remove_repositories_skips_missing_worktree_dir(tmp_path: Path) -> None:
         edit_workspace.remove_repositories_from_workspace(workspace_dir)
 
     mock_update.assert_called_once_with(workspace_dir, [])
+    manifest = json.loads(
+        (workspace_dir / ".ai-toolkit" / "workspace.json").read_text(encoding="utf-8")
+    )
+    assert manifest["repositories"] == []
 
 
-def test_remove_repositories_uses_git_common_dir_absolute(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "common_dir_output", ["{abs}\n", "../../.git\n"], ids=["absolute", "relative"]
+)
+def test_remove_repositories_resolves_git_common_dir(
+    tmp_path: Path, common_dir_output: str
+) -> None:
     workspace_dir = _make_workspace(tmp_path, ["repo-a"])
     target_wt = workspace_dir / "repositories" / "repo-a"
     target_wt.mkdir()
@@ -120,37 +126,9 @@ def test_remove_repositories_uses_git_common_dir_absolute(tmp_path: Path) -> Non
 
     def fake_run_git(path: Path, *args: str):
         result = type("R", (), {})()
-        if args[:2] == ("rev-parse", "--git-common-dir"):
-            result.returncode = 0
-            result.stdout = str(common_dir) + "\n"
-        else:
-            result.returncode = 0
-            result.stdout = ""
-        return result
-
-    with (
-        patch("builtins.input", return_value="1"),
-        patch.object(edit_workspace, "run_git", side_effect=fake_run_git),
-        patch.object(edit_workspace, "update_workspace_agents"),
-    ):
-        edit_workspace.remove_repositories_from_workspace(workspace_dir)
-
-    assert not target_wt.exists()
-
-
-def test_remove_repositories_uses_git_common_dir_relative(tmp_path: Path) -> None:
-    workspace_dir = _make_workspace(tmp_path, ["repo-a"])
-    target_wt = workspace_dir / "repositories" / "repo-a"
-    target_wt.mkdir()
-
-    def fake_run_git(path: Path, *args: str):
-        result = type("R", (), {})()
-        if args[:2] == ("rev-parse", "--git-common-dir"):
-            result.returncode = 0
-            result.stdout = "../../.git\n"
-        else:
-            result.returncode = 0
-            result.stdout = ""
+        result.returncode = 0
+        is_common_dir = args[:2] == ("rev-parse", "--git-common-dir")
+        result.stdout = common_dir_output.format(abs=common_dir) if is_common_dir else ""
         return result
 
     with (
@@ -209,26 +187,31 @@ def test_main_add_option_with_env_var(tmp_path: Path, monkeypatch: pytest.Monkey
     assert called_repos_root == repos_dir.resolve()
 
 
-def test_main_remove_option(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    ("choice", "expected"), [("2", ["remove"]), ("9", [])], ids=["remove", "invalid-cancels"]
+)
+def test_main_menu_dispatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, choice: str, expected: list[str]
+) -> None:
     workspace_dir = tmp_path / "ws"
     (workspace_dir / "repositories").mkdir(parents=True)
     (workspace_dir / "config").mkdir()
     monkeypatch.setattr(edit_workspace, "find_project_root", lambda: workspace_dir)
+    calls: list[str] = []
 
     with (
-        patch("builtins.input", return_value="2"),
-        patch.object(edit_workspace, "remove_repositories_from_workspace") as mock_remove,
+        patch("builtins.input", return_value=choice),
+        patch.object(
+            edit_workspace,
+            "add_repositories_to_workspace",
+            side_effect=lambda *a: calls.append("add"),
+        ),
+        patch.object(
+            edit_workspace,
+            "remove_repositories_from_workspace",
+            side_effect=lambda *a: calls.append("remove"),
+        ),
     ):
         edit_workspace.main()
 
-    mock_remove.assert_called_once_with(workspace_dir)
-
-
-def test_main_invalid_option_cancels(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    workspace_dir = tmp_path / "ws"
-    (workspace_dir / "repositories").mkdir(parents=True)
-    (workspace_dir / "config").mkdir()
-    monkeypatch.setattr(edit_workspace, "find_project_root", lambda: workspace_dir)
-
-    with patch("builtins.input", return_value="9"):
-        edit_workspace.main()
+    assert calls == expected

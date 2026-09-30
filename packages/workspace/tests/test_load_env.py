@@ -143,11 +143,8 @@ def test_main_applies_suffix_to_values(tmp_path: Path, monkeypatch: pytest.Monke
             str(root_dir),
         ],
     )
-    with patch("workspace_engine.cli.load_env.update_env_in_yaml") as mock_update:
-        main()
-    mock_update.assert_called_once_with(
-        root_dir / "values.dev.yaml", ["service-a"], "FEATURE_FLAG", "on_suffix"
-    )
+    main()
+    assert 'FEATURE_FLAG: "on_suffix"' in (root_dir / "values.dev.yaml").read_text(encoding="utf-8")
 
 
 def test_main_default_root_uses_home_expansion(

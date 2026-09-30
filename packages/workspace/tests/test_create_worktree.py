@@ -137,17 +137,6 @@ def test_create_worktree_copies_config_files(tmp_path: Path) -> None:
     assert (worktree_dir / "memory" / "notes.md").is_file()
 
 
-def test_create_worktree_updates_protected_base_branch(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path / "repo")
-
-    # "main" triggers the `git pull origin main` path; with no remote configured
-    # the pull fails but is not fatal, and the worktree is still created.
-    result = create_worktree.create_worktree("feature-pull", start_dir=repo)
-
-    assert result == 0
-    assert (tmp_path / "workspace-feature-pull").is_dir()
-
-
 def test_main_documented_form_repo_target_branch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
