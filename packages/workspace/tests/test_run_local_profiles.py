@@ -97,3 +97,4 @@ def test_save_last_configs_handles_write_error(tmp_path: Path) -> None:
         # doesn't create it either, so write_text should raise OSError, which
         # save_last_configs swallows.
         profiles.save_last_configs(configs)
+    assert not (tmp_path / "nope").exists()

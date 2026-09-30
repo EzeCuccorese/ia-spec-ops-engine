@@ -9,8 +9,10 @@ tested by patching those modules rather than driving a real terminal.
 from __future__ import annotations
 
 import io
+import os
 from unittest.mock import MagicMock, patch
 
+import pytest
 from workspace_engine.services import tui_utils as tu
 
 
@@ -64,24 +66,23 @@ def test_open_tty_falls_back_to_stdin_on_oserror() -> None:
     assert result is sys.stdin
 
 
-def test_write_tty_with_file_like_str_input() -> None:
-    fake = MagicMock()
-    tu.write_tty(fake, "hello")
-    fake.write.assert_called_once_with(b"hello")
-    fake.flush.assert_called_once()
-
-
-def test_write_tty_with_file_like_bytes_input() -> None:
-    fake = MagicMock()
-    tu.write_tty(fake, b"raw-bytes")
-    fake.write.assert_called_once_with(b"raw-bytes")
-    fake.flush.assert_called_once()
+@pytest.mark.parametrize(
+    ("data", "expected"), [("hello", b"hello"), (b"raw-bytes", b"raw-bytes")], ids=["str", "bytes"]
+)
+def test_write_tty_with_file_like(data: str | bytes, expected: bytes) -> None:
+    sink = io.BytesIO()
+    tu.write_tty(sink, data)
+    assert sink.getvalue() == expected
 
 
 def test_write_tty_with_raw_fd() -> None:
-    with patch("os.write") as mock_write:
-        tu.write_tty(5, "hi")
-    mock_write.assert_called_once_with(5, b"hi")
+    read_fd, write_fd = os.pipe()
+    try:
+        tu.write_tty(write_fd, "hi")
+        assert os.read(read_fd, 16) == b"hi"
+    finally:
+        os.close(read_fd)
+        os.close(write_fd)
 
 
 def test_read_key_returns_bytes_when_ready() -> None:
@@ -147,15 +148,20 @@ def test__read_key_returns_simple_byte() -> None:
     assert result == b"a"
 
 
-def test__read_key_accumulates_escape_sequence() -> None:
+@pytest.mark.parametrize(
+    ("chunks", "expected"),
+    [([b"\x1b", b"[", b"A"], b"\x1b[A"), ([b"\x1b", b"1", b"~"], b"\x1b1~")],
+    ids=["csi-letter", "tilde-terminator"],
+)
+def test__read_key_accumulates_escape_sequence(chunks: list[bytes], expected: bytes) -> None:
     fake_fd = MagicMock()
-    fake_fd.read.side_effect = [b"\x1b", b"[", b"A"]
+    fake_fd.read.side_effect = chunks
     with patch(
         "workspace_engine.services.tui_utils._select.select",
         side_effect=[([fake_fd], [], []), ([fake_fd], [], [])],
     ):
         result = tu._read_key(fake_fd)
-    assert result == b"\x1b[A"
+    assert result == expected
 
 
 def test__read_key_escape_alone_times_out() -> None:
@@ -166,35 +172,22 @@ def test__read_key_escape_alone_times_out() -> None:
     assert result == b"\x1b"
 
 
-def test__read_key_stops_on_tilde_terminator() -> None:
-    fake_fd = MagicMock()
-    fake_fd.read.side_effect = [b"\x1b", b"1", b"~"]
-    with patch(
-        "workspace_engine.services.tui_utils._select.select",
-        side_effect=[([fake_fd], [], []), ([fake_fd], [], [])],
-    ):
-        result = tu._read_key(fake_fd)
-    assert result == b"\x1b1~"
-
-
 def test_resolve_cursor_no_sentinel_returns_default_hide_sequence() -> None:
     frame, cur_seq = tu._resolve_cursor("no sentinel here")
     assert frame == "no sentinel here"
     assert cur_seq == "\033[?25l"
 
 
-def test_resolve_cursor_finds_position_without_home_sequence() -> None:
-    output = "line1\r\nline2\x00rest"
-    frame, cur_seq = tu._resolve_cursor(output)
-    assert frame == "line1\r\nline2rest"
-    assert cur_seq == "\033[2;6H\033[?25h"
-
-
-def test_resolve_cursor_finds_position_after_home_sequence() -> None:
-    output = "junk\033[Hline1\r\nab\x00rest"
-    frame, cur_seq = tu._resolve_cursor(output)
-    assert frame == "junk\033[Hline1\r\nabrest"
-    assert cur_seq == "\033[2;3H\033[?25h"
+@pytest.mark.parametrize(
+    ("output", "frame", "cur_seq"),
+    [
+        ("line1\r\nline2\x00rest", "line1\r\nline2rest", "\033[2;6H\033[?25h"),
+        ("junk\033[Hline1\r\nab\x00rest", "junk\033[Hline1\r\nabrest", "\033[2;3H\033[?25h"),
+    ],
+    ids=["without-home-sequence", "after-home-sequence"],
+)
+def test_resolve_cursor_finds_position(output: str, frame: str, cur_seq: str) -> None:
+    assert tu._resolve_cursor(output) == (frame, cur_seq)
 
 
 def test_tty_import_error_fallback_sets_tty_none() -> None:

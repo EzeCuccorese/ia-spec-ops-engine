@@ -136,24 +136,11 @@ def test_read_package_json_valid(tmp_path: Path) -> None:
     assert project_mod.read_package_json(tmp_path) == {"name": "pkg"}
 
 
-def test_is_spring_boot_app_properties(tmp_path: Path) -> None:
+@pytest.mark.parametrize("name", ["application.properties", "application.yml", "application.yaml"])
+def test_is_spring_boot_app_detects_application_config(tmp_path: Path, name: str) -> None:
     res = tmp_path / "src" / "main" / "resources"
     res.mkdir(parents=True)
-    (res / "application.properties").write_text("", encoding="utf-8")
-    assert project_mod.is_spring_boot_app(tmp_path) is True
-
-
-def test_is_spring_boot_app_yml(tmp_path: Path) -> None:
-    res = tmp_path / "src" / "main" / "resources"
-    res.mkdir(parents=True)
-    (res / "application.yml").write_text("", encoding="utf-8")
-    assert project_mod.is_spring_boot_app(tmp_path) is True
-
-
-def test_is_spring_boot_app_yaml(tmp_path: Path) -> None:
-    res = tmp_path / "src" / "main" / "resources"
-    res.mkdir(parents=True)
-    (res / "application.yaml").write_text("", encoding="utf-8")
+    (res / name).write_text("", encoding="utf-8")
     assert project_mod.is_spring_boot_app(tmp_path) is True
 
 
@@ -387,25 +374,19 @@ def test_parse_dotenv_unreadable_file(tmp_path: Path, monkeypatch) -> None:
     assert parse_dotenv(target) == {}
 
 
-def test_parse_dotenv_line_without_equals(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("A=1\nNOT_A_VAR_LINE\nB=2\n", {"A": "1", "B": "2"}),
+        ("\n# a comment\nexport A=1\n", {"A": "1"}),
+        ("A=\"hello\"\nB='world'\n", {"A": "hello", "B": "world"}),
+    ],
+    ids=["line-without-equals", "blank-comment-export", "surrounding-quotes"],
+)
+def test_parse_dotenv_content(tmp_path: Path, text: str, expected: dict[str, str]) -> None:
     target = tmp_path / ".env"
-    target.write_text("A=1\nNOT_A_VAR_LINE\nB=2\n", encoding="utf-8")
-    result = parse_dotenv(target)
-    assert result == {"A": "1", "B": "2"}
-
-
-def test_parse_dotenv_skips_blank_and_comment_lines(tmp_path: Path) -> None:
-    target = tmp_path / ".env"
-    target.write_text("\n# a comment\nexport A=1\n", encoding="utf-8")
-    result = parse_dotenv(target)
-    assert result == {"A": "1"}
-
-
-def test_parse_dotenv_strips_surrounding_quotes(tmp_path: Path) -> None:
-    target = tmp_path / ".env"
-    target.write_text("A=\"hello\"\nB='world'\n", encoding="utf-8")
-    result = parse_dotenv(target)
-    assert result == {"A": "hello", "B": "world"}
+    target.write_text(text, encoding="utf-8")
+    assert parse_dotenv(target) == expected
 
 
 def test_parse_frontmatter_no_leading_delimiter() -> None:

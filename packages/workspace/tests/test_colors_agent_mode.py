@@ -19,29 +19,24 @@ from workspace_engine.common.colors import (
 class TestIsAgentMode:
     """Test is_agent_mode() behavior (same 4 cases as ai_governance)."""
 
-    def test_agent_mode_forced_on_with_env_1(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """WORKSPACE_AGENT=1 forces agent mode ON even if stdout is a TTY."""
-        monkeypatch.setenv("WORKSPACE_AGENT", "1")
-        monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
-        assert is_agent_mode() is True
-
-    def test_agent_mode_forced_off_with_env_0(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """WORKSPACE_AGENT=0 forces agent mode OFF even if not a TTY."""
-        monkeypatch.setenv("WORKSPACE_AGENT", "0")
-        monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
-        assert is_agent_mode() is False
-
-    def test_agent_mode_off_when_tty_and_env_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Unset env + TTY → agent mode OFF."""
-        monkeypatch.delenv("WORKSPACE_AGENT", raising=False)
-        monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
-        assert is_agent_mode() is False
-
-    def test_agent_mode_off_on_plain_pipe(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A plain pipe (no agent markers) keeps full human output."""
-        monkeypatch.delenv("WORKSPACE_AGENT", raising=False)
-        monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
-        assert is_agent_mode() is False
+    @pytest.mark.parametrize(
+        ("env", "tty", "expected"),
+        [
+            ("1", True, True),  # WORKSPACE_AGENT=1 forces ON even on a TTY
+            ("0", False, False),  # WORKSPACE_AGENT=0 forces OFF even off a TTY
+            (None, True, False),  # unset + TTY
+            (None, False, False),  # plain pipe keeps full human output
+        ],
+    )
+    def test_agent_mode_env_and_tty(
+        self, monkeypatch: pytest.MonkeyPatch, env: str | None, tty: bool, expected: bool
+    ) -> None:
+        if env is None:
+            monkeypatch.delenv("WORKSPACE_AGENT", raising=False)
+        else:
+            monkeypatch.setenv("WORKSPACE_AGENT", env)
+        monkeypatch.setattr(sys.stdout, "isatty", lambda: tty)
+        assert is_agent_mode() is expected
 
     @pytest.mark.parametrize(
         "marker", ["CLAUDE_CODE_CHILD_SESSION", "CLAUDECODE", "CODEX_SANDBOX", "ANTIGRAVITY_AGENT"]

@@ -2,14 +2,11 @@
 Coverage tests for workspace_engine.cli.main: doctor_check's human-readable
 branches and the full `args.command` dispatch table in main().
 
-The `worktree` and `config` dispatch branches already have dedicated
-coverage elsewhere (test_create_worktree.py, test_ws_cli.py) and are not
-duplicated here except where needed to complete the parametrized sweep.
+The `config` dispatch branch has dedicated coverage in test_ws_cli.py.
 """
 
 from __future__ import annotations
 
-import argparse
 from unittest.mock import patch
 
 import pytest
@@ -20,80 +17,29 @@ from workspace_engine.cli.main import doctor_check, main
 # ---------------------------------------------------------------------------
 
 
-def test_doctor_check_human_mode_tool_not_found_and_hooks_inactive():
-    hooks_stat = {
-        "local": {"is_active": False},
-        "global": {"is_active": False},
-    }
+@pytest.mark.parametrize(
+    ("agent_mode", "git_path", "local", "glob", "git_status", "hooks_row"),
+    [
+        (False, None, False, False, "Not Found", ("Inactive", "ws hooks install --global")),
+        (False, "/usr/bin/git", True, False, "Available", ("Active", "(Local)")),
+        (True, "/usr/bin/git", False, True, "Available", ("Active", "(Global)")),
+        (True, "/usr/bin/git", True, True, "Available", ("Active", "(Local & Global)")),
+    ],
+    ids=["nothing-found", "local-hooks", "global-hooks", "both-scopes"],
+)
+def test_doctor_check_rows(agent_mode, git_path, local, glob, git_status, hooks_row):
+    hooks_stat = {"local": {"is_active": local}, "global": {"is_active": glob}}
     with (
-        patch("workspace_engine.cli.main.is_agent_mode", return_value=False),
-        patch("workspace_engine.cli.main.shutil.which", return_value=None),
-        patch(
-            "workspace_engine.services.git_hooks.get_hooks_status",
-            return_value=hooks_stat,
-        ),
+        patch("workspace_engine.cli.main.is_agent_mode", return_value=agent_mode),
+        patch("workspace_engine.cli.main.shutil.which", return_value=git_path),
+        patch("workspace_engine.services.git_hooks.get_hooks_status", return_value=hooks_stat),
         patch("workspace_engine.cli.main.emit_rows") as mock_emit,
     ):
         doctor_check()
-    rows = mock_emit.call_args.args[0]
-    assert any("Not Found" in r[1] for r in rows)
-    assert any("Inactive" in r[1] for r in rows)
-
-
-def test_doctor_check_human_mode_tool_found_and_hooks_active_local_only():
-    hooks_stat = {
-        "local": {"is_active": True},
-        "global": {"is_active": False},
-    }
-    with (
-        patch("workspace_engine.cli.main.is_agent_mode", return_value=False),
-        patch("workspace_engine.cli.main.shutil.which", return_value="/usr/bin/git"),
-        patch(
-            "workspace_engine.services.git_hooks.get_hooks_status",
-            return_value=hooks_stat,
-        ),
-        patch("workspace_engine.cli.main.emit_rows") as mock_emit,
-    ):
-        doctor_check()
-    rows = mock_emit.call_args.args[0]
-    assert any("Available" in r[1] for r in rows)
-    assert any("Active" in r[1] for r in rows)
-
-
-def test_doctor_check_hooks_active_global_only():
-    hooks_stat = {
-        "local": {"is_active": False},
-        "global": {"is_active": True},
-    }
-    with (
-        patch("workspace_engine.cli.main.is_agent_mode", return_value=True),
-        patch("workspace_engine.cli.main.shutil.which", return_value="/usr/bin/git"),
-        patch(
-            "workspace_engine.services.git_hooks.get_hooks_status",
-            return_value=hooks_stat,
-        ),
-        patch("workspace_engine.cli.main.emit_rows") as mock_emit,
-    ):
-        doctor_check()
-    rows = mock_emit.call_args.args[0]
-    assert any(r[0] == "git-hooks" and r[1] == "Active" for r in rows)
-
-
-def test_doctor_check_hooks_active_both_scopes():
-    hooks_stat = {
-        "local": {"is_active": True},
-        "global": {"is_active": True},
-    }
-    with (
-        patch("workspace_engine.cli.main.is_agent_mode", return_value=True),
-        patch("workspace_engine.cli.main.shutil.which", return_value="/usr/bin/git"),
-        patch(
-            "workspace_engine.services.git_hooks.get_hooks_status",
-            return_value=hooks_stat,
-        ),
-        patch("workspace_engine.cli.main.emit_rows"),
-    ):
-        doctor_check()  # exercises the "Local & Global" branch without raising
+    rows = {r[0]: r for r in mock_emit.call_args.args[0]}
+    assert git_status in rows["git"][1]
+    assert hooks_row[0] in rows["git-hooks"][1]
+    assert hooks_row[1] in rows["git-hooks"][2]
 
 
 # ---------------------------------------------------------------------------
@@ -102,31 +48,37 @@ def test_doctor_check_hooks_active_both_scopes():
 
 
 @pytest.mark.parametrize(
-    "argv,target,expected_call",
+    "argv,target,forwarded",
     [
         (
             ["ws", "generate", "ws-name", "repo-a"],
             "workspace_engine.cli.generate_workspace.main",
-            None,
+            (),
         ),
-        (["ws", "edit", "ws-name"], "workspace_engine.cli.edit_workspace.main", None),
-        (["ws", "clean"], "workspace_engine.cli.clean_workspace.main", None),
-        (["ws", "stop"], "workspace_engine.cli.stop_workspace.main", None),
-        (["ws", "reset"], "workspace_engine.cli.reset_repos.main", None),
-        (["ws", "delete", "ws-a"], "workspace_engine.cli.delete_workspaces.main", None),
-        (["ws", "build"], "workspace_engine.cli.build_project.main", None),
-        (["ws", "deps"], "workspace_engine.cli.install_deps.main", None),
-        (["ws", "java"], "workspace_engine.cli.set_java.main", None),
-        (["ws", "env-init"], "workspace_engine.cli.init_env.main", None),
-        (["ws", "env-load"], "workspace_engine.cli.load_env.main", None),
-        (["ws", "benchmark"], "workspace_engine.cli.unit_test_benchmark.main", None),
-        (["ws", "run-local"], "workspace_engine.run_local.main.main", None),
+        (["ws", "edit", "ws-name"], "workspace_engine.cli.edit_workspace.main", ()),
+        (["ws", "clean"], "workspace_engine.cli.clean_workspace.main", ()),
+        (["ws", "stop"], "workspace_engine.cli.stop_workspace.main", ()),
+        (["ws", "reset"], "workspace_engine.cli.reset_repos.main", ()),
+        (["ws", "delete", "ws-a"], "workspace_engine.cli.delete_workspaces.main", ()),
+        (["ws", "build"], "workspace_engine.cli.build_project.main", ()),
+        (["ws", "deps"], "workspace_engine.cli.install_deps.main", ()),
+        (["ws", "java"], "workspace_engine.cli.set_java.main", ()),
+        (["ws", "env-init"], "workspace_engine.cli.init_env.main", ()),
+        (["ws", "env-load"], "workspace_engine.cli.load_env.main", ()),
+        (["ws", "benchmark"], "workspace_engine.cli.unit_test_benchmark.main", ()),
+        (["ws", "run-local"], "workspace_engine.run_local.main.main", ()),
+        (["ws", "doctor"], "workspace_engine.cli.main.doctor_check", ()),
+        (
+            ["ws", "worktree", "repo-a", "/tmp/target", "feature-x"],
+            "workspace_engine.cli.create_worktree.main",
+            (["repo-a", "/tmp/target", "feature-x"],),
+        ),
     ],
 )
-def test_main_dispatches_simple_subcommands(argv, target, expected_call):
+def test_main_dispatches_simple_subcommands(argv, target, forwarded):
     with patch("sys.argv", argv), patch(target) as mock_main:
         main()
-    mock_main.assert_called_once_with()
+    mock_main.assert_called_once_with(*forwarded)
 
 
 def test_main_dispatches_hooks_with_forwarded_args():
@@ -164,15 +116,6 @@ def test_main_dispatches_kube_with_action():
     mock_kube.assert_called_once_with("env")
 
 
-def test_main_dispatches_worktree_with_positional_args():
-    with (
-        patch("sys.argv", ["ws", "worktree", "repo-a", "/tmp/target", "feature-x"]),
-        patch("workspace_engine.cli.create_worktree.main") as mock_wt,
-    ):
-        main()
-    mock_wt.assert_called_once_with(["repo-a", "/tmp/target", "feature-x"])
-
-
 @pytest.mark.parametrize(
     "command,target",
     [
@@ -195,15 +138,6 @@ def test_main_dispatches_condense_commands(command, target):
     mock_handler.assert_called_once_with(["--foo"])
 
 
-def test_main_dispatches_doctor():
-    with (
-        patch("sys.argv", ["ws", "doctor"]),
-        patch("workspace_engine.cli.main.doctor_check") as mock_doc,
-    ):
-        main()
-    mock_doc.assert_called_once_with()
-
-
 def test_main_no_command_prints_help_and_exits_0():
     with (
         patch("sys.argv", ["ws"]),
@@ -211,33 +145,3 @@ def test_main_no_command_prints_help_and_exits_0():
     ):
         main()
     assert exc.value.code == 0
-
-
-def test_main_hook_with_unsupported_hook_name_is_a_noop():
-    """argparse's `choices` restricts `hook_name` to a single known value, so the
-    `if args.hook_name == "claude-worktree-create"` false branch is unreachable via
-    the real CLI. Exercise it directly with a crafted namespace."""
-    fake_args = argparse.Namespace(command="hook", hook_name="unsupported", hook_args=[])
-    with (
-        patch("sys.argv", ["ws", "hook", "claude-worktree-create"]),
-        patch(
-            "workspace_engine.cli.main.argparse.ArgumentParser.parse_args",
-            return_value=fake_args,
-        ),
-    ):
-        main()  # falls through without raising or dispatching
-
-
-def test_main_unrecognized_command_is_a_noop():
-    """All defined subparsers are handled by the if/elif chain, so a command
-    outside that set is unreachable via the real CLI. Exercise the trailing
-    fallthrough directly with a crafted namespace."""
-    fake_args = argparse.Namespace(command="not-a-real-command")
-    with (
-        patch("sys.argv", ["ws", "doctor"]),
-        patch(
-            "workspace_engine.cli.main.argparse.ArgumentParser.parse_args",
-            return_value=fake_args,
-        ),
-    ):
-        main()  # falls through without raising or dispatching

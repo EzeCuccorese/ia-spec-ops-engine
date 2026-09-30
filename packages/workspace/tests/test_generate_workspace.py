@@ -29,16 +29,28 @@ def _git_result(returncode: int = 0, stdout: str = "", stderr: str = "") -> Magi
 # ---------------------------------------------------------------------------
 
 
-def test_setup_repo_worktree_already_exists_is_noop(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("mode", "listing"),
+    [
+        ("new", "worktree {target}\nbranch refs/heads/feature\n"),
+        ("unsupported", ""),
+    ],
+    ids=["already-exists", "unknown-mode"],
+)
+def test_setup_repo_worktree_only_lists_when_nothing_to_create(
+    tmp_path: Path, mode: str, listing: str
+) -> None:
     target = tmp_path / "target"
-    cfg = RepoConfig(name="repo-a", mode="new", branch="feature", parent="main")
+    cfg = RepoConfig(name="repo-a", mode=mode, branch="feature", parent="main")
+    issued: list[tuple[str, ...]] = []
 
-    with patch(
-        "workspace_engine.cli.generate_workspace.run_git",
-        return_value=_git_result(stdout=f"worktree {target}\nbranch refs/heads/feature\n"),
-    ) as mock_run:
+    def fake_run_git(path: Path, *args: str) -> MagicMock:
+        issued.append(args[:2])
+        return _git_result(stdout=listing.format(target=target))
+
+    with patch("workspace_engine.cli.generate_workspace.run_git", side_effect=fake_run_git):
         gw.setup_repo_worktree(tmp_path, target, cfg)
-    mock_run.assert_called_once()
+    assert issued == [("worktree", "list")]
 
 
 def test_setup_repo_worktree_no_match_in_existing_list_then_creates(tmp_path: Path) -> None:
@@ -60,18 +72,6 @@ def test_setup_repo_worktree_no_match_in_existing_list_then_creates(tmp_path: Pa
 
     with patch("workspace_engine.cli.generate_workspace.run_git", side_effect=fake_run_git):
         gw.setup_repo_worktree(tmp_path, target, cfg)
-
-
-def test_setup_repo_worktree_unknown_mode_is_noop(tmp_path: Path) -> None:
-    target = tmp_path / "target"
-    cfg = RepoConfig(name="repo-a", mode="unsupported", branch="feature", parent=None)
-
-    with patch(
-        "workspace_engine.cli.generate_workspace.run_git",
-        return_value=_git_result(stdout=""),
-    ) as mock_run:
-        gw.setup_repo_worktree(tmp_path, target, cfg)
-    mock_run.assert_called_once()  # only the initial "worktree list" call
 
 
 def test_setup_repo_worktree_new_mode_uses_remote_branch(tmp_path: Path) -> None:

@@ -8,6 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from workspace_engine.run_local import service_wiring as sw
 
 
@@ -59,41 +60,32 @@ def test_spring_context_path_no_matching_file(tmp_path: Path) -> None:
     assert sw.spring_context_path(tmp_path) == ""
 
 
-def test_spring_context_path_yaml_colon_style(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("filename", "content", "expected"),
+    [
+        ("application.yml", "server:\n  servlet:\n    context-path: /api\n", "/api"),
+        ("application.yml", "context-path: api\n", "/api"),
+        ("application.yml", "context-path: /\n", ""),
+        ("application.properties", "server.servlet.context-path=/api2\n", "/api2"),
+        (
+            "application.properties",
+            "unrelated.key=value\nserver.context-path=/\nserver.context-path=api3\n",
+            "/api3",
+        ),
+    ],
+    ids=[
+        "yaml-nested",
+        "yaml-adds-slash",
+        "yaml-root-skipped",
+        "properties",
+        "properties-short-key",
+    ],
+)
+def test_spring_context_path(tmp_path: Path, filename: str, content: str, expected: str) -> None:
     res_dir = tmp_path / "src" / "main" / "resources"
     res_dir.mkdir(parents=True)
-    (res_dir / "application.yml").write_text("server:\n  servlet:\n    context-path: /api\n")
-    assert sw.spring_context_path(tmp_path) == "/api"
-
-
-def test_spring_context_path_yaml_adds_leading_slash(tmp_path: Path) -> None:
-    res_dir = tmp_path / "src" / "main" / "resources"
-    res_dir.mkdir(parents=True)
-    (res_dir / "application.yml").write_text("context-path: api\n")
-    assert sw.spring_context_path(tmp_path) == "/api"
-
-
-def test_spring_context_path_yaml_root_value_is_skipped(tmp_path: Path) -> None:
-    res_dir = tmp_path / "src" / "main" / "resources"
-    res_dir.mkdir(parents=True)
-    (res_dir / "application.yml").write_text("context-path: /\n")
-    assert sw.spring_context_path(tmp_path) == ""
-
-
-def test_spring_context_path_properties_style(tmp_path: Path) -> None:
-    res_dir = tmp_path / "src" / "main" / "resources"
-    res_dir.mkdir(parents=True)
-    (res_dir / "application.properties").write_text("server.servlet.context-path=/api2\n")
-    assert sw.spring_context_path(tmp_path) == "/api2"
-
-
-def test_spring_context_path_properties_short_key_adds_slash(tmp_path: Path) -> None:
-    res_dir = tmp_path / "src" / "main" / "resources"
-    res_dir.mkdir(parents=True)
-    (res_dir / "application.properties").write_text(
-        "unrelated.key=value\nserver.context-path=/\nserver.context-path=api3\n"
-    )
-    assert sw.spring_context_path(tmp_path) == "/api3"
+    (res_dir / filename).write_text(content)
+    assert sw.spring_context_path(tmp_path) == expected
 
 
 def test_spring_context_path_yaml_file_read_error_is_ignored(tmp_path: Path) -> None:
@@ -160,14 +152,11 @@ def test_service_link_node_with_health_route(tmp_path: Path) -> None:
     assert url == "http://localhost:8200/health"
 
 
-def test_service_link_node_without_health_route_falls_back(tmp_path: Path) -> None:
-    label, url = sw.service_link("react", 8300, tmp_path)
-    assert label == "App"
-    assert url == "http://localhost:8300/"
-
-
-def test_service_link_node_without_repo_path_falls_back() -> None:
-    label, url = sw.service_link("vue", 8300, None)
+@pytest.mark.parametrize(
+    "with_repo", [True, False], ids=["repo-without-health-route", "no-repo-path"]
+)
+def test_service_link_node_without_health_route_falls_back(tmp_path: Path, with_repo: bool) -> None:
+    label, url = sw.service_link("react", 8300, tmp_path if with_repo else None)
     assert label == "App"
     assert url == "http://localhost:8300/"
 
@@ -178,15 +167,12 @@ def test_service_link_default_app() -> None:
     assert url == "http://localhost:8400/"
 
 
-def test_wire_urls_skips_non_url_values() -> None:
-    res, wired = sw.wire_urls({"NAME": "plain-value"}, {})
-    assert res == {"NAME": "plain-value"}
-    assert wired == {}
-
-
-def test_wire_urls_skips_non_string_values() -> None:
-    res, wired = sw.wire_urls({"COUNT": 5}, {})  # type: ignore[dict-item]
-    assert res == {"COUNT": 5}
+@pytest.mark.parametrize(
+    "env", [{"NAME": "plain-value"}, {"COUNT": 5}], ids=["non-url", "non-string"]
+)
+def test_wire_urls_skips_values_that_are_not_urls(env: dict) -> None:
+    res, wired = sw.wire_urls(env, {})
+    assert res == env
     assert wired == {}
 
 

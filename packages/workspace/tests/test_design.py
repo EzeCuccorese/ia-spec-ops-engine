@@ -145,17 +145,27 @@ def test_config_overrides(tmp_path: Path) -> None:
     assert config.max_function_lines == 40
 
 
-def test_config_invalid_mode(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("toml", "match"),
+    [
+        ('[design]\nmode = "bogus"\n', "mode"),
+        ("[design]\nbogus = 1\n", "unknown"),
+        ('design = "nope"\n', "must be a table"),
+        ('[design]\nlayers = "nope"\n', "layers"),
+        ('[design]\nchecks = ["bogus"]\n', "unknown check"),
+    ],
+    ids=[
+        "invalid-mode",
+        "unknown-key",
+        "design-not-a-table",
+        "layers-not-a-table",
+        "unknown-check",
+    ],
+)
+def test_config_rejects_invalid_design_table(tmp_path: Path, toml: str, match: str) -> None:
     (tmp_path / ".ai-governance").mkdir()
-    (tmp_path / ".ai-governance" / "config.toml").write_text('[design]\nmode = "bogus"\n')
-    with pytest.raises(ValueError, match="mode"):
-        DesignConfig.load(tmp_path)
-
-
-def test_config_unknown_key(tmp_path: Path) -> None:
-    (tmp_path / ".ai-governance").mkdir()
-    (tmp_path / ".ai-governance" / "config.toml").write_text("[design]\nbogus = 1\n")
-    with pytest.raises(ValueError, match="unknown"):
+    (tmp_path / ".ai-governance" / "config.toml").write_text(toml)
+    with pytest.raises(ValueError, match=match):
         DesignConfig.load(tmp_path)
 
 
@@ -354,203 +364,144 @@ def test_cli_pass_no_violations(tmp_path: Path, capsys: pytest.CaptureFixture[st
 # --- nesting: own engine, not lizard's max_nested_structures --------------------
 
 
-def test_python_elif_same_level_as_if(tmp_path: Path) -> None:
-    source = (
-        "def route(a):\n"
-        "    if a == 1:\n"
-        "        return 1\n"
-        "    elif a == 2:\n"
-        "        return 2\n"
-        "    elif a == 3:\n"
-        "        return 3\n"
-        "    else:\n"
-        "        return 0\n"
-    )
-    config = DesignConfig(max_nesting=1)
-    violations = _measure_one(tmp_path, "route.py", source, config)
-    assert not any(v.metric == "nesting" for v in violations)
+_NESTING_CASES = [
+    # (file name, source, max_nesting, expected nesting depth or None for "no nesting violation")
+    (
+        "route.py",
+        "def route(a):\n    if a == 1:\n        return 1\n    elif a == 2:\n        return 2\n"
+        "    elif a == 3:\n        return 3\n    else:\n        return 0\n",
+        1,
+        None,
+    ),
+    (
+        # the deep 'if' chain lives in outer(); inner() must not inherit its depth
+        "outer.py",
+        "def outer(a):\n    if a:\n        if a > 1:\n            if a > 2:\n                pass\n\n"
+        "    def inner(b):\n        return b\n\n    return inner\n",
+        5,
+        None,
+    ),
+    (
+        "Router.java",
+        "public class Router {\n    public int route(int a) {\n        if (a == 1) {\n            return 1;\n"
+        "        } else if (a == 2) {\n            return 2;\n        } else if (a == 3) {\n"
+        "            return 3;\n        } else {\n            return 0;\n        }\n    }\n}\n",
+        1,
+        None,
+    ),
+    (
+        "S.java",
+        'public class S {\n    public String describe() {\n        String s = "{ if (x) { } }";\n'
+        "        return s;\n    }\n}\n",
+        0,
+        None,
+    ),
+    (
+        "build.ts",
+        "function build(items: number[]): object {\n"
+        "    const config = { retries: 3, nested: { a: 1, b: 2 } };\n"
+        "    const doubled = items.map((x) => { return x * 2; });\n"
+        "    return { config, doubled };\n}\n",
+        0,
+        None,
+    ),
+    (
+        "deep.ts",
+        "function deep(a: number, b: number): number {\n    if (a > 0) {\n"
+        "        for (let i = 0; i < b; i++) {\n            if (i % 2 === 0) {\n"
+        "                while (a > 0) {\n                    a -= 1;\n                }\n"
+        "            }\n        }\n    }\n    return a;\n}\n",
+        3,
+        4,
+    ),
+    (
+        "C.java",
+        "public class C {\n    public int f(int a) {\n        // if (a) { if (a) { if (a) { } } }\n"
+        "        return a;\n    }\n}\n",
+        0,
+        None,
+    ),
+    (
+        "C.java",
+        "public class C {\n    public int f(int a) {\n        /* if (a) { if (a) { } } */\n"
+        "        if (a > 0) {\n            return a;\n        }\n        return 0;\n    }\n}\n",
+        0,
+        1,
+    ),
+    (
+        "f.py",
+        "def f(a):\n    for i in range(a):\n        while i > 0:\n            with open('x') as fh:\n"
+        "                try:\n                    fh.read()\n                except OSError:\n"
+        "                    pass\n                finally:\n                    pass\n            i -= 1\n",
+        3,
+        4,
+    ),
+    (
+        "f.py",
+        "def f(a):\n    if a:\n        match a:\n            case 1:\n                return 1\n"
+        "            case _:\n                return 0\n    return -1\n",
+        1,
+        2,
+    ),
+    (
+        # a class inside a function is not its own scope: its body counts toward the function
+        "outer.py",
+        "def outer(a):\n    class Inner:\n        if a:\n            x = 1\n    return Inner\n",
+        0,
+        1,
+    ),
+    (
+        # Ruby has no nesting engine: never a nesting violation, however low the limit
+        "f.rb",
+        "def f(a)\n  if a\n    if a\n      if a\n        1\n      end\n    end\n  end\nend\n",
+        0,
+        None,
+    ),
+    (
+        "classify.go",
+        "package main\n\nfunc classify(a int) int {\n\tif a > 0 {\n\t\tif a > 10 {\n\t\t\treturn 2\n"
+        "\t\t} else if a > 5 {\n\t\t\treturn 1\n\t\t}\n\t}\n\treturn 0\n}\n",
+        1,
+        2,
+    ),
+]
 
 
-def test_python_nested_def_measured_separately(tmp_path: Path) -> None:
-    source = (
-        "def outer(a):\n"
-        "    if a:\n"
-        "        if a > 1:\n"
-        "            if a > 2:\n"
-        "                pass\n"
-        "\n"
-        "    def inner(b):\n"
-        "        return b\n"
-        "\n"
-        "    return inner\n"
-    )
-    config = DesignConfig(max_nesting=5)
-    violations = _measure_one(tmp_path, "outer.py", source, config)
-    # deep 'if' chain lives in outer(); inner() is trivial and must not inherit outer's depth
-    assert not any(v.metric == "nesting" for v in violations)
+@pytest.mark.parametrize(
+    ("filename", "source", "max_nesting", "expected"),
+    _NESTING_CASES,
+    ids=[
+        "py-elif-same-level",
+        "py-nested-def-separate",
+        "java-else-if-chain",
+        "java-braces-in-string",
+        "ts-literal-and-lambda",
+        "ts-real-nesting",
+        "java-line-comment",
+        "java-block-comment",
+        "py-for-while-with-try",
+        "py-match",
+        "py-nested-class",
+        "ruby-not-computed",
+        "go-chained-else",
+    ],
+)
+def test_nesting_depth(
+    tmp_path: Path, filename: str, source: str, max_nesting: int, expected: int | None
+) -> None:
+    violations = _measure_one(tmp_path, filename, source, DesignConfig(max_nesting=max_nesting))
+    depths = [v.value for v in violations if v.metric == "nesting"]
+    assert depths == ([] if expected is None else [expected])
 
 
-def test_java_else_if_chain_no_extra_level(tmp_path: Path) -> None:
-    source = """
-public class Router {
-    public int route(int a) {
-        if (a == 1) {
-            return 1;
-        } else if (a == 2) {
-            return 2;
-        } else if (a == 3) {
-            return 3;
-        } else {
-            return 0;
-        }
-    }
-}
-"""
-    config = DesignConfig(max_nesting=1)
-    violations = _measure_one(tmp_path, "Router.java", source, config)
-    assert not any(v.metric == "nesting" for v in violations)
-
-
-def test_java_string_with_braces_not_counted(tmp_path: Path) -> None:
-    source = """
-public class S {
-    public String describe() {
-        String s = "{ if (x) { } }";
-        return s;
-    }
-}
-"""
-    config = DesignConfig(max_nesting=0)
-    violations = _measure_one(tmp_path, "S.java", source, config)
-    assert not any(v.metric == "nesting" for v in violations)
-
-
-def test_typescript_object_literal_and_lambda_not_counted(tmp_path: Path) -> None:
-    source = """
-function build(items: number[]): object {
-    const config = { retries: 3, nested: { a: 1, b: 2 } };
-    const doubled = items.map((x) => { return x * 2; });
-    return { config, doubled };
-}
-"""
-    config = DesignConfig(max_nesting=0)
-    violations = _measure_one(tmp_path, "build.ts", source, config)
-    assert not any(v.metric == "nesting" for v in violations)
-
-
-def test_typescript_real_nesting_detected(tmp_path: Path) -> None:
-    source = """
-function deep(a: number, b: number): number {
-    if (a > 0) {
-        for (let i = 0; i < b; i++) {
-            if (i % 2 === 0) {
-                while (a > 0) {
-                    a -= 1;
-                }
-            }
-        }
-    }
-    return a;
-}
-"""
-    violations = _measure_one(tmp_path, "deep.ts", source, DesignConfig(max_nesting=3))
-    assert any(v.metric == "nesting" and v.value == 4 for v in violations)
-
-
-def test_brace_nesting_line_comment_control_keyword_ignored(tmp_path: Path) -> None:
-    source = """
-public class C {
-    public int f(int a) {
-        // if (a) { if (a) { if (a) { } } }
-        return a;
-    }
-}
-"""
-    config = DesignConfig(max_nesting=0)
-    violations = _measure_one(tmp_path, "C.java", source, config)
-    assert not any(v.metric == "nesting" for v in violations)
-
-
-def test_brace_nesting_block_comment_control_keyword_ignored(tmp_path: Path) -> None:
-    source = """
-public class C {
-    public int f(int a) {
-        /* if (a) { if (a) { } } */
-        if (a > 0) {
-            return a;
-        }
-        return 0;
-    }
-}
-"""
-    config = DesignConfig(max_nesting=0)
-    violations = _measure_one(tmp_path, "C.java", source, config)
-    assert any(v.metric == "nesting" and v.value == 1 for v in violations)
-
-
-def test_python_for_while_with_try_nesting(tmp_path: Path) -> None:
-    source = (
-        "def f(a):\n"
-        "    for i in range(a):\n"
-        "        while i > 0:\n"
-        "            with open('x') as fh:\n"
-        "                try:\n"
-        "                    fh.read()\n"
-        "                except OSError:\n"
-        "                    pass\n"
-        "                finally:\n"
-        "                    pass\n"
-        "            i -= 1\n"
-    )
-    config = DesignConfig(max_nesting=3)
-    violations = _measure_one(tmp_path, "f.py", source, config)
-    assert any(v.metric == "nesting" and v.value == 4 for v in violations)
-
-
-def test_python_match_statement_nesting(tmp_path: Path) -> None:
-    source = (
-        "def f(a):\n"
-        "    if a:\n"
-        "        match a:\n"
-        "            case 1:\n"
-        "                return 1\n"
-        "            case _:\n"
-        "                return 0\n"
-        "    return -1\n"
-    )
-    config = DesignConfig(max_nesting=1)
-    violations = _measure_one(tmp_path, "f.py", source, config)
-    assert any(v.metric == "nesting" and v.value == 2 for v in violations)
-
-
-def test_python_nested_class_body_walked_at_same_depth(tmp_path: Path) -> None:
-    # A class defined inside a function is not its own measured scope (only
-    # FunctionDef/AsyncFunctionDef/Lambda are), so its body is walked as part
-    # of the enclosing function's nesting.
-    source = "def outer(a):\n    class Inner:\n        if a:\n            x = 1\n    return Inner\n"
-    config = DesignConfig(max_nesting=0)
-    violations = _measure_one(tmp_path, "outer.py", source, config)
-    assert any(v.metric == "nesting" for v in violations)
-
-
-def test_ruby_nesting_not_computed(tmp_path: Path) -> None:
-    # Ruby is analyzable by lizard but has no nesting engine: deep nesting must
-    # never surface as a "nesting" violation, however low the limit is.
-    source = "def f(a)\n  if a\n    if a\n      if a\n        1\n      end\n    end\n  end\nend\n"
-    config = DesignConfig(max_nesting=0)
-    violations = _measure_one(tmp_path, "f.rb", source, config)
-    assert not any(v.metric == "nesting" for v in violations)
-
-
-def test_measure_skips_undecodable_file(tmp_path: Path) -> None:
-    path = tmp_path / "bad.py"
-    path.write_bytes(b"\xff\xfe\x00def f():\n    pass\n")
-    assert measure(tmp_path, [path], DesignConfig()) == []
-
-
-def test_measure_skips_python_syntax_error(tmp_path: Path) -> None:
-    path = tmp_path / "broken.py"
-    path.write_text("def f(:\n    pass\n")
+@pytest.mark.parametrize(
+    ("content", "name"),
+    [(b"\xff\xfe\x00def f():\n    pass\n", "bad.py"), (b"def f(:\n    pass\n", "broken.py")],
+    ids=["undecodable", "syntax-error"],
+)
+def test_measure_skips_unparseable_file(tmp_path: Path, content: bytes, name: str) -> None:
+    path = tmp_path / name
+    path.write_bytes(content)
     assert measure(tmp_path, [path], DesignConfig()) == []
 
 
@@ -559,13 +510,6 @@ def test_config_no_design_table_returns_defaults(tmp_path: Path) -> None:
     (tmp_path / ".ai-governance" / "config.toml").write_text("[other]\nkey = 1\n")
     config = DesignConfig.load(tmp_path)
     assert config == DesignConfig()
-
-
-def test_config_design_not_a_table(tmp_path: Path) -> None:
-    (tmp_path / ".ai-governance").mkdir()
-    (tmp_path / ".ai-governance" / "config.toml").write_text('design = "nope"\n')
-    with pytest.raises(ValueError, match="must be a table"):
-        DesignConfig.load(tmp_path)
 
 
 # --- CLI: file collection -------------------------------------------------------
@@ -637,25 +581,6 @@ def test_cli_changed_flag_uses_changed_files(
     out = capsys.readouterr().out
     assert code == 1
     assert "deep.py" in out
-
-
-def test_go_nesting_real_and_chained_else(tmp_path: Path) -> None:
-    source = """
-package main
-
-func classify(a int) int {
-	if a > 0 {
-		if a > 10 {
-			return 2
-		} else if a > 5 {
-			return 1
-		}
-	}
-	return 0
-}
-"""
-    violations = _measure_one(tmp_path, "classify.go", source, DesignConfig(max_nesting=1))
-    assert any(v.metric == "nesting" and v.value == 2 for v in violations)
 
 
 # --- new vs. legacy classification -----------------------------------------------
@@ -824,53 +749,34 @@ def test_cli_focus_reports_violation_and_exit_code(
     assert "module.py:1-" in out
 
 
-def test_cli_focus_pass_within_limits(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    (tmp_path / "small.py").write_text(PY_CLEAN)
-    code = design_cli.design(["--dir", str(tmp_path), "--focus", "small.py:1"])
-    out = capsys.readouterr().out
-    assert code == 0
-    assert "Within limits." in out
-
-
-def test_cli_focus_no_function_found(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    (tmp_path / "small.py").write_text(PY_CLEAN)
-    code = design_cli.design(["--dir", str(tmp_path), "--focus", "small.py:999"])
-    out = capsys.readouterr().out
-    assert code == 1
-    assert "no function found" in out
-
-
-def test_cli_focus_bad_spec(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    code = design_cli.design(["--dir", str(tmp_path), "--focus", "nocolon"])
-    out = capsys.readouterr().out
-    assert code == 1
-    assert "path:line" in out
-
-
-def test_cli_focus_non_integer_line(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    (tmp_path / "small.py").write_text(PY_CLEAN)
-    code = design_cli.design(["--dir", str(tmp_path), "--focus", "small.py:notaline"])
-    out = capsys.readouterr().out
-    assert code == 1
-    assert "path:line" in out
-
-
-def test_cli_focus_absolute_path(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    target = tmp_path / "small.py"
-    target.write_text(PY_CLEAN)
-    code = design_cli.design(["--dir", str(tmp_path), "--focus", f"{target}:1"])
-    out = capsys.readouterr().out
-    assert code == 0
-    assert "Within limits." in out
-
-
-def test_cli_focus_missing_file_no_function(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize("absolute", [False, True], ids=["relative", "absolute"])
+def test_cli_focus_pass_within_limits(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], absolute: bool
 ) -> None:
-    code = design_cli.design(["--dir", str(tmp_path), "--focus", "missing.py:1"])
+    (tmp_path / "small.py").write_text(PY_CLEAN)
+    spec = f"{tmp_path / 'small.py'}:1" if absolute else "small.py:1"
+    code = design_cli.design(["--dir", str(tmp_path), "--focus", spec])
     out = capsys.readouterr().out
+    assert code == 0
+    assert "Within limits." in out
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected"),
+    [
+        ("small.py:999", "no function found"),
+        ("missing.py:1", "no function found"),
+        ("nocolon", "path:line"),
+        ("small.py:notaline", "path:line"),
+    ],
+)
+def test_cli_focus_rejects_unusable_spec(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], spec: str, expected: str
+) -> None:
+    (tmp_path / "small.py").write_text(PY_CLEAN)
+    code = design_cli.design(["--dir", str(tmp_path), "--focus", spec])
     assert code == 1
-    assert "no function found" in out
+    assert expected in capsys.readouterr().out
 
 
 def test_cli_focus_ruby_function_has_no_nesting_check(
@@ -928,26 +834,6 @@ def test_java_adapters_importing_domain_is_ok(tmp_path: Path) -> None:
     assert layer_violations(tmp_path, [adapters / "Db.java"], _LAYERS) == []
 
 
-def test_java_commented_import_ignored(tmp_path: Path) -> None:
-    domain = tmp_path / "com/acme/domain"
-    domain.mkdir(parents=True)
-    (domain / "Order.java").write_text(
-        "package com.acme.domain;\n// import com.acme.adapters.Db;\npublic class Order {}\n"
-    )
-    assert layer_violations(tmp_path, [domain / "Order.java"], _LAYERS) == []
-
-
-def test_python_relative_import_violation(tmp_path: Path) -> None:
-    domain = tmp_path / "app/domain"
-    adapters = tmp_path / "app/adapters"
-    domain.mkdir(parents=True)
-    adapters.mkdir(parents=True)
-    (domain / "order.py").write_text("from ..adapters import db\n")
-    violations = layer_violations(tmp_path, [domain / "order.py"], _LAYERS)
-    assert len(violations) == 1
-    assert violations[0].metric == "layers"
-
-
 def test_ts_relative_violation_bare_ignored(tmp_path: Path) -> None:
     domain = tmp_path / "src/domain"
     adapters = tmp_path / "src/adapters"
@@ -997,108 +883,62 @@ def test_extract_imports_unknown_extension_returns_empty() -> None:
     assert extract_imports("f.txt", "txt", "irrelevant", None) == []
 
 
-def test_kotlin_import_violation(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("filename", "source", "expected"),
+    [
+        ("Order.kt", "package app.domain\nimport app.adapters.Db\nclass Order\n", 1),
+        ("Order.cs", "using app.adapters;\nnamespace app.domain { class Order {} }\n", 1),
+        ("Order.cs", "using static app.adapters.Db;\nnamespace app.domain { class Order {} }\n", 0),
+        ("Order.php", "<?php\nnamespace app\\domain;\nuse app\\adapters\\Db;\nclass Order {}\n", 1),
+        ("order.rs", "use crate::app::adapters::Db;\nfn f() {}\n", 1),
+        ("order.dart", "import 'package:app/adapters/db.dart';\nclass Order {}\n", 1),
+        ("order.dart", "import '../adapters/db.dart';\nclass Order {}\n", 1),
+        (
+            "order.mjs",
+            "const db = require('../adapters/db');\n"
+            "async function load() { await import('../adapters/other'); }\n",
+            2,
+        ),
+        ("order.py", "x = 1\nimport app.adapters.db\ny = 2\n", 1),
+        ("order.py", "from app.adapters import db\n", 1),
+        ("order.py", "from ..adapters import db\n", 1),
+        ("order.py", "from . import sibling\n", 0),
+        (
+            "Order.java",
+            "package app.domain;\n// import app.adapters.Db;\npublic class Order {}\n",
+            0,
+        ),
+        ("notes.txt", "import app.adapters.db\n", 0),
+        ("order.ts", "import something from 'plain-package';\n", 0),
+    ],
+    ids=[
+        "kotlin",
+        "csharp-using",
+        "csharp-using-static",
+        "php-use",
+        "rust-use",
+        "dart-package",
+        "dart-relative",
+        "js-dynamic-and-require",
+        "py-plain-dotted",
+        "py-absolute-from",
+        "py-relative-from",
+        "py-bare-relative",
+        "java-commented",
+        "unrecognized-extension",
+        "ts-bare-package",
+    ],
+)
+def test_domain_file_importing_adapters(
+    tmp_path: Path, filename: str, source: str, expected: int
+) -> None:
     domain = tmp_path / "app/domain"
+    (tmp_path / "app/adapters").mkdir(parents=True)
     domain.mkdir(parents=True)
-    (domain / "Order.kt").write_text("package app.domain\nimport app.adapters.Db\nclass Order\n")
-    violations = layer_violations(tmp_path, [domain / "Order.kt"], _LAYERS)
-    assert len(violations) == 1
-    assert "domain → adapters" in violations[0].symbol
-
-
-def test_csharp_using_violation(tmp_path: Path) -> None:
-    domain = tmp_path / "app/domain"
-    domain.mkdir(parents=True)
-    (domain / "Order.cs").write_text(
-        "using app.adapters;\nnamespace app.domain { class Order {} }\n"
-    )
-    violations = layer_violations(tmp_path, [domain / "Order.cs"], _LAYERS)
-    assert len(violations) == 1
-    assert "domain → adapters" in violations[0].symbol
-
-
-def test_csharp_using_static_ignored(tmp_path: Path) -> None:
-    domain = tmp_path / "app/domain"
-    domain.mkdir(parents=True)
-    (domain / "Order.cs").write_text(
-        "using static app.adapters.Db;\nnamespace app.domain { class Order {} }\n"
-    )
-    assert layer_violations(tmp_path, [domain / "Order.cs"], _LAYERS) == []
-
-
-def test_php_use_violation(tmp_path: Path) -> None:
-    domain = tmp_path / "app/domain"
-    domain.mkdir(parents=True)
-    (domain / "Order.php").write_text(
-        "<?php\nnamespace app\\domain;\nuse app\\adapters\\Db;\nclass Order {}\n"
-    )
-    violations = layer_violations(tmp_path, [domain / "Order.php"], _LAYERS)
-    assert len(violations) == 1
-    assert "domain → adapters" in violations[0].symbol
-
-
-def test_rust_use_violation(tmp_path: Path) -> None:
-    domain = tmp_path / "app/domain"
-    domain.mkdir(parents=True)
-    (domain / "order.rs").write_text("use crate::app::adapters::Db;\nfn f() {}\n")
-    violations = layer_violations(tmp_path, [domain / "order.rs"], _LAYERS)
-    assert len(violations) == 1
-    assert "domain → adapters" in violations[0].symbol
-
-
-def test_dart_package_import_violation(tmp_path: Path) -> None:
-    domain = tmp_path / "app/domain"
-    domain.mkdir(parents=True)
-    (domain / "order.dart").write_text("import 'package:app/adapters/db.dart';\nclass Order {}\n")
-    violations = layer_violations(tmp_path, [domain / "order.dart"], _LAYERS)
-    assert len(violations) == 1
-    assert "domain → adapters" in violations[0].symbol
-
-
-def test_dart_relative_import_violation(tmp_path: Path) -> None:
-    domain = tmp_path / "app/domain"
-    adapters = tmp_path / "app/adapters"
-    domain.mkdir(parents=True)
-    adapters.mkdir(parents=True)
-    (domain / "order.dart").write_text("import '../adapters/db.dart';\nclass Order {}\n")
-    violations = layer_violations(tmp_path, [domain / "order.dart"], _LAYERS)
-    assert len(violations) == 1
-
-
-def test_js_dynamic_import_and_require_violations(tmp_path: Path) -> None:
-    domain = tmp_path / "app/domain"
-    adapters = tmp_path / "app/adapters"
-    domain.mkdir(parents=True)
-    adapters.mkdir(parents=True)
-    (domain / "order.mjs").write_text(
-        "const db = require('../adapters/db');\n"
-        "async function load() { await import('../adapters/other'); }\n"
-    )
-    violations = layer_violations(tmp_path, [domain / "order.mjs"], _LAYERS)
-    assert len(violations) == 2
-
-
-def test_python_plain_dotted_import_violation(tmp_path: Path) -> None:
-    domain = tmp_path / "app/domain"
-    domain.mkdir(parents=True)
-    (domain / "order.py").write_text("x = 1\nimport app.adapters.db\ny = 2\n")
-    violations = layer_violations(tmp_path, [domain / "order.py"], _LAYERS)
-    assert len(violations) == 1
-
-
-def test_python_absolute_from_import_violation(tmp_path: Path) -> None:
-    domain = tmp_path / "app/domain"
-    domain.mkdir(parents=True)
-    (domain / "order.py").write_text("from app.adapters import db\n")
-    violations = layer_violations(tmp_path, [domain / "order.py"], _LAYERS)
-    assert len(violations) == 1
-
-
-def test_python_bare_relative_from_import_no_dotted(tmp_path: Path) -> None:
-    domain = tmp_path / "app/domain"
-    domain.mkdir(parents=True)
-    (domain / "order.py").write_text("from . import sibling\n")
-    assert layer_violations(tmp_path, [domain / "order.py"], _LAYERS) == []
+    (domain / filename).write_text(source)
+    violations = layer_violations(tmp_path, [domain / filename], _LAYERS)
+    assert len(violations) == expected
+    assert all("domain → adapters" in v.symbol for v in violations)
 
 
 def test_go_import_block_with_blank_line_and_self_import(tmp_path: Path) -> None:
@@ -1130,13 +970,6 @@ def test_file_outside_any_layer_is_ignored(tmp_path: Path) -> None:
     assert layer_violations(tmp_path, [other / "tool.py"], _LAYERS) == []
 
 
-def test_layer_violations_skips_unrecognized_extension(tmp_path: Path) -> None:
-    domain = tmp_path / "app/domain"
-    domain.mkdir(parents=True)
-    (domain / "notes.txt").write_text("import app.adapters.db\n")
-    assert layer_violations(tmp_path, [domain / "notes.txt"], _LAYERS) == []
-
-
 def test_layer_violations_skips_undecodable_file(tmp_path: Path) -> None:
     domain = tmp_path / "app/domain"
     domain.mkdir(parents=True)
@@ -1145,14 +978,12 @@ def test_layer_violations_skips_undecodable_file(tmp_path: Path) -> None:
     assert layer_violations(tmp_path, [path], _LAYERS) == []
 
 
-def test_unresolvable_relative_import_is_not_a_violation(tmp_path: Path) -> None:
-    domain = tmp_path / "app/domain"
-    domain.mkdir(parents=True)
-    (domain / "order.ts").write_text("import something from 'plain-package';\n")
-    assert layer_violations(tmp_path, [domain / "order.ts"], _LAYERS) == []
-
-
-def test_layers_violation_origin_new_when_import_line_changed(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("changed_line", "origin"), [(2, "new"), (1, "legacy")], ids=["import-touched", "untouched"]
+)
+def test_layers_violation_origin_follows_changed_lines(
+    tmp_path: Path, changed_line: int, origin: str
+) -> None:
     from workspace_engine.design.layers import violations_for_file
 
     domain = tmp_path / "app/domain"
@@ -1160,24 +991,9 @@ def test_layers_violation_origin_new_when_import_line_changed(tmp_path: Path) ->
     path = domain / "order.py"
     path.write_text("x = 1\nimport app.adapters.db\n")
     violations = violations_for_file(
-        tmp_path, path, _LAYERS, None, changed={"app/domain/order.py": {2}}
+        tmp_path, path, _LAYERS, None, changed={"app/domain/order.py": {changed_line}}
     )
-    assert len(violations) == 1
-    assert violations[0].origin == "new"
-
-
-def test_layers_violation_origin_legacy_when_untouched(tmp_path: Path) -> None:
-    from workspace_engine.design.layers import violations_for_file
-
-    domain = tmp_path / "app/domain"
-    domain.mkdir(parents=True)
-    path = domain / "order.py"
-    path.write_text("x = 1\nimport app.adapters.db\n")
-    violations = violations_for_file(
-        tmp_path, path, _LAYERS, None, changed={"app/domain/order.py": {1}}
-    )
-    assert len(violations) == 1
-    assert violations[0].origin == "legacy"
+    assert [v.origin for v in violations] == [origin]
 
 
 def test_config_layers_none_by_default(tmp_path: Path) -> None:
@@ -1369,13 +1185,6 @@ def test_config_checks_default_enables_all(tmp_path: Path) -> None:
         "test-sleep",
         "test-duplicate",
     }
-
-
-def test_config_checks_unknown_raises(tmp_path: Path) -> None:
-    (tmp_path / ".ai-governance").mkdir()
-    (tmp_path / ".ai-governance" / "config.toml").write_text('[design]\nchecks = ["bogus"]\n')
-    with pytest.raises(ValueError, match="unknown check"):
-        DesignConfig.load(tmp_path)
 
 
 def test_config_checks_subset_disables_others(tmp_path: Path) -> None:

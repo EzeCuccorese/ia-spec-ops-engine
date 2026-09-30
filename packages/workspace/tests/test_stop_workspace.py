@@ -85,33 +85,16 @@ def test_stop_workspace_unreadable_pid_file_is_removed(tmp_path: Path) -> None:
     assert not pid_file.exists()
 
 
-def test_stop_workspace_malformed_json_pid_file_is_removed(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "content",
+    ["{not valid json", "not-a-number\nsome cmd\n", "0", "   \n"],
+    ids=["malformed-json", "non-numeric-pid", "zero-pid", "empty"],
+)
+def test_stop_workspace_removes_unusable_pid_file(tmp_path: Path, content: str) -> None:
     pids_dir = tmp_path / ".ai-toolkit" / "run-pids"
     pids_dir.mkdir(parents=True)
     pid_file = pids_dir / "repo-a.pid"
-    pid_file.write_text("{not valid json")
-
-    rc = sw.stop_workspace(start_dir=tmp_path)
-    assert rc == 0
-    assert not pid_file.exists()
-
-
-def test_stop_workspace_invalid_plain_pid_is_removed(tmp_path: Path) -> None:
-    pids_dir = tmp_path / ".ai-toolkit" / "run-pids"
-    pids_dir.mkdir(parents=True)
-    pid_file = pids_dir / "repo-a.pid"
-    pid_file.write_text("not-a-number\nsome cmd\n")
-
-    rc = sw.stop_workspace(start_dir=tmp_path)
-    assert rc == 0
-    assert not pid_file.exists()
-
-
-def test_stop_workspace_zero_pid_is_removed(tmp_path: Path) -> None:
-    pids_dir = tmp_path / ".ai-toolkit" / "run-pids"
-    pids_dir.mkdir(parents=True)
-    pid_file = pids_dir / "repo-a.pid"
-    pid_file.write_text("0")
+    pid_file.write_text(content)
 
     rc = sw.stop_workspace(start_dir=tmp_path)
     assert rc == 0
@@ -156,17 +139,6 @@ def test_stop_workspace_json_pid_file_without_repo_key(tmp_path: Path) -> None:
 
     with patch("os.kill", side_effect=OSError("not running")):
         rc = sw.stop_workspace(start_dir=tmp_path)
-    assert rc == 0
-    assert not pid_file.exists()
-
-
-def test_stop_workspace_empty_plain_pid_file_is_removed(tmp_path: Path) -> None:
-    pids_dir = tmp_path / ".ai-toolkit" / "run-pids"
-    pids_dir.mkdir(parents=True)
-    pid_file = pids_dir / "repo-a.pid"
-    pid_file.write_text("   \n")  # strips to empty, no lines
-
-    rc = sw.stop_workspace(start_dir=tmp_path)
     assert rc == 0
     assert not pid_file.exists()
 
