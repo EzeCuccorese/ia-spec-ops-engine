@@ -129,6 +129,16 @@ def test_python_runner_prefers_repository_virtualenv():
     assert script.index('[ -x "$REPO_ROOT/.venv/bin/pytest" ]') < script.index("command -v pytest")
 
 
+def test_python_tools_prefer_the_project_environment_over_global_ones():
+    """venv first, then a uv project, and only then whatever is on PATH."""
+    script = generate_canonical_pre_push_script()
+    for tool in ("pytest", "ruff"):
+        venv = script.index(f'[ -x "$REPO_ROOT/.venv/bin/{tool}" ]')
+        uv_project = script.index(f'{tool.upper()}_EXE="uv run {tool}"')
+        on_path = script.index(f"command -v {tool} >/dev/null")
+        assert venv < uv_project < on_path
+
+
 def test_hook_clears_inherited_git_environment_after_finding_root():
     script = generate_canonical_pre_push_script()
     assert script.index('cd "$REPO_ROOT" || exit 1') < script.index(
@@ -513,15 +523,8 @@ def test_cli_manage_hooks_run_and_test(monkeypatch):
 
     called = []
 
-    def mock_run_qg(
-        target_dir=None,
-        scope="all",
-        skip=None,
-        timeout=900,
-        commit_style=None,
-        output="errors",
-    ):
-        called.append((target_dir, scope, skip, timeout, commit_style, output))
+    def mock_run_qg(target_dir=None, **options):
+        called.append({"target_dir": target_dir, **options})
         return 0
 
     monkeypatch.setattr(mh, "run_quality_gate", mock_run_qg)
@@ -541,21 +544,22 @@ def test_cli_manage_hooks_run_and_test(monkeypatch):
     )
     assert code == 0
     assert len(called) == 1
-    assert called[0][1] == "changed"
-    assert called[0][2] == "gitleaks"
-    assert called[0][3] == 300
-    assert called[0][5] == "verbose"
+    assert called[0]["scope"] == "changed"
+    assert called[0]["skip"] == "gitleaks"
+    assert called[0]["timeout"] == 300
+    assert called[0]["output"] == "verbose"
 
     code = mh.main(["test"])
     assert code == 0
     assert len(called) == 2
-    assert called[1][5] == "errors"
+    # `test` leaves output to run_quality_gate's own default ("errors").
+    assert called[1]["timeout"] == 120 and "output" not in called[1]
 
     with pytest.raises(SystemExit):
         mh.main(["run", "--output", "unsupported"])
 
 
-def test_commit_msg_hook_enforces_conventional_commits(tmp_path: Path):
+def test_commit_msg_hook_enforces_conventional_commits_when_opted_in(tmp_path: Path):
     project_dir = tmp_path / "repo"
     project_dir.mkdir()
     _init_test_git_repo(project_dir)
@@ -577,6 +581,11 @@ def test_commit_msg_hook_enforces_conventional_commits(tmp_path: Path):
             capture_output=True,
         ).returncode
 
+    # Opt-in: without a configured style any message is accepted.
+    assert commit("added stuff before opting in") == 0
+    subprocess.run(
+        ["git", "config", "workspace.commitStyle", "conventional"], cwd=project_dir, check=True
+    )
     assert commit("added stuff") != 0
     assert commit("feat(core): add stuff") == 0
     uninstall_git_hooks(target_dir=project_dir)
@@ -700,3 +709,8 @@ def test_design_stage_passes_in_warn_mode(tmp_path: Path) -> None:
     combined = proc.stdout + proc.stderr
     assert "✔ Design limits: PASS" in combined
     assert proc.returncode == 0
+
+
+def test_pre_push_reads_the_commit_style_from_repo_config():
+    script = generate_canonical_pre_push_script()
+    assert "git config --get workspace.commitStyle" in script

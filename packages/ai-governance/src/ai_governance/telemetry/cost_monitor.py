@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
@@ -13,6 +15,134 @@ from .prices import PriceCatalog
 
 WEB_SEARCH_USD = 10.0 / 1000.0
 WEB_FETCH_USD = 10.0 / 1000.0
+
+TOKEN_DIMENSIONS = ("input", "output", "cache_read", "cache_write_5m", "cache_write_1h")
+
+
+def _int(mapping: dict[str, Any], key: str) -> int:
+    return int(mapping.get(key) or 0)
+
+
+@dataclass(frozen=True)
+class _Usage:
+    input: int
+    output: int
+    cache_read: int
+    cache_write_5m: int
+    cache_write_1h: int
+    searches: int
+    fetches: int
+    thinking: int
+    fast: bool
+
+    @classmethod
+    def parse(cls, usage: dict[str, Any]) -> _Usage:
+        creation = usage.get("cache_creation") or {}
+        write_5m = _int(creation, "ephemeral_5m_input_tokens")
+        write_1h = _int(creation, "ephemeral_1h_input_tokens")
+        if not write_5m and not write_1h:
+            write_5m = _int(usage, "cache_creation_input_tokens")
+        server = usage.get("server_tool_use") or {}
+        return cls(
+            input=_int(usage, "input_tokens"),
+            output=_int(usage, "output_tokens"),
+            cache_read=_int(usage, "cache_read_input_tokens"),
+            cache_write_5m=write_5m,
+            cache_write_1h=write_1h,
+            searches=_int(server, "web_search_requests"),
+            fetches=_int(server, "web_fetch_requests"),
+            thinking=_int(usage.get("output_tokens_details") or {}, "thinking_tokens"),
+            fast=usage.get("speed") == "fast",
+        )
+
+    def dimensions(self) -> dict[str, int]:
+        return {name: getattr(self, name) for name in TOKEN_DIMENSIONS}
+
+    def is_empty(self) -> bool:
+        return not any((*self.dimensions().values(), self.searches, self.fetches))
+
+
+@dataclass(frozen=True)
+class _Event:
+    day: str
+    model: str
+    effort: str
+    usage: _Usage
+    cost: float
+
+
+def _file_lines(path: Path) -> Iterator[str]:
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            yield from handle
+    except OSError:
+        return
+
+
+def _transcript_lines(projects_dir: Path) -> Iterator[str]:
+    for jsonl_file in sorted(projects_dir.glob("**/*.jsonl")):
+        yield from _file_lines(jsonl_file)
+
+
+def _parse_line(line: str) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]] | None:
+    """(entry, message, usage) of an assistant transcript line that carries usage."""
+    if '"usage"' not in line:
+        return None
+    try:
+        entry = json.loads(line)
+    except ValueError:
+        return None
+    if not isinstance(entry, dict) or entry.get("type") not in (None, "assistant"):
+        return None
+    message = entry.get("message") or entry
+    usage = message.get("usage") or {}
+    return (entry, message, usage) if isinstance(usage, dict) else None
+
+
+def _event_id(entry: dict[str, Any], message: dict[str, Any], line: str) -> str:
+    return str(
+        entry.get("requestId")
+        or entry.get("id")
+        or message.get("id")
+        or entry.get("uuid")
+        or entry.get("event_id")
+        or hashlib.sha256(line.encode("utf-8")).hexdigest()
+    )
+
+
+def _timestamp(entry: dict[str, Any]) -> str:
+    return str(entry.get("timestamp") or entry.get("created_at") or "")
+
+
+def _effort(entry: dict[str, Any]) -> str:
+    return str(entry.get("perTurnEffort") or entry.get("effort") or "unknown")
+
+
+def _in_window(day: str | None, since: str | None, until: str | None) -> bool:
+    if day is None:
+        return False
+    return not ((since and day < since) or (until and day > until))
+
+
+def _accumulate(totals: dict[str, Any], event: _Event) -> None:
+    usage = event.usage
+    totals["total_cost_usd"] += event.cost
+    totals["by_day"][event.day] = totals["by_day"].get(event.day, 0.0) + event.cost
+    totals["by_model"][event.model] = totals["by_model"].get(event.model, 0.0) + event.cost
+    bucket = (
+        totals["by_effort"]
+        .setdefault(event.day, {})
+        .setdefault(event.effort, {"cost": 0.0, "output": 0, "thinking": 0})
+    )
+    bucket["cost"] += event.cost
+    bucket["output"] += usage.output
+    bucket["thinking"] += usage.thinking
+    totals["fast_calls"] += int(usage.fast)
+    for name, value in usage.dimensions().items():
+        totals["tokens"][name] += value
+        totals["total_tokens"] += value
+    totals["server_tools"]["web_search"] += usage.searches
+    totals["server_tools"]["web_fetch"] += usage.fetches
 
 
 class CostMonitor:
@@ -55,19 +185,30 @@ class CostMonitor:
         *,
         local_time: bool = False,
     ) -> dict[str, Any]:
-        totals: dict[str, Any] = {
+        totals = self._new_totals(local_time)
+        if not self.projects_dir.exists():
+            return totals
+        window = (since_iso_date, until_iso_date, local_time)
+        seen_events: set[str] = set()
+        for line in _transcript_lines(self.projects_dir):
+            event = self._event(line.strip(), seen_events, window)
+            if event is not None:
+                _accumulate(totals, event)
+        return totals
+
+    def _new_totals(self, local_time: bool) -> dict[str, Any]:
+        return {
             "total_cost_usd": 0.0,
             "total_tokens": 0,
-            "tokens": {
-                "input": 0,
-                "output": 0,
-                "cache_read": 0,
-                "cache_write_5m": 0,
-                "cache_write_1h": 0,
-            },
+            "tokens": dict.fromkeys(TOKEN_DIMENSIONS, 0),
             "server_tools": {"web_search": 0, "web_fetch": 0},
             "by_day": {},
             "by_model": {},
+            # day -> effort -> {cost, output, thinking}. Diagnostic only: thinking tokens
+            # are already billed inside output_tokens.
+            "by_effort": {},
+            # usage.speed == "fast": the price feed has no fast rate, billed as standard.
+            "fast_calls": 0,
             "provenance": {
                 "kind": "local_transcript_estimate",
                 "calibration": self.calibration,
@@ -75,109 +216,52 @@ class CostMonitor:
                 "price_cache": str(self.price_cache_path) if self.price_cache_path else None,
             },
         }
-        if not self.projects_dir.exists():
-            return totals
 
-        seen_events: set[str] = set()
-        for jsonl_file in sorted(self.projects_dir.glob("**/*.jsonl")):
-            try:
-                with open(jsonl_file, encoding="utf-8", errors="replace") as handle:
-                    for line in handle:
-                        stripped = line.strip()
-                        if '"usage"' not in stripped:
-                            continue
-                        try:
-                            entry = json.loads(stripped)
-                        except ValueError:
-                            continue
-                        if entry.get("type") not in (None, "assistant"):
-                            continue
-                        message = entry.get("message") or entry
-                        usage = message.get("usage") or {}
-                        if not isinstance(usage, dict):
-                            continue
-                        event_id = (
-                            entry.get("requestId")
-                            or entry.get("id")
-                            or message.get("id")
-                            or entry.get("uuid")
-                            or entry.get("event_id")
-                            or hashlib.sha256(stripped.encode("utf-8")).hexdigest()
-                        )
-                        if event_id in seen_events:
-                            continue
-                        seen_events.add(str(event_id))
+    def _event(
+        self, line: str, seen_events: set[str], window: tuple[str | None, str | None, bool]
+    ) -> _Event | None:
+        """One billable assistant event, or None (not usage, duplicate, outside the window)."""
+        parsed = _parse_line(line)
+        if parsed is None:
+            return None
+        entry, message, usage = parsed
+        event_id = _event_id(entry, message, line)
+        if event_id in seen_events:
+            return None
+        seen_events.add(event_id)
+        day = self._day(_timestamp(entry), window[2])
+        tokens = _Usage.parse(usage)
+        if not _in_window(day, window[0], window[1]) or tokens.is_empty():
+            return None
+        model = message.get("model") or "unknown"
+        return _Event(str(day), model, _effort(entry), tokens, self._cost(model, tokens))
 
-                        day = self._day(
-                            entry.get("timestamp") or entry.get("created_at") or "", local_time
-                        )
-                        if (
-                            day is None
-                            or (since_iso_date and day < since_iso_date)
-                            or (until_iso_date and day > until_iso_date)
-                        ):
-                            continue
+    def _cost(self, model: str, tokens: _Usage) -> float:
+        input_price, output_price = PriceCatalog.get_price(model, self.price_cache_path)
+        read, write_5m, write_1h = PriceCatalog.cache_multipliers(model, self.price_cache_path)
+        per_million = (
+            tokens.input * input_price
+            + tokens.output * output_price
+            + tokens.cache_read * input_price * read
+            + tokens.cache_write_5m * input_price * write_5m
+            + tokens.cache_write_1h * input_price * write_1h
+        )
+        server = tokens.searches * WEB_SEARCH_USD + tokens.fetches * WEB_FETCH_USD
+        return (per_million / 1_000_000 + server) * self.calibration
 
-                        input_tokens = int(usage.get("input_tokens") or 0)
-                        output_tokens = int(usage.get("output_tokens") or 0)
-                        cache_read = int(usage.get("cache_read_input_tokens") or 0)
-                        creation = usage.get("cache_creation") or {}
-                        cache_5m = int(creation.get("ephemeral_5m_input_tokens") or 0)
-                        cache_1h = int(creation.get("ephemeral_1h_input_tokens") or 0)
-                        if not cache_5m and not cache_1h:
-                            cache_5m = int(usage.get("cache_creation_input_tokens") or 0)
-                        server = usage.get("server_tool_use") or {}
-                        searches = int(server.get("web_search_requests") or 0)
-                        fetches = int(server.get("web_fetch_requests") or 0)
-                        if not any(
-                            (
-                                input_tokens,
-                                output_tokens,
-                                cache_read,
-                                cache_5m,
-                                cache_1h,
-                                searches,
-                                fetches,
-                            )
-                        ):
-                            continue
-
-                        model = message.get("model") or "unknown"
-                        input_price, output_price = PriceCatalog.get_price(
-                            model, self.price_cache_path
-                        )
-                        raw_cost = (
-                            (
-                                input_tokens * input_price
-                                + output_tokens * output_price
-                                + cache_read * input_price * 0.1
-                                + cache_5m * input_price * 1.25
-                                + cache_1h * input_price * 2.0
-                            )
-                            / 1_000_000
-                            + searches * WEB_SEARCH_USD
-                            + fetches * WEB_FETCH_USD
-                        )
-                        cost = raw_cost * self.calibration
-
-                        totals["total_cost_usd"] += cost
-                        totals["by_day"][day] = totals["by_day"].get(day, 0.0) + cost
-                        totals["by_model"][model] = totals["by_model"].get(model, 0.0) + cost
-                        dimensions = {
-                            "input": input_tokens,
-                            "output": output_tokens,
-                            "cache_read": cache_read,
-                            "cache_write_5m": cache_5m,
-                            "cache_write_1h": cache_1h,
-                        }
-                        for name, value in dimensions.items():
-                            totals["tokens"][name] += value
-                            totals["total_tokens"] += value
-                        totals["server_tools"]["web_search"] += searches
-                        totals["server_tools"]["web_fetch"] += fetches
-            except OSError:
+    @staticmethod
+    def merge_effort(
+        by_effort: dict[str, dict[str, dict[str, float]]], include: Callable[[str], bool]
+    ) -> dict[str, dict[str, float]]:
+        merged: dict[str, dict[str, float]] = {}
+        for day, efforts in by_effort.items():
+            if not include(day):
                 continue
-        return totals
+            for effort, values in efforts.items():
+                target = merged.setdefault(effort, {"cost": 0.0, "output": 0, "thinking": 0})
+                for key, value in values.items():
+                    target[key] += value
+        return merged
 
     def get_summary_report(self, monthly_budget_usd: float) -> dict[str, Any]:
         now = datetime.now(UTC)
@@ -189,6 +273,8 @@ class CostMonitor:
         )
         today_cost = data["by_day"].get(now.strftime("%Y-%m-%d"), 0.0)
         remaining_days = max(1, pace.days_remaining + 1)
+        month = now.strftime("%Y-%m")
+        today = now.strftime("%Y-%m-%d")
         return {
             "estimate": True,
             "month_cost_usd": month_cost,
@@ -198,6 +284,9 @@ class CostMonitor:
             "pace": pace,
             "by_day": data["by_day"],
             "by_model": data["by_model"],
+            "effort_today": self.merge_effort(data["by_effort"], lambda d: d == today),
+            "effort_month": self.merge_effort(data["by_effort"], lambda d: d.startswith(month)),
+            "fast_calls": data["fast_calls"],
             "tokens": data["tokens"],
             "server_tools": data["server_tools"],
             "provenance": data["provenance"],

@@ -180,12 +180,24 @@ hook of any type is shadowed, and the gate also runs in Husky repositories.
 | Friendly name | Event | Checks |
 |---|---|---|
 | `workspace-pre-commit` | pre-commit | `gitleaks protect --staged` (skipped if gitleaks is absent) |
-| `workspace-commit-msg` | commit-msg | Conventional Commits subject, max 100 characters |
+| `workspace-commit-msg` | commit-msg | Conventional Commits subject, max 100 characters — only where the repo opts in |
 | `workspace-gate` | pre-push | 5 stages: secrets (gitleaks), commit policies, linters, design limits, test suites |
 
 Output is compact by default; a failing command keeps its full transcript at
 `.git/workspace/quality-gate/latest.log` (`QG_OUTPUT=verbose` streams everything).
 Skip stages with `QG_SKIP=gitleaks,commits,lint,design,tests`.
+
+Conventional Commits are **opt-in per repository**, so a global install never imposes a style
+on projects with their own conventions: `git config workspace.commitStyle conventional` turns
+on both the commit-msg check and the pre-push commit policy (`QG_COMMIT_STYLE=conventional`
+does the same for one command).
+
+Python tools come from the project's own environment: `ruff` and `pytest` resolve to the
+repository's `.venv`, then `uv run` when there is a `uv.lock`, and only then to whatever is on
+`PATH` (a global pytest lacks the project's dependencies; a global ruff may be another version).
+
+The installed scripts are copies: after upgrading the package, run `ws hooks install [--global]`
+again to refresh them.
 
 Stage 4, **design limits**, always runs `ws design --files-from <files in this push>`
 regardless of `QG_SCOPE` — it judges new code, so it is always scoped to what is actually

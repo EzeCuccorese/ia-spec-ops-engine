@@ -12,6 +12,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..corporate import CorporateRule
 from ..rules.catalog import RuleDefinition
 from . import content
 
@@ -122,6 +123,10 @@ class AgentSpec:
     def global_artifacts(self) -> list[Artifact]:
         raise NotImplementedError
 
+    def corporate_artifacts(self, rules: list[CorporateRule]) -> list[Artifact]:
+        """Always-on company rules; empty when the agent has no per-file global rules."""
+        return []
+
     # -- project scope -------------------------------------------------------
     def project_artifacts(
         self, root: Path, rules: list[RuleDefinition], *, gate: bool = False
@@ -164,6 +169,12 @@ class ClaudeSpec(AgentSpec):
                     HookEntry("SessionEnd", None, f"{command} session-end"),
                 ),
             ),
+        ]
+
+    def corporate_artifacts(self, rules: list[CorporateRule]) -> list[Artifact]:
+        home = Path.home() / ".claude" / "rules"
+        return [
+            FileArtifact(home / f"ai-governance-{r.pack}-{r.name}.md", r.content) for r in rules
         ]
 
     def project_artifacts(
@@ -217,6 +228,16 @@ class CodexSpec(AgentSpec):
 
 
 class AntigravitySpec(AgentSpec):
+    def corporate_artifacts(self, rules: list[CorporateRule]) -> list[Artifact]:
+        home = Path.home() / ".gemini" / "config" / "rules"
+        return [
+            FileArtifact(
+                home / f"ai-governance-{r.pack}-{r.name}.md",
+                "---\ntrigger: always_on\n---\n" + r.content,
+            )
+            for r in rules
+        ]
+
     def global_artifacts(self) -> list[Artifact]:
         home = Path.home() / ".gemini"
         return [
