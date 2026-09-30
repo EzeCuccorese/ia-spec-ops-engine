@@ -7,7 +7,7 @@
 #
 # Environment variables:
 #   QG_SCOPE=all|changed        Scope of linters and tests (default: all)
-#   QG_SKIP=a,b,c               Skip checks: gitleaks,commits,lint,tests,all
+#   QG_SKIP=a,b,c               Skip checks: gitleaks,commits,lint,design,tests,all
 #   QG_TIMEOUT=900              Timeout in seconds per step
 #   QG_COMMIT_STYLE=conventional  Require Conventional Commits in messages
 #   QG_PROTECTED="^(main)$"     Regex of protected branches (override)
@@ -241,9 +241,9 @@ changed_files() {
   done < "$DIFF_FILES_FILE"
 }
 
-# ---------- [1/4] Security and secret scanning ----------
+# ---------- [1/5] Security and secret scanning ----------
 echo ""
-echo "🔒 [1/4] Checking for secrets in the commits being pushed..."
+echo "🔒 [1/5] Checking for secrets in the commits being pushed..."
 if skipped gitleaks; then
   warn "Security and Secrets: skipped by QG_SKIP"
 elif [ "$NOTHING_NEW" = "1" ]; then
@@ -283,9 +283,9 @@ else
   fi
 fi
 
-# ---------- [2/4] Commit policies ----------
+# ---------- [2/5] Commit policies ----------
 echo ""
-echo "📝 [2/4] Checking commit policies..."
+echo "📝 [2/5] Checking commit policies..."
 if skipped commits; then
   warn "Git Policies: skipped by QG_SKIP"
 elif [ "$NOTHING_NEW" = "1" ]; then
@@ -330,9 +330,9 @@ else
   fi
 fi
 
-# ---------- [3/4] Linters and static analysis ----------
+# ---------- [3/5] Linters and static analysis ----------
 echo ""
-echo "🔍 [3/4] Running static analysis and linters..."
+echo "🔍 [3/5] Running static analysis and linters..."
 if skipped lint; then
   warn "Linters and Static Analysis: skipped by QG_SKIP"
 else
@@ -469,9 +469,31 @@ else
   fi
 fi
 
-# ---------- [4/4] Test suites ----------
+# ---------- [4/5] Design limits ----------
+# Always scoped to the files in this push (regardless of QG_SCOPE): it judges new code.
 echo ""
-echo "🧪 [4/4] Running test suites..."
+echo "📐 [4/5] Checking design limits on the files in this push..."
+if skipped design; then
+  warn "Design limits: skipped by QG_SKIP"
+elif [ "$NOTHING_NEW" = "1" ]; then
+  note "No new commits, skipping."
+elif [ ! -s "$DIFF_FILES_FILE" ]; then
+  note "No files in the push, skipping design limits."
+elif ! command -v ws >/dev/null 2>&1; then
+  warn "Design limits: ws not found, skipped"
+elif ! ws design --help >/dev/null 2>&1; then
+  warn "Design limits: installed ws has no 'design' command (upgrade workspace), skipped"
+else
+  if run_to "$QG_TIMEOUT" ws design --dir "$REPO_ROOT" --files-from "$DIFF_FILES_FILE"; then
+    pass "Design limits"
+  else
+    fail "Design limits"
+  fi
+fi
+
+# ---------- [5/5] Test suites ----------
+echo ""
+echo "🧪 [5/5] Running test suites..."
 if skipped tests; then
   warn "Test Suites: skipped by QG_SKIP"
 else
@@ -645,7 +667,7 @@ if [ "$FAILED" = "1" ]; then
   printf '%s' "$FAILED_STEPS"
   echo ""
   echo "To skip a specific check (not the whole gate):"
-  echo "  QG_SKIP=gitleaks git push          # gitleaks,commits,lint,tests"
+  echo "  QG_SKIP=gitleaks git push          # gitleaks,commits,lint,design,tests"
   echo "To scope lint and tests to the files in the push:"
   echo "  QG_SCOPE=changed git push"
   exit 1

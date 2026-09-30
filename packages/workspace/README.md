@@ -181,11 +181,15 @@ hook of any type is shadowed, and the gate also runs in Husky repositories.
 |---|---|---|
 | `workspace-pre-commit` | pre-commit | `gitleaks protect --staged` (skipped if gitleaks is absent) |
 | `workspace-commit-msg` | commit-msg | Conventional Commits subject, max 100 characters |
-| `workspace-gate` | pre-push | 4 stages: secrets (gitleaks), commit policies, linters, test suites |
+| `workspace-gate` | pre-push | 5 stages: secrets (gitleaks), commit policies, linters, design limits, test suites |
 
 Output is compact by default; a failing command keeps its full transcript at
 `.git/workspace/quality-gate/latest.log` (`QG_OUTPUT=verbose` streams everything).
-Skip stages with `QG_SKIP=gitleaks,commits,lint,tests`.
+Skip stages with `QG_SKIP=gitleaks,commits,lint,design,tests`.
+
+Stage 4, **design limits**, always runs `ws design --files-from <files in this push>`
+regardless of `QG_SCOPE` — it judges new code, so it is always scoped to what is actually
+being pushed. If `ws` is not on `PATH` it warns and passes rather than blocking the push.
 
 ```bash
 ws hooks install            # this repository (keys in .git/config, scripts in .git/workspace/hooks)

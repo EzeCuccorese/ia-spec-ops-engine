@@ -112,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_run.add_argument(
         "--skip",
-        help="Comma-separated checks to skip (gitleaks,commits,lint,tests,repohooks)",
+        help="Comma-separated checks to skip (gitleaks,commits,lint,design,tests,repohooks)",
     )
     p_run.add_argument(
         "--timeout",
