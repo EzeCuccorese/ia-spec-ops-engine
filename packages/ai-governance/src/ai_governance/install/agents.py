@@ -116,7 +116,7 @@ class AgentSpec:
     project_rules: str
     project_rules_mechanism: str
     scout: str
-    progress_skill: str
+    skills: str
 
     # -- global (user) scope -------------------------------------------------
     def global_artifacts(self) -> list[Artifact]:
@@ -153,7 +153,7 @@ class ClaudeSpec(AgentSpec):
                 "omitClaudeMd: true\n"
                 "---\n" + content.SCOUT_INSTRUCTIONS,
             ),
-            FileArtifact(home / "skills" / "progress" / "SKILL.md", content.PROGRESS_SKILL),
+            *skill_artifacts(home / "skills"),
             HooksArtifact(
                 home / "settings.json",
                 (
@@ -208,10 +208,7 @@ class CodexSpec(AgentSpec):
                 prepend=True,
                 conflict=r"^\s*\[agents\]|^\s*agents\.default_subagent_",
             ),
-            FileArtifact(
-                Path.home() / ".agents" / "skills" / "progress" / "SKILL.md",
-                content.PROGRESS_SKILL,
-            ),
+            *skill_artifacts(Path.home() / ".agents" / "skills"),
             *self._verified_hooks(
                 home / "hooks.json",
                 HookEntry("PostToolUse", None, f"{HOOK_COMMAND_PREFIX} codex post-tool-use"),
@@ -236,14 +233,19 @@ class AntigravitySpec(AgentSpec):
                 + "---\n"
                 + content.SCOUT_INSTRUCTIONS,
             ),
-            FileArtifact(
-                home / "config" / "skills" / "progress" / "SKILL.md", content.PROGRESS_SKILL
-            ),
+            *skill_artifacts(home / "config" / "skills"),
             *self._verified_hooks(
                 home / "antigravity-cli" / "hooks.json",
                 HookEntry("PreToolUse", None, f"{HOOK_COMMAND_PREFIX} antigravity pre-tool-use"),
             ),
         ]
+
+
+def skill_artifacts(skills_dir: Path) -> list[Artifact]:
+    """One ``<name>/SKILL.md`` per bundled skill, in the agent's skills directory."""
+    return [
+        FileArtifact(skills_dir / name / "SKILL.md", body) for name, body in content.SKILLS.items()
+    ]
 
 
 AGENTS: dict[str, AgentSpec] = {
@@ -255,7 +257,7 @@ AGENTS: dict[str, AgentSpec] = {
         project_rules=".claude/rules/ai-governance-<id>.md -> symlink to .agents/rules",
         project_rules_mechanism="native `paths:` frontmatter (loaded per file)",
         scout="~/.claude/agents/scout.md (sonnet, effort medium)",
-        progress_skill="~/.claude/skills/progress/SKILL.md",
+        skills="~/.claude/skills/{progress,test-audit}/SKILL.md",
     ),
     "codex": CodexSpec(
         id="codex",
@@ -265,7 +267,7 @@ AGENTS: dict[str, AgentSpec] = {
         project_rules=".agents/rules/ai-governance-<id>.md (shared)",
         project_rules_mechanism="injected on edit by a PreToolUse hook (planned)",
         scout="$CODEX_HOME/agents/scout.toml (terra, effort medium, read-only) + config.toml default subagent model terra",
-        progress_skill="~/.agents/skills/progress/SKILL.md",
+        skills="~/.agents/skills/{progress,test-audit}/SKILL.md",
     ),
     "antigravity": AntigravitySpec(
         id="antigravity",
@@ -275,7 +277,7 @@ AGENTS: dict[str, AgentSpec] = {
         project_rules=".agents/rules/ai-governance-<id>.md (single source)",
         project_rules_mechanism="`trigger: glob` activation (loaded per file; 20k-token rules budget)",
         scout="~/.gemini/config/agents/scout.md (model flash, read-only tools, no commands)",
-        progress_skill="~/.gemini/config/skills/progress/SKILL.md",
+        skills="~/.gemini/config/skills/{progress,test-audit}/SKILL.md",
     ),
 }
 
@@ -295,7 +297,7 @@ def capability_table() -> str:
         ("Global instructions", "global_instructions"),
         ("Global hooks", "global_hooks"),
         ("Scout subagent", "scout"),
-        ("Progress skill", "progress_skill"),
+        ("Skills", "skills"),
         ("Project rules", "project_rules"),
         ("Rule loading", "project_rules_mechanism"),
     ]

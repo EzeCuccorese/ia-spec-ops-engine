@@ -75,3 +75,23 @@ Use the compact tracker instead of re-reading history:
 
 Record only what a future session needs: decisions, next step, blockers.
 """
+
+TEST_AUDIT_SKILL = """\
+---
+name: test-audit
+description: Gate new tests and prune redundant ones. Use when writing tests or when asked to audit or shrink a test suite.
+---
+Writing a test: answer first, or don't write it.
+1. What observable behavior or contract does it protect?
+2. What credible regression makes it fail?
+3. Why doesn't existing coverage already catch it?
+Never add production seams used only by tests.
+
+Auditing (read-only until the ledger is done): mark each test by its assertions, not its name:
+R retain (contract + bug it catches) · F fix a vacuous assert · C consolidate (name the absorbing test) · D delete (name the proof that remains).
+Keep one test per contract, at the cheapest real boundary. Slow or static is not a reason to delete.
+Before deleting, break the production code on purpose and confirm the keeper fails; restore it.
+Prefer net-negative LOC. `ws design` flags the mechanical junk (no asserts, mock-only, duplicates, sleeps).
+"""
+
+SKILLS = {"progress": PROGRESS_SKILL, "test-audit": TEST_AUDIT_SKILL}

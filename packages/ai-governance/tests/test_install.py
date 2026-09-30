@@ -106,6 +106,18 @@ def test_claude_scout_omits_claude_md(home: Path) -> None:
     assert "omitClaudeMd: true\n" in (home / ".claude" / "agents" / "scout.md").read_text()
 
 
+def test_every_agent_gets_the_bundled_skills(home: Path) -> None:
+    install_user(["claude", "codex", "antigravity"])
+    for skills_dir in (
+        home / ".claude" / "skills",
+        home / ".agents" / "skills",
+        home / ".gemini" / "config" / "skills",
+    ):
+        audit = (skills_dir / "test-audit" / "SKILL.md").read_text()
+        assert audit.startswith("---\nname: test-audit\n")
+        assert (skills_dir / "progress" / "SKILL.md").is_file()
+
+
 def test_foreign_file_is_never_overwritten_without_force(home: Path) -> None:
     scout = home / ".claude" / "agents" / "scout.md"
     scout.parent.mkdir(parents=True)
