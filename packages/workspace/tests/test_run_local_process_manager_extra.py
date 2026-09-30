@@ -14,6 +14,7 @@ import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from workspace_engine.run_local import process_manager as pm
 
 
@@ -31,30 +32,24 @@ def test_probe_one_non_spring_sets_up() -> None:
     assert pm._HEALTH["svc"] == "up"
 
 
-def test_probe_one_spring_health_endpoint_up() -> None:
+@pytest.mark.parametrize(
+    ("body", "service_type", "expected"),
+    [
+        (b'{"status": "UP"}', "spring-gradle", "up"),
+        (b'{"status": "DOWN"}', "spring-maven", "unhealthy"),
+    ],
+)
+def test_probe_one_spring_health_endpoint(body: bytes, service_type: str, expected: str) -> None:
     pm._HEALTH.clear()
     fake_resp = MagicMock()
-    fake_resp.read.return_value = b'{"status": "UP"}'
+    fake_resp.read.return_value = body
     fake_resp.__enter__.return_value = fake_resp
     with (
         patch("socket.create_connection"),
         patch("urllib.request.urlopen", return_value=fake_resp),
     ):
-        pm._probe_one("svc", 65000, "spring-gradle")
-    assert pm._HEALTH["svc"] == "up"
-
-
-def test_probe_one_spring_health_endpoint_unhealthy() -> None:
-    pm._HEALTH.clear()
-    fake_resp = MagicMock()
-    fake_resp.read.return_value = b'{"status": "DOWN"}'
-    fake_resp.__enter__.return_value = fake_resp
-    with (
-        patch("socket.create_connection"),
-        patch("urllib.request.urlopen", return_value=fake_resp),
-    ):
-        pm._probe_one("svc", 65000, "spring-maven")
-    assert pm._HEALTH["svc"] == "unhealthy"
+        pm._probe_one("svc", 65000, service_type)
+    assert pm._HEALTH["svc"] == expected
 
 
 def test_probe_one_spring_health_endpoint_error_falls_back_up() -> None:
@@ -69,7 +64,10 @@ def test_probe_one_spring_health_endpoint_error_falls_back_up() -> None:
 
 def test_health_worker_removes_dead_and_probes_alive() -> None:
     pm._HEALTH.clear()
-    results = [{"name": "svc-alive", "pid": 1, "port": 1234, "type": "node"}]
+    results = [
+        {"name": "svc-alive", "pid": 1, "port": 1234, "type": "node"},
+        {"name": "svc-dead", "pid": 2, "port": 1235, "type": "node"},
+    ]
     pm._HEALTH["svc-dead"] = "up"
     stop_event = threading.Event()
 
@@ -83,42 +81,25 @@ def test_health_worker_removes_dead_and_probes_alive() -> None:
 
     with (
         patch.object(pm, "_pid_alive", side_effect=fake_pid_alive),
-        patch.object(pm, "_probe_one") as mock_probe,
+        patch("socket.create_connection"),
     ):
         pm._health_worker(results, stop_event)
 
-    mock_probe.assert_called_with("svc-alive", 1234, "node")
+    assert pm._HEALTH == {"svc-alive": "up"}
 
 
-def test_status_str_up() -> None:
-    pm._HEALTH["svc"] = "up"
-    with patch.object(pm, "_pid_alive", return_value=True):
-        plain, colored = pm._status_str("svc", 123)
-    assert plain == "● up"
+@pytest.mark.parametrize(
+    ("health", "expected"),
+    [("up", "● up"), ("starting", "◐ starting"), ("unhealthy", "✖ unhealthy"), (None, "● running")],
+)
+def test_status_str_reflects_health(health: str | None, expected: str) -> None:
     pm._HEALTH.pop("svc", None)
-
-
-def test_status_str_starting() -> None:
-    pm._HEALTH["svc"] = "starting"
+    if health:
+        pm._HEALTH["svc"] = health
     with patch.object(pm, "_pid_alive", return_value=True):
         plain, _ = pm._status_str("svc", 123)
-    assert plain == "◐ starting"
     pm._HEALTH.pop("svc", None)
-
-
-def test_status_str_unhealthy() -> None:
-    pm._HEALTH["svc"] = "unhealthy"
-    with patch.object(pm, "_pid_alive", return_value=True):
-        plain, _ = pm._status_str("svc", 123)
-    assert plain == "✖ unhealthy"
-    pm._HEALTH.pop("svc", None)
-
-
-def test_status_str_running_no_health_entry() -> None:
-    pm._HEALTH.pop("svc", None)
-    with patch.object(pm, "_pid_alive", return_value=True):
-        plain, _ = pm._status_str("svc", 123)
-    assert plain == "● running"
+    assert plain == expected
 
 
 def test_log_rotation_worker_rotates_large_file(tmp_path: Path) -> None:

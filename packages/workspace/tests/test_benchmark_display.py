@@ -8,6 +8,7 @@ import signal
 import time
 from unittest.mock import MagicMock, patch
 
+import pytest
 from rich.console import Console
 from workspace_engine.services import benchmark_display as bd
 
@@ -37,75 +38,28 @@ def test_detect_type_missing_dir(tmp_path, monkeypatch):
     assert bd._detect_type("does-not-exist") == ""
 
 
-def test_detect_type_gradlew(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("files", "expected"),
+    [
+        ({"gradlew": ""}, "gradle"),
+        ({"build.gradle": ""}, "gradle"),
+        ({"pom.xml": ""}, "maven"),
+        ({"go.mod": ""}, "go"),
+        ({"package.json": json.dumps({"dependencies": {"next": "1.0"}})}, "next"),
+        ({"package.json": json.dumps({"devDependencies": {"vite": "1.0"}})}, "vite"),
+        ({"package.json": json.dumps({"dependencies": {"express": "1.0"}})}, "node"),
+        ({"package.json": "{not json"}, "node"),
+        ({}, "?"),
+    ],
+    ids=["gradlew", "build.gradle", "maven", "go", "next", "vite", "node", "bad-json", "unknown"],
+)
+def test_detect_type(tmp_path, monkeypatch, files, expected):
     d = tmp_path / "repositories" / "r1"
     d.mkdir(parents=True)
-    (d / "gradlew").write_text("")
+    for name, content in files.items():
+        (d / name).write_text(content)
     monkeypatch.setattr(bd, "_WORKSPACE_DIR", str(tmp_path))
-    assert bd._detect_type("r1") == "gradle"
-
-
-def test_detect_type_build_gradle(tmp_path, monkeypatch):
-    d = tmp_path / "repositories" / "r1"
-    d.mkdir(parents=True)
-    (d / "build.gradle").write_text("")
-    monkeypatch.setattr(bd, "_WORKSPACE_DIR", str(tmp_path))
-    assert bd._detect_type("r1") == "gradle"
-
-
-def test_detect_type_maven(tmp_path, monkeypatch):
-    d = tmp_path / "repositories" / "r1"
-    d.mkdir(parents=True)
-    (d / "pom.xml").write_text("")
-    monkeypatch.setattr(bd, "_WORKSPACE_DIR", str(tmp_path))
-    assert bd._detect_type("r1") == "maven"
-
-
-def test_detect_type_go(tmp_path, monkeypatch):
-    d = tmp_path / "repositories" / "r1"
-    d.mkdir(parents=True)
-    (d / "go.mod").write_text("")
-    monkeypatch.setattr(bd, "_WORKSPACE_DIR", str(tmp_path))
-    assert bd._detect_type("r1") == "go"
-
-
-def test_detect_type_next(tmp_path, monkeypatch):
-    d = tmp_path / "repositories" / "r1"
-    d.mkdir(parents=True)
-    (d / "package.json").write_text(json.dumps({"dependencies": {"next": "1.0"}}))
-    monkeypatch.setattr(bd, "_WORKSPACE_DIR", str(tmp_path))
-    assert bd._detect_type("r1") == "next"
-
-
-def test_detect_type_vite(tmp_path, monkeypatch):
-    d = tmp_path / "repositories" / "r1"
-    d.mkdir(parents=True)
-    (d / "package.json").write_text(json.dumps({"devDependencies": {"vite": "1.0"}}))
-    monkeypatch.setattr(bd, "_WORKSPACE_DIR", str(tmp_path))
-    assert bd._detect_type("r1") == "vite"
-
-
-def test_detect_type_node(tmp_path, monkeypatch):
-    d = tmp_path / "repositories" / "r1"
-    d.mkdir(parents=True)
-    (d / "package.json").write_text(json.dumps({"dependencies": {"express": "1.0"}}))
-    monkeypatch.setattr(bd, "_WORKSPACE_DIR", str(tmp_path))
-    assert bd._detect_type("r1") == "node"
-
-
-def test_detect_type_node_invalid_json(tmp_path, monkeypatch):
-    d = tmp_path / "repositories" / "r1"
-    d.mkdir(parents=True)
-    (d / "package.json").write_text("{not json")
-    monkeypatch.setattr(bd, "_WORKSPACE_DIR", str(tmp_path))
-    assert bd._detect_type("r1") == "node"
-
-
-def test_detect_type_unknown(tmp_path, monkeypatch):
-    d = tmp_path / "repositories" / "r1"
-    d.mkdir(parents=True)
-    monkeypatch.setattr(bd, "_WORKSPACE_DIR", str(tmp_path))
-    assert bd._detect_type("r1") == "?"
+    assert bd._detect_type("r1") == expected
 
 
 # ---------------------------------------------------------------------------
@@ -451,26 +405,20 @@ def test_main_final_mode_missing_summary(monkeypatch, capsys):
     assert "Usage:" in err
 
 
-def test_main_final_mode_with_summary(monkeypatch, tmp_path):
+def test_main_final_mode_with_summary(monkeypatch, tmp_path, capsys):
     summary = tmp_path / "summary.tsv"
     header = "repo\texit\tstatus\tinstall\tbuild\tcold\twarm\ttotal\tcold_tests\twarm_tests\twarm_icon\tcold_icon\trow_icon\n"
     row = "repo-a\t0\tgreen\t0\t0\t0\t0\t0\t0\t0\t\t\t✅\n"
     summary.write_text(header + row)
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "benchmark_display.py",
-            "--workspace-dir",
-            str(tmp_path),
-            "--final",
-            str(summary),
-            "--elapsed",
-            "00:01:00",
-        ],
+        ["benchmark_display.py", "--workspace-dir", str(tmp_path)]
+        + ["--final", str(summary), "--elapsed", "00:01:00"],
     )
-    with patch.object(bd, "run_final") as mock_run_final:
-        bd.main()
-    mock_run_final.assert_called_once_with(str(summary), "00:01:00")
+    bd.main()
+    out = capsys.readouterr().out
+    assert "passed=1" in out
+    assert "time=00:01:00" in out
 
 
 def test_main_final_mode_flag_without_path(monkeypatch, tmp_path):
@@ -506,7 +454,21 @@ def test_main_elapsed_without_value(monkeypatch):
         raise AssertionError("expected SystemExit")
 
 
-def test_main_live_loop_processes_messages_and_done(monkeypatch):
+def _run_live_main(monkeypatch, capsys, lines, argv):
+    monkeypatch.setattr("sys.stdin", io.StringIO("\n".join(lines) + "\n"))
+    monkeypatch.setattr("sys.argv", ["benchmark_display.py", *argv])
+    monkeypatch.setattr(signal, "signal", lambda *a, **k: None)
+
+    fake_live = MagicMock()
+    fake_live.__enter__ = MagicMock(return_value=fake_live)
+    fake_live.__exit__ = MagicMock(return_value=False)
+
+    with patch.object(bd, "Live", return_value=fake_live):
+        bd.main()
+    return capsys.readouterr().out
+
+
+def test_main_live_loop_uses_done_message_summary_and_skips_bad_lines(monkeypatch, capsys):
     lines = [
         json.dumps({"repo": "repo-a", "status": "running"}),
         "",
@@ -514,30 +476,15 @@ def test_main_live_loop_processes_messages_and_done(monkeypatch):
         json.dumps({"repo": "not-in-list", "status": "green"}),
         json.dumps({"repo": "repo-a", "status": "green"}),
         json.dumps(
-            {"done": True, "green": 1, "red": 0, "infra": 0, "no_tests": 0, "elapsed_secs": 3}
+            {"done": True, "green": 7, "red": 0, "infra": 0, "no_tests": 0, "elapsed_secs": 3}
         ),
     ]
-    monkeypatch.setattr("sys.stdin", io.StringIO("\n".join(lines) + "\n"))
-    monkeypatch.setattr("sys.argv", ["benchmark_display.py", "repo-a", "--repeat"])
-    monkeypatch.setattr(signal, "signal", lambda *a, **k: None)
-
-    fake_live = MagicMock()
-    fake_live.__enter__ = MagicMock(return_value=fake_live)
-    fake_live.__exit__ = MagicMock(return_value=False)
-
-    with patch.object(bd, "Live", return_value=fake_live):
-        bd.main()
+    out = _run_live_main(monkeypatch, capsys, lines, ["repo-a", "--repeat"])
+    assert "passed=7" in out
+    assert "time=00:00:03" in out
 
 
-def test_main_live_loop_without_done_message(monkeypatch):
+def test_main_live_loop_without_done_message_counts_statuses(monkeypatch, capsys):
     lines = [json.dumps({"repo": "repo-a", "status": "green"})]
-    monkeypatch.setattr("sys.stdin", io.StringIO("\n".join(lines) + "\n"))
-    monkeypatch.setattr("sys.argv", ["benchmark_display.py", "repo-a"])
-    monkeypatch.setattr(signal, "signal", lambda *a, **k: None)
-
-    fake_live = MagicMock()
-    fake_live.__enter__ = MagicMock(return_value=fake_live)
-    fake_live.__exit__ = MagicMock(return_value=False)
-
-    with patch.object(bd, "Live", return_value=fake_live):
-        bd.main()
+    out = _run_live_main(monkeypatch, capsys, lines, ["repo-a"])
+    assert "passed=1" in out

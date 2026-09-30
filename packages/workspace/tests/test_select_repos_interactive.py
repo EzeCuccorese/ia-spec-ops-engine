@@ -177,14 +177,18 @@ def test_load_repos_skips_non_git_dirs(tmp_path: Path) -> None:
     assert result == ["has-git"]
 
 
-def test_open_tty_real_invocation() -> None:
-    # Exercises the real body of _open_tty(); on machines without a /dev/tty this
-    # falls back to raising OSError, which is an acceptable outcome for this line.
-    try:
-        fd = sr._open_tty()
-        fd.close()
-    except OSError:
-        pass
+def test_open_tty_opens_the_controlling_terminal_unbuffered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    opened: list[tuple[tuple, dict]] = []
+
+    def fake_open(*args, **kwargs):
+        opened.append((args, kwargs))
+        return "tty"
+
+    monkeypatch.setattr("builtins.open", fake_open)
+    assert sr._open_tty() == "tty"
+    assert opened == [(("/dev/tty", "rb+"), {"buffering": 0})]
 
 
 def test_select_repos_preselected_item_not_available_is_skipped(tmp_path: Path) -> None:

@@ -20,36 +20,30 @@ def _completed(
     return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
 
 
-def test_setup_repo_worktree_already_exists(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("mode", "listing"),
+    [
+        ("new", "worktree {target}\n"),
+        ("new", "worktree {other}\nbranch refs/heads/x\nworktree {target}\n"),
+        ("skip", ""),
+    ],
+    ids=["already-exists", "already-exists-among-many", "unknown-mode"],
+)
+def test_setup_repo_worktree_only_lists_when_nothing_to_create(
+    tmp_path: Path, mode: str, listing: str
+) -> None:
     target = tmp_path / "wt"
-    cfg = RepoConfig(name="svc", mode="new", branch="feature", parent="main")
-    listing = _completed(stdout=f"worktree {target}\n")
-    with patch.object(add_repos, "run_git", return_value=listing) as mock_git:
-        add_repos.setup_repo_worktree(tmp_path, target, cfg)
-    mock_git.assert_called_once()
-
-
-def test_setup_repo_worktree_already_exists_among_multiple_lines(tmp_path: Path) -> None:
-    target = tmp_path / "wt"
-    cfg = RepoConfig(name="svc", mode="new", branch="feature", parent="main")
-    other = tmp_path / "other-wt"
-    listing = _completed(stdout=f"worktree {other}\nbranch refs/heads/x\nworktree {target}\n")
-    with patch.object(add_repos, "run_git", return_value=listing) as mock_git:
-        add_repos.setup_repo_worktree(tmp_path, target, cfg)
-    mock_git.assert_called_once()
-
-
-def test_setup_repo_worktree_unknown_mode_is_a_noop(tmp_path: Path) -> None:
-    target = tmp_path / "wt"
-    cfg = RepoConfig(name="svc", mode="skip", branch="feature")
+    cfg = RepoConfig(name="svc", mode=mode, branch="feature", parent="main")
+    stdout = listing.format(target=target, other=tmp_path / "other-wt")
+    issued: list[tuple[str, ...]] = []
 
     def fake_git(repo_path, *args):
-        return _completed(stdout="")
+        issued.append(args[:2])
+        return _completed(stdout=stdout)
 
-    with patch.object(add_repos, "run_git", side_effect=fake_git) as mock_git:
+    with patch.object(add_repos, "run_git", side_effect=fake_git):
         add_repos.setup_repo_worktree(tmp_path, target, cfg)
-    # Only the initial "worktree list" call happens; no add/fetch for an unknown mode.
-    mock_git.assert_called_once()
+    assert issued == [("worktree", "list")]
 
 
 def test_setup_repo_worktree_new_mode_uses_remote_ref(tmp_path: Path) -> None:
@@ -283,7 +277,7 @@ def test_add_repositories_worktree_failure_all_fail_exits(tmp_path: Path) -> Non
 
 def test_add_repositories_agents_update_failure_warns_but_succeeds(tmp_path: Path) -> None:
     workspace_dir = tmp_path / "ws"
-    _make_manifest(workspace_dir, [])
+    manifest_path = _make_manifest(workspace_dir, [])
     repos_root = tmp_path / "repos"
     (repos_root / "svc").mkdir(parents=True)
 
@@ -297,6 +291,9 @@ def test_add_repositories_agents_update_failure_warns_but_succeeds(tmp_path: Pat
     ):
         # Should not raise even though updating AGENTS.md fails.
         add_repos.add_repositories_to_workspace(workspace_dir, repos_root)
+
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert [r["name"] for r in data["repositories"]] == ["svc"]
 
 
 def test_main_missing_repos_dir_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
