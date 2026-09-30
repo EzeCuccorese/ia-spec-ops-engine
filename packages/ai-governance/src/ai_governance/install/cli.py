@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from ..output import emit_rows, emit_status, emit_text, is_agent_mode
+from ..rules.catalog import RuleCatalog
 from . import doctor, probe
 from .agents import AGENTS, capability_table
 from .budget import BYTES_PER_TOKEN, fixed_cost
@@ -56,6 +57,12 @@ def _add_common(parser: argparse.ArgumentParser, *, agent_required: bool = False
     )
     parser.add_argument("--root", type=Path, default=Path.cwd(), help="Project root")
     parser.add_argument("--dry-run", action="store_true", help="Show the plan without writing")
+    parser.add_argument(
+        "--profile",
+        action="append",
+        choices=sorted(RuleCatalog().profiles),
+        help="Opt-in rule profile (repeatable). Only valid with --scope project.",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -65,7 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common(install)
     install.add_argument("--force", action="store_true", help="Replace files we do not own")
     uninstall = sub.add_parser("uninstall", help="Remove what was installed for the agent(s)")
-    _add_common(uninstall, agent_required=True)
+    _add_common(uninstall)
     update = sub.add_parser("update", help="Refresh project rules for the detected stacks")
     update.add_argument("--root", type=Path, default=Path.cwd())
     update.add_argument("--all", action="store_true", help="Every registered project")
@@ -90,17 +97,33 @@ def main(command: str, argv: list[str]) -> int:
     args = build_parser().parse_args([command, *argv])
     try:
         if args.cmd in ("install", "uninstall"):
-            agents = args.agent or _pick_agents()
+            profiles = tuple(args.profile or ())
+            if profiles and args.scope != "project":
+                emit_status("error", "--profile is only valid with --scope project.")
+                return 2
+            if args.cmd == "uninstall" and not args.agent and profiles:
+                agents: list[str] = []
+            else:
+                agents = args.agent or _pick_agents()
             if args.scope == "user":
                 action = install_user if args.cmd == "install" else uninstall_user
                 kwargs = {"force": args.force} if args.cmd == "install" else {}
                 report = action(agents, dry_run=args.dry_run, **kwargs)
             elif args.cmd == "install":
                 report = sync_project(
-                    args.root, add_agents=agents, dry_run=args.dry_run, force=args.force
+                    args.root,
+                    add_agents=agents,
+                    add_profiles=profiles,
+                    dry_run=args.dry_run,
+                    force=args.force,
                 )
             else:
-                report = sync_project(args.root, remove_agents=agents, dry_run=args.dry_run)
+                report = sync_project(
+                    args.root,
+                    remove_agents=agents,
+                    remove_profiles=profiles,
+                    dry_run=args.dry_run,
+                )
             _emit(report, dry_run=args.dry_run)
             return 0
         if args.cmd == "update":

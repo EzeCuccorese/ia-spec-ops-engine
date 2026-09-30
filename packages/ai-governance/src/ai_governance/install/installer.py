@@ -38,37 +38,53 @@ CLAUDE_MEMORY_FILES = ("CLAUDE.md", ".claude/CLAUDE.md")
 @dataclass
 class ProjectConfig:
     agents: list[str] = field(default_factory=list)
+    profiles: list[str] = field(default_factory=list)
     extra_rules: list[str] = field(default_factory=list)
     excluded_rules: list[str] = field(default_factory=list)
     gate: bool = True
+    tables: str = ""
 
     @classmethod
     def load(cls, root: Path) -> ProjectConfig:
         path = root / PROJECT_DIR / "config.toml"
         if not path.exists():
             return cls()
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
+        data = tomllib.loads(text)
+        tables = ""
+        for i, line in enumerate(text.splitlines(keepends=True)):
+            if line.startswith("["):
+                tables = "".join(text.splitlines(keepends=True)[i:])
+                break
         return cls(
             agents=list(data.get("agents", [])),
+            profiles=list(data.get("profiles", [])),
             extra_rules=list(data.get("extra_rules", [])),
             excluded_rules=list(data.get("excluded_rules", [])),
             gate=bool(data.get("gate", True)),
+            tables=tables,
         )
 
     def render(self) -> str:
         def arr(values: list[str]) -> str:
             return "[" + ", ".join(json.dumps(v) for v in values) + "]"
 
-        return (
+        text = (
             "# ai-governance project config (commit this file).\n"
             "# Agents to render rules for; change with `ai-governance install|uninstall`.\n"
             f"agents = {arr(self.agents)}\n"
+            "# Opt-in rule groups (architecture, distributed, api); change with "
+            "`ai-governance install|uninstall --profile`.\n"
+            f"profiles = {arr(self.profiles)}\n"
             "# Rule ids to force in or out regardless of stack detection.\n"
             f"extra_rules = {arr(self.extra_rules)}\n"
             f"excluded_rules = {arr(self.excluded_rules)}\n"
             "# Run `ws check --changed` when the agent ends a turn (Claude Code Stop hook).\n"
             f"gate = {'true' if self.gate else 'false'}\n"
         )
+        if self.tables:
+            text += "\n" + self.tables
+        return text
 
 
 def detect_stacks(root: Path) -> set[str] | None:
@@ -166,9 +182,14 @@ def _migrate_claude_memory(root: Path, report: Report, dry_run: bool) -> None:
         )
 
 
-def _project_desired(root: Path, config: ProjectConfig, stacks: set[str]) -> list[Owned]:
-    rules = RuleCatalog().select(
-        stacks, extra=tuple(config.extra_rules), excluded=tuple(config.excluded_rules)
+def _project_desired(
+    root: Path, config: ProjectConfig, stacks: set[str], catalog: RuleCatalog
+) -> list[Owned]:
+    rules = catalog.select(
+        stacks,
+        profiles=tuple(config.profiles),
+        extra=tuple(config.extra_rules),
+        excluded=tuple(config.excluded_rules),
     )
     specs = resolve_agents(config.agents)
     desired = [
@@ -194,11 +215,15 @@ def sync_project(
     *,
     add_agents: list[str] = (),  # type: ignore[assignment]
     remove_agents: list[str] = (),  # type: ignore[assignment]
+    add_profiles: tuple[str, ...] = (),
+    remove_profiles: tuple[str, ...] = (),
     dry_run: bool = False,
     force: bool = False,
 ) -> Report:
     """Install/update/uninstall for a project. With no agent changes this is ``update``."""
     root = root.resolve()
+    catalog = RuleCatalog()
+    catalog.check_profiles((*add_profiles, *remove_profiles))
     config = ProjectConfig.load(root)
     resolve_agents([*add_agents, *remove_agents])
     before = set(config.agents)
@@ -207,6 +232,9 @@ def sync_project(
     ]
     if not config.agents and not before:
         raise ValueError("No agent selected. Pass --agent claude|codex|antigravity.")
+    config.profiles = [
+        p for p in dict.fromkeys([*config.profiles, *add_profiles]) if p not in remove_profiles
+    ]
 
     report = Report()
     stacks = detect_stacks(root)
@@ -220,15 +248,41 @@ def sync_project(
         _migrate_claude_memory(root, report, dry_run)
 
     ledger = Ledger(root / PROJECT_DIR / "lock.json", base=root)
+    installed_ids = {
+        entry["path"].removeprefix(f"{RULES_DIR.as_posix()}/ai-governance-").removesuffix(".md")
+        for entry in ledger.entries
+        if entry["kind"] == "file" and entry["path"].startswith(f"{RULES_DIR.as_posix()}/")
+    }
     scope = set(AGENTS) | {"project"}
     sync(
-        _project_desired(root, config, stacks),
+        _project_desired(root, config, stacks, catalog),
         ledger,
         agents_in_scope=scope,
         dry_run=dry_run,
         force=force,
         report=report,
     )
+    selected_ids = {
+        rule.id
+        for rule in catalog.select(
+            stacks,
+            profiles=tuple(config.profiles),
+            extra=tuple(config.extra_rules),
+            excluded=tuple(config.excluded_rules),
+        )
+    }
+    removed_by_profile: dict[str, list[str]] = {}
+    for rule_id in sorted(installed_ids - selected_ids):
+        rule = catalog.get(rule_id)
+        if rule is None or rule.profile is None or rule.profile in config.profiles:
+            continue
+        removed_by_profile.setdefault(rule.profile, []).append(rule_id)
+    for profile, ids in removed_by_profile.items():
+        report.warnings.append(
+            f'Rules of profile "{profile}" removed because it is not enabled: '
+            f"{', '.join(ids)}. Enable with: ai-governance install --scope project "
+            f"--profile {profile}"
+        )
 
     config_path = root / PROJECT_DIR / "config.toml"
     if config.agents:

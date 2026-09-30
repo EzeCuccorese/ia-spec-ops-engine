@@ -109,8 +109,9 @@ ai-governance install --scope project --agent claude --agent antigravity
 - **Gate**: `.claude/settings.json` gets a `Stop` hook that runs `ws check --changed --cache`
   when Claude ends a turn. On failure it blocks the turn once with a ≤1.5 KB summary.
   Set `gate = false` in the config to disable it.
-- **Project state**: `.ai-governance/config.toml` (agents, extra/excluded rules, gate) and
-  `.ai-governance/lock.json` (ownership ledger). Commit them together with the generated files.
+- **Project state**: `.ai-governance/config.toml` (agents, profiles, extra/excluded rules, gate)
+  and `.ai-governance/lock.json` (ownership ledger). Commit them together with the generated
+  files.
 
 **Check**:
 
@@ -138,6 +139,27 @@ ai-governance update --check && echo "up to date"   # exit 1 when something is s
 refreshes content from the installed package version. A rule you edited by hand is kept and
 reported. After upgrading the package, `ai-governance update --all` refreshes every
 registered project.
+
+## Profiles
+
+Most rules are automatic: they apply as soon as their stack or path is detected. Three groups
+are opt-in instead, because they only make sense for some architectures:
+
+- `architecture` — Clean/hexagonal architecture, DDD, refactoring and strangler fig
+  (`02-clean-architecture-hexagonal`, `03-ddd-domain-modeling`, `10-refactoring-strangler`).
+- `distributed` — event-driven architecture, resilience and concurrency
+  (`07-event-driven-architecture`, `08-resilience-fault-tolerance`, `09-concurrency-locking`).
+- `api` — API design and observability (`api-design`, `observability`).
+
+```bash
+ai-governance rules profiles                     # list profiles and the rules each enables
+ai-governance install --scope project --profile architecture
+ai-governance uninstall --scope project --profile architecture   # keeps agents, drops the rules
+```
+
+`ai-governance update` re-selects rules from the enabled profiles; if a profile is disabled
+(edited out of `.ai-governance/config.toml` by hand, or removed with `--profile`), the rules it
+had installed are removed and the report tells you which ones and how to re-enable it.
 
 ## 5. Condensed output and Git hooks with `ws`
 
