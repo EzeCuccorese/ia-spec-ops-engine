@@ -284,11 +284,47 @@ hints (`empty-catch` → handle, rethrow with context, or log with a reason; `to
 add a ticket reference or do it now; `commented-code` → delete it — version control
 remembers), and the same text/JSON output and exit code as the other metrics. Toggle
 which checks run with `[design].checks` in `.ai-governance/config.toml` (default: all
-seven); an unknown check name raises:
+twelve); an unknown check name raises:
 
 ```toml
 [design]
-checks = ["complexity", "length", "args", "nesting", "empty-catch", "todo-ticket", "commented-code"]
+checks = ["complexity", "length", "args", "nesting", "empty-catch", "todo-ticket", "commented-code", "test-no-assert", "test-trivial-assert", "test-mock-only", "test-sleep", "test-duplicate"]
+```
+
+**Junk-test checks.** Five more deterministic checks enforce the ai-governance testing
+rule ("a test must assert observable behavior"). They run only on test files (Java/Kotlin
+`src/test/**` or `*Test(s).java|kt`/`*IT.java`; JS/TS `*.test.*`, `*.spec.*`,
+`__tests__/**`; Python `test_*.py`, `*_test.py`, `tests/**`; Go `*_test.go`; C#
+`*Tests.cs`; PHP `*Test.php`; Dart `*_test.dart`; Rust files with `#[test]`):
+
+- `test-no-assert` — a test with no assertion (Java/Kotlin `@Test`/`@ParameterizedTest`,
+  JS/TS `it(`/`test(`, Python `test_*` via `ast`, Go `func TestXxx(t *testing.T)`). Any
+  assertion form counts, including `pytest.raises`/`warns`, `verify(`, `.rejects`,
+  `t.Error*`/`t.Fatal*`, `assert.`/`require.` and calls to local helpers whose name starts
+  with `assert`/`expect`/`check`/`verify`. Skipped or disabled tests are ignored.
+- `test-trivial-assert` — an assertion that can never fail: `assert True`,
+  `assertTrue(true)`, `expect(1).toBe(1)`, `assert x == x`, `assertEquals(a, a)` (same
+  normalized expression on both sides, no calls).
+- `test-mock-only` — every assertion of a test targets a mock (`verify(`, `then().should`,
+  `toHaveBeenCalled*`, `assert_called*`, `mock.AssertExpectations`) and none checks a
+  result or state.
+- `test-sleep` — a real sleep: `Thread.sleep`, `time.sleep`, `await new Promise(r =>
+  setTimeout ...)`, `await sleep(`, Go `time.Sleep` (best-effort for C#, PHP, Rust, Dart).
+  Skipped in JS files that use fake timers.
+- `test-duplicate` — a test whose body (3+ statements) equals an earlier test of the same
+  file after normalizing whitespace, literals and local-variable names.
+
+Hints: `test-no-assert` → assert the observable result or delete the test;
+`test-trivial-assert` → assert real behavior; this can never fail; `test-mock-only` →
+assert the result or state, not only the calls; `test-sleep` → inject a clock or poll with
+a timeout; `test-duplicate` → merge into one parametrized test. A finding is `new` when any
+line of the test is in the diff, `legacy` otherwise. Java, Kotlin, JS/TS, Python and Go are
+the priority languages; the others get the sleep check only. To turn some off, list only
+the checks you want in `[design].checks`, for example:
+
+```toml
+[design]
+checks = ["complexity", "length", "args", "nesting", "empty-catch", "todo-ticket", "commented-code", "test-no-assert"]
 ```
 
 **Layer boundaries (`architecture` profile).** With the ai-governance `architecture`
