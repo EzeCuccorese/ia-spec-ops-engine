@@ -9,6 +9,12 @@ import pytest
 from workspace_engine.cli import design as design_cli
 from workspace_engine.design.changes import _parse_unified_diff, changed_lines
 from workspace_engine.design.config import DesignConfig, LayersConfig
+from workspace_engine.design.hygiene import (
+    commented_code_violations,
+    empty_catch_violations,
+    hygiene_violations,
+    todo_ticket_violations,
+)
 from workspace_engine.design.layers import extract_imports, go_module_name, layer_violations
 from workspace_engine.design.metrics import measure, supported
 from workspace_engine.design.report import format_text, to_dict
@@ -1226,3 +1232,260 @@ def test_cli_profile_on_layers_violation_blocks(
     assert code == 1
     assert "layers" in out
     assert "domain → adapters" in out
+
+
+# --- hygiene: empty-catch, todo-ticket, commented-code ----------------------------
+
+
+def test_java_empty_catch_violation(tmp_path: Path) -> None:
+    source = (
+        "public class A {\n"
+        "    void f() {\n"
+        "        try {\n"
+        "            g();\n"
+        "        } catch (Exception e) {\n"
+        "            // ignore\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+    )
+    assert len(empty_catch_violations("A.java", "java", source)) == 1
+
+
+def test_java_catch_with_statement_is_ok(tmp_path: Path) -> None:
+    source = (
+        "public class A {\n"
+        "    void f() {\n"
+        "        try {\n"
+        "            g();\n"
+        "        } catch (Exception e) {\n"
+        '            log.error("x", e);\n'
+        "        }\n"
+        "    }\n"
+        "}\n"
+    )
+    assert empty_catch_violations("A.java", "java", source) == []
+
+
+def test_typescript_empty_catch_violation() -> None:
+    source = "try {\n  f();\n} catch (e) {\n}\n"
+    assert len(empty_catch_violations("a.ts", "ts", source)) == 1
+
+
+def test_go_empty_err_check_violation() -> None:
+    source = "package m\nfunc f() {\n\terr := g()\n\tif err != nil {\n\t}\n}\n"
+    assert len(empty_catch_violations("a.go", "go", source)) == 1
+
+
+def test_go_err_check_with_statement_is_ok() -> None:
+    source = "package m\nfunc f() {\n\terr := g()\n\tif err != nil {\n\t\treturn err\n\t}\n}\n"
+    assert empty_catch_violations("a.go", "go", source) == []
+
+
+def test_rust_empty_err_arm_violation() -> None:
+    source = "fn f() { match g() { Ok(v) => v, Err(_) => {} } }\n"
+    assert len(empty_catch_violations("a.rs", "rs", source)) == 1
+
+
+def test_python_bare_except_pass_violation() -> None:
+    source = "try:\n    f()\nexcept Exception:\n    pass\n"
+    assert len(empty_catch_violations("a.py", "py", source)) == 1
+
+
+def test_python_except_ellipsis_violation() -> None:
+    source = "try:\n    f()\nexcept Exception:\n    ...\n"
+    assert len(empty_catch_violations("a.py", "py", source)) == 1
+
+
+def test_python_except_with_handling_is_ok() -> None:
+    source = "try:\n    f()\nexcept Exception as e:\n    log(e)\n"
+    assert empty_catch_violations("a.py", "py", source) == []
+
+
+def test_todo_without_ticket_violation() -> None:
+    source = "x = 1  # TODO fix this later\n"
+    assert len(todo_ticket_violations("a.py", "py", source)) == 1
+
+
+def test_todo_with_jira_ticket_is_ok() -> None:
+    source = "x = 1  # TODO(JIRA-123) fix this later\n"
+    assert todo_ticket_violations("a.py", "py", source) == []
+
+
+def test_todo_with_issue_number_is_ok() -> None:
+    source = "x = 1  // TODO see #42\n"
+    assert todo_ticket_violations("a.ts", "ts", source) == []
+
+
+def test_todo_with_url_is_ok() -> None:
+    source = "x = 1  # TODO see https://example.com/issue/5\n"
+    assert todo_ticket_violations("a.py", "py", source) == []
+
+
+def test_prose_comment_not_flagged_as_todo_or_code() -> None:
+    source = (
+        "# This function computes the total price for an order, including tax\n"
+        "# and any discounts applied based on the customer's loyalty tier\n"
+    )
+    assert todo_ticket_violations("a.py", "py", source) == []
+    assert commented_code_violations("a.py", "py", source) == []
+
+
+def test_python_commented_code_violation() -> None:
+    source = "# def old_handler(x):\n#     return x + 1\n"
+    violations = commented_code_violations("a.py", "py", source)
+    assert len(violations) == 1
+    assert violations[0].metric == "commented-code"
+
+
+def test_python_bare_word_comments_not_flagged() -> None:
+    assert commented_code_violations("a.py", "py", "# Notes\n# TODO\n") == []
+    assert commented_code_violations("a.py", "py", "# Summary\n# Details\n") == []
+
+
+def test_typescript_commented_code_violation() -> None:
+    source = "// function old(x) {\n//   return x + 1;\n// }\n"
+    assert len(commented_code_violations("a.ts", "ts", source)) == 1
+
+
+def test_single_comment_line_not_flagged_as_commented_code() -> None:
+    source = "// return x + 1;\n"
+    assert commented_code_violations("a.ts", "ts", source) == []
+
+
+def test_config_checks_default_enables_all(tmp_path: Path) -> None:
+    config = DesignConfig.load(tmp_path)
+    assert set(config.checks) == {
+        "complexity",
+        "length",
+        "args",
+        "nesting",
+        "empty-catch",
+        "todo-ticket",
+        "commented-code",
+    }
+
+
+def test_config_checks_unknown_raises(tmp_path: Path) -> None:
+    (tmp_path / ".ai-governance").mkdir()
+    (tmp_path / ".ai-governance" / "config.toml").write_text('[design]\nchecks = ["bogus"]\n')
+    with pytest.raises(ValueError, match="unknown check"):
+        DesignConfig.load(tmp_path)
+
+
+def test_config_checks_subset_disables_others(tmp_path: Path) -> None:
+    (tmp_path / ".ai-governance").mkdir()
+    (tmp_path / ".ai-governance" / "config.toml").write_text('[design]\nchecks = ["complexity"]\n')
+    config = DesignConfig.load(tmp_path)
+    assert config.checks == ("complexity",)
+
+
+def test_cli_empty_catch_reported_and_blocks(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "A.java").write_text(
+        "public class A {\n"
+        "    void f() {\n"
+        "        try {\n"
+        "            g();\n"
+        "        } catch (Exception e) {\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+    )
+    code = design_cli.design(["--dir", str(tmp_path), str(tmp_path / "A.java")])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "empty-catch" in out
+
+
+def test_looks_like_code_blank_comment_lines_not_flagged() -> None:
+    source = "//\n//\n"
+    assert commented_code_violations("a.ts", "ts", source) == []
+
+
+def test_looks_like_code_statement_keyword_without_terminator() -> None:
+    source = "// return x\n// something else\n"
+    violations = commented_code_violations("a.ts", "ts", source)
+    assert len(violations) == 1
+
+
+def test_empty_catch_origin_new_and_legacy() -> None:
+    source = "try {\n  f();\n} catch (e) {\n}\n"
+    new = empty_catch_violations("a.ts", "ts", source, changed={"a.ts": {3}})
+    assert new[0].origin == "new"
+    legacy = empty_catch_violations("a.ts", "ts", source, changed={"a.ts": {99}})
+    assert legacy[0].origin == "legacy"
+
+
+def test_empty_catch_with_nested_braces_in_body_is_not_empty() -> None:
+    source = "try {\n  f();\n} catch (e) {\n  if (x) {\n    y();\n  }\n}\n"
+    assert empty_catch_violations("a.ts", "ts", source) == []
+
+
+def test_empty_catch_unbalanced_braces_is_skipped() -> None:
+    source = "try {\n  f();\n} catch (e) {\n  if (x) {\n"
+    assert empty_catch_violations("a.ts", "ts", source) == []
+
+
+def test_go_empty_err_unbalanced_braces_is_skipped() -> None:
+    source = "package m\nfunc f() {\n\terr := g()\n\tif err != nil {\n\t\tif x {\n"
+    assert empty_catch_violations("a.go", "go", source) == []
+
+
+def test_python_except_invalid_syntax_returns_no_violations() -> None:
+    assert empty_catch_violations("a.py", "py", "def f(:\n    pass\n") == []
+
+
+def test_empty_catch_unsupported_extension_returns_empty() -> None:
+    assert empty_catch_violations("a.txt", "txt", "anything") == []
+
+
+def test_todo_ticket_unsupported_extension_returns_empty() -> None:
+    assert todo_ticket_violations("a.txt", "txt", "# TODO fix\n") == []
+
+
+def test_commented_code_unsupported_extension_returns_empty() -> None:
+    assert commented_code_violations("a.txt", "txt", "# def f():\n#     pass\n") == []
+
+
+def test_commented_code_non_consecutive_groups_evaluated_separately() -> None:
+    source = "// a\nx = 1;\n// function old(x) {\n// return x + 1;\n// }\n"
+    violations = commented_code_violations("a.ts", "ts", source)
+    assert len(violations) == 1
+    assert violations[0].start_line == 3
+
+
+def test_hygiene_violations_skips_directories(tmp_path: Path) -> None:
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    assert hygiene_violations(tmp_path, [sub], ("empty-catch",)) == []
+
+
+def test_hygiene_violations_skips_undecodable_file(tmp_path: Path) -> None:
+    path = tmp_path / "bad.py"
+    path.write_bytes(b"\xff\xfe# TODO fix\n")
+    assert hygiene_violations(tmp_path, [path], ("todo-ticket",)) == []
+
+
+def test_cli_checks_disabled_skips_hygiene(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / ".ai-governance").mkdir()
+    (tmp_path / ".ai-governance" / "config.toml").write_text(
+        '[design]\nchecks = ["complexity", "length", "args", "nesting"]\n'
+    )
+    (tmp_path / "A.java").write_text(
+        "public class A {\n"
+        "    void f() {\n"
+        "        try {\n"
+        "            g();\n"
+        "        } catch (Exception e) {\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+    )
+    code = design_cli.design(["--dir", str(tmp_path), str(tmp_path / "A.java")])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "empty-catch" not in out
