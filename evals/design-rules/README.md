@@ -24,6 +24,7 @@ package and is not collected by the repo's pytest (`testpaths` in the root
   even if the behavior is otherwise correct — a known limitation of
   behavior-only task specs.
 - `run.py`: orchestrates task x condition x repetition runs.
+- `mutate.py`: stdlib mutation step used by `run.py` (see Test-guidance conditions).
 - `summarize.py`: turns `results/results.csv` into `results/summary.md`.
 
 ## Conditions
@@ -89,3 +90,44 @@ so claude.ai account skills and plugins do not leak into the runs.
 - Text rules are **worth it on top of the gate** if `rules+gate` reduces
   violations per 100 lines by >= 30% vs `gate` alone, or if it costs fewer
   turns/less money for the same outcome.
+
+## Test-guidance conditions
+
+Second question: does the testing guidance (rule `04-testing-patterns.md` +
+the `test-audit` skill, `TEST_AUDIT_SKILL` in `ai_governance/install/content.py`)
+cut useless test code without hurting correctness? Same tasks, all of which
+already ask for unit tests.
+
+- `tests-none`: no rules, no skill, no gate.
+- `tests-rules`: `04` copied to `.claude/rules/`, skill written to
+  `.claude/skills/test-audit/SKILL.md`.
+- `tests-gate`: the Stop-hook gate (`ws design --changed`, which includes the
+  `test-*` quality checks), no guidance.
+- `tests-rules+gate`: both.
+
+```bash
+uv run python evals/design-rules/run.py --conditions tests-none,tests-rules,tests-gate,tests-rules+gate --reps 3
+```
+
+Extra per-run CSV columns: `test_loc_added` / `prod_loc_added` (`.py` lines
+added, split by test path: a `tests/` dir, `test_*.py`, `*_test.py`,
+`conftest.py`), `test_functions_added` (added `def test...` lines in test
+files), `test_violations` (`ws design` violations whose metric starts with
+`test-`), `mutants_killed` / `mutants_total`.
+
+Mutation score (`mutate.py`): before the hidden tests are copied in, up to 10
+seeded (fixed seed) AST mutations are applied one at a time to the new
+production modules under `src/` (modified ones if none are new): comparison
+flips (`<`/`<=`, `>`/`>=`, `==`/`!=`), `+`/`-`, `*`->`//`, `True`/`False`,
+and return value -> `None`. Only the agent's own tests run (hidden tests
+excluded), 60 s timeout per mutant (a timeout counts as killed). If the
+baseline suite is red or nothing is mutable, the row records 0/0 and is
+left out of the score. Mutation is measured on every condition. Note the
+mutant sample is small (about 10 per run), so read differences of a few
+points as noise.
+
+Decision rule (test table in `summarize.py`, each guidance condition vs its
+baseline: `tests-rules` vs `tests-none`, `tests-rules+gate` vs `tests-gate`):
+keep the guidance if test LOC per 100 prod LOC drops >= 20% OR test-quality
+violations per run drop >= 30%, AND the mutation score drops by no more than 5
+points AND the hidden pass rate does not drop.
