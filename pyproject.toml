@@ -7,6 +7,8 @@
 name = "ia-spec-ops-engine"
 version = "0.0.0"
 description = "Workspace root for ai-governance, spec and workspace packages."
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = []
 
@@ -75,4 +77,4 @@ addopts = "-ra --strict-markers"
 markers = [
     "integration: end-to-end integration tests",
 ]
-norecursedirs = ["node_modules", ".venv", "venv", ".git", ".pytest_cache", ".claude", ".specops"]
+norecursedirs = ["node_modules", ".venv", "venv", ".git", ".pytest_cache", ".claude"]

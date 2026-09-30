@@ -414,7 +414,7 @@ def test_file_input_and_json_match_markdown(
 
     # 1. Input from file
     doc_file = tmp_path / "content.md"
-    raw_markdown = "## Overview\n\n- Feature A: `print('hello & world')`\n- Quote: \"specops\""
+    raw_markdown = "## Overview\n\n- Feature A: `print('hello & world')`\n- Quote: \"example\""
     doc_file.write_text(raw_markdown, encoding="utf-8")
 
     body_from_file = confluence.read_input_text(f"@{doc_file}")

@@ -63,7 +63,7 @@ def test_cli_help_lists_all_canonical_subcommands(capsys: pytest.CaptureFixture[
     for subcommand in ("install", "update", "doctor", "rules", "telemetry", "progress", "hook"):
         assert subcommand in out
     listing = out.split("{", 1)[1].split("}", 1)[0].split(",")
-    for removed in ("frugal", "harness", "progreso", "ritmo", "specops"):
+    for removed in ("frugal", "harness", "progreso", "ritmo"):
         assert removed not in listing
 
 

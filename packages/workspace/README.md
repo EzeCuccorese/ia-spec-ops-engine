@@ -206,7 +206,7 @@ ws changed [--json]         # files changed vs. the base branch plus the working
 ### Design limits (`ws design`)
 
 Measures every function's cyclomatic complexity, length (NLOC), parameter count and max
-nesting depth via [lizard](https://github.com/terryyin/lizard) — one deterministic engine
+nesting depth via lizard — one deterministic engine
 covering Java, JavaScript/TypeScript/TSX/JSX, Python, Go, Kotlin, C#, PHP, Rust, Swift,
 Scala, Ruby, C/C++ and more (priority for tests and docs here: Java, JS/TS, Python, Go,
 then the rest). **Dart is not supported by lizard**, so `.dart` files are skipped.
@@ -404,8 +404,7 @@ ws kube shell
 
 ### 5. Workspace Configuration (`ws config`)
 
-Bootstraps the `config.json` that `ws` reads for project naming, namespaces, and
-(optionally) enterprise environments/VPN settings. Written project-locally
+Bootstraps the `config.json` that `ws` reads for project naming and namespaces. Written project-locally
 (`.workspace/config.json`) or user-globally (under `XDG_CONFIG_HOME`, see below).
 
 ```bash
@@ -414,9 +413,6 @@ ws config init --local
 
 # Non-interactive, user-global configuration
 ws config init --global --yes --name my-project --domain my-domain.io
-
-# Full enterprise profile (environments, VPN, ArtifactRegistry placeholders)
-ws config init --local --enterprise --yes
 
 # Write to a custom path instead
 ws config init --path ./custom-config.json --yes
@@ -441,7 +437,6 @@ or `ws config init --help` for the full, up-to-date list of subcommands and flag
 | `QG_OUTPUT` | `ws hooks run` / the installed `pre-push` Quality Gate hook | Controls verbosity of Quality Gate output: `errors` hides successful command output, `verbose` streams every command live. | `errors` |
 
 Package-manager cache locations (`YARN_CACHE_DIR`, `GRADLE_CACHE_DIR`, `M2_CACHE_DIR`,
-`NPM_CACHE_DIR`) and AWS/ArtifactRegistry placeholders (`AWS_PROFILE`, `AWS_CONFIG_FILE`,
-`AWS_DEFAULT_REGION`, `ARTIFACT_REGISTRY_DOMAIN`, `ARTIFACT_REGISTRY_DOMAIN_OWNER`) are
+`NPM_CACHE_DIR`) are
 project-level conventions read from generated `.env` files rather than by the
 `workspace_engine` package itself — see `config/.env.example` at the repo root.
