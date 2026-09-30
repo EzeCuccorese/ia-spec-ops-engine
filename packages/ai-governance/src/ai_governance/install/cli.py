@@ -7,6 +7,7 @@ import json
 import sys
 from pathlib import Path
 
+from .. import corporate
 from ..output import emit_rows, emit_status, emit_text, is_agent_mode
 from ..rules.catalog import RuleCatalog
 from . import doctor, probe
@@ -25,6 +26,10 @@ from .installer import (
 )
 
 
+def _valid_choice(part: str, count: int) -> bool:
+    return part.isdigit() and 1 <= int(part) <= count
+
+
 def _pick_agents() -> list[str]:
     """Interactive choice when --agent is omitted on a TTY; never defaults to all."""
     if is_agent_mode() or not sys.stdin.isatty():
@@ -34,7 +39,7 @@ def _pick_agents() -> list[str]:
         print(f"  {index}. {AGENTS[name].name} ({name})")
     answer = input("Agents to install (numbers, comma-separated): ").strip()
     parts = [part.strip() for part in answer.split(",") if part.strip()]
-    if not parts or not all(p.isdigit() and 1 <= int(p) <= len(names) for p in parts):
+    if not parts or not all(_valid_choice(p, len(names)) for p in parts):
         raise ValueError("No valid agent selected.")
     return [names[int(part) - 1] for part in dict.fromkeys(parts)]
 
@@ -62,6 +67,12 @@ def _add_common(parser: argparse.ArgumentParser, *, agent_required: bool = False
         action="append",
         choices=sorted(RuleCatalog().profiles),
         help="Opt-in rule profile (repeatable). Only valid with --scope project.",
+    )
+    parser.add_argument(
+        "--corporate",
+        action="append",
+        choices=corporate.available(),
+        help="Company pack of always-on rules and scripts (repeatable). Only with --scope user.",
     )
 
 
@@ -93,106 +104,154 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _scope_error(args: argparse.Namespace) -> str | None:
+    if args.profile and args.scope != "project":
+        return "--profile is only valid with --scope project."
+    if args.corporate and args.scope != "user":
+        return "--corporate is only valid with --scope user."
+    return None
+
+
+def _selected_agents(args: argparse.Namespace) -> list[str]:
+    """`uninstall --profile/--corporate` without `--agent` touches no agent at all."""
+    if args.cmd == "uninstall" and not args.agent and (args.profile or args.corporate):
+        return []
+    return args.agent or _pick_agents()
+
+
+def _user_report(args: argparse.Namespace, agents: list[str]) -> Report:
+    packs = tuple(args.corporate or ())
+    if args.cmd == "install":
+        return install_user(agents, corporate_packs=packs, dry_run=args.dry_run, force=args.force)
+    return uninstall_user(agents, corporate_packs=packs, dry_run=args.dry_run)
+
+
+def _project_report(args: argparse.Namespace, agents: list[str]) -> Report:
+    profiles = tuple(args.profile or ())
+    if args.cmd == "install":
+        return sync_project(
+            args.root,
+            add_agents=agents,
+            add_profiles=profiles,
+            dry_run=args.dry_run,
+            force=args.force,
+        )
+    return sync_project(
+        args.root, remove_agents=agents, remove_profiles=profiles, dry_run=args.dry_run
+    )
+
+
+def _install_or_uninstall(args: argparse.Namespace) -> int:
+    error = _scope_error(args)
+    if error:
+        emit_status("error", error)
+        return 2
+    agents = _selected_agents(args)
+    report = _user_report(args, agents) if args.scope == "user" else _project_report(args, agents)
+    _emit(report, dry_run=args.dry_run)
+    return 0
+
+
+def _update_root(root: Path, *, forget: bool, dry_run: bool, heading: bool) -> bool:
+    """Refreshes one project; returns whether anything was (or would be) changed."""
+    if not (root / PROJECT_DIR / "config.toml").exists():
+        if forget:
+            forget_project(root, dry_run=dry_run)
+            emit_status("warn", f"{root}: no longer installed; removed from registry")
+        else:
+            emit_status("warn", f"{root}: not installed; run `ai-governance install`")
+        return False
+    report = sync_project(root, dry_run=dry_run)
+    if heading:
+        emit_text(f"# {root}", full=True)
+    _emit(report, dry_run=dry_run)
+    return report.changed
+
+
+def _update(args: argparse.Namespace) -> int:
+    roots = registered_projects() if args.all else [args.root]
+    dry_run = args.dry_run or args.check
+    changed = [
+        _update_root(root, forget=args.all, dry_run=dry_run, heading=len(roots) > 1)
+        for root in roots
+    ]
+    return 1 if args.check and any(changed) else 0
+
+
+def _status(args: argparse.Namespace) -> int:
+    rows = [("user", e["agent"], e["kind"], e["path"]) for e in global_ledger().entries]
+    if (args.root / PROJECT_DIR / "config.toml").exists():
+        config = ProjectConfig.load(args.root)
+        rows.append(("project", ",".join(config.agents), "config", PROJECT_DIR))
+        lock = Ledger(args.root / PROJECT_DIR / "lock.json", base=args.root)
+        rows.extend(("project", e["agent"], e["kind"], e["path"]) for e in lock.entries)
+    emit_rows(rows, headers=("Scope", "Agent", "Kind", "Path"), full=True)
+    return 0
+
+
+def _doctor(args: argparse.Namespace) -> int:
+    checks = doctor.check(args.root.resolve())
+    emit_rows(checks, headers=("Check", "Status", "Detail"), full=True)
+    return 1 if any(status == doctor.FAIL for _, status, _ in checks) else 0
+
+
+def _probe(args: argparse.Namespace) -> int:
+    if args.verify:
+        seen = [token.strip() for token in args.seen.split(",") if token.strip()]
+        result = probe.verify(args.agent, seen)
+        emit_text(json.dumps(result, indent=2), full=True)
+        verified_hooks = args.agent == "claude" or result["shell_hooks_verified"]
+        if result["canaries_missing"] or not verified_hooks:
+            emit_status("warn", "Not everything was verified; see the result above.")
+        return 0
+    root = probe.build(args.agent, args.dir)
+    emit_text(
+        f"Probe project: {root}\n"
+        f"1. Open {AGENTS[args.agent].name} in that directory (trust it if asked).\n"
+        f"2. Send: {probe.PROMPT}\n"
+        f"3. Run: ai-governance probe --agent {args.agent} --verify --seen <tokens it listed>",
+        full=True,
+    )
+    return 0
+
+
+def _budget(args: argparse.Namespace) -> int:
+    ledgers = [("user", global_ledger())]
+    if (args.root / PROJECT_DIR / "lock.json").exists():
+        ledgers.append(("project", Ledger(args.root / PROJECT_DIR / "lock.json", base=args.root)))
+    rows = [
+        (scope, agent, str(size), f"~{size // BYTES_PER_TOKEN} tokens")
+        for scope, ledger in ledgers
+        for agent, size in sorted(fixed_cost(ledger).items())
+    ]
+    emit_rows(rows, headers=("Scope", "Agent", "Bytes", "Tokens"), full=True)
+    return 0
+
+
+def _agents(args: argparse.Namespace) -> int:
+    emit_text(capability_table(), full=True)
+    return 0
+
+
+COMMANDS = {
+    "install": _install_or_uninstall,
+    "uninstall": _install_or_uninstall,
+    "update": _update,
+    "status": _status,
+    "doctor": _doctor,
+    "probe": _probe,
+    "budget": _budget,
+    "agents": _agents,
+}
+
+
 def main(command: str, argv: list[str]) -> int:
     args = build_parser().parse_args([command, *argv])
+    handler = COMMANDS.get(args.cmd)
+    if handler is None:
+        return 0
     try:
-        if args.cmd in ("install", "uninstall"):
-            profiles = tuple(args.profile or ())
-            if profiles and args.scope != "project":
-                emit_status("error", "--profile is only valid with --scope project.")
-                return 2
-            if args.cmd == "uninstall" and not args.agent and profiles:
-                agents: list[str] = []
-            else:
-                agents = args.agent or _pick_agents()
-            if args.scope == "user":
-                action = install_user if args.cmd == "install" else uninstall_user
-                kwargs = {"force": args.force} if args.cmd == "install" else {}
-                report = action(agents, dry_run=args.dry_run, **kwargs)
-            elif args.cmd == "install":
-                report = sync_project(
-                    args.root,
-                    add_agents=agents,
-                    add_profiles=profiles,
-                    dry_run=args.dry_run,
-                    force=args.force,
-                )
-            else:
-                report = sync_project(
-                    args.root,
-                    remove_agents=agents,
-                    remove_profiles=profiles,
-                    dry_run=args.dry_run,
-                )
-            _emit(report, dry_run=args.dry_run)
-            return 0
-        if args.cmd == "update":
-            roots = registered_projects() if args.all else [args.root]
-            dry_run = args.dry_run or args.check
-            stale = False
-            for root in roots:
-                if not (root / PROJECT_DIR / "config.toml").exists():
-                    if args.all:
-                        forget_project(root, dry_run=dry_run)
-                        emit_status("warn", f"{root}: no longer installed; removed from registry")
-                    else:
-                        emit_status("warn", f"{root}: not installed; run `ai-governance install`")
-                    continue
-                report = sync_project(root, dry_run=dry_run)
-                stale = stale or report.changed
-                if len(roots) > 1:
-                    emit_text(f"# {root}", full=True)
-                _emit(report, dry_run=dry_run)
-            return 1 if args.check and stale else 0
-        if args.cmd == "status":
-            rows = [("user", e["agent"], e["kind"], e["path"]) for e in global_ledger().entries]
-            if (args.root / PROJECT_DIR / "config.toml").exists():
-                config = ProjectConfig.load(args.root)
-                rows.append(("project", ",".join(config.agents), "config", PROJECT_DIR))
-                lock = Ledger(args.root / PROJECT_DIR / "lock.json", base=args.root)
-                rows.extend(("project", e["agent"], e["kind"], e["path"]) for e in lock.entries)
-            emit_rows(rows, headers=("Scope", "Agent", "Kind", "Path"), full=True)
-            return 0
-        if args.cmd == "doctor":
-            checks = doctor.check(args.root.resolve())
-            emit_rows(checks, headers=("Check", "Status", "Detail"), full=True)
-            return 1 if any(status == doctor.FAIL for _, status, _ in checks) else 0
-        if args.cmd == "probe":
-            if args.verify:
-                seen = [token.strip() for token in args.seen.split(",") if token.strip()]
-                result = probe.verify(args.agent, seen)
-                emit_text(json.dumps(result, indent=2), full=True)
-                if result["canaries_missing"] or not (
-                    args.agent == "claude" or result["shell_hooks_verified"]
-                ):
-                    emit_status("warn", "Not everything was verified; see the result above.")
-                return 0
-            root = probe.build(args.agent, args.dir)
-            emit_text(
-                f"Probe project: {root}\n"
-                f"1. Open {AGENTS[args.agent].name} in that directory (trust it if asked).\n"
-                f"2. Send: {probe.PROMPT}\n"
-                f"3. Run: ai-governance probe --agent {args.agent} --verify --seen <tokens it listed>",
-                full=True,
-            )
-            return 0
-        if args.cmd == "budget":
-            ledgers = [("user", global_ledger())]
-            if (args.root / PROJECT_DIR / "lock.json").exists():
-                ledgers.append(
-                    ("project", Ledger(args.root / PROJECT_DIR / "lock.json", base=args.root))
-                )
-            rows = [
-                (scope, agent, str(size), f"~{size // BYTES_PER_TOKEN} tokens")
-                for scope, ledger in ledgers
-                for agent, size in sorted(fixed_cost(ledger).items())
-            ]
-            emit_rows(rows, headers=("Scope", "Agent", "Bytes", "Tokens"), full=True)
-            return 0
-        if args.cmd == "agents":
-            emit_text(capability_table(), full=True)
-            return 0
+        return handler(args)
     except (ValueError, OSError) as exc:
         emit_status("error", str(exc))
         return 1
-    return 0

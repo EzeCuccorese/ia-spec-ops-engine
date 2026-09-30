@@ -30,6 +30,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -368,6 +369,22 @@ def test_pid_reuse_rejects_matching_name_in_foreign_workspace(
     assert not pid_file.exists()
 
 
+def _settled_cmdline(pid: int) -> str:
+    """What `ps` reports once it settles: a venv interpreter may re-exec into its
+    resolved binary (e.g. Homebrew's framework Python on macOS) right after spawning."""
+    from workspace_engine.common import get_process_cmdline
+
+    observed = get_process_cmdline(pid)
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        time.sleep(0.1)
+        current = get_process_cmdline(pid)
+        if current == observed:
+            break
+        observed = current
+    return observed
+
+
 def test_owned_process_stop_is_bounded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """W06: Stopping an owned process waits with bounded timeout and reports clean shutdown."""
     ws_dir = tmp_path / "ws_proc_stop"
@@ -381,7 +398,8 @@ def test_owned_process_stop_is_bounded(tmp_path: Path, monkeypatch: pytest.Monke
         stderr=subprocess.PIPE,
     )
     try:
-        cmd_str = f"{sys.executable} -c import time; time.sleep(60)"
+        observed = _settled_cmdline(proc.pid)
+        cmd_str = observed or f"{sys.executable} -c import time; time.sleep(60)"
         pid_file = pids_dir / "test-service.pid"
         # Store metadata with repo name and PID
         pid_file.write_text(
@@ -396,9 +414,7 @@ def test_owned_process_stop_is_bounded(tmp_path: Path, monkeypatch: pytest.Monke
         )
 
         # In sandboxed environments where macOS seatbelt blocks 'ps', provide cmdline via monkeypatch
-        from workspace_engine.common import get_process_cmdline
-
-        if not get_process_cmdline(proc.pid):
+        if not observed:
             monkeypatch.setattr(
                 "workspace_engine.cli.stop_workspace.get_process_cmdline",
                 lambda p: cmd_str if p == proc.pid else "",
@@ -415,6 +431,17 @@ def test_owned_process_stop_is_bounded(tmp_path: Path, monkeypatch: pytest.Monke
     finally:
         if proc.poll() is None:
             proc.kill()
+
+
+def _imported_modules(py_file: Path) -> list[str]:
+    tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+    modules: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            modules.append(node.module)
+    return modules
 
 
 def test_workspace_needs_no_spec_or_governance(
@@ -437,19 +464,8 @@ def test_workspace_needs_no_spec_or_governance(
     # Scan all Python files in workspace_engine to assert no import of spec or ai_governance
     pkg_src = Path(__file__).parent.parent / "src" / "workspace_engine"
     for py_file in pkg_src.rglob("*.py"):
-        tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    assert not alias.name.startswith("spec"), f"{py_file} imports {alias.name}"
-                    assert not alias.name.startswith("ai_governance"), (
-                        f"{py_file} imports {alias.name}"
-                    )
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                assert not node.module.startswith("spec"), f"{py_file} imports from {node.module}"
-                assert not node.module.startswith("ai_governance"), (
-                    f"{py_file} imports from {node.module}"
-                )
+        for module in _imported_modules(py_file):
+            assert not module.startswith(("spec", "ai_governance")), f"{py_file} imports {module}"
 
 
 def test_reset_keeps_two_archives(tmp_path: Path) -> None:

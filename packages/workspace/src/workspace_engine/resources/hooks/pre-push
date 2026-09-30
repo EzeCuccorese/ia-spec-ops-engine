@@ -10,6 +10,7 @@
 #   QG_SKIP=a,b,c               Skip checks: gitleaks,commits,lint,design,tests,all
 #   QG_TIMEOUT=900              Timeout in seconds per step
 #   QG_COMMIT_STYLE=conventional  Require Conventional Commits in messages
+#                               (per repo: git config workspace.commitStyle conventional)
 #   QG_PROTECTED="^(main)$"     Regex of protected branches (override)
 #   QG_OUTPUT=errors|verbose    Hide successful output (default: errors)
 set -uo pipefail
@@ -17,7 +18,7 @@ set -uo pipefail
 QG_SCOPE="${QG_SCOPE:-all}"
 QG_SKIP="${QG_SKIP:-}"
 QG_TIMEOUT="${QG_TIMEOUT:-900}"
-QG_COMMIT_STYLE="${QG_COMMIT_STYLE:-}"
+QG_COMMIT_STYLE="${QG_COMMIT_STYLE:-$(git config --get workspace.commitStyle 2>/dev/null || true)}"
 QG_OUTPUT="${QG_OUTPUT:-errors}"
 PROTECTED_BRANCHES="${QG_PROTECTED:-^(main|master|develop|staging)\$}"
 
@@ -371,11 +372,14 @@ else
 
   # --- Python ---
   if [ -f "$REPO_ROOT/pyproject.toml" ] || [ -f "$REPO_ROOT/requirements.txt" ] || ls "$REPO_ROOT"/*.py >/dev/null 2>&1; then
+    # The project's own environment first: a global ruff may be another version.
     RUFF_EXE=""
-    if command -v ruff >/dev/null 2>&1; then
-      RUFF_EXE="ruff"
-    elif [ -x "$REPO_ROOT/.venv/bin/ruff" ]; then
+    if [ -x "$REPO_ROOT/.venv/bin/ruff" ]; then
       RUFF_EXE="$REPO_ROOT/.venv/bin/ruff"
+    elif [ -f "$REPO_ROOT/uv.lock" ] && command -v uv >/dev/null 2>&1; then
+      RUFF_EXE="uv run ruff"
+    elif command -v ruff >/dev/null 2>&1; then
+      RUFF_EXE="ruff"
     elif command -v uv >/dev/null 2>&1; then
       RUFF_EXE="uv run --with ruff ruff"
     fi
@@ -541,9 +545,12 @@ else
   fi
 
   # --- Python ---
+  # The project's own environment first: a global pytest lacks the project's dependencies.
   PYTEST_EXE=""
   if [ -x "$REPO_ROOT/.venv/bin/pytest" ]; then
     PYTEST_EXE="$REPO_ROOT/.venv/bin/pytest"
+  elif [ -f "$REPO_ROOT/uv.lock" ] && command -v uv >/dev/null 2>&1; then
+    PYTEST_EXE="uv run pytest"
   elif command -v pytest >/dev/null 2>&1; then
     PYTEST_EXE="pytest"
   elif command -v uv >/dev/null 2>&1; then

@@ -54,6 +54,24 @@ Claude Code user hooks (all through `ai-governance hook claude <event>`, fail-op
 | SessionEnd | Logs branch, HEAD and uncommitted files to the active task |
 | Stop | Spend threshold alerts (macOS notification; never reaches the model) |
 
+### Corporate packs — `--scope user --corporate <pack>`
+
+Company-specific, always-on rules and scripts bundled in
+`packages/corporate-rules/<pack>/` of the local checkout (gitignored, see its README;
+`AI_GOVERNANCE_CORPORATE_DIR` points elsewhere).
+Opt-in per pack and never installed otherwise:
+
+```bash
+ai-governance install --scope user --agent claude --corporate tiendanube
+ai-governance uninstall --scope user --corporate tiendanube   # whole pack, agents untouched
+```
+
+`rules/*.md` become `~/.claude/rules/ai-governance-<pack>-<name>.md` (Claude Code) and
+`~/.gemini/config/rules/ai-governance-<pack>-<name>.md` (Antigravity; Codex has a single global
+block, so it is skipped with a warning). `scripts/*` are linked into `~/.local/bin`
+(`AI_GOVERNANCE_BIN_DIR` overrides it). The pack stays installed across re-installs and is
+removed with the last agent it was installed for.
+
 State: `~/.local/state/ai-governance/` (ledger `installed.json`, progress, telemetry).
 Config: `~/.config/ai-governance/` (`frugal.json`, `atlassian.json`).
 
@@ -105,7 +123,8 @@ hint to re-enable it.
 | `ai-governance rules list` / `rules show <id>` / `rules profiles` | Browse the rule catalog and opt-in profiles |
 | `ai-governance progress here\|new\|show\|step\|fact\|close` | Compact cross-session task state |
 | `ai-governance telemetry claude-usage` | Month-to-date Claude spend vs. business-day budget (for plans whose UI hides spend) |
-| `ai-governance telemetry report\|thresholds\|calibrate\|prices update` | Estimates, alerts, calibration, price cache |
+| `ai-governance telemetry report\|thresholds\|calibrate\|prices update` | Estimates (by model and by effort; fast-mode calls flagged), alerts, calibration, price cache |
+| `ai-governance telemetry statusline` | Compact `today $x/allowance · left $y` segment for the Claude Code status line |
 | `ai-governance jira ...` / `confluence ...` | Atlassian as compact Markdown |
 
 Installs are idempotent and reversible: an ownership ledger records every file, block and
@@ -125,5 +144,7 @@ A plain pipe keeps full human output.
 | `AI_GOVERNANCE_STATE_DIR` / `AI_GOVERNANCE_CONFIG_DIR` | Override state / config locations (XDG defaults) |
 | `AI_GOVERNANCE_AGENT` | Force agent (`1`) or human (`0`) output |
 | `CODEX_HOME` | Codex home (default `~/.codex`) |
+| `AI_GOVERNANCE_CORPORATE_DIR` | Where corporate packs are read from (default `packages/corporate-rules` of the checkout) |
+| `AI_GOVERNANCE_BIN_DIR` | Where corporate pack scripts are linked (default `~/.local/bin`) |
 | `FRUGAL=0` or `#nofrugal` in a command | Disable condensing for that command |
 | `ATLASSIAN_PROFILE`, `ATLASSIAN_{URL,EMAIL,API_TOKEN}` | Jira/Confluence credentials |

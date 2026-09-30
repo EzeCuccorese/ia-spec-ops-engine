@@ -205,3 +205,61 @@ def test_refresh_cache_cleans_up_temp_file_on_replace_failure(
     with pytest.raises(OSError, match="simulated replace failure"):
         PriceCatalog.refresh_cache(target, "https://x", fetcher=lambda _u, _t: feed)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_get_price_prefers_the_longest_prefix() -> None:
+    assert PriceCatalog.get_price("claude-opus-5-5-20261001") == (4.0, 20.0)
+    assert PriceCatalog.get_price("claude-opus-5-20260101") == (5.0, 25.0)
+
+
+def test_cache_multipliers_defaults_and_known_models(tmp_path: Path) -> None:
+    assert PriceCatalog.cache_multipliers("claude-sonnet-5") == (0.1, 1.25, 2.0)
+    assert PriceCatalog.cache_multipliers("claude-opus-5-5")[0] == pytest.approx(0.05)
+    assert PriceCatalog.cache_multipliers("claude-opus-5-5", tmp_path / "missing.json")[0] == (
+        pytest.approx(0.05)
+    )
+
+
+def test_cache_multipliers_come_from_the_feed_cache(tmp_path: Path) -> None:
+    cache = tmp_path / "prices.json"
+    cache.write_text(
+        json.dumps(
+            {
+                "prices": {
+                    "claude-x": {
+                        "input": 4.0,
+                        "output": 20.0,
+                        "cache_read": 0.2,
+                        "cache_write_1h": 8.0,
+                    },
+                    "claude-zero": {"input": 0, "output": 1.0, "cache_read": 0.5},
+                    "bad": "entry",
+                }
+            }
+        )
+    )
+    assert PriceCatalog.cache_multipliers("claude-x", cache) == pytest.approx((0.05, 1.25, 2.0))
+    assert PriceCatalog.cache_multipliers("claude-zero", cache) == (0.1, 1.25, 2.0)
+    cache.write_text("not json")
+    assert PriceCatalog.cache_multipliers("claude-x", cache) == (0.1, 1.25, 2.0)
+    cache.write_text(json.dumps({"prices": ["list"]}))
+    assert PriceCatalog.cache_multipliers("claude-x", cache) == (0.1, 1.25, 2.0)
+
+
+def test_refresh_cache_keeps_cache_rates(tmp_path: Path) -> None:
+    feed = {
+        "claude-x": {
+            "litellm_provider": "anthropic",
+            "input_cost_per_token": 4e-6,
+            "output_cost_per_token": 2e-5,
+            "cache_read_input_token_cost": 2e-7,
+            "cache_creation_input_token_cost": 5e-6,
+        }
+    }
+    document = PriceCatalog.refresh_cache(tmp_path / "c.json", fetcher=lambda url, timeout: feed)
+    assert document["prices"]["claude-x"] == {
+        "input": 4.0,
+        "output": 20.0,
+        "cache_read": 0.2,
+        "cache_write_5m": 5.0,
+    }
