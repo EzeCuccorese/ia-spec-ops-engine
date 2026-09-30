@@ -34,8 +34,11 @@ _FIELDS = {
     "max_nesting",
     "exclude",
     "layers",
+    "checks",
 }
 _LAYERS_FIELDS = {"order", "paths"}
+
+CHECKS = ("complexity", "length", "args", "nesting", "empty-catch", "todo-ticket", "commented-code")
 
 
 @dataclass(frozen=True)
@@ -79,6 +82,7 @@ class DesignConfig:
     exclude: tuple[str, ...] = field(default_factory=lambda: DEFAULT_EXCLUDE)
     layers: LayersConfig | None = None
     profiles: tuple[str, ...] = field(default_factory=tuple)
+    checks: tuple[str, ...] = field(default_factory=lambda: CHECKS)
 
     @classmethod
     def load(cls, root: Path) -> DesignConfig:
@@ -101,6 +105,16 @@ class DesignConfig:
             raise ValueError(f"[design].mode must be one of {MODES}, got {mode!r}")
         exclude = table.get("exclude")
         layers_table = table.get("layers")
+        raw_checks = table.get("checks")
+        if raw_checks is not None:
+            checks = tuple(str(c) for c in raw_checks)
+            unknown_checks = set(checks) - set(CHECKS)
+            if unknown_checks:
+                raise ValueError(
+                    f"[design].checks has unknown check(s): {', '.join(sorted(unknown_checks))}"
+                )
+        else:
+            checks = CHECKS
         return cls(
             mode=mode,
             max_complexity=int(table.get("max_complexity", cls.max_complexity)),
@@ -110,4 +124,5 @@ class DesignConfig:
             exclude=tuple(exclude) if exclude is not None else DEFAULT_EXCLUDE,
             layers=_parse_layers(layers_table) if layers_table is not None else None,
             profiles=profiles,
+            checks=checks,
         )

@@ -264,6 +264,33 @@ ws design --focus src/app/orders.py:142   # focused brief for the function at th
 touching a flagged legacy function — confirm what's actually wrong and where, fix only
 that, then move to the next one.
 
+**Hygiene checks.** Alongside the four function metrics, `ws design` runs three
+deterministic, line-based checks enforcing rule 01 ("never swallow exceptions") and
+rule 11 ("self-documenting code") from the ai-governance catalog:
+
+- `empty-catch` — a `catch`/`except`/error-check block whose body is empty or holds only
+  comments: `catch (...) { }` (Java, Kotlin, JS/TS/TSX/JSX/MJS/CJS, C#, PHP, Dart, Swift,
+  Scala), Python `except ...: pass`/`...` (via `ast`), Go `if err != nil { }`, Rust
+  `Err(_) => {}` / `Err(_) => ()`.
+- `todo-ticket` — a comment with `TODO`/`FIXME`/`XXX` and no ticket reference (a
+  `PROJ-123`-style key, `#123`, or a URL).
+- `commented-code` — a run of 2+ consecutive full-line comments that look like code (end
+  with `;`, `{`, `}`, `)`, start with a statement keyword such as `return`/`if`/`def`/
+  `class`/`const`, or, for Python, parse via `ast.parse` once dedented). Kept conservative
+  to avoid flagging prose.
+
+Each is a `Violation` with `value=1`, `limit=0`, the same new/legacy classification,
+hints (`empty-catch` → handle, rethrow with context, or log with a reason; `todo-ticket` →
+add a ticket reference or do it now; `commented-code` → delete it — version control
+remembers), and the same text/JSON output and exit code as the other metrics. Toggle
+which checks run with `[design].checks` in `.ai-governance/config.toml` (default: all
+seven); an unknown check name raises:
+
+```toml
+[design]
+checks = ["complexity", "length", "args", "nesting", "empty-catch", "todo-ticket", "commented-code"]
+```
+
 **Layer boundaries (`architecture` profile).** With the ai-governance `architecture`
 profile enabled (top-level `profiles = ["architecture"]` in `.ai-governance/config.toml`),
 `ws design` also checks that inner layers never import outer ones — using its own

@@ -153,7 +153,7 @@ def violations_for(
     return [
         Violation(fm.path, fm.symbol, fm.start_line, fm.end_line, metric, value, limit, origin)
         for metric, value, limit in checks
-        if value > limit
+        if value > limit and metric in config.checks
     ]
 
 

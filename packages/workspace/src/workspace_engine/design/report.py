@@ -13,6 +13,9 @@ HINTS = {
     "args": "introduce a parameter object",
     "nesting": "return early, extract inner blocks",
     "layers": "depend on a port (interface) in the inner layer; implement it in the outer layer",
+    "empty-catch": "handle, rethrow with context, or log with a reason",
+    "todo-ticket": "add a ticket reference or do it now",
+    "commented-code": "delete it — version control remembers",
 }
 
 NEW_HEADER = "New code"
