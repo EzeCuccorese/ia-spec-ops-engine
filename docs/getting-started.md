@@ -192,6 +192,17 @@ They are registered with `git config hook.<name>.*`, never `core.hooksPath`: Git
 first and the repository's own hooks (`.git/hooks`, Husky) afterwards. `ws hooks install
 --global` registers them for every repository through `~/.gitconfig`.
 
+### Design limits (`ws design`)
+
+```bash
+ws design --changed --json   # per-function complexity/length/args/nesting, versioned contract
+```
+
+Deterministic, via [lizard](https://github.com/terryyin/lizard): Java, JS/TS/TSX/JSX, Python,
+Go, Kotlin, C#, PHP, Rust, Swift, Scala, Ruby, C/C++ and more — Dart is not supported. Limits
+and `mode` (`block`/`warn`/`off`) live in the optional `[design]` table of
+`.ai-governance/config.toml`; see `packages/workspace/README.md` for the full reference.
+
 ## 6. Health checks
 
 ```bash
