@@ -186,7 +186,7 @@ ws check --changed --cache                       # the gate on demand; skipped i
 |---|---|---|
 | `workspace-pre-commit` | pre-commit | `gitleaks protect --staged` (skipped without gitleaks) |
 | `workspace-commit-msg` | commit-msg | Conventional Commits subject, ≤100 characters |
-| `workspace-gate` | pre-push | Secrets, commit policies, linters, tests |
+| `workspace-gate` | pre-push | Secrets, commit policies, linters, design limits, tests |
 
 They are registered with `git config hook.<name>.*`, never `core.hooksPath`: Git runs them
 first and the repository's own hooks (`.git/hooks`, Husky) afterwards. `ws hooks install
@@ -207,6 +207,10 @@ and `mode` (`block`/`warn`/`off`) live in the optional `[design]` table of
 touched file); both fail in block mode, but legacy violations get a surgical-fix nudge and
 `ws design --focus <path:line>` for a one-function-at-a-time brief instead of a rewrite. See
 `packages/workspace/README.md` for the full reference.
+
+In `workspace-gate`, the design stage always runs scoped to the files in the push
+(`ws design --files-from <pushed files>`), regardless of `QG_SCOPE` — it judges new code, so
+scoping never widens or shrinks. Skip it for one push with `QG_SKIP=design git push`.
 
 ## 6. Health checks
 

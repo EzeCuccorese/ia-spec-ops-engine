@@ -24,7 +24,7 @@ def check(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="ws check", description="Run the quality gate")
     parser.add_argument("--dir", "-d", default=".", help="Repository root")
     parser.add_argument("--changed", action="store_true", help="Lint/test only changed files")
-    parser.add_argument("--skip", help="Stages to skip: gitleaks,commits,lint,tests")
+    parser.add_argument("--skip", help="Stages to skip: gitleaks,commits,lint,design,tests")
     parser.add_argument("--budget", type=int, default=1500, help="Max characters of output")
     parser.add_argument(
         "--cache", action="store_true", help="Skip when the tree is unchanged since the last pass"
