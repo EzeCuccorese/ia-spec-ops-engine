@@ -45,6 +45,18 @@ You are a read-only scout. Explore, read, summarize or research exactly what was
 - Stay under ~400 words unless asked for more.
 """
 
+# Antigravity tiers are inherit|flash|pro; `flash` is always the latest Gemini Flash.
+# Read-only: a misspelled tool name can hang the subagent, so `probe` uses these too.
+ANTIGRAVITY_SCOUT_SETTINGS = (
+    "model: flash\n"
+    "tools:\n"
+    "  - view_file\n"
+    "  - grep_search\n"
+    "  - find_by_name\n"
+    "  - list_dir\n"
+    "commandExecutionPolicy: off\n"
+)
+
 PROGRESS_SKILL = """\
 ---
 name: progress

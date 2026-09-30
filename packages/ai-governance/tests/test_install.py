@@ -90,10 +90,20 @@ def test_codex_and_antigravity_use_marker_blocks(home: Path) -> None:
     install_user(["codex", "antigravity"])
     codex = (home / ".codex" / "AGENTS.md").read_text()
     assert codex.startswith("# My rules") and "<!-- ai-governance:start -->" in codex
-    assert "model: flash" in (home / ".gemini" / "config" / "agents" / "scout.md").read_text()
+    scout = (home / ".gemini" / "config" / "agents" / "scout.md").read_text()
+    assert "model: flash\n" in scout and "commandExecutionPolicy: off\n" in scout
+    assert "tools:\n  - view_file\n  - grep_search\n  - find_by_name\n  - list_dir\n" in scout
+    rule = (home / ".gemini" / "config" / "rules" / "ai-governance.md").read_text()
+    assert rule.startswith("---\ntrigger: always_on\n---\n")
+    assert not (home / ".gemini" / "GEMINI.md").exists()
     uninstall_user(["codex"])
     assert (home / ".codex" / "AGENTS.md").read_text() == "# My rules\n"
-    assert (home / ".gemini" / "GEMINI.md").exists()
+    assert (home / ".gemini" / "config" / "rules" / "ai-governance.md").exists()
+
+
+def test_claude_scout_omits_claude_md(home: Path) -> None:
+    install_user(["claude"])
+    assert "omitClaudeMd: true\n" in (home / ".claude" / "agents" / "scout.md").read_text()
 
 
 def test_foreign_file_is_never_overwritten_without_force(home: Path) -> None:

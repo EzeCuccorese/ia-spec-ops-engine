@@ -125,15 +125,20 @@ def test_codex_config_block_skipped_when_user_defines_agents(project: Path, tmp_
     assert any("already defines" in w for w in report.warnings)
 
 
-def test_doctor_warns_on_new_antigravity_config_and_claude_providers(
-    project: Path, monkeypatch
-) -> None:
-    sync_project(project, add_agents=["claude", "antigravity"])
+def test_doctor_warns_on_unread_antigravity_settings(project: Path) -> None:
+    sync_project(project, add_agents=["antigravity"])
     (project / ".agents" / "settings.json").write_text("{}")
-    monkeypatch.setenv("CLAUDE_CODE_USE_BEDROCK", "1")
     details = [d for _, _, d in check(project)]
     assert any(".gemini/config.json" in d for d in details)
-    assert any("CLAUDE_CODE_USE_BEDROCK" in d and "AGENTS.md" in d for d in details)
+
+
+def test_doctor_warns_on_leftover_gemini_md_block(project: Path) -> None:
+    home = project.parent / "home"
+    install_user(["antigravity"])
+    legacy = home / ".gemini" / "GEMINI.md"
+    legacy.write_text("<!-- ai-governance:start -->\nold\n<!-- ai-governance:end -->\n")
+    rows = [r for r in check(None) if r[0] == "user:antigravity"]
+    assert rows and rows[0][1] == WARN and "delete it" in rows[0][2]
 
 
 def test_antigravity_rules_stay_within_its_rules_budget(project: Path, monkeypatch) -> None:

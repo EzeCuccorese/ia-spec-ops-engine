@@ -230,7 +230,6 @@ scoping never widens or shrinks. Skip it for one push with `QG_SKIP=design git p
 cd /tmp/gov-demo || return
 ai-governance doctor
 echo '{}' > .agents/settings.json && ai-governance doctor | grep gemini     # Antigravity no longer reads it
-CLAUDE_CODE_USE_BEDROCK=1 ai-governance doctor | grep BEDROCK              # AGENTS.md unsupported there
 rm .agents/settings.json
 ```
 
