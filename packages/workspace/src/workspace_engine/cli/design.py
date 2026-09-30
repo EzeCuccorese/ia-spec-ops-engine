@@ -11,6 +11,7 @@ from pathlib import Path
 from workspace_engine.common import run_command_safe
 from workspace_engine.design.changes import changed_lines
 from workspace_engine.design.config import DesignConfig
+from workspace_engine.design.layers import layer_violations
 from workspace_engine.design.metrics import function_at, measure, supported, violations_for
 from workspace_engine.design.report import format_focus, format_text, to_dict
 from workspace_engine.services.changes import changed_files
@@ -112,6 +113,15 @@ def design(argv: list[str]) -> int:
     files = [path for path in candidates if path.is_file() and supported(path)]
     changed = changed_lines(root) if (args.changed or args.files_from) else None
     violations = measure(root, files, config, changed)
+
+    if "architecture" in config.profiles:
+        if config.layers is None:
+            if not args.json:
+                print("layers: not configured ([design.layers])")
+        else:
+            all_files = [path for path in candidates if path.is_file()]
+            violations = violations + layer_violations(root, all_files, config.layers, changed)
+            violations.sort(key=lambda v: (v.path, v.start_line, v.metric))
 
     if args.json:
         print(json.dumps(to_dict(violations, config, len(files)), ensure_ascii=False))

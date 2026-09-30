@@ -208,6 +208,12 @@ touched file); both fail in block mode, but legacy violations get a surgical-fix
 `ws design --focus <path:line>` for a one-function-at-a-time brief instead of a rewrite. See
 `packages/workspace/README.md` for the full reference.
 
+When the ai-governance `architecture` profile is enabled (`profiles = ["architecture"]`) and
+`[design.layers]` is configured, `ws design` also checks layer boundaries: an inner layer
+(e.g. `domain`) importing an outer one (e.g. `adapters`) is a violation, via a deterministic
+import scanner (no external tools) — no `[design.layers]` with the profile on just prints a
+one-line note and passes.
+
 In `workspace-gate`, the design stage always runs scoped to the files in the push
 (`ws design --files-from <pushed files>`), regardless of `QG_SCOPE` — it judges new code, so
 scoping never widens or shrinks. Skip it for one push with `QG_SKIP=design git push`.

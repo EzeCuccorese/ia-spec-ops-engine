@@ -12,6 +12,7 @@ HINTS = {
     "length": "extract steps into well-named functions",
     "args": "introduce a parameter object",
     "nesting": "return early, extract inner blocks",
+    "layers": "depend on a port (interface) in the inner layer; implement it in the outer layer",
 }
 
 NEW_HEADER = "New code"

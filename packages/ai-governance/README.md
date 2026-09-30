@@ -83,6 +83,9 @@ ai-governance install --scope project --profile architecture       # enable a pr
 ai-governance uninstall --scope project --profile architecture     # disable it, agents untouched
 ```
 
+The `architecture` profile also enables the `ws design` layer-boundary check (see
+`packages/workspace/README.md`), configured via `[design.layers]` in `.ai-governance/config.toml`.
+
 `ai-governance update` removes the rules of a profile that is no longer enabled and reports a
 hint to re-enable it.
 
