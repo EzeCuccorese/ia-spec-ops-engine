@@ -166,6 +166,8 @@ def claude_command(run_dir: Path, task_prompt: str, model: str) -> list[str]:
         "bypassPermissions",
         "--setting-sources",
         "project",
+        "--settings",
+        json.dumps({"syncClaudeAiSkills": False, "syncClaudeAiPlugins": False}),
     ]
 
 
@@ -300,7 +302,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--tasks", default=",".join(ALL_TASKS))
     parser.add_argument("--conditions", default=",".join(ALL_CONDITIONS))
     parser.add_argument("--reps", type=int, default=1)
-    parser.add_argument("--model", default="sonnet")
+    parser.add_argument("--model", default="claude-sonnet-5-5")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args(argv)
 

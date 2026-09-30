@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from ..paths import state_dir
+from . import content
 
 EVENTS = ("PreToolUse", "PostToolUse", "Stop")
 PROMPT = (
@@ -79,8 +80,10 @@ def _canaries(agent: str) -> dict[str, tuple[str, str]]:
         "CANARY-AG-DUAL": (DUAL_RULE_PATH, DUAL_RULE.format(token="CANARY-AG-DUAL")),
         SCOUT_CANARY: (
             ".agents/agents/probe-scout.md",
-            "---\nname: probe-scout\ndescription: Probe subagent\nmodel: flash\n"
-            "hooks:\n  - probe-scout-hooks.json\n---\n" + SCOUT_BODY,
+            "---\nname: probe-scout\ndescription: Probe subagent\n"
+            + content.ANTIGRAVITY_SCOUT_SETTINGS
+            + "hooks:\n  - probe-scout-hooks.json\n---\n"
+            + SCOUT_BODY,
         ),
     }
 

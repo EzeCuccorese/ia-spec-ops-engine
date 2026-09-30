@@ -27,18 +27,22 @@ Personal, project-agnostic harness. Nothing about engineering policy.
 <!-- agents-table:start -->
 | | Claude Code | OpenAI Codex | Google Antigravity 2 |
 |---|---|---|---|
-| Global instructions | ~/.claude/rules/ai-governance.md | $CODEX_HOME/AGENTS.md (marker block) | ~/.gemini/GEMINI.md (marker block; AGENTS.md is also read) |
+| Global instructions | ~/.claude/rules/ai-governance.md | $CODEX_HOME/AGENTS.md (marker block) | ~/.gemini/config/rules/ai-governance.md (`trigger: always_on`) |
 | Global hooks | ~/.claude/settings.json (Pre/PostToolUse Bash, Stop, SessionStart/End) | $CODEX_HOME/hooks.json PostToolUse condensing (after `probe` verifies) | antigravity-cli/hooks.json PreToolUse: raw noisy commands -> `ws run` (after `probe`) |
-| Scout subagent | ~/.claude/agents/scout.md (sonnet, effort medium) | $CODEX_HOME/agents/scout.toml (terra, effort medium, read-only) + config.toml default subagent model terra | ~/.gemini/config/agents/scout.md (model flash) |
+| Scout subagent | ~/.claude/agents/scout.md (sonnet, effort medium) | $CODEX_HOME/agents/scout.toml (terra, effort medium, read-only) + config.toml default subagent model terra | ~/.gemini/config/agents/scout.md (model flash, read-only tools, no commands) |
 | Progress skill | ~/.claude/skills/progress/SKILL.md | ~/.agents/skills/progress/SKILL.md | ~/.gemini/config/skills/progress/SKILL.md |
 | Project rules | .claude/rules/ai-governance-<id>.md -> symlink to .agents/rules | .agents/rules/ai-governance-<id>.md (shared) | .agents/rules/ai-governance-<id>.md (single source) |
-| Rule loading | native `paths:` frontmatter (loaded per file; AGENTS.md not on Bedrock/Vertex/Foundry) | injected on edit by a PreToolUse hook (planned) | `trigger: glob` activation (loaded per file; 20k-token rules budget) |
+| Rule loading | native `paths:` frontmatter (loaded per file) | injected on edit by a PreToolUse hook (planned) | `trigger: glob` activation (loaded per file; 20k-token rules budget) |
 <!-- agents-table:end -->
 
 The read-only `scout` subagent is cross-agent: each agent gets it with a cheap model of its
 own provider (Claude `sonnet`, Codex `terra` — also set as Codex's default subagent model in a
 marked block of `config.toml` — and Antigravity `flash`). `ai-governance probe` verifies that
-each agent really delegates to it.
+each agent really delegates to it. The Claude scout sets `omitClaudeMd: true` (it runs without
+CLAUDE.md/AGENTS.md instructions, saving tokens); the Antigravity scout is limited to
+`view_file`, `grep_search`, `find_by_name`, `list_dir` with `commandExecutionPolicy: off`. A
+misspelled tool name can hang an Antigravity subagent, so run
+`ai-governance probe --agent antigravity` to verify it after installing.
 
 Claude Code user hooks (all through `ai-governance hook claude <event>`, fail-open):
 
