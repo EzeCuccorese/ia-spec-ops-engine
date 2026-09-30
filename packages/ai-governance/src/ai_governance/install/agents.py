@@ -150,6 +150,7 @@ class ClaudeSpec(AgentSpec):
                 "tools: Read, Grep, Glob, WebSearch, WebFetch\n"
                 "model: sonnet\n"
                 "effort: medium\n"
+                "omitClaudeMd: true\n"
                 "---\n" + content.SCOUT_INSTRUCTIONS,
             ),
             FileArtifact(home / "skills" / "progress" / "SKILL.md", content.PROGRESS_SKILL),
@@ -222,14 +223,18 @@ class AntigravitySpec(AgentSpec):
     def global_artifacts(self) -> list[Artifact]:
         home = Path.home() / ".gemini"
         return [
-            BlockArtifact(home / "GEMINI.md", content.GLOBAL_INSTRUCTIONS),
+            FileArtifact(
+                home / "config" / "rules" / "ai-governance.md",
+                "---\ntrigger: always_on\n---\n" + content.GLOBAL_INSTRUCTIONS,
+            ),
             FileArtifact(
                 home / "config" / "agents" / "scout.md",
                 "---\n"
                 "name: scout\n"
                 f"description: {content.SCOUT_DESCRIPTION}\n"
-                "model: flash\n"
-                "---\n" + content.SCOUT_INSTRUCTIONS,
+                + content.ANTIGRAVITY_SCOUT_SETTINGS
+                + "---\n"
+                + content.SCOUT_INSTRUCTIONS,
             ),
             FileArtifact(
                 home / "config" / "skills" / "progress" / "SKILL.md", content.PROGRESS_SKILL
@@ -248,7 +253,7 @@ AGENTS: dict[str, AgentSpec] = {
         global_instructions="~/.claude/rules/ai-governance.md",
         global_hooks="~/.claude/settings.json (Pre/PostToolUse Bash, Stop, SessionStart/End)",
         project_rules=".claude/rules/ai-governance-<id>.md -> symlink to .agents/rules",
-        project_rules_mechanism="native `paths:` frontmatter (loaded per file; AGENTS.md not on Bedrock/Vertex/Foundry)",
+        project_rules_mechanism="native `paths:` frontmatter (loaded per file)",
         scout="~/.claude/agents/scout.md (sonnet, effort medium)",
         progress_skill="~/.claude/skills/progress/SKILL.md",
     ),
@@ -265,11 +270,11 @@ AGENTS: dict[str, AgentSpec] = {
     "antigravity": AntigravitySpec(
         id="antigravity",
         name="Google Antigravity 2",
-        global_instructions="~/.gemini/GEMINI.md (marker block; AGENTS.md is also read)",
+        global_instructions="~/.gemini/config/rules/ai-governance.md (`trigger: always_on`)",
         global_hooks="antigravity-cli/hooks.json PreToolUse: raw noisy commands -> `ws run` (after `probe`)",
         project_rules=".agents/rules/ai-governance-<id>.md (single source)",
         project_rules_mechanism="`trigger: glob` activation (loaded per file; 20k-token rules budget)",
-        scout="~/.gemini/config/agents/scout.md (model flash)",
+        scout="~/.gemini/config/agents/scout.md (model flash, read-only tools, no commands)",
         progress_skill="~/.gemini/config/skills/progress/SKILL.md",
     ),
 }

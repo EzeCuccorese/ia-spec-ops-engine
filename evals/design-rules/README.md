@@ -52,13 +52,16 @@ uv run python evals/design-rules/summarize.py
 
 Flags: `--tasks` (comma-separated, default all three), `--conditions`
 (comma-separated, default all four), `--reps` (default 1), `--model`
-(default `sonnet`), `--dry-run`.
+(default the exact id `claude-sonnet-5-5`), `--dry-run`.
 
-**Cost warning**: each run is a real `claude -p ... --model sonnet` call
+**Cost warning**: each run is a real `claude -p ... --model claude-sonnet-5-5` call
 against a nontrivial coding task (writing a new module + tests). The full
 matrix at `--reps 3` is 36 real agent runs; budget accordingly before
 running it. Start with `--reps 1` on one task/condition to sanity-check
 cost per run, then scale up.
+
+Each run passes `--settings '{"syncClaudeAiSkills": false, "syncClaudeAiPlugins": false}'`
+so claude.ai account skills and plugins do not leak into the runs.
 
 ## Isolation caveats
 
