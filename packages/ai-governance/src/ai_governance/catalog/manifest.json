@@ -10,7 +10,7 @@
       "id": "01-clean-code-solid",
       "category": "1-core",
       "file": "1-core/01-clean-code-solid.md",
-      "description": "Universal clean code and SOLID design principles",
+      "description": "Clean code, SOLID and design principles (DRY, KISS, YAGNI, Law of Demeter)",
       "triggers": {
         "globs": [
           "**/*.py",
@@ -27,7 +27,18 @@
           "**/*.dart"
         ]
       },
-      "stacks": []
+      "stacks": [
+        "java",
+        "kotlin",
+        "node",
+        "typescript",
+        "python",
+        "go",
+        "rust",
+        "php",
+        "flutter",
+        "dotnet"
+      ]
     },
     {
       "id": "02-clean-architecture-hexagonal",
@@ -168,6 +179,40 @@
         ]
       },
       "stacks": []
+    },
+    {
+      "id": "11-self-documenting-code",
+      "category": "1-core",
+      "file": "1-core/11-self-documenting-code.md",
+      "description": "Self-documenting code: naming, small functions, comments that explain why",
+      "triggers": {
+        "globs": [
+          "**/*.py",
+          "**/*.java",
+          "**/*.kt",
+          "**/*.ts",
+          "**/*.tsx",
+          "**/*.js",
+          "**/*.jsx",
+          "**/*.go",
+          "**/*.rs",
+          "**/*.cs",
+          "**/*.php",
+          "**/*.dart"
+        ]
+      },
+      "stacks": [
+        "java",
+        "kotlin",
+        "node",
+        "typescript",
+        "python",
+        "go",
+        "rust",
+        "php",
+        "flutter",
+        "dotnet"
+      ]
     },
     {
       "id": "java-spring",
