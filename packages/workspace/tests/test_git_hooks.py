@@ -1,6 +1,7 @@
 import os
 import stat
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -111,10 +112,11 @@ def _write_fake_pytest(project_dir: Path, *, exit_code: int, detail_lines: int =
 def test_generate_canonical_pre_push_script():
     script = generate_canonical_pre_push_script()
     assert "#!/usr/bin/env bash" in script
-    assert "[1/4] Checking for secrets" in script
-    assert "[2/4] Checking commit policies" in script
-    assert "[3/4] Running static analysis" in script
-    assert "[4/4] Running test suites" in script
+    assert "[1/5] Checking for secrets" in script
+    assert "[2/5] Checking commit policies" in script
+    assert "[3/5] Running static analysis" in script
+    assert "[4/5] Checking design limits" in script
+    assert "[5/5] Running test suites" in script
     assert "core.hooksPath ~/" not in script
     assert "ruff" in script
     assert "npm test" in script
@@ -579,3 +581,122 @@ def test_commit_msg_hook_enforces_conventional_commits(tmp_path: Path):
     assert commit("feat(core): add stuff") == 0
     uninstall_git_hooks(target_dir=project_dir)
     assert commit("added stuff without hook") == 0
+
+
+# --- [4/5] Design limits stage --------------------------------------------------
+
+
+def _push_with_gate_custom(
+    project_dir: Path, *, skip: str, extra_path: Path | None = None
+) -> subprocess.CompletedProcess[str]:
+    """Pushes to a bare remote with a chosen QG_SKIP, optionally prepending to PATH."""
+    remote = project_dir.parent / f"{project_dir.name}-design-remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+    subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=project_dir, check=True)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(
+        QG_SKIP=skip,
+        GIT_CONFIG_GLOBAL="/dev/null",
+        GIT_CONFIG_SYSTEM="/dev/null",
+    )
+    if extra_path is not None:
+        env["PATH"] = f"{extra_path}{os.pathsep}{env.get('PATH', '')}"
+    return subprocess.run(
+        ["git", "push", "origin", "HEAD:refs/heads/feature"],
+        cwd=project_dir,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _write_ws_shim(bin_dir: Path) -> None:
+    """A tiny 'ws' on PATH that runs the real CLI through the current interpreter."""
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    shim = bin_dir / "ws"
+    shim.write_text(
+        f'#!/bin/sh\nexec "{sys.executable}" -m workspace_engine.cli.main "$@"\n',
+        encoding="utf-8",
+    )
+    shim.chmod(shim.stat().st_mode | stat.S_IXUSR)
+
+
+def _complex_python_function(name: str, branches: int = 12) -> str:
+    """A Python function whose cyclomatic complexity exceeds the default limit (10)."""
+    lines = [f"def {name}(x):"]
+    for i in range(branches):
+        keyword = "if" if i == 0 else "elif"
+        lines.append(f"    {keyword} x == {i}:")
+        lines.append(f"        return {i}")
+    lines.append("    return -1")
+    return "\n".join(lines) + "\n"
+
+
+def _commit_complex_function(project_dir: Path, message: str) -> None:
+    (project_dir / "bad.py").write_text(_complex_python_function("legacy_complex"))
+    subprocess.run(["git", "-C", str(project_dir), "add", "-A"], check=True)
+    subprocess.run(
+        ["git", "-C", str(project_dir), "commit", "-m", message],
+        check=True,
+        capture_output=True,
+    )
+
+
+def test_design_stage_fails_on_complex_new_function(tmp_path: Path) -> None:
+    project_dir = tmp_path / "repo"
+    project_dir.mkdir()
+    _init_test_git_repo(project_dir)
+    _commit_fixture(project_dir)
+    assert install_git_hooks(target_dir=project_dir)["success"] is True
+    bin_dir = tmp_path / "bin"
+    _write_ws_shim(bin_dir)
+    _commit_complex_function(project_dir, "test(fixture): add complex function")
+
+    proc = _push_with_gate_custom(
+        project_dir, skip="gitleaks,commits,lint,tests", extra_path=bin_dir
+    )
+
+    combined = proc.stdout + proc.stderr
+    assert "[4/5] Checking design limits" in combined
+    assert "✘ Design limits: FAIL" in combined
+    assert proc.returncode != 0
+
+
+def test_design_stage_skipped_via_qg_skip(tmp_path: Path) -> None:
+    project_dir = tmp_path / "repo"
+    project_dir.mkdir()
+    _init_test_git_repo(project_dir)
+    _commit_fixture(project_dir)
+    assert install_git_hooks(target_dir=project_dir)["success"] is True
+    bin_dir = tmp_path / "bin"
+    _write_ws_shim(bin_dir)
+    _commit_complex_function(project_dir, "test(fixture): add complex function")
+
+    proc = _push_with_gate_custom(
+        project_dir, skip="gitleaks,commits,lint,tests,design", extra_path=bin_dir
+    )
+
+    combined = proc.stdout + proc.stderr
+    assert "Design limits: skipped by QG_SKIP" in combined
+    assert proc.returncode == 0
+
+
+def test_design_stage_passes_in_warn_mode(tmp_path: Path) -> None:
+    project_dir = tmp_path / "repo"
+    project_dir.mkdir()
+    _init_test_git_repo(project_dir)
+    _commit_fixture(project_dir)
+    assert install_git_hooks(target_dir=project_dir)["success"] is True
+    bin_dir = tmp_path / "bin"
+    _write_ws_shim(bin_dir)
+    (project_dir / ".ai-governance").mkdir()
+    (project_dir / ".ai-governance" / "config.toml").write_text('[design]\nmode = "warn"\n')
+    _commit_complex_function(project_dir, "test(fixture): add complex function, warn mode")
+
+    proc = _push_with_gate_custom(
+        project_dir, skip="gitleaks,commits,lint,tests", extra_path=bin_dir
+    )
+
+    combined = proc.stdout + proc.stderr
+    assert "✔ Design limits: PASS" in combined
+    assert proc.returncode == 0
