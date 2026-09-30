@@ -45,12 +45,32 @@ jobs:
 
       - name: Run Pytest Suite with Coverage
         run: |
-          uv run python -m pytest -v --cov --cov-report=term-missing --cov-fail-under=89 \
+          uv run python -m pytest -q --cov --cov-report=term-missing:skip-covered \
+            --cov-report=json:coverage.json \
             packages/ai-governance/tests \
             packages/spec/tests \
             packages/workspace/tests \
             packages/workspace/tests_integration \
             tests
+
+      # Coverage may not drop against the target branch; there is no fixed floor,
+      # so nobody writes filler tests to reach a number.
+      - name: Coverage must not drop vs target branch
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --depth=1 origin "${{ github.base_ref }}"
+          git worktree add ../base FETCH_HEAD
+          (cd ../base && uv sync --all-packages -q && uv run python -m pytest -q -p no:cacheprovider \
+            --cov --cov-report=json:../base-coverage.json \
+            packages/ai-governance/tests packages/spec/tests packages/workspace/tests \
+            packages/workspace/tests_integration tests > /dev/null)
+          python3 - <<'PY'
+          import json
+          head = json.load(open("coverage.json"))["totals"]["percent_covered"]
+          base = json.load(open("../base-coverage.json"))["totals"]["percent_covered"]
+          print(f"coverage: target {base:.2f}% -> this PR {head:.2f}%")
+          raise SystemExit(1 if head < base - 0.05 else 0)
+          PY
 
       - name: Verify CLI Tools & Diagnostics
         run: |

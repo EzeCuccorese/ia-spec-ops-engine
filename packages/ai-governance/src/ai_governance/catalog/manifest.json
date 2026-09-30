@@ -74,7 +74,7 @@
       "id": "04-testing-patterns",
       "category": "1-core",
       "file": "1-core/04-testing-patterns.md",
-      "description": "Testing standards, AAA structure, TDD, and Testcontainers",
+      "description": "Contract-based tests: protect observable behavior, no filler tests or test-only seams",
       "triggers": {
         "globs": [
           "**/tests/**",
