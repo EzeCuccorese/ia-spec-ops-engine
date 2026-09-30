@@ -214,6 +214,13 @@ It also runs three hygiene checks by default — `empty-catch` (swallowed except
 `commented-code` (runs of commented-out code) — toggled via `[design].checks` in
 `.ai-governance/config.toml`.
 
+On test files only it also runs five junk-test checks: `test-no-assert` (a test with no
+assertion), `test-trivial-assert` (an assertion that can never fail), `test-mock-only`
+(only mock calls are asserted), `test-sleep` (a real sleep) and `test-duplicate` (a body
+repeated in the same file). Disable any of them by leaving it out of `[design].checks`,
+for example `checks = ["complexity", "length", "args", "nesting"]` turns off all hygiene
+and junk-test checks.
+
 When the ai-governance `architecture` profile is enabled (`profiles = ["architecture"]`) and
 `[design.layers]` is configured, `ws design` also checks layer boundaries: an inner layer
 (e.g. `domain`) importing an outer one (e.g. `adapters`) is a violation, via a deterministic

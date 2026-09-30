@@ -13,8 +13,15 @@ from workspace_engine.design.changes import changed_lines
 from workspace_engine.design.config import DesignConfig
 from workspace_engine.design.hygiene import hygiene_violations
 from workspace_engine.design.layers import layer_violations
-from workspace_engine.design.metrics import function_at, measure, supported, violations_for
+from workspace_engine.design.metrics import (
+    Violation,
+    function_at,
+    measure,
+    supported,
+    violations_for,
+)
 from workspace_engine.design.report import format_focus, format_text, to_dict
+from workspace_engine.design.testquality import junk_test_violations
 from workspace_engine.services.changes import changed_files
 
 
@@ -89,6 +96,28 @@ def _focus(root: Path, spec: str, config: DesignConfig) -> int:
     return 1 if violations_for(fm, config) else 0
 
 
+def _run_checks(
+    root: Path, args: argparse.Namespace, config: DesignConfig
+) -> tuple[list[Violation], int]:
+    candidates = _collect(root, args, config.exclude)
+    files = [path for path in candidates if path.is_file() and supported(path)]
+    changed = changed_lines(root) if (args.changed or args.files_from) else None
+    violations = measure(root, files, config, changed)
+
+    all_candidates = [path for path in candidates if path.is_file()]
+    violations = violations + hygiene_violations(root, all_candidates, config.checks, changed)
+    violations = violations + junk_test_violations(root, all_candidates, config.checks, changed)
+
+    if "architecture" in config.profiles:
+        if config.layers is None:
+            if not args.json:
+                print("layers: not configured ([design.layers])")
+        else:
+            violations = violations + layer_violations(root, all_candidates, config.layers, changed)
+    violations.sort(key=lambda v: (v.path, v.start_line, v.metric))
+    return violations, len(files)
+
+
 def design(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="ws design", description="Deterministic design metrics")
     parser.add_argument("--dir", "-d", default=".", help="Repository root")
@@ -110,27 +139,12 @@ def design(argv: list[str]) -> int:
         print("design: off")
         return 0
 
-    candidates = _collect(root, args, config.exclude)
-    files = [path for path in candidates if path.is_file() and supported(path)]
-    changed = changed_lines(root) if (args.changed or args.files_from) else None
-    violations = measure(root, files, config, changed)
-
-    all_candidates = [path for path in candidates if path.is_file()]
-    violations = violations + hygiene_violations(root, all_candidates, config.checks, changed)
-    violations.sort(key=lambda v: (v.path, v.start_line, v.metric))
-
-    if "architecture" in config.profiles:
-        if config.layers is None:
-            if not args.json:
-                print("layers: not configured ([design.layers])")
-        else:
-            violations = violations + layer_violations(root, all_candidates, config.layers, changed)
-            violations.sort(key=lambda v: (v.path, v.start_line, v.metric))
+    violations, file_count = _run_checks(root, args, config)
 
     if args.json:
-        print(json.dumps(to_dict(violations, config, len(files)), ensure_ascii=False))
+        print(json.dumps(to_dict(violations, config, file_count), ensure_ascii=False))
     else:
-        print(format_text(violations, config, len(files)))
+        print(format_text(violations, config, file_count))
 
     if violations and config.mode == "block":
         return 1
