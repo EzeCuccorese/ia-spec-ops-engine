@@ -195,13 +195,18 @@ first and the repository's own hooks (`.git/hooks`, Husky) afterwards. `ws hooks
 ### Design limits (`ws design`)
 
 ```bash
-ws design --changed --json   # per-function complexity/length/args/nesting, versioned contract
+ws design --changed --json           # per-function complexity/length/args/nesting, versioned contract
+ws design --focus path/to/file.py:42 # surgical brief for the function at that line
 ```
 
 Deterministic, via [lizard](https://github.com/terryyin/lizard): Java, JS/TS/TSX/JSX, Python,
 Go, Kotlin, C#, PHP, Rust, Swift, Scala, Ruby, C/C++ and more — Dart is not supported. Limits
 and `mode` (`block`/`warn`/`off`) live in the optional `[design]` table of
-`.ai-governance/config.toml`; see `packages/workspace/README.md` for the full reference.
+`.ai-governance/config.toml`. With `--changed`/`--files-from`, violations are classified
+`new` (touches lines changed since the merge-base) vs. `legacy` (pre-existing function in a
+touched file); both fail in block mode, but legacy violations get a surgical-fix nudge and
+`ws design --focus <path:line>` for a one-function-at-a-time brief instead of a rewrite. See
+`packages/workspace/README.md` for the full reference.
 
 ## 6. Health checks
 

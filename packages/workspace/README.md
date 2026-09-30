@@ -237,6 +237,29 @@ ws design --json            # versioned contract: {schema_version, status, viola
 Exit code is `1` on violations in `block` mode, `0` in `warn` or `off` mode (`off` prints
 `design: off` and skips measuring).
 
+**New vs. legacy code.** With `--changed` or `--files-from`, every violation is classified
+`new` (its function overlaps lines added/modified since the merge-base, or its file is
+untracked) or `legacy` (a pre-existing function in a touched file); a full, unscoped scan
+marks everything `legacy`. Both fail in `block` mode, but the text report groups them —
+"New code" first, then a "Pre-existing code" section whose header and footer push toward
+a surgical fix instead of a rewrite: change only that function, keep behavior, add a
+characterization test first, one function at a time. Each line ends with a metric-specific
+hint (`complexity` → extract branches into named functions / guard clauses, `length` →
+extract steps into well-named functions, `args` → introduce a parameter object, `nesting` →
+return early, extract inner blocks). `--json` carries the same classification as an
+`"origin": "new" | "legacy"` field per violation.
+
+```bash
+ws design --focus src/app/orders.py:142   # focused brief for the function at that line:
+                                           # range, all four metrics vs. limits, pass/fail,
+                                           # hints for the failing ones, numbered source
+                                           # (capped at 120 lines). Exit 1 if it violates.
+```
+
+`ws design --focus <path:line>` is the surgical operation an agent runs right before
+touching a flagged legacy function — confirm what's actually wrong and where, fix only
+that, then move to the next one.
+
 ### Condensed command output for agents (`ws run`, `ws log`, `ws condense`)
 
 ```bash

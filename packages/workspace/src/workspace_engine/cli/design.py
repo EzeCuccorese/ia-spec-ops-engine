@@ -9,9 +9,10 @@ import os
 from pathlib import Path
 
 from workspace_engine.common import run_command_safe
+from workspace_engine.design.changes import changed_lines
 from workspace_engine.design.config import DesignConfig
-from workspace_engine.design.metrics import measure, supported
-from workspace_engine.design.report import format_text, to_dict
+from workspace_engine.design.metrics import function_at, measure, supported, violations_for
+from workspace_engine.design.report import format_focus, format_text, to_dict
 from workspace_engine.services.changes import changed_files
 
 
@@ -64,6 +65,28 @@ def _collect(root: Path, args: argparse.Namespace, exclude: tuple[str, ...]) -> 
     return _repo_files(root, exclude)
 
 
+def _focus(root: Path, spec: str, config: DesignConfig) -> int:
+    raw_path, sep, raw_line = spec.rpartition(":")
+    if not sep:
+        print(f"design: --focus expects path:line, got {spec!r}")
+        return 1
+    try:
+        line = int(raw_line)
+    except ValueError:
+        print(f"design: --focus expects path:line, got {spec!r}")
+        return 1
+    path = Path(raw_path)
+    if not path.is_absolute():
+        path = root / raw_path
+    fm = function_at(root, path, line)
+    if fm is None:
+        print(f"design: no function found at {spec}")
+        return 1
+    source = path.read_text(encoding="utf-8")
+    print(format_focus(fm, config, source))
+    return 1 if violations_for(fm, config) else 0
+
+
 def design(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="ws design", description="Deterministic design metrics")
     parser.add_argument("--dir", "-d", default=".", help="Repository root")
@@ -71,17 +94,24 @@ def design(argv: list[str]) -> int:
     parser.add_argument("--files-from", help="Newline-separated file, relative to root")
     parser.add_argument("paths", nargs="*", help="Files or directories to measure")
     parser.add_argument("--json", action="store_true", help="Emit the versioned JSON contract")
+    parser.add_argument(
+        "--focus", help="path:line — focused brief for the function containing that line"
+    )
     args = parser.parse_args(argv)
     root = Path(args.dir).resolve()
-
     config = DesignConfig.load(root)
+
+    if args.focus:
+        return _focus(root, args.focus, config)
+
     if config.mode == "off":
         print("design: off")
         return 0
 
     candidates = _collect(root, args, config.exclude)
     files = [path for path in candidates if path.is_file() and supported(path)]
-    violations = measure(root, files, config)
+    changed = changed_lines(root) if (args.changed or args.files_from) else None
+    violations = measure(root, files, config, changed)
 
     if args.json:
         print(json.dumps(to_dict(violations, config, len(files)), ensure_ascii=False))
