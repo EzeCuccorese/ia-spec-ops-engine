@@ -34,6 +34,16 @@ def test_detects_react_only_from_dependency(tmp_path: Path) -> None:
     assert "react" not in detect_stacks(other).stacks
 
 
+def test_malformed_package_json_does_not_detect_react(tmp_path: Path) -> None:
+    _touch(tmp_path, "package.json", "{not valid json")
+    assert "react" not in detect_stacks(tmp_path).stacks
+
+
+def test_package_json_not_an_object_does_not_detect_react(tmp_path: Path) -> None:
+    _touch(tmp_path, "package.json", json.dumps(["react"]))
+    assert "react" not in detect_stacks(tmp_path).stacks
+
+
 def test_skips_dependency_folders_and_respects_depth(tmp_path: Path) -> None:
     _touch(tmp_path, "node_modules/lib/setup.py")
     _touch(tmp_path, ".venv/lib/site.py")

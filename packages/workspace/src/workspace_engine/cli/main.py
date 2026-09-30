@@ -79,12 +79,13 @@ def doctor_check() -> None:
     )
 
 
-CONDENSE_COMMANDS = ("run", "condense", "log", "check", "changed")
+CONDENSE_COMMANDS = ("run", "condense", "log", "check", "changed", "design")
 
 
 def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] in CONDENSE_COMMANDS:
         from workspace_engine.cli import check as check_cli
+        from workspace_engine.cli import design as design_cli
         from workspace_engine.condense import cli as condense_cli
 
         handler = {
@@ -93,6 +94,7 @@ def main() -> None:
             "log": condense_cli.show_log,
             "check": check_cli.check,
             "changed": check_cli.changed,
+            "design": design_cli.design,
         }[sys.argv[1]]
         sys.exit(handler(sys.argv[2:]))
 
@@ -214,6 +216,9 @@ def main() -> None:
         "check", help="Run the quality gate with condensed output (--changed, --cache, --json)"
     )
     subparsers.add_parser("changed", help="Files changed vs. the base branch (--json)")
+    subparsers.add_parser(
+        "design", help="Design/complexity metrics per function (--changed, --files-from, --json)"
+    )
     p_detect = subparsers.add_parser(
         "detect", help="Detect the repository technology stacks (deterministic)"
     )

@@ -101,6 +101,7 @@ packages/workspace/
 | `ws hooks` | Multi-stack Git Hooks & Quality Gates manager |
 | `ws check` | Run the quality gate with condensed output (`--changed`, `--cache`, `--json`) |
 | `ws changed` | Files changed vs. the base branch |
+| `ws design` | Per-function design/complexity metrics (`--changed`, `--files-from`, `--json`) |
 | `ws run` / `ws log` / `ws condense` | Condensed command output and saved full logs |
 | `ws detect` | Detect repository technology stacks |
 | `ws hook` | Run a coding-agent integration hook |
@@ -197,6 +198,44 @@ ws check --changed --cache  # only changed files; skip if the tree is unchanged 
 ws check --json             # versioned contract used by agent hooks
 ws changed [--json]         # files changed vs. the base branch plus the working tree
 ```
+
+### Design limits (`ws design`)
+
+Measures every function's cyclomatic complexity, length (NLOC), parameter count and max
+nesting depth via [lizard](https://github.com/terryyin/lizard) — one deterministic engine
+covering Java, JavaScript/TypeScript/TSX/JSX, Python, Go, Kotlin, C#, PHP, Rust, Swift,
+Scala, Ruby, C/C++ and more (priority for tests and docs here: Java, JS/TS, Python, Go,
+then the rest). **Dart is not supported by lizard**, so `.dart` files are skipped.
+Python's `self`/`cls` are not counted as parameters.
+
+Defaults: `mode = "block"`, `max_complexity = 10`, `max_function_lines = 40`,
+`max_args = 4`, `max_nesting = 3`. Vendored/generated paths are excluded by default
+(`node_modules`, `vendor`, `dist`, `build`, `target`, `.venv`, `generated`, `*.min.js`).
+
+Configure the optional `[design]` table in `<root>/.ai-governance/config.toml` — this is
+the contract shared with ai-governance; `ws design` never reads or writes the repository's
+own linter configs (eslint, checkstyle, ruff, golangci-lint, ...) to decide its limits:
+
+```toml
+[design]
+mode = "warn"           # block | warn | off
+max_complexity = 12
+max_function_lines = 60
+max_args = 5
+max_nesting = 4
+exclude = ["**/node_modules/**", "**/legacy/**"]
+```
+
+```bash
+ws design                   # whole repo (git ls-files, or a walk without git)
+ws design --changed         # only files changed vs. the base branch
+ws design src/ pkg/foo.go   # specific files or directories
+ws design --files-from list.txt  # newline-separated paths, relative to --dir
+ws design --json            # versioned contract: {schema_version, status, violations, files}
+```
+
+Exit code is `1` on violations in `block` mode, `0` in `warn` or `off` mode (`off` prints
+`design: off` and skips measuring).
 
 ### Condensed command output for agents (`ws run`, `ws log`, `ws condense`)
 

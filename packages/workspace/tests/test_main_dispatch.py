@@ -173,6 +173,28 @@ def test_main_dispatches_worktree_with_positional_args():
     mock_wt.assert_called_once_with(["repo-a", "/tmp/target", "feature-x"])
 
 
+@pytest.mark.parametrize(
+    "command,target",
+    [
+        ("run", "workspace_engine.condense.cli.run"),
+        ("condense", "workspace_engine.condense.cli.condense_stdin"),
+        ("log", "workspace_engine.condense.cli.show_log"),
+        ("check", "workspace_engine.cli.check.check"),
+        ("changed", "workspace_engine.cli.check.changed"),
+        ("design", "workspace_engine.cli.design.design"),
+    ],
+)
+def test_main_dispatches_condense_commands(command, target):
+    with (
+        patch("sys.argv", ["ws", command, "--foo"]),
+        patch(target, return_value=0) as mock_handler,
+        pytest.raises(SystemExit) as exc,
+    ):
+        main()
+    assert exc.value.code == 0
+    mock_handler.assert_called_once_with(["--foo"])
+
+
 def test_main_dispatches_doctor():
     with (
         patch("sys.argv", ["ws", "doctor"]),

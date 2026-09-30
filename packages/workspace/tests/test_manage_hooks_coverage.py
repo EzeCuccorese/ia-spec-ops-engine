@@ -53,6 +53,45 @@ def test_scope_row_human_mode_not_installed():
     assert "Not installed" in row[3]
 
 
+def test_scope_row_agent_mode_active_and_executable():
+    status = {
+        "hook_exists": True,
+        "is_executable": True,
+        "is_active": True,
+        "configured_command": "/repo/.githooks",
+        "hook_path": "/repo/.git/hooks/pre-push",
+    }
+    row = manage_hooks._scope_row("Local (Repo)", status, agent_mode=True)
+    assert row[3] == "Executable"
+    assert row[4] == "ACTIVE"
+
+
+def test_scope_row_agent_mode_no_exec_and_inactive():
+    status = {
+        "hook_exists": True,
+        "is_executable": False,
+        "is_active": False,
+        "configured_command": None,
+        "hook_path": "/repo/.git/hooks/pre-push",
+    }
+    row = manage_hooks._scope_row("Global (System)", status, agent_mode=True)
+    assert row[3] == "No exec"
+    assert row[4] == "Inactive"
+    assert row[2] == "Not configured"
+
+
+def test_scope_row_agent_mode_not_installed():
+    status = {
+        "hook_exists": False,
+        "is_executable": False,
+        "is_active": False,
+        "configured_command": None,
+        "hook_path": "/repo/.git/hooks/pre-push",
+    }
+    row = manage_hooks._scope_row("Local (Repo)", status, agent_mode=True)
+    assert row[3] == "Not installed"
+
+
 @patch("sys.argv", ["ws", "hooks", "status"])
 @patch("workspace_engine.cli.manage_hooks.render_hooks_status")
 def test_main_uses_sys_argv_and_strips_hooks_prefix(mock_render):
