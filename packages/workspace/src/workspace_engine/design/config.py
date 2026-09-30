@@ -26,7 +26,47 @@ DEFAULT_EXCLUDE = (
     "**/*.min.js",
 )
 
-_FIELDS = {"mode", "max_complexity", "max_function_lines", "max_args", "max_nesting", "exclude"}
+_FIELDS = {
+    "mode",
+    "max_complexity",
+    "max_function_lines",
+    "max_args",
+    "max_nesting",
+    "exclude",
+    "layers",
+}
+_LAYERS_FIELDS = {"order", "paths"}
+
+
+@dataclass(frozen=True)
+class LayersConfig:
+    """``[design.layers]`` — architecture layers, outermost to innermost.
+
+    A layer may import only itself and layers listed after it in ``order``; an inner
+    layer (e.g. ``domain``) importing an outer one (e.g. ``adapters``) is a violation.
+    """
+
+    order: tuple[str, ...]
+    paths: dict[str, tuple[str, ...]]
+
+    def globs_for(self, layer: str) -> tuple[str, ...]:
+        return self.paths.get(layer, (f"**/{layer}/**",))
+
+
+def _parse_layers(table: object) -> LayersConfig:
+    if not isinstance(table, dict):
+        raise ValueError("[design.layers] must be a table")
+    unknown = set(table) - _LAYERS_FIELDS
+    if unknown:
+        raise ValueError(f"[design.layers] has unknown key(s): {', '.join(sorted(unknown))}")
+    order = table.get("order")
+    if not isinstance(order, list) or not order:
+        raise ValueError("[design.layers].order must be a non-empty list")
+    raw_paths = table.get("paths", {})
+    if not isinstance(raw_paths, dict):
+        raise ValueError("[design.layers.paths] must be a table")
+    paths = {str(name): tuple(globs) for name, globs in raw_paths.items()}
+    return LayersConfig(order=tuple(str(name) for name in order), paths=paths)
 
 
 @dataclass(frozen=True)
@@ -37,6 +77,8 @@ class DesignConfig:
     max_args: int = 4
     max_nesting: int = 3
     exclude: tuple[str, ...] = field(default_factory=lambda: DEFAULT_EXCLUDE)
+    layers: LayersConfig | None = None
+    profiles: tuple[str, ...] = field(default_factory=tuple)
 
     @classmethod
     def load(cls, root: Path) -> DesignConfig:
@@ -44,9 +86,11 @@ class DesignConfig:
         if not path.is_file():
             return cls()
         data = tomllib.loads(path.read_text(encoding="utf-8"))
+        raw_profiles = data.get("profiles", [])
+        profiles = tuple(str(p) for p in raw_profiles) if isinstance(raw_profiles, list) else ()
         table = data.get("design")
         if table is None:
-            return cls()
+            return cls(profiles=profiles)
         if not isinstance(table, dict):
             raise ValueError("[design] must be a table")
         unknown = set(table) - _FIELDS
@@ -56,6 +100,7 @@ class DesignConfig:
         if mode not in MODES:
             raise ValueError(f"[design].mode must be one of {MODES}, got {mode!r}")
         exclude = table.get("exclude")
+        layers_table = table.get("layers")
         return cls(
             mode=mode,
             max_complexity=int(table.get("max_complexity", cls.max_complexity)),
@@ -63,4 +108,6 @@ class DesignConfig:
             max_args=int(table.get("max_args", cls.max_args)),
             max_nesting=int(table.get("max_nesting", cls.max_nesting)),
             exclude=tuple(exclude) if exclude is not None else DEFAULT_EXCLUDE,
+            layers=_parse_layers(layers_table) if layers_table is not None else None,
+            profiles=profiles,
         )

@@ -264,6 +264,32 @@ ws design --focus src/app/orders.py:142   # focused brief for the function at th
 touching a flagged legacy function — confirm what's actually wrong and where, fix only
 that, then move to the next one.
 
+**Layer boundaries (`architecture` profile).** With the ai-governance `architecture`
+profile enabled (top-level `profiles = ["architecture"]` in `.ai-governance/config.toml`),
+`ws design` also checks that inner layers never import outer ones — using its own
+deterministic import scanner (no external tools) for Java, JS/TS/TSX/JSX/MJS/CJS, Python,
+Go, then Kotlin, C#, PHP, Rust and Dart:
+
+```toml
+profiles = ["architecture"]
+
+[design.layers]
+# Ordered from outermost to innermost; a layer may import only itself and layers after it.
+order = ["adapters", "application", "domain"]
+
+[design.layers.paths]          # optional; default for a layer name X is ["**/X/**"]
+adapters = ["**/adapters/**", "**/infrastructure/**"]
+```
+
+A file's layer is the first layer in `order` whose globs match its repo path; an import's
+layer, the first layer whose globs match its resolved pseudo-path (relative specifiers are
+resolved against the importing file; bare/package specifiers are ignored). A `domain` file
+importing `adapters` is a `layers` violation (`domain → adapters (com.acme.adapters.Db)`),
+hinted to depend on a port (interface) in the inner layer and implement it in the outer one;
+it participates in the same new/legacy classification, text/JSON output and exit code as the
+other metrics. With the profile on but `[design.layers]` missing, `ws design` prints
+`layers: not configured ([design.layers])` and does not fail.
+
 ### Condensed command output for agents (`ws run`, `ws log`, `ws condense`)
 
 ```bash
