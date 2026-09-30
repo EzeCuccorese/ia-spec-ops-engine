@@ -5,6 +5,12 @@ One engine (lizard) covers Java, JavaScript/TypeScript/TSX/JSX, Python, Go, Kotl
 C#, PHP, Rust, Swift, Scala, Ruby, C/C++ and more. Dart is not supported by lizard.
 Nesting depth is computed by ``workspace_engine.design.nesting`` instead of lizard's
 own ``max_nested_structures``, which is too noisy to use as a metric.
+
+Each measured function is also classified ``new`` or ``legacy`` (``Violation.origin``)
+against an optional ``changed`` line map from ``workspace_engine.design.changes``: a
+function is ``new`` when its ``[start_line, end_line]`` overlaps changed lines, or its
+file is wholly new. Without a ``changed`` map (a plain, non-scoped scan) everything is
+``legacy``.
 """
 
 from __future__ import annotations
@@ -32,6 +38,18 @@ SUPPORTED_EXTENSIONS = _supported_extensions()
 
 
 @dataclass(frozen=True)
+class FunctionMetrics:
+    path: str
+    symbol: str
+    start_line: int
+    end_line: int
+    complexity: int
+    length: int
+    args: int
+    nesting: int | None
+
+
+@dataclass(frozen=True)
 class Violation:
     path: str
     symbol: str
@@ -40,6 +58,7 @@ class Violation:
     metric: str
     value: int
     limit: int
+    origin: str = "legacy"
 
 
 def supported(path: str | Path) -> bool:
@@ -73,35 +92,91 @@ def _nesting_value(
     return None
 
 
-def _function_violations(
-    fn: Any,
-    relative: str,
-    config: DesignConfig,
-    extension: str,
-    source: str,
-    python_depths: dict[int, int],
-) -> list[Violation]:
-    symbol = str(fn.long_name or fn.name)
-    start = int(fn.start_line)
-    end = int(fn.end_line)
-    checks = [
-        ("complexity", int(fn.cyclomatic_complexity), config.max_complexity),
-        ("length", int(fn.nloc), config.max_function_lines),
-        ("args", _parameter_count(fn, extension), config.max_args),
-    ]
-    nesting_value = _nesting_value(fn, extension, source, python_depths)
-    if nesting_value is not None:
-        checks.append(("nesting", nesting_value, config.max_nesting))
+def analyze_source(relative: str, extension: str, source: str) -> list[FunctionMetrics]:
+    """Raw per-function metrics for one file's already-read ``source``."""
+    python_depths: dict[int, int] = {}
+    if extension in nesting.PYTHON_EXTENSIONS:
+        try:
+            python_depths = nesting.python_nesting(source)
+        except SyntaxError:
+            return []
+    analyzer = lizard.FileAnalyzer(lizard.get_extensions([]))
+    info = analyzer.analyze_source_code(relative, source)
     return [
-        Violation(relative, symbol, start, end, metric, value, limit)
+        FunctionMetrics(
+            path=relative,
+            symbol=str(fn.long_name or fn.name),
+            start_line=int(fn.start_line),
+            end_line=int(fn.end_line),
+            complexity=int(fn.cyclomatic_complexity),
+            length=int(fn.nloc),
+            args=_parameter_count(fn, extension),
+            nesting=_nesting_value(fn, extension, source, python_depths),
+        )
+        for fn in info.function_list
+    ]
+
+
+def analyze_file(root: Path, path: Path) -> list[FunctionMetrics] | None:
+    """Per-function metrics for one file, or ``None`` if unreadable/unsupported."""
+    if not path.is_file() or not supported(path):
+        return None
+    try:
+        source = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    relative = path.resolve().relative_to(root).as_posix()
+    return analyze_source(relative, path.suffix.lstrip("."), source)
+
+
+def function_at(root: Path, path: Path, line: int) -> FunctionMetrics | None:
+    """The innermost measured function whose range contains ``line``, if any."""
+    functions = analyze_file(root, path)
+    if not functions:
+        return None
+    candidates = [fm for fm in functions if fm.start_line <= line <= fm.end_line]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda fm: fm.end_line - fm.start_line)
+
+
+def violations_for(
+    fm: FunctionMetrics, config: DesignConfig, origin: str = "legacy"
+) -> list[Violation]:
+    checks: list[tuple[str, int, int]] = [
+        ("complexity", fm.complexity, config.max_complexity),
+        ("length", fm.length, config.max_function_lines),
+        ("args", fm.args, config.max_args),
+    ]
+    if fm.nesting is not None:
+        checks.append(("nesting", fm.nesting, config.max_nesting))
+    return [
+        Violation(fm.path, fm.symbol, fm.start_line, fm.end_line, metric, value, limit, origin)
         for metric, value, limit in checks
         if value > limit
     ]
 
 
-def measure(root: Path, paths: list[Path], config: DesignConfig) -> list[Violation]:
-    """Measures ``paths`` (files, resolved) under ``root`` and returns limit violations."""
-    analyzer = lizard.FileAnalyzer(lizard.get_extensions([]))
+def _touches(changed: dict[str, set[int] | None], path: str, start: int, end: int) -> bool:
+    if path not in changed:
+        return False
+    entry = changed[path]
+    if entry is None:
+        return True
+    return any(start <= line <= end for line in entry)
+
+
+def measure(
+    root: Path,
+    paths: list[Path],
+    config: DesignConfig,
+    changed: dict[str, set[int] | None] | None = None,
+) -> list[Violation]:
+    """Measures ``paths`` (files, resolved) under ``root`` and returns limit violations.
+
+    ``changed`` (from ``design.changes.changed_lines``) classifies each violation's
+    ``origin``; without it, every violation is ``legacy``.
+    """
     violations: list[Violation] = []
     for path in paths:
         if not path.is_file():
@@ -109,21 +184,13 @@ def measure(root: Path, paths: list[Path], config: DesignConfig) -> list[Violati
         relative = path.resolve().relative_to(root).as_posix()
         if _excluded(relative, config.exclude) or not supported(path):
             continue
-        extension = path.suffix.lstrip(".")
-        try:
-            source = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+        functions = analyze_file(root, path)
+        if not functions:
             continue
-        python_depths: dict[int, int] = {}
-        if extension in nesting.PYTHON_EXTENSIONS:
-            try:
-                python_depths = nesting.python_nesting(source)
-            except SyntaxError:
-                continue
-        info = analyzer.analyze_source_code(relative, source)
-        for fn in info.function_list:
-            violations.extend(
-                _function_violations(fn, relative, config, extension, source, python_depths)
-            )
+        for fm in functions:
+            origin = "legacy"
+            if changed is not None and _touches(changed, fm.path, fm.start_line, fm.end_line):
+                origin = "new"
+            violations.extend(violations_for(fm, config, origin))
     violations.sort(key=lambda v: (v.path, v.start_line, v.metric))
     return violations

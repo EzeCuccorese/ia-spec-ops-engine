@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
 from workspace_engine.cli import design as design_cli
+from workspace_engine.design.changes import _parse_unified_diff, changed_lines
 from workspace_engine.design.config import DesignConfig
 from workspace_engine.design.metrics import measure, supported
 from workspace_engine.design.report import format_text, to_dict
@@ -646,3 +649,239 @@ func classify(a int) int {
 """
     violations = _measure_one(tmp_path, "classify.go", source, DesignConfig(max_nesting=1))
     assert any(v.metric == "nesting" and v.value == 2 for v in violations)
+
+
+# --- new vs. legacy classification -----------------------------------------------
+
+
+def _git(root: Path, *args: str) -> None:
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(
+        GIT_CONFIG_GLOBAL="/dev/null",
+        GIT_AUTHOR_NAME="t",
+        GIT_AUTHOR_EMAIL="t@e.x",
+        GIT_COMMITTER_NAME="t",
+        GIT_COMMITTER_EMAIL="t@e.x",
+    )
+    subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, env=env)
+
+
+def _complex_function(name: str, branches: int = 12) -> str:
+    """A Python function whose cyclomatic complexity exceeds the default limit (10)."""
+    lines = [f"def {name}(x):"]
+    for i in range(branches):
+        keyword = "if" if i == 0 else "elif"
+        lines.append(f"    {keyword} x == {i}:")
+        lines.append(f"        return {i}")
+    lines.append("    return -1")
+    return "\n".join(lines) + "\n"
+
+
+@pytest.fixture
+def git_repo(tmp_path: Path) -> Path:
+    root = tmp_path / "repo"
+    root.mkdir()
+    _git(root, "init", "-q", "-b", "main")
+    (root / "module.py").write_text(_complex_function("legacy_complex"))
+    _git(root, "add", ".")
+    _git(root, "commit", "-q", "-m", "init")
+    _git(root, "checkout", "-q", "-b", "feature")
+    return root
+
+
+def _complexity_origins(payload: dict) -> dict[str, str]:
+    return {
+        v["symbol"].split("(")[0].strip(): v["origin"]
+        for v in payload["violations"]
+        if v["metric"] == "complexity"
+    }
+
+
+def test_changed_lines_untracked_is_none(git_repo: Path) -> None:
+    (git_repo / "new_file.py").write_text("x = 1\n")
+    result = changed_lines(git_repo)
+    assert result.get("new_file.py") is None
+
+
+def test_parse_unified_diff_skips_deleted_file() -> None:
+    diff = (
+        "diff --git a/removed.py b/removed.py\n"
+        "deleted file mode 100644\n"
+        "--- a/removed.py\n"
+        "+++ /dev/null\n"
+        "@@ -1,2 +0,0 @@\n"
+        "-x = 1\n"
+        "-y = 2\n"
+    )
+    result = _parse_unified_diff(diff)
+    assert "removed.py" not in result
+
+
+def test_parse_unified_diff_ignores_malformed_hunk_header() -> None:
+    diff = "+++ b/f.py\n@@ not a real hunk header @@\n+x = 1\n"
+    result = _parse_unified_diff(diff)
+    assert result == {"f.py": set()}
+
+
+def test_changed_lines_modified_line_set(git_repo: Path) -> None:
+    (git_repo / "module.py").write_text((git_repo / "module.py").read_text() + "\nextra = 1\n")
+    result = changed_lines(git_repo)
+    assert "module.py" in result
+    assert isinstance(result["module.py"], set)
+    assert result["module.py"]
+
+
+def test_full_repo_scan_marks_everything_legacy(tmp_path: Path) -> None:
+    (tmp_path / "deep.py").write_text(PY_VIOLATING)
+    violations = measure(tmp_path, [tmp_path / "deep.py"], DesignConfig())
+    assert violations and all(v.origin == "legacy" for v in violations)
+
+
+def test_new_function_is_new_untouched_legacy_stays_legacy(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    content = (git_repo / "module.py").read_text()
+    (git_repo / "module.py").write_text(content + "\n" + _complex_function("new_complex"))
+    design_cli.design(["--dir", str(git_repo), "--changed", "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    origins = _complexity_origins(payload)
+    assert origins["legacy_complex"] == "legacy"
+    assert origins["new_complex"] == "new"
+
+
+def test_editing_a_line_in_legacy_function_marks_it_new(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    lines = (git_repo / "module.py").read_text().splitlines()
+    idx = next(i for i, line in enumerate(lines) if "if x == 0" in line)
+    lines[idx] = lines[idx] + "  # touched"
+    (git_repo / "module.py").write_text("\n".join(lines) + "\n")
+    design_cli.design(["--dir", str(git_repo), "--changed", "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert _complexity_origins(payload)["legacy_complex"] == "new"
+
+
+def test_untracked_file_is_new(git_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (git_repo / "extra.py").write_text(_complex_function("untracked_complex"))
+    design_cli.design(["--dir", str(git_repo), "--changed", "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    origins = _complexity_origins(payload)
+    assert origins["untracked_complex"] == "new"
+    assert "legacy_complex" not in origins  # module.py untouched: not in --changed scope
+
+
+def test_files_from_mode_uses_same_diff_classification(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    content = (git_repo / "module.py").read_text()
+    (git_repo / "module.py").write_text(content + "\n" + _complex_function("new_complex"))
+    list_file = git_repo / "files.txt"
+    list_file.write_text("module.py\n")
+    design_cli.design(["--dir", str(git_repo), "--files-from", str(list_file), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    origins = _complexity_origins(payload)
+    assert origins["legacy_complex"] == "legacy"
+    assert origins["new_complex"] == "new"
+
+
+def test_report_format_text_sections_order_and_footer() -> None:
+    from workspace_engine.design.metrics import Violation
+
+    violations = [
+        Violation("a.py", "new_fn(...)", 1, 5, "complexity", 15, 10, origin="new"),
+        Violation("b.py", "old_fn(...)", 1, 5, "length", 50, 40, origin="legacy"),
+    ]
+    text = format_text(violations, DesignConfig(), files=2)
+    assert "New code" in text
+    assert "Pre-existing code" in text
+    assert "Fix one at a time: ws design --focus" in text
+    assert text.index("New code") < text.index("Pre-existing code")
+    assert "→ extract branches into named functions / guard clauses" in text
+    assert "→ extract steps into well-named functions" in text
+
+
+# --- ws design --focus -----------------------------------------------------------
+
+
+def test_cli_focus_reports_violation_and_exit_code(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = design_cli.design(["--dir", str(git_repo), "--focus", "module.py:1"])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "legacy_complex" in out
+    assert "complexity" in out
+    assert "FAIL" in out
+    assert "Hints:" in out
+    assert "extract branches" in out
+    assert "module.py:1-" in out
+
+
+def test_cli_focus_pass_within_limits(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (tmp_path / "small.py").write_text(PY_CLEAN)
+    code = design_cli.design(["--dir", str(tmp_path), "--focus", "small.py:1"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Within limits." in out
+
+
+def test_cli_focus_no_function_found(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (tmp_path / "small.py").write_text(PY_CLEAN)
+    code = design_cli.design(["--dir", str(tmp_path), "--focus", "small.py:999"])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "no function found" in out
+
+
+def test_cli_focus_bad_spec(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    code = design_cli.design(["--dir", str(tmp_path), "--focus", "nocolon"])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "path:line" in out
+
+
+def test_cli_focus_non_integer_line(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (tmp_path / "small.py").write_text(PY_CLEAN)
+    code = design_cli.design(["--dir", str(tmp_path), "--focus", "small.py:notaline"])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "path:line" in out
+
+
+def test_cli_focus_absolute_path(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    target = tmp_path / "small.py"
+    target.write_text(PY_CLEAN)
+    code = design_cli.design(["--dir", str(tmp_path), "--focus", f"{target}:1"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Within limits." in out
+
+
+def test_cli_focus_missing_file_no_function(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = design_cli.design(["--dir", str(tmp_path), "--focus", "missing.py:1"])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "no function found" in out
+
+
+def test_cli_focus_ruby_function_has_no_nesting_check(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "small.rb").write_text("def f(a)\n  a + 1\nend\n")
+    code = design_cli.design(["--dir", str(tmp_path), "--focus", "small.rb:1"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "nesting" not in out
+
+
+def test_cli_focus_truncates_long_function_source(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source = _long_function("very_long", 200)
+    (tmp_path / "long.py").write_text(source)
+    code = design_cli.design(["--dir", str(tmp_path), "--focus", "long.py:1"])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "more line(s) omitted" in out
