@@ -38,7 +38,20 @@ _FIELDS = {
 }
 _LAYERS_FIELDS = {"order", "paths"}
 
-CHECKS = ("complexity", "length", "args", "nesting", "empty-catch", "todo-ticket", "commented-code")
+CHECKS = (
+    "complexity",
+    "length",
+    "args",
+    "nesting",
+    "empty-catch",
+    "todo-ticket",
+    "commented-code",
+    "test-no-assert",
+    "test-trivial-assert",
+    "test-mock-only",
+    "test-sleep",
+    "test-duplicate",
+)
 
 
 @dataclass(frozen=True)

@@ -16,6 +16,11 @@ HINTS = {
     "empty-catch": "handle, rethrow with context, or log with a reason",
     "todo-ticket": "add a ticket reference or do it now",
     "commented-code": "delete it — version control remembers",
+    "test-no-assert": "assert the observable result or delete the test",
+    "test-trivial-assert": "assert real behavior; this can never fail",
+    "test-mock-only": "assert the result or state, not only the calls",
+    "test-sleep": "inject a clock or poll with a timeout",
+    "test-duplicate": "merge into one parametrized test",
 }
 
 NEW_HEADER = "New code"

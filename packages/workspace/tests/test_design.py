@@ -1363,6 +1363,11 @@ def test_config_checks_default_enables_all(tmp_path: Path) -> None:
         "empty-catch",
         "todo-ticket",
         "commented-code",
+        "test-no-assert",
+        "test-trivial-assert",
+        "test-mock-only",
+        "test-sleep",
+        "test-duplicate",
     }
 
 
