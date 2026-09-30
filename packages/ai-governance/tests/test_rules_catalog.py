@@ -6,7 +6,7 @@ from ai_governance.rules.catalog import SCHEMA_VERSION, RuleCatalog
 
 def test_catalog_loads_all_rules_with_metadata() -> None:
     catalog = RuleCatalog()
-    assert len(catalog.rules) == 28
+    assert len(catalog.rules) == 29
     for rule in catalog.rules:
         assert rule.description and rule.globs and rule.sha256
         assert rule.content.startswith("# ")
@@ -126,3 +126,19 @@ def test_rule_with_undeclared_profile_raises(tmp_path) -> None:  # type: ignore[
     )
     with pytest.raises(ValueError, match="unknown profile"):
         RuleCatalog(catalog_root=root)
+
+
+def test_code_design_rules_need_a_language_stack() -> None:
+    catalog = RuleCatalog()
+    code_rules = {"01-clean-code-solid", "11-self-documenting-code"}
+    assert code_rules <= {r.id for r in catalog.select({"python"})}
+    assert not code_rules & {r.id for r in catalog.select({"docker", "github-actions"})}
+
+
+def test_code_design_rules_leave_numeric_limits_to_ws_design() -> None:
+    import re
+
+    catalog = RuleCatalog()
+    for rule_id in ("01-clean-code-solid", "11-self-documenting-code"):
+        content = catalog.get(rule_id).content
+        assert not re.search(r"(arity|nesting|parameters?|lines?)\s*(≤|<=)", content, re.I)
