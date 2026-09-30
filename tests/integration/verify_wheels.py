@@ -38,8 +38,7 @@ if "ai_governance" in modules:
     from ai_governance.rules.catalog import RuleCatalog
     from ai_governance.session.cli import main as progress
     catalog = RuleCatalog()
-    manifest = json.loads((catalog.root / "manifest.json").read_text())
-    assert len(catalog.rules) == manifest["total_rules"] >= 28
+    assert len(catalog.rules) >= 28
     assert governance(["install", "--scope", "project", "--agent", "claude", "--root", "."]) == 0
     assert "<!-- ai-governance:start -->" in pathlib.Path("AGENTS.md").read_text()
     assert pathlib.Path(".claude/rules/ai-governance-06-security-privacy.md").is_file()

@@ -63,8 +63,28 @@ Team policy, committed to the repository:
   into `AGENTS.md`, because Claude Code ignores `AGENTS.md` while a `CLAUDE.md` exists).
 - Claude Code `Stop` gate: `ws check --changed --cache`, blocking the turn end once with a
   condensed failure summary (`gate = false` in the config disables it).
-- `.ai-governance/config.toml` (agents, extra/excluded rules, gate) and
+- `.ai-governance/config.toml` (agents, profiles, extra/excluded rules, gate) and
   `.ai-governance/lock.json` (ownership ledger). Commit both and the generated files.
+
+### Profiles
+
+Most rules apply automatically once their stack or path is detected. Three groups are opt-in,
+enabled per project with `--profile`:
+
+| Profile | Covers | Rules |
+|---|---|---|
+| `architecture` | Clean/hexagonal architecture, DDD, refactoring and strangler fig | `02-clean-architecture-hexagonal`, `03-ddd-domain-modeling`, `10-refactoring-strangler` |
+| `distributed` | Event-driven architecture, resilience and concurrency | `07-event-driven-architecture`, `08-resilience-fault-tolerance`, `09-concurrency-locking` |
+| `api` | API design and observability | `api-design`, `observability` |
+
+```bash
+ai-governance rules profiles                                       # list profiles and their rules
+ai-governance install --scope project --profile architecture       # enable a profile
+ai-governance uninstall --scope project --profile architecture     # disable it, agents untouched
+```
+
+`ai-governance update` removes the rules of a profile that is no longer enabled and reports a
+hint to re-enable it.
 
 ## Everyday commands
 
@@ -75,7 +95,7 @@ Team policy, committed to the repository:
 | `ai-governance status` / `doctor` | What is installed where / read-only health checks |
 | `ai-governance budget` | Fixed context bytes (~tokens) each agent loads every session |
 | `ai-governance probe --agent <a>` then `--verify --seen ...` | Proves on this machine which instruction locations the agent loads and which hooks fire. Codex/Antigravity hooks are installed only after a verified probe |
-| `ai-governance rules list` / `rules show <id>` | Browse the rule catalog |
+| `ai-governance rules list` / `rules show <id>` / `rules profiles` | Browse the rule catalog and opt-in profiles |
 | `ai-governance progress here\|new\|show\|step\|fact\|close` | Compact cross-session task state |
 | `ai-governance telemetry claude-usage` | Month-to-date Claude spend vs. business-day budget (for plans whose UI hides spend) |
 | `ai-governance telemetry report\|thresholds\|calibrate\|prices update` | Estimates, alerts, calibration, price cache |
