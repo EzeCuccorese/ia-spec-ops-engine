@@ -25,18 +25,14 @@ restores what was there before.
 ## 1. Install the CLIs
 
 ```bash
-uv tool uninstall ai-governance; uv tool uninstall workspace   # removes older versions and their binaries
-uv tool install --force ./packages/ai-governance               # from the repository root
-uv tool install --force ./packages/workspace
+uv tool install ./packages/ai-governance   # from the repository root
+uv tool install ./packages/workspace
 ai-governance --help
 ws --help
 ```
 
 - **What it does**: installs two binaries in `~/.local/bin`: `ai-governance` and `ws`.
-  Older versions exposed eight scripts (`specops`, `governance`, `rules`, `frugal`,
-  `telemetry`, `progress`, `jira`, `confluence`); uninstalling first removes them.
-- **Expect**: both `--help` outputs list their subcommands. This command must print nothing:
-  `ls ~/.local/bin | grep -E '^(specops|governance|rules|frugal|telemetry|progress|jira|confluence)$'`.
+- **Expect**: both `--help` outputs list their subcommands.
 - Nothing is configured yet for any agent.
 
 ## 2. User scope (global) for one agent
@@ -199,7 +195,7 @@ ws design --changed --json           # per-function complexity/length/args/nesti
 ws design --focus path/to/file.py:42 # surgical brief for the function at that line
 ```
 
-Deterministic, via [lizard](https://github.com/terryyin/lizard): Java, JS/TS/TSX/JSX, Python,
+Deterministic, via lizard: Java, JS/TS/TSX/JSX, Python,
 Go, Kotlin, C#, PHP, Rust, Swift, Scala, Ruby, C/C++ and more — Dart is not supported. Limits
 and `mode` (`block`/`warn`/`off`) live in the optional `[design]` table of
 `.ai-governance/config.toml`. With `--changed`/`--files-from`, violations are classified

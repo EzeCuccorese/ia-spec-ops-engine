@@ -103,7 +103,6 @@ def load_project_config(
         "namespaces": [],
         "env_slugs": [],
         "environments": [],
-        "artifact_registry_domain": "generic",
         "repositories_dir_env_var": "PROJECT_REPOSITORIES_DIR",
         "local_envs_dir_name": "local-envs",
         "workspaces_dir_name": "workspaces",

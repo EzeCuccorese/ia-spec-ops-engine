@@ -6,6 +6,8 @@ build-backend = "hatchling.build"
 name = "workspace"
 version = "0.2.0"
 description = "Deterministic workspace manager, Git worktree isolation, local environment orchestrator, builds and Kubernetes manager."
+license = "MIT"
+license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

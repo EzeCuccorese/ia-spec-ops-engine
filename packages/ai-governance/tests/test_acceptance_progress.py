@@ -197,14 +197,14 @@ def test_configured_directory_failure_is_visible(tmp_path: Path) -> None:
     forbidden_dir = unwritable_root / "cannot_create_subdir"
 
     cwd_before = Path.cwd()
-    unexpected_fallback = cwd_before / ".specops" / "progress"
+    unexpected_fallback = cwd_before / ".ai-governance" / "progress"
     fallback_created_before = unexpected_fallback.exists()
 
     try:
         with pytest.raises(OSError):
             SessionTracker(root_dir=forbidden_dir)
 
-        # Ensure no silent fallback created .specops in cwd
+        # Ensure no silent fallback created .ai-governance in cwd
         if not fallback_created_before:
             assert not unexpected_fallback.exists()
     finally:

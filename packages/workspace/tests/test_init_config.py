@@ -25,19 +25,6 @@ def test_generate_default_config_minimal() -> None:
     assert cfg["workspaces_dir_name"] == "workspaces"
     assert cfg["toolkit_dir_name"] == "project-toolkit"
     assert "url_pattern" in cfg
-    assert "environments" not in cfg
-    assert "artifact_registry_domain" not in cfg
-    assert "vpn" not in cfg
-
-
-def test_generate_default_config_enterprise() -> None:
-    cfg = generate_default_config("my-test-proj", "my-domain.io", enterprise=True)
-    assert cfg["project_name"] == "my-test-proj"
-    assert cfg["domain"] == "my-domain.io"
-    assert "environments" in cfg
-    assert len(cfg["environments"]) == 3
-    assert cfg["artifact_registry_domain"] == "generic"
-    assert "vpn" in cfg
 
 
 def test_resolve_config_target(tmp_path: Path, monkeypatch) -> None:
@@ -81,23 +68,6 @@ def test_init_config_local_creation(tmp_path: Path) -> None:
     data = json.loads(target.read_text(encoding="utf-8"))
     assert data["project_name"] == "custom-project"
     assert data["domain"] == "custom.corp"
-    assert "vpn" not in data
-
-
-def test_init_config_enterprise_creation(tmp_path: Path) -> None:
-    target = init_config(
-        is_local=True,
-        enterprise=True,
-        project_name="corp-project",
-        domain="corp.com",
-        non_interactive=True,
-        cwd=tmp_path,
-    )
-    assert target.exists()
-    data = json.loads(target.read_text(encoding="utf-8"))
-    assert data["project_name"] == "corp-project"
-    assert "vpn" in data
-    assert "environments" in data
 
 
 def test_init_config_existing_preserves_without_force(tmp_path: Path) -> None:
@@ -149,23 +119,6 @@ def test_run_config_init_cli(tmp_path: Path, monkeypatch) -> None:
     data = json.loads(target.read_text(encoding="utf-8"))
     assert data["project_name"] == "cli-proj"
     assert data["domain"] == "cli.test"
-    assert "vpn" not in data
-
-
-@pytest.mark.parametrize("flag", ["--enterprise", "--devops"])
-def test_run_config_init_enterprise_cli(tmp_path: Path, monkeypatch, flag: str) -> None:
-    monkeypatch.chdir(tmp_path)
-    exit_code = run_config_init(
-        ["init", "--local", "--yes", flag, "--name", "ent-proj", "--domain", "ent.test"]
-    )
-    assert exit_code == 0
-
-    target = tmp_path / ".workspace" / "config.json"
-    assert target.exists()
-    data = json.loads(target.read_text(encoding="utf-8"))
-    assert data["project_name"] == "ent-proj"
-    assert "vpn" in data
-    assert "environments" in data
 
 
 def test_resolve_config_target_custom_path(tmp_path: Path) -> None:
@@ -254,7 +207,6 @@ def test_run_config_error_path(tmp_path: Path, monkeypatch) -> None:
         domain="dom",
         force=False,
         non_interactive=True,
-        enterprise=False,
     )
     monkeypatch.chdir(tmp_path)
     with patch(
