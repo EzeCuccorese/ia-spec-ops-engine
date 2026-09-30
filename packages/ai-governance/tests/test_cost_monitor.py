@@ -209,3 +209,40 @@ def test_scan_transcripts_skips_events_outside_date_range(tmp_path: Path) -> Non
     monitor = CostMonitor(projects_dir=tmp_path)
     result = monitor.scan_transcripts(since_iso_date="2026-09-01")
     assert result["total_cost_usd"] == 0.0
+
+
+def test_scan_transcripts_tracks_effort_and_fast_calls(tmp_path: Path) -> None:
+    project_dir = tmp_path / "p"
+    project_dir.mkdir()
+    entries = [
+        {
+            "timestamp": "2026-09-04T12:00:00Z",
+            "requestId": "a",
+            "perTurnEffort": "high",
+            "message": {
+                "model": "claude-sonnet-4-6",
+                "usage": {
+                    "input_tokens": 100,
+                    "output_tokens": 1_000,
+                    "output_tokens_details": {"thinking_tokens": 400},
+                    "speed": "fast",
+                },
+            },
+        },
+        {
+            "timestamp": "2026-09-04T13:00:00Z",
+            "requestId": "b",
+            "message": {"model": "claude-sonnet-4-6", "usage": {"output_tokens": 500}},
+        },
+    ]
+    (project_dir / "s.jsonl").write_text("\n".join(json.dumps(e) for e in entries) + "\n")
+
+    res = CostMonitor(projects_dir=tmp_path).scan_transcripts()
+
+    day = res["by_effort"]["2026-09-04"]
+    assert day["high"]["output"] == 1_000 and day["high"]["thinking"] == 400
+    assert day["unknown"]["output"] == 500
+    assert res["fast_calls"] == 1
+    merged = CostMonitor.merge_effort(res["by_effort"], lambda d: d.startswith("2026-09"))
+    assert merged["high"]["cost"] == pytest.approx(day["high"]["cost"])
+    assert CostMonitor.merge_effort(res["by_effort"], lambda d: False) == {}
