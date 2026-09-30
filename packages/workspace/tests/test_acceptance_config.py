@@ -11,8 +11,8 @@ Contracts from 02-CONTRATOS-DE-TEST.md:
       or malformed JSON, raises explicit informative errors.
 - F05 (test_existing_config_preserved): init_config preserves existing config unless
       explicit overwrite/force is given.
-- F06 (test_minimal_and_devops_profiles): Default generation creates a minimal profile
-      without clusters/VPN; --enterprise / --devops includes them.
+- F06 (test_default_profile_is_minimal): Default generation creates a minimal profile
+      with only the core project keys.
 """
 
 from __future__ import annotations
@@ -198,21 +198,11 @@ def test_existing_config_preserved(tmp_path: Path) -> None:
     assert overwritten["domain"] == "overwritten.dev"
 
 
-def test_minimal_and_devops_profiles() -> None:
-    """F06: Default generation creates a minimal profile without clusters/VPN; --enterprise / --devops includes them."""
-    # 1. Minimal profile
-    minimal = generate_default_config("min-proj", "min.dev", enterprise=False)
+def test_default_profile_is_minimal() -> None:
+    """F06: Default generation creates a minimal profile with only the core project keys."""
+    minimal = generate_default_config("min-proj", "min.dev")
     assert minimal["project_name"] == "min-proj"
     assert minimal["domain"] == "min.dev"
     assert "environments" not in minimal
     assert "vpn" not in minimal
     assert "artifact_registry_domain" not in minimal
-
-    # 2. Enterprise profile
-    enterprise = generate_default_config("ent-proj", "ent.dev", enterprise=True)
-    assert enterprise["project_name"] == "ent-proj"
-    assert enterprise["domain"] == "ent.dev"
-    assert "environments" in enterprise
-    assert len(enterprise["environments"]) == 3
-    assert "vpn" in enterprise
-    assert "artifact_registry_domain" in enterprise

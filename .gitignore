@@ -31,6 +31,5 @@ scratch/*
 .claude/
 .cursor/
 .specify/
-.specops/
 CLAUDE.md
 GEMINI.md

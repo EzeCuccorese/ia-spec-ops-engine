@@ -76,7 +76,6 @@ CSV_FIELDS = [
     "duration_ms",
     "input_tokens",
     "output_tokens",
-    "run_dir",
     "error",
 ]
 
@@ -103,7 +102,6 @@ class RunResult:
     duration_ms: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
-    run_dir: str = ""
     error: str = ""
 
 
@@ -358,7 +356,6 @@ def measure_hidden_tests(run_dir: Path, task: str) -> tuple[int, int]:
 def run_one(task: str, condition: str, rep: int, model: str, shim_dir: Path) -> RunResult:
     result = RunResult(task=task, condition=condition, rep=rep, model=model)
     run_dir = build_run_dir(task, condition, rep, shim_dir)
-    result.run_dir = str(run_dir)
     try:
         task_prompt = (TASKS_DIR / f"{task}.md").read_text()
         claude_json = run_claude(run_dir, task_prompt, model, shim_dir)

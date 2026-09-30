@@ -15,8 +15,8 @@ from pathlib import Path
 from workspace_engine.common import log_error, log_success, log_warning
 
 
-def generate_default_config(project_name: str, domain: str, *, enterprise: bool = False) -> dict:
-    """Returns a workspace configuration dictionary (minimal by default, or full enterprise profile)."""
+def generate_default_config(project_name: str, domain: str) -> dict:
+    """Returns the default workspace configuration dictionary."""
     cfg: dict[str, object] = {
         "project_name": project_name,
         "domain": domain,
@@ -28,48 +28,6 @@ def generate_default_config(project_name: str, domain: str, *, enterprise: bool 
         "toolkit_dir_name": "project-toolkit",
         "url_pattern": rf"https?://([a-z0-9-]+)\.(?:dev|prod)\.{re.escape(domain)}(/[^\s]*)?",
     }
-    if enterprise:
-        cfg["environments"] = [
-            {
-                "id": "dev",
-                "cluster": "dev",
-                "namespace": "dev",
-                "label": "Local / Development",
-                "description": [
-                    "Local development environment.",
-                    "Used for daily workflows, test suites, and microservices.",
-                ],
-            },
-            {
-                "id": "staging",
-                "cluster": "staging",
-                "namespace": "staging",
-                "label": "Staging",
-                "description": [
-                    "Staging validation environment.",
-                    "Reflects production configuration for pre-release verification.",
-                ],
-            },
-            {
-                "id": "prod",
-                "cluster": "prod",
-                "namespace": "production",
-                "label": "Production",
-                "description": [
-                    "Production environment.",
-                    "Restricted access; monitored and governed.",
-                ],
-            },
-        ]
-        cfg["artifact_registry_domain"] = "generic"
-        cfg["vpn"] = {
-            "config_dev": "~/project-dev.ovpn",
-            "config_prod": "~/project-prd.ovpn",
-            "session_name_dev": f"{project_name}-dev-session",
-            "session_name_prod": f"{project_name}-prd-session",
-            "internal_host": f"internal.service.{domain}",
-            "validation_timeout": 3,
-        }
     return cfg
 
 
@@ -111,8 +69,6 @@ def init_config(
     force: bool = False,
     non_interactive: bool = False,
     cwd: Path | None = None,
-    enterprise: bool = False,
-    devops: bool = False,
 ) -> Path:
     """Initializes a new workspace config.json file.
 
@@ -153,8 +109,7 @@ def init_config(
             prompt_domain = input(f"Base domain [{default_domain}]: ").strip()
             domain = prompt_domain or default_domain
 
-    is_enterprise = enterprise or devops
-    config_data = generate_default_config(project_name, domain, enterprise=is_enterprise)
+    config_data = generate_default_config(project_name, domain)
 
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(config_data, indent=2) + "\n", encoding="utf-8")
@@ -186,13 +141,6 @@ def add_config_arguments(parser: argparse.ArgumentParser) -> None:
         dest="is_global",
         action="store_true",
         help="Initialize user-global configuration (~/.config/workspace/config.json)",
-    )
-    p_init.add_argument(
-        "--enterprise",
-        "--devops",
-        dest="enterprise",
-        action="store_true",
-        help="Generate full enterprise configuration with environments, VPN, and ArtifactRegistry",
     )
     p_init.add_argument(
         "--path",
@@ -245,7 +193,6 @@ def run_config(args: argparse.Namespace) -> int:
                 domain=getattr(args, "domain", None),
                 force=getattr(args, "force", False),
                 non_interactive=getattr(args, "non_interactive", False),
-                enterprise=getattr(args, "enterprise", False),
             )
             return 0
         except (OSError, ValueError) as exc:
