@@ -167,6 +167,16 @@ def test_project_install_then_uninstall_restores_tree(project: Path) -> None:
     assert project.resolve() not in registered_projects()
 
 
+def test_uninstalling_claude_and_antigravity_leaves_no_links_or_false_warnings(
+    project: Path,
+) -> None:
+    before = sorted(project.rglob("*"))
+    sync_project(project, add_agents=["claude", "antigravity"])
+    report = sync_project(project, remove_agents=["claude", "antigravity"])
+    assert report.warnings == []
+    assert sorted(project.rglob("*")) == before
+
+
 def test_update_follows_stack_changes_and_keeps_local_edits(
     project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
