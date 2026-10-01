@@ -1,8 +1,9 @@
 """Company packs (``packages/corporate-rules/<pack>/``): always-on rules and scripts.
 
 Packs live next to the packages in the source checkout (gitignored, never bundled in
-the wheel) or wherever ``AI_GOVERNANCE_CORPORATE_DIR`` points. Installed at user scope
-only when the user names the pack (``--corporate <pack>``).
+the wheel) or wherever ``AI_GOVERNANCE_CORPORATE_DIR`` points. Every pack present is
+installed at user scope; a company is just a folder, so switching companies means
+swapping folders.
 """
 
 from __future__ import annotations
@@ -64,3 +65,8 @@ def load(name: str, root: Path | None = None) -> CorporatePack:
             f"Unknown corporate pack: {name}. Choose from: {', '.join(names) or '(none)'}"
         )
     return CorporatePack(name, (root or corporate_root()) / name)
+
+
+def packs(root: Path | None = None) -> list[CorporatePack]:
+    base = root or corporate_root()
+    return [CorporatePack(name, base / name) for name in available(base)]
