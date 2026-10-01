@@ -332,6 +332,7 @@ def test_mock_only_flags_tests_that_never_check_a_result(
         ("py", "time.sleep(0.5)", True),
         ("py", "time.sleep(0)", False),
         ("py", "clock.sleep(1)", False),
+        ("py", "while not ready(): time.sleep(0.1)", False),  # polling with a deadline
         ("go", "time.Sleep(time.Second)", True),
         ("go", "clock.Sleep(time.Second)", False),
     ],
