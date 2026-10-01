@@ -63,12 +63,49 @@ skipped() {
   return 1
 }
 
-TIMEOUT_BIN=""
-if command -v timeout >/dev/null 2>&1; then
-  TIMEOUT_BIN="timeout"
-elif command -v gtimeout >/dev/null 2>&1; then
-  TIMEOUT_BIN="gtimeout"
-fi
+# Watchdog: runs the command in its own process group and, on timeout or interrupt, signals
+# the WHOLE group (TERM, then KILL after a grace period), so children such as test workers
+# never outlive the gate. Exit 124 on timeout.
+# --- watchdog:start ---
+QG_WATCHDOG='
+use strict; use warnings; use POSIX ();
+my $secs = shift @ARGV;
+my $pid = fork();
+die "fork: $!" unless defined $pid;
+if ($pid == 0) { setpgrp(0, 0); exec { $ARGV[0] } @ARGV or exit 127; }
+my $stop = sub {
+  my ($code) = @_;
+  kill "-TERM", $pid;
+  for (1 .. 50) { last unless kill 0, -$pid; select(undef, undef, undef, 0.1); }
+  kill "-KILL", $pid;
+  waitpid($pid, 0);
+  exit $code;
+};
+$SIG{ALRM} = sub { $stop->(124) };
+$SIG{INT}  = sub { $stop->(130) };
+$SIG{TERM} = sub { $stop->(143) };
+alarm $secs;
+waitpid($pid, 0);
+my $status = $?;
+alarm 0;
+kill "-KILL", $pid;  # reap any background leftovers of a command that already exited
+exit($status & 127 ? 128 + ($status & 127) : $status >> 8);
+'
+# --- watchdog:end ---
+
+# Runs "$@" under the watchdog when perl exists, else GNU timeout with a kill fallback.
+with_timeout() {
+  local secs="$1"; shift
+  if command -v perl >/dev/null 2>&1; then
+    perl -e "$QG_WATCHDOG" "$secs" "$@"
+  elif command -v timeout >/dev/null 2>&1; then
+    timeout --kill-after=5 "$secs" "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout --kill-after=5 "$secs" "$@"
+  else
+    "$@"
+  fi
+}
 
 # Saves the full transcript of a failed command outside the working tree.
 persist_failure_log() {
@@ -124,28 +161,16 @@ run_to() {
   RUN_SEQUENCE=$((RUN_SEQUENCE + 1))
   command_log="$TMPD/command-$RUN_SEQUENCE.log"
   if [ "$QG_OUTPUT" = "verbose" ]; then
-    if [ -n "$TIMEOUT_BIN" ]; then
-      "$TIMEOUT_BIN" "$secs" "$@"; rc=$?
-    elif command -v perl >/dev/null 2>&1; then
-      perl -e 'alarm shift; exec @ARGV' "$secs" "$@"; rc=$?
-    else
-      "$@"; rc=$?
-    fi
+    with_timeout "$secs" "$@"; rc=$?
   else
-    if [ -n "$TIMEOUT_BIN" ]; then
-      "$TIMEOUT_BIN" "$secs" "$@" > "$command_log" 2>&1; rc=$?
-    elif command -v perl >/dev/null 2>&1; then
-      perl -e 'alarm shift; exec @ARGV' "$secs" "$@" > "$command_log" 2>&1; rc=$?
-    else
-      "$@" > "$command_log" 2>&1; rc=$?
-    fi
+    with_timeout "$secs" "$@" > "$command_log" 2>&1; rc=$?
     if [ "$rc" = "0" ]; then
       rm -f "$command_log"
     else
       show_failed_command "$rc" "$command_log" "$@"
     fi
   fi
-  if [ "$rc" = "124" ] || [ "$rc" = "142" ]; then
+  if [ "$rc" = "124" ]; then
     echo "   ⏱  '$1' exceeded ${secs}s and was aborted (raise QG_TIMEOUT if that is expected)."
   fi
   return $rc
