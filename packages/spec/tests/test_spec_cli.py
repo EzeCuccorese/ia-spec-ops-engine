@@ -382,3 +382,14 @@ def test_main_fallback_raises_system_exit_two(monkeypatch) -> None:
     with pytest.raises(SystemExit) as exc:
         main([])
     assert exc.value.code == 2
+
+
+def test_version_comes_from_the_installed_distribution(capsys) -> None:
+    from importlib.metadata import version
+
+    import spec
+
+    assert spec.__version__ == version("spec")
+    with pytest.raises(SystemExit):
+        main(["--version"])
+    assert capsys.readouterr().out.strip() == f"spec {version('spec')}"
