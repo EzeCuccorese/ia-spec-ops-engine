@@ -23,6 +23,7 @@ from . import content
 from .agents import (
     AGENTS,
     RULES_DIR,
+    AgentSpec,
     BlockArtifact,
     FileArtifact,
     LinkArtifact,
@@ -138,112 +139,72 @@ def registered_projects() -> list[Path]:
 # -- user scope --------------------------------------------------------------------
 
 
-def _corporate_owner(pack: str) -> str:
-    return f"corporate:{pack}"
+SCRIPTS_OWNER = "corporate"
 
 
-def _corporate_desired(pack: str, agents: list[str], report: Report) -> list[Owned]:
-    """Rules for each agent that supports them, plus the pack's scripts in the bin dir."""
-    loaded = corporate.load(pack)
-    rules = loaded.rules()
-    owner = _corporate_owner(pack)
+def _corporate_rules(spec: AgentSpec, report: Report) -> list[Owned]:
+    """Every pack in the corporate folder, rendered for one agent; nothing to opt into."""
     desired: list[Owned] = []
-    for spec in resolve_agents(agents):
+    for pack in corporate.packs():
+        rules = pack.rules()
         artifacts = spec.corporate_artifacts(rules)
         if rules and not artifacts:
             report.warnings.append(
-                f"{spec.name} has no per-file global rules: {pack} rules skipped."
+                f"{spec.name} has no per-file global rules: {pack.name} rules skipped."
             )
-        desired.extend(Owned(owner, artifact) for artifact in artifacts)
-    desired.extend(
-        Owned(owner, LinkArtifact(corporate.bin_dir() / script.name, str(script)))
-        for script in loaded.scripts()
-    )
+        desired.extend(Owned(spec.id, artifact) for artifact in artifacts)
     return desired
 
 
-def _corporate_packs(ledger: Ledger) -> dict[str, list[str]]:
-    return {pack: list(agents) for pack, agents in ledger.extra.get("corporate", {}).items()}
+def _corporate_scripts() -> list[Owned]:
+    return [
+        Owned(SCRIPTS_OWNER, LinkArtifact(corporate.bin_dir() / script.name, str(script)))
+        for pack in corporate.packs()
+        for script in pack.scripts()
+    ]
 
 
-@dataclass
-class _UserPlan:
-    """What a user-scope sync owns: agent artifacts in ``scope`` plus the ``touched`` packs."""
-
-    base: list[Owned]
-    scope: set[str]
-    packs: dict[str, list[str]]
-    touched: set[str]
-
-
-def _sync_user(ledger: Ledger, plan: _UserPlan, *, dry_run: bool, force: bool = False) -> Report:
-    report = Report()
-    desired = list(plan.base)
-    for pack in sorted(plan.touched):
-        if plan.packs.get(pack):
-            desired.extend(_corporate_desired(pack, plan.packs[pack], report))
-    sync(
-        desired,
-        ledger,
-        agents_in_scope=plan.scope | {_corporate_owner(pack) for pack in plan.touched},
-        dry_run=dry_run,
-        force=force,
-        report=report,
-    )
-    remaining = {pack: agents for pack, agents in sorted(plan.packs.items()) if agents}
-    if remaining:
-        ledger.extra["corporate"] = remaining
-    else:
-        ledger.extra.pop("corporate", None)
-    return report
+def _adopt_legacy_pack_entries(ledger: Ledger) -> None:
+    """Ledgers from the `--corporate` era owned pack files as `corporate:<pack>`."""
+    for entry in ledger.entries:
+        if not entry["agent"].startswith("corporate:"):
+            continue
+        if entry["kind"] == "link":
+            entry["agent"] = SCRIPTS_OWNER
+        else:
+            entry["agent"] = "antigravity" if "/.gemini/" in entry["path"] else "claude"
+    ledger.extra.pop("corporate", None)
 
 
-def install_user(
-    agents: list[str],
-    *,
-    corporate_packs: tuple[str, ...] = (),
-    dry_run: bool = False,
-    force: bool = False,
-) -> Report:
+def _installed_agents(ledger: Ledger) -> set[str]:
+    return {entry["agent"] for entry in ledger.entries} - {SCRIPTS_OWNER}
+
+
+def install_user(agents: list[str], *, dry_run: bool = False, force: bool = False) -> Report:
+    """Global artifacts of the agents plus every corporate pack present on disk."""
     specs = resolve_agents(agents)
-    for pack in corporate_packs:
-        corporate.load(pack)
     ledger = global_ledger()
-    packs = _corporate_packs(ledger)
-    for pack in corporate_packs:
-        packs[pack] = list(dict.fromkeys([*packs.get(pack, []), *agents]))
-    base = [Owned(spec.id, artifact) for spec in specs for artifact in spec.global_artifacts()]
-    plan = _UserPlan(base, {s.id for s in specs}, packs, set(packs))
-    report = _sync_user(ledger, plan, dry_run=dry_run, force=force)
+    _adopt_legacy_pack_entries(ledger)
+    report = Report()
+    desired = [Owned(spec.id, artifact) for spec in specs for artifact in spec.global_artifacts()]
+    for spec in specs:
+        desired.extend(_corporate_rules(spec, report))
+    desired.extend(_corporate_scripts())
+    scope = {spec.id for spec in specs} | {SCRIPTS_OWNER}
+    sync(desired, ledger, agents_in_scope=scope, dry_run=dry_run, force=force, report=report)
     ledger.extra["package_version"] = __version__
     ledger.save(report, dry_run)
     return report
 
 
-def _uninstall_plan(
-    agents: list[str], packs: dict[str, list[str]], corporate_packs: tuple[str, ...]
-) -> _UserPlan:
-    if corporate_packs:
-        for pack in corporate_packs:
-            packs[pack] = [a for a in packs.get(pack, []) if agents and a not in agents]
-        return _UserPlan([], set(), packs, set(corporate_packs))
+def uninstall_user(agents: list[str], *, dry_run: bool = False) -> Report:
+    """Removes the agents' artifacts; pack scripts go with the last installed agent."""
     scope = {spec.id for spec in resolve_agents(agents)}
-    for pack in packs:
-        packs[pack] = [a for a in packs[pack] if a not in scope]
-    return _UserPlan([], scope, packs, set(packs))
-
-
-def uninstall_user(
-    agents: list[str], *, corporate_packs: tuple[str, ...] = (), dry_run: bool = False
-) -> Report:
-    """Removes the agents' artifacts; with ``corporate_packs`` only those packs.
-
-    ``--corporate`` without ``--agent`` removes the whole pack (rules and scripts).
-    """
-    resolve_agents(agents)
     ledger = global_ledger()
-    plan = _uninstall_plan(agents, _corporate_packs(ledger), corporate_packs)
-    report = _sync_user(ledger, plan, dry_run=dry_run)
+    _adopt_legacy_pack_entries(ledger)
+    keep_scripts = bool(_installed_agents(ledger) - scope)
+    desired = _corporate_scripts() if keep_scripts else []
+    report = sync(desired, ledger, agents_in_scope=scope | {SCRIPTS_OWNER}, dry_run=dry_run)
     ledger.save(report, dry_run)
     return report
 
