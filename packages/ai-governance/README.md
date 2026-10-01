@@ -38,7 +38,7 @@ Personal, project-agnostic harness. Nothing about engineering policy.
 | | Claude Code | OpenAI Codex | Google Antigravity 2 |
 |---|---|---|---|
 | Global instructions | ~/.claude/rules/ai-governance.md | $CODEX_HOME/AGENTS.md (marker block) | ~/.gemini/config/rules/ai-governance.md (`trigger: always_on`) |
-| Global hooks | ~/.claude/settings.json (Pre/PostToolUse Bash, Stop, SessionStart/End) | $CODEX_HOME/hooks.json PostToolUse condensing (after `probe` verifies) | antigravity-cli/hooks.json PreToolUse: raw noisy commands -> `ws run` (after `probe`) |
+| Global hooks | ~/.claude/settings.json (Pre/PostToolUse Bash, Stop, SessionStart/End) | $CODEX_HOME/hooks.json PostToolUse condensing (after `probe` verifies) | ~/.gemini/antigravity-cli/hooks.json PreToolUse: raw noisy commands -> `ws run` (after `probe`) |
 | Scout subagent | ~/.claude/agents/scout.md (sonnet, effort medium) | $CODEX_HOME/agents/scout.toml (terra, effort medium, read-only) + config.toml default subagent model terra | ~/.gemini/config/agents/scout.md (model flash, read-only tools, no commands) |
 | Skills | ~/.claude/skills/{progress,test-audit}/SKILL.md | ~/.agents/skills/{progress,test-audit}/SKILL.md | ~/.gemini/config/skills/{progress,test-audit}/SKILL.md |
 | Project rules | .claude/rules/ai-governance-<id>.md -> symlink to .agents/rules | .agents/rules/ai-governance-<id>.md (shared) | .agents/rules/ai-governance-<id>.md (single source) |

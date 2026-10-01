@@ -267,6 +267,10 @@ def test_capability_table_covers_every_agent() -> None:
         assert spec.name in table
 
 
+def test_antigravity_hooks_path_is_shown_in_full() -> None:
+    assert AGENTS["antigravity"].global_hooks.startswith("~/.gemini/antigravity-cli/hooks.json ")
+
+
 def test_report_collapses_many_files_per_folder(project: Path) -> None:
     lines = sync_project(project, add_agents=["claude"]).lines()
     assert any(line.startswith("created: ") and " files in " in line for line in lines)
