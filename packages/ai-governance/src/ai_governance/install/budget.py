@@ -12,8 +12,6 @@ BYTES_PER_TOKEN = 4
 
 def _always_loaded(path: Path, text: str) -> bool:
     """Path-scoped rules load only for matching files; everything else is fixed cost."""
-    if "/.codex/ai-governance/rules/" in path.as_posix():
-        return False  # injected on edit, never preloaded
     if path.suffix != ".md" or "/rules/" not in path.as_posix():
         return False  # scouts/skills: only name + description preload (not counted)
     header = text.split("\n---", 1)[0] if text.startswith("---") else ""
