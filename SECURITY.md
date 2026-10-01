@@ -10,4 +10,7 @@ once a fix is available.
 ## Scope
 
 The latest `main` is supported. The tools run locally and never need credentials in this
-repository: tokens and personal data belong in the environment or the OS keychain.
+repository: tokens and personal data belong in the environment, in the user's own config
+directory (for example the Atlassian profiles in `~/.config/ai-governance/atlassian.json`) or
+in the OS keychain. Corporate packs under `packages/corporate-rules/` are gitignored and must
+never contain credentials.
