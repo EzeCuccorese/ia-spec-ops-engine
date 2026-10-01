@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from spec.core.ownership import DeleteResult, OwnershipManifest, sha256_file
+from spec.core.ownership import DeleteResult, OwnershipManifest
 from spec.core.paths import PathBoundary
 from spec.core.write import SafeWriter, WriteResult
 
@@ -207,9 +207,6 @@ class AgentsAdapter:
 
         agents_path.write_text(new_content, encoding="utf-8")
 
-        if self.agent == "claude":
-            self.install_claude_pointer()
-
         self.install_skills()
 
         return writer_res
@@ -231,52 +228,16 @@ class AgentsAdapter:
                 else:
                     agents_path.write_text(cleaned.rstrip() + "\n", encoding="utf-8")
 
-        if self.agent == "claude":
-            claude_res = self.uninstall_claude_pointer(dry_run=dry_run)
-            if not del_res.deleted and not del_res.would_delete:
-                del_res = claude_res
+        claude_res = self.uninstall_claude_pointer(dry_run=dry_run)
+        if not del_res.deleted and not del_res.would_delete:
+            del_res = claude_res
 
         self.uninstall_skills(dry_run=dry_run)
 
         return del_res
 
-    def install_claude_pointer(self) -> WriteResult:
-        manifest = OwnershipManifest(self.root)
-        claude_path = self.boundary.resolve(self.claude_target)
-        claude_path.parent.mkdir(parents=True, exist_ok=True)
-        pointer_ref = f"@{self.target}"
-        block = f"{START_MARKER}\n{pointer_ref}\n{END_MARKER}\n"
-
-        if not claude_path.exists():
-            return SafeWriter(self.root, manifest).write(self.claude_target, block, mode=0o644)
-
-        content = claude_path.read_text(encoding="utf-8")
-        is_owned = manifest.get(self.claude_target) is not None
-        cleaned = PATTERN.sub("", content).strip()
-        has_user_content = bool(cleaned)
-
-        if is_owned and not has_user_content:
-            return SafeWriter(self.root, manifest).write(self.claude_target, block, mode=0o644)
-
-        if is_owned:
-            del manifest._records[manifest.boundary.relative(self.claude_target)]
-            manifest._save()
-
-        if START_MARKER in content and END_MARKER in content:
-            new_content = PATTERN.sub(block, content)
-        else:
-            stripped = content.rstrip()
-            new_content = f"{stripped}\n\n{block}" if stripped else block
-
-        claude_path.write_text(new_content, encoding="utf-8")
-        return WriteResult(
-            path=self.claude_target,
-            sha256=sha256_file(claude_path),
-            created=False,
-            updated=(new_content != content),
-        )
-
     def uninstall_claude_pointer(self, *, dry_run: bool = True) -> DeleteResult:
+        """Removes the CLAUDE.md block an earlier Spec install wrote; AGENTS.md is the only file now."""
         manifest = OwnershipManifest(self.root)
         claude_path = self.boundary.resolve(self.claude_target)
         if not claude_path.exists():
@@ -354,13 +315,6 @@ class AgentsAdapter:
         return render_consumer()
 
 
-class ClaudeAdapter(AgentsAdapter):
-    """Adapter for Claude Code configuring AGENTS.md and discovery pointer CLAUDE.md."""
-
-    def __init__(self, root: str | Path, target: str | None = None, **kwargs: object) -> None:
-        super().__init__(root, target=target, agent="claude")
-
-
 RECOGNIZED_AGENTS = {
     "agents": "Universal AGENTS.md Standard (AGENTS.md)",
     "antigravity": "Universal AGENTS.md Standard (AGENTS.md)",
@@ -374,13 +328,9 @@ RECOGNIZED_AGENTS = {
     "custom": "Universal AGENTS.md Standard (AGENTS.md)",
 }
 
-CodexAdapter = AgentsAdapter
-
 __all__ = [
     "RECOGNIZED_AGENTS",
     "AgentsAdapter",
-    "ClaudeAdapter",
-    "CodexAdapter",
     "render_consumer",
     "render_contributor",
 ]

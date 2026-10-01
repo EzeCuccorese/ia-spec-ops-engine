@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
-from spec.agents import AgentsAdapter, ClaudeAdapter, render_consumer, render_contributor
+from spec.agents import AgentsAdapter, render_consumer, render_contributor
 from spec.core.ownership import FileChangedError, OwnershipManifest
 from spec.governance.project import ProjectGovernance
 
@@ -118,18 +118,18 @@ def test_agents_adapter_render_detects_contributor_vs_consumer(tmp_path: Path) -
 
 def test_claude_adapter_installs_and_uninstalls_reversibly(tmp_path: Path) -> None:
     ProjectGovernance(tmp_path).initialize()
-    adapter = ClaudeAdapter(tmp_path)
+    adapter = AgentsAdapter(tmp_path, agent="claude")
 
-    # 1. Install creates governance.md, AGENTS.md, and CLAUDE.md
+    # 1. Install creates governance.md, AGENTS.md and the skills, never CLAUDE.md
     res = adapter.install()
     assert res.created is True
     assert (tmp_path / ".spec/governance.md").exists()
     assert (tmp_path / "AGENTS.md").exists()
-    assert (tmp_path / "CLAUDE.md").exists()
-    assert "@AGENTS.md" in (tmp_path / "CLAUDE.md").read_text()
+    assert (tmp_path / ".claude/skills/spec-new/SKILL.md").exists()
+    assert not (tmp_path / "CLAUDE.md").exists()
 
     manifest = OwnershipManifest(tmp_path)
-    assert manifest.get("CLAUDE.md") is not None
+    assert manifest.get("CLAUDE.md") is None
     assert manifest.get(".spec/governance.md") is not None
 
     # 2. Uninstall cleanly removes all generated files
@@ -137,7 +137,5 @@ def test_claude_adapter_installs_and_uninstalls_reversibly(tmp_path: Path) -> No
     assert del_res.deleted is True
     assert not (tmp_path / ".spec/governance.md").exists()
     assert not (tmp_path / "AGENTS.md").exists()
-    assert not (tmp_path / "CLAUDE.md").exists()
-    manifest_after = OwnershipManifest(tmp_path)
-    assert manifest_after.get("CLAUDE.md") is None
-    assert manifest_after.get(".spec/governance.md") is None
+    assert not (tmp_path / ".claude/skills/spec-new/SKILL.md").exists()
+    assert OwnershipManifest(tmp_path).get(".spec/governance.md") is None

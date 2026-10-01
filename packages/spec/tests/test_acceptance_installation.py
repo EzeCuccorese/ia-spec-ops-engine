@@ -1,66 +1,48 @@
 from pathlib import Path
 
 import pytest
-from spec.agents import AgentsAdapter, ClaudeAdapter
+from spec.agents import AgentsAdapter
 from spec.cli import main
 from spec.core.ownership import FileChangedError, OwnershipManifest
 from spec.governance.project import ProjectGovernance
 
 
-def test_reinstall_preserves_existing_claude(tmp_path: Path) -> None:
-    """A01: Given a pre-existing CLAUDE.md with custom user text, installing the Claude adapter
-
-    twice must preserve the user text byte-for-byte, having exactly one <!-- spec:governance --> block.
+def test_install_never_touches_claude_md(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A01: AGENTS.md is the only instructions file. Installing the Claude adapter twice over a
+    pre-existing CLAUDE.md leaves it byte-for-byte untouched and unowned, and never writes it.
     """
     ProjectGovernance(tmp_path).initialize()
 
-    custom_user_text = (
-        "# User Claude Instructions\n\n"
-        "Custom rule 1: Do not modify user text.\n"
-        "Custom rule 2: Always follow TDD.\n"
-    )
+    custom_user_text = "# User Claude Instructions\n\nCustom rule 1: Do not modify user text.\n"
     claude_path = tmp_path / "CLAUDE.md"
     claude_path.write_text(custom_user_text, encoding="utf-8")
 
-    adapter = ClaudeAdapter(tmp_path)
+    orig_write_text = Path.write_text
 
-    # First installation
-    res1 = adapter.install()
-    assert res1.path == ".spec/governance.md"
-    content_after_first = claude_path.read_text(encoding="utf-8")
+    def guarded_write_text(self: Path, *args, **kwargs):
+        if self.name == "CLAUDE.md":
+            raise AssertionError("install must not write CLAUDE.md")
+        return orig_write_text(self, *args, **kwargs)
 
-    assert content_after_first.count("<!-- spec:governance -->") == 1
-    assert content_after_first.count("<!-- /spec:governance -->") == 1
-    assert custom_user_text in content_after_first
-    # Spec must not claim whole-file ownership of a file that had pre-existing user content
+    monkeypatch.setattr(Path, "write_text", guarded_write_text)
+    adapter = AgentsAdapter(tmp_path, agent="claude")
+    assert adapter.install().path == ".spec/governance.md"
+    assert adapter.install().path == ".spec/governance.md"
+
+    assert claude_path.read_text(encoding="utf-8") == custom_user_text
     assert OwnershipManifest(tmp_path).get("CLAUDE.md") is None
-
-    # Second installation (re-install)
-    res2 = adapter.install()
-    assert res2.path == ".spec/governance.md"
-    content_after_second = claude_path.read_text(encoding="utf-8")
-
-    # Byte-for-byte preservation across reinstalls
-    assert content_after_second == content_after_first
-    assert content_after_second.count("<!-- spec:governance -->") == 1
-    assert content_after_second.count("<!-- /spec:governance -->") == 1
-    assert custom_user_text in content_after_second
-    assert OwnershipManifest(tmp_path).get("CLAUDE.md") is None
+    assert "<!-- spec:governance -->" in (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
 
 
-def test_uninstall_preserves_modified_owned_block(tmp_path: Path) -> None:
-    """A02: If user edited inside the generated owned block before uninstall, uninstall must
-
-    report an explicit conflict or preserve the file, and NEVER unlink() the file when
-    FileChangedError occurs.
+def test_uninstall_preserves_modified_owned_block(tmp_path: Path, legacy_claude_md) -> None:
+    """A02: If user edited inside the owned block of a CLAUDE.md written by an earlier install,
+    uninstall must report an explicit conflict and NEVER unlink() the file.
     """
     ProjectGovernance(tmp_path).initialize()
 
-    adapter = ClaudeAdapter(tmp_path)
+    adapter = AgentsAdapter(tmp_path, agent="claude")
     adapter.install()
-
-    claude_path = tmp_path / "CLAUDE.md"
-    assert claude_path.exists()
+    claude_path = legacy_claude_md(tmp_path)
     assert OwnershipManifest(tmp_path).get("CLAUDE.md") is not None
 
     # User modifies content inside the generated owned block
@@ -86,133 +68,55 @@ def test_uninstall_preserves_modified_owned_block(tmp_path: Path) -> None:
 
 
 def test_uninstall_preserves_modified_block_in_preexisting_file(tmp_path: Path) -> None:
-    """A02b: If CLAUDE.md pre-existed (unowned) and user edited inside the spec block, uninstall
-
-    must raise FileChangedError and preserve the file and its modifications intact.
+    """A02b: If an unowned CLAUDE.md holds a spec block the user edited, uninstall must raise
+    FileChangedError and preserve the file and its modifications intact.
     """
     ProjectGovernance(tmp_path).initialize()
 
-    custom_text = "# Preexisting user instructions\n\nRule 1: Always verify.\n"
     claude_path = tmp_path / "CLAUDE.md"
-    claude_path.write_text(custom_text, encoding="utf-8")
-
-    adapter = ClaudeAdapter(tmp_path)
-    adapter.install()
-
-    # Verify not owned as whole file
-    assert OwnershipManifest(tmp_path).get("CLAUDE.md") is None
-    installed_content = claude_path.read_text(encoding="utf-8")
-    assert custom_text in installed_content
-    assert "<!-- spec:governance -->" in installed_content
-
-    # User modifies inside the block
-    modified_content = installed_content.replace(
-        "@AGENTS.md", "@AGENTS.md\n# User added note inside block"
+    modified_content = (
+        "# Preexisting user instructions\n\n"
+        "<!-- spec:governance -->\n@AGENTS.md\n# User added note inside block\n"
+        "<!-- /spec:governance -->\n"
     )
     claude_path.write_text(modified_content, encoding="utf-8")
+    assert OwnershipManifest(tmp_path).get("CLAUDE.md") is None
 
-    # Uninstall via Python API must raise FileChangedError
+    adapter = AgentsAdapter(tmp_path, agent="claude")
     with pytest.raises(FileChangedError):
         adapter.uninstall(dry_run=False)
-
-    assert claude_path.exists()
     assert claude_path.read_text(encoding="utf-8") == modified_content
 
     # Uninstall via CLI must exit non-zero and preserve file
     with pytest.raises(SystemExit) as exc:
         main(["agent", "uninstall", "claude", "--apply", "--root", str(tmp_path)])
     assert exc.value.code != 0
-    assert claude_path.exists()
     assert claude_path.read_text(encoding="utf-8") == modified_content
 
 
-def test_all_installs_and_removes_owned_bridges(tmp_path: Path) -> None:
-    """A03: Installing 'all' and 'claude' in either order must keep required bridges present
-
-    and uninstall must only remove owned blocks/files.
+def test_agents_and_claude_share_agents_md_in_either_order(tmp_path: Path) -> None:
+    """A03: Installing 'agents' and 'claude' in either order keeps one AGENTS.md block, never
+    creates CLAUDE.md, and uninstall only removes owned blocks/files.
     """
-    # Case 1: install 'all' then 'claude'
-    dir1 = tmp_path / "order1"
-    dir1.mkdir()
-    ProjectGovernance(dir1).initialize()
+    for order in (("agents", "claude"), ("claude", "agents")):
+        root = tmp_path / "-".join(order)
+        root.mkdir()
+        ProjectGovernance(root).initialize()
+        for agent in order:
+            AgentsAdapter(root, agent=agent).install()
+        agents_file = root / "AGENTS.md"
+        assert agents_file.read_text(encoding="utf-8").count("<!-- spec:governance -->") == 1
+        assert not (root / "CLAUDE.md").exists()
 
-    # Install 'all'
-    AgentsAdapter(dir1).install()
-    assert (dir1 / "AGENTS.md").exists()
-    assert not (dir1 / "CLAUDE.md").exists()
+        user_note = "# Custom Project Agents Note\n"
+        agents_file.write_text(
+            f"{user_note}\n{agents_file.read_text(encoding='utf-8')}", encoding="utf-8"
+        )
 
-    # Install 'claude'
-    ClaudeAdapter(dir1).install()
-    assert (dir1 / "AGENTS.md").exists()
-    assert (dir1 / "CLAUDE.md").exists()
-
-    # User adds custom notes to AGENTS.md
-    agents_file1 = dir1 / "AGENTS.md"
-    user_note = "# Custom Project Agents Note\n"
-    agents_file1.write_text(
-        f"{user_note}\n{agents_file1.read_text(encoding='utf-8')}", encoding="utf-8"
-    )
-
-    # Uninstall claude: removes owned CLAUDE.md file, but AGENTS.md retains user content!
-    ClaudeAdapter(dir1).uninstall(dry_run=False)
-    assert not (dir1 / "CLAUDE.md").exists()
-    assert agents_file1.exists()
-    assert user_note in agents_file1.read_text(encoding="utf-8")
-    assert "<!-- spec:governance -->" not in agents_file1.read_text(encoding="utf-8")
-
-    # Case 2: install 'claude' then 'all'
-    dir2 = tmp_path / "order2"
-    dir2.mkdir()
-    ProjectGovernance(dir2).initialize()
-
-    # Install 'claude'
-    ClaudeAdapter(dir2).install()
-    assert (dir2 / "AGENTS.md").exists()
-    assert (dir2 / "CLAUDE.md").exists()
-
-    # Install 'all' - keeps required CLAUDE.md bridge present!
-    AgentsAdapter(dir2).install()
-    assert (dir2 / "AGENTS.md").exists()
-    assert (dir2 / "CLAUDE.md").exists()
-
-    # Uninstall only removes owned files
-    ClaudeAdapter(dir2).uninstall(dry_run=False)
-    assert not (dir2 / "CLAUDE.md").exists()
-    assert not (dir2 / "AGENTS.md").exists()
-
-
-def test_install_failure_keeps_manifest_consistent(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A04: A write failure in one stage must not leave partial text appropriation
-
-    or an inconsistent/deceptive manifest.
-    """
-    ProjectGovernance(tmp_path).initialize()
-
-    custom_text = "# Important Pre-existing Claude Rules\nDo not overwrite or corrupt this!\n"
-    claude_path = tmp_path / "CLAUDE.md"
-    claude_path.write_text(custom_text, encoding="utf-8")
-
-    adapter = ClaudeAdapter(tmp_path)
-
-    orig_write_text = Path.write_text
-
-    def failing_write_text(self: Path, *args, **kwargs):
-        if self.name == "CLAUDE.md":
-            raise OSError("Simulated disk error while writing CLAUDE.md")
-        return orig_write_text(self, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "write_text", failing_write_text)
-    with pytest.raises(OSError, match="Simulated disk error"):
-        adapter.install()
-
-    # Manifest must NOT have a deceptive entry claiming ownership of CLAUDE.md
-    manifest = OwnershipManifest(tmp_path)
-    assert manifest.get("CLAUDE.md") is None
-
-    # Pre-existing file content must not be corrupted or partially appropriated
-    assert claude_path.read_text(encoding="utf-8") == custom_text
+        AgentsAdapter(root, agent="claude").uninstall(dry_run=False)
+        assert user_note in agents_file.read_text(encoding="utf-8")
+        assert "<!-- spec:governance -->" not in agents_file.read_text(encoding="utf-8")
+        assert not (root / ".claude" / "skills").exists()
 
 
 def test_module_blocks_coexist(tmp_path: Path) -> None:

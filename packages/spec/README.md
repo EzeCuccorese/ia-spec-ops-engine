@@ -79,7 +79,7 @@ packages/spec/
 | `.spec/specs/<feature-slug>/` | Feature artifacts: `spec.md`, `plan.md`, `tasks.md`, `work.md` | **Yes** (Human / Agent) |
 | `.spec/evidence/<feature-slug>/`| Immutable, append-only verification reports on disk | **No** (Sealed evidence) |
 | `AGENTS.md` | `<!-- spec:governance -->` block importing `.spec/governance.md`; the rest of the file is yours | Outside the block |
-| `CLAUDE.md` | Same block importing `AGENTS.md` (only for `spec agent install claude`) | Outside the block |
+| `CLAUDE.md` | Never written: `AGENTS.md` is the only instructions file, as in ai-governance (which moves any `CLAUDE.md` into it). `spec agent uninstall` still removes the block an earlier Spec install left there | Yes (not Spec's) |
 | `.agents/skills/spec-*/SKILL.md` | Bundled skills (`spec-new`, `spec-plan`, `spec-verify`, `spec-finish`); also copied to `.claude/skills/`, `.gemini/skills/` or `.codex/skills/` for `claude`, `antigravity` or `codex` | **No** |
 
 ---
@@ -202,7 +202,7 @@ Verifies that the latest recorded verification status was strictly `PASS` and se
 ---
 
 ### Clean Adapter Uninstallation
-To remove the adapter (the `AGENTS.md` block, `.spec/governance.md` and the skills) without touching unowned files:
+To remove the adapter (the `AGENTS.md` block, `.spec/governance.md`, the skills, and any `CLAUDE.md` block an earlier Spec install wrote) without touching unowned files:
 ```bash
 # Dry-run preview (default)
 spec agent uninstall

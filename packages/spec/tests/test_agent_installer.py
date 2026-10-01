@@ -25,15 +25,10 @@ def test_agent_install_single_claude(tmp_path: Path) -> None:
     assert agents_md.exists()
     assert "@.spec/governance.md" in agents_md.read_text(encoding="utf-8")
 
-    claude_md = tmp_path / "CLAUDE.md"
-    assert claude_md.exists()
-    claude_content = claude_md.read_text(encoding="utf-8")
-    assert "<!-- spec:governance -->" in claude_content
-    assert "@AGENTS.md" in claude_content
-    assert "<!-- /spec:governance -->" in claude_content
+    assert not (tmp_path / "CLAUDE.md").exists()
 
     manifest = OwnershipManifest(tmp_path)
-    assert manifest.get("CLAUDE.md") is not None
+    assert manifest.get("CLAUDE.md") is None
     assert (tmp_path / ".claude" / "skills" / "spec-new" / "SKILL.md").exists()
     assert (tmp_path / ".agents" / "skills" / "spec-new" / "SKILL.md").exists()
     assert manifest.get(".claude/skills/spec-new/SKILL.md") is not None
@@ -44,7 +39,6 @@ def test_agent_uninstall_single_claude(tmp_path: Path) -> None:
     with pytest.raises(SystemExit):
         main(["agent", "install", "claude", "--root", str(tmp_path)])
     assert (tmp_path / "AGENTS.md").exists()
-    assert (tmp_path / "CLAUDE.md").exists()
     assert (tmp_path / ".claude" / "skills" / "spec-new" / "SKILL.md").exists()
 
     with pytest.raises(SystemExit) as exc:
@@ -53,15 +47,35 @@ def test_agent_uninstall_single_claude(tmp_path: Path) -> None:
     assert not (tmp_path / "AGENTS.md").exists()
     assert not (tmp_path / "CLAUDE.md").exists()
     assert not (tmp_path / ".claude" / "skills" / "spec-new" / "SKILL.md").exists()
+
+
+@pytest.mark.parametrize("agent", ["claude", "agents"])
+def test_agent_uninstall_removes_claude_md_from_an_earlier_install(
+    agent: str, tmp_path: Path, legacy_claude_md
+) -> None:
+    ProjectGovernance(tmp_path).initialize()
+    with pytest.raises(SystemExit):
+        main(["agent", "install", agent, "--root", str(tmp_path)])
+    claude_md = legacy_claude_md(tmp_path)
+
+    with pytest.raises(SystemExit) as exc:
+        main(["agent", "uninstall", agent, "--root", str(tmp_path)])
+    assert exc.value.code == 0
+    assert claude_md.exists()
+
+    with pytest.raises(SystemExit) as exc:
+        main(["agent", "uninstall", agent, "--apply", "--root", str(tmp_path)])
+    assert exc.value.code == 0
+    assert not claude_md.exists()
     assert OwnershipManifest(tmp_path).get("CLAUDE.md") is None
 
 
-def test_agent_uninstall_claude_preserves_user_content(tmp_path: Path) -> None:
+def test_agent_uninstall_claude_preserves_user_content(tmp_path: Path, legacy_claude_md) -> None:
     ProjectGovernance(tmp_path).initialize()
     with pytest.raises(SystemExit):
         main(["agent", "install", "claude", "--root", str(tmp_path)])
 
-    claude_md = tmp_path / "CLAUDE.md"
+    claude_md = legacy_claude_md(tmp_path)
     custom_content = "# User Claude Instructions\nSome project notes."
     claude_md.write_text(f"{custom_content}\n\n{claude_md.read_text(encoding='utf-8')}")
 
@@ -293,14 +307,15 @@ def test_agent_uninstall_claude_without_prior_install(tmp_path: Path) -> None:
     assert not (tmp_path / "CLAUDE.md").exists()
 
 
-def test_agent_uninstall_claude_with_stale_manifest_record(tmp_path: Path) -> None:
+def test_agent_uninstall_claude_with_stale_manifest_record(
+    tmp_path: Path, legacy_claude_md
+) -> None:
     """CLAUDE.md was removed manually but the manifest still owns it."""
     ProjectGovernance(tmp_path).initialize()
     with pytest.raises(SystemExit):
         main(["agent", "install", "claude", "--root", str(tmp_path)])
 
-    claude_md = tmp_path / "CLAUDE.md"
-    assert claude_md.exists()
+    claude_md = legacy_claude_md(tmp_path)
     assert OwnershipManifest(tmp_path).get("CLAUDE.md") is not None
     claude_md.unlink()
 
@@ -308,42 +323,6 @@ def test_agent_uninstall_claude_with_stale_manifest_record(tmp_path: Path) -> No
         main(["agent", "uninstall", "claude", "--apply", "--root", str(tmp_path)])
     assert exc.value.code == 0
     assert OwnershipManifest(tmp_path).get("CLAUDE.md") is None
-
-
-def test_agent_install_claude_pointer_idempotent_reinstall(tmp_path: Path) -> None:
-    """Installing the claude pointer twice when it only holds the owned block."""
-    ProjectGovernance(tmp_path).initialize()
-    adapter = AgentsAdapter(tmp_path, agent="claude")
-    first = adapter.install_claude_pointer()
-    assert first.created
-
-    second = adapter.install_claude_pointer()
-    assert not second.created
-    claude_md = tmp_path / "CLAUDE.md"
-    content = claude_md.read_text(encoding="utf-8")
-    assert "<!-- spec:governance -->" in content
-
-
-def test_agent_install_claude_pointer_reclaims_ownership_with_user_content(
-    tmp_path: Path,
-) -> None:
-    """Reinstalling the claude pointer over owned content plus user edits."""
-    ProjectGovernance(tmp_path).initialize()
-    adapter = AgentsAdapter(tmp_path, agent="claude")
-    adapter.install_claude_pointer()
-
-    claude_md = tmp_path / "CLAUDE.md"
-    custom_content = "# My notes\nDo not delete this."
-    claude_md.write_text(
-        f"{custom_content}\n\n{claude_md.read_text(encoding='utf-8')}", encoding="utf-8"
-    )
-    assert OwnershipManifest(tmp_path).get("CLAUDE.md") is not None
-
-    result = adapter.install_claude_pointer()
-    assert not result.created
-    content = claude_md.read_text(encoding="utf-8")
-    assert custom_content in content
-    assert "<!-- spec:governance -->" in content
 
 
 def test_agent_uninstall_agents_markers_absent_leaves_agents_md(tmp_path: Path) -> None:
@@ -467,41 +446,6 @@ def test_agent_uninstall_agents_md_preserves_user_content(tmp_path: Path) -> Non
     assert custom_content in remaining
 
 
-def test_install_claude_pointer_reclaims_unowned_block_with_user_content(
-    tmp_path: Path,
-) -> None:
-    """CLAUDE.md manually seeded with block + custom text, never owned by spec."""
-    claude_md = tmp_path / "CLAUDE.md"
-    custom_content = "# Pre-existing notes"
-    claude_md.write_text(
-        f"{custom_content}\n<!-- spec:governance -->\n@AGENTS.md\n<!-- /spec:governance -->\n",
-        encoding="utf-8",
-    )
-    adapter = AgentsAdapter(tmp_path, agent="claude")
-    assert OwnershipManifest(tmp_path).get("CLAUDE.md") is None
-
-    result = adapter.install_claude_pointer()
-    assert not result.created
-    content = claude_md.read_text(encoding="utf-8")
-    assert custom_content in content
-    assert "<!-- spec:governance -->" in content
-
-
-def test_install_claude_pointer_appends_block_to_unmarked_existing_file(
-    tmp_path: Path,
-) -> None:
-    """CLAUDE.md pre-exists with plain content and no governance markers."""
-    claude_md = tmp_path / "CLAUDE.md"
-    claude_md.write_text("# Existing project instructions\n", encoding="utf-8")
-    adapter = AgentsAdapter(tmp_path, agent="claude")
-
-    result = adapter.install_claude_pointer()
-    assert not result.created
-    content = claude_md.read_text(encoding="utf-8")
-    assert "# Existing project instructions" in content
-    assert "<!-- spec:governance -->" in content
-
-
 def test_uninstall_claude_pointer_dry_run_unowned_block_only_content(
     tmp_path: Path,
 ) -> None:
@@ -517,13 +461,15 @@ def test_uninstall_claude_pointer_dry_run_unowned_block_only_content(
     assert claude_md.read_text(encoding="utf-8") == original
 
 
-def test_uninstall_claude_pointer_dry_run_preserves_user_content(tmp_path: Path) -> None:
+def test_uninstall_claude_pointer_dry_run_preserves_user_content(
+    tmp_path: Path, legacy_claude_md
+) -> None:
     """Dry-run uninstall with owned CLAUDE.md plus user edits changes nothing."""
     ProjectGovernance(tmp_path).initialize()
     with pytest.raises(SystemExit):
         main(["agent", "install", "claude", "--root", str(tmp_path)])
 
-    claude_md = tmp_path / "CLAUDE.md"
+    claude_md = legacy_claude_md(tmp_path)
     custom_content = "# Kept during dry run"
     original = f"{custom_content}\n\n{claude_md.read_text(encoding='utf-8')}"
     claude_md.write_text(original, encoding="utf-8")

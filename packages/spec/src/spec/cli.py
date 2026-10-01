@@ -287,7 +287,7 @@ def main(argv: list[str] | None = None) -> None:
             )
             raise SystemExit(0)
         if args.command == "agent" and args.agent_command == "install":
-            from spec.agents import AgentsAdapter, ClaudeAdapter
+            from spec.agents import AgentsAdapter
 
             if args.agent:
                 keys_to_install = [args.agent]
@@ -305,27 +305,15 @@ def main(argv: list[str] | None = None) -> None:
                     keys_to_install = ["agents"]
 
             for k in keys_to_install:
-                label = RECOGNIZED_AGENTS[k]
-                adapter_cls = ClaudeAdapter if k == "claude" else AgentsAdapter
-                adapter_instance = (
-                    adapter_cls(args.root, target=args.file, agent=k)
-                    if args.file
-                    else adapter_cls(args.root, agent=k)
-                )
-                res = adapter_instance.install()
-                print(f"Configured {label}: {res.path}")
+                res = AgentsAdapter(args.root, target=args.file, agent=k).install()
+                print(f"Configured {RECOGNIZED_AGENTS[k]}: {res.path}")
             raise SystemExit(0)
         if args.command == "agent" and args.agent_command == "uninstall":
-            from spec.agents import AgentsAdapter, ClaudeAdapter
+            from spec.agents import AgentsAdapter
 
             label = RECOGNIZED_AGENTS[args.agent]
-            adapter_cls = ClaudeAdapter if args.agent == "claude" else AgentsAdapter
-            adapter_instance = (
-                adapter_cls(args.root, target=args.file, agent=args.agent)
-                if args.file
-                else adapter_cls(args.root, agent=args.agent)
-            )
-            del_res = adapter_instance.uninstall(dry_run=not args.apply)
+            adapter = AgentsAdapter(args.root, target=args.file, agent=args.agent)
+            del_res = adapter.uninstall(dry_run=not args.apply)
             if not args.apply and del_res.would_delete:
                 print(f"Would delete owned adapter for {label}: {del_res.path}")
             elif args.apply:
