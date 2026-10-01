@@ -106,8 +106,10 @@ def sync_env_file(
     return 0
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Initializes or syncs variables in config/.env")
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        prog="ws env-init", description="Initializes or syncs variables in config/.env"
+    )
     parser.add_argument(
         "--force",
         action="store_true",
@@ -116,7 +118,7 @@ def main() -> None:
     parser.add_argument(
         "--check-only", action="store_true", help="Only check whether variables are missing"
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     root = find_project_root()
     env_example = root / "config" / ".env.example"

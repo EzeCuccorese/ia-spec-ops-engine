@@ -107,27 +107,33 @@ def create_workspace_structure(
     return workspace_dir
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Generates a multi-repository workspace.")
+def _parse_args(argv: list[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="ws generate", description="Generates a multi-repository workspace."
+    )
     parser.add_argument("name", nargs="?", help="Workspace name")
     parser.add_argument(
         "repos", nargs="*", help="Initial repositories (format repo or repo:parent or repo@branch)"
     )
-    args = parser.parse_args()
+    return parser.parse_args(argv)
 
-    root = find_project_root()
-    env_file = root / "config" / ".env"
-    env_vars = parse_dotenv(env_file)
+
+def _workspace_roots() -> tuple[Path, Path, Path]:
+    """Returns (toolkit_dir, workspaces_root, repos_root); creates workspaces_root."""
+    toolkit_dir = find_project_root()
+    env_vars = parse_dotenv(toolkit_dir / "config" / ".env")
     repos_dir_str = env_vars.get("AI_REPOSITORIES_DIR", os.environ.get("AI_REPOSITORIES_DIR", ""))
 
-    toolkit_dir = root
     dev_root = toolkit_dir.parent
     workspaces_root = dev_root / "workspaces"
     workspaces_root.mkdir(parents=True, exist_ok=True)
 
     repos_root = Path(repos_dir_str).resolve() if repos_dir_str else dev_root / "ai-repositories"
+    return toolkit_dir, workspaces_root, repos_root
 
-    workspace_name = args.name
+
+def _workspace_name(name: str | None, workspaces_root: Path) -> str:
+    workspace_name = name
     if not workspace_name:
         workspace_name = input(f"{Color.BOLD}Enter the new workspace name: {Color.RESET}").strip()
         if not workspace_name:
@@ -137,32 +143,45 @@ def main() -> None:
     if (workspaces_root / workspace_name).exists():
         log_error(f"Workspace '{workspace_name}' already exists.")
         sys.exit(1)
+    return workspace_name
 
-    repo_configs: list[RepoConfig] | None
+
+def _repo_config_from_arg(r_arg: str, workspace_name: str) -> RepoConfig:
+    """Parses `repo`, `repo:parent` or `repo@branch`."""
+    if "@" in r_arg:
+        rname, rbranch = r_arg.split("@", 1)
+        return RepoConfig(name=rname, mode="existing", branch=rbranch, parent=None)
+    if ":" in r_arg:
+        rname, rparent = r_arg.split(":", 1)
+        return RepoConfig(name=rname, mode="new", branch=workspace_name, parent=rparent)
+    return RepoConfig(name=r_arg, mode="new", branch=workspace_name, parent="main")
+
+
+def _select_repo_configs(
+    workspace_name: str, toolkit_dir: Path, repos_root: Path
+) -> tuple[list[RepoConfig], dict[str, Path]]:
+    selected = select_repos(toolkit_dir=toolkit_dir, repos_root=repos_root, show_toolkit=False)
+    if not selected:
+        log_warning("No repository was selected.")
+        sys.exit(0)
+    repo_paths = {name: repos_root / name for name in selected}
+    repo_configs = configure_repos(workspace_name, selected, repo_paths)
+    if not repo_configs:
+        log_warning("Configuration cancelled.")
+        sys.exit(0)
+    return repo_configs, repo_paths
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = _parse_args(argv)
+    toolkit_dir, workspaces_root, repos_root = _workspace_roots()
+    workspace_name = _workspace_name(args.name, workspaces_root)
+
     if args.repos:
-        repo_configs = []
-        repo_paths = {}
-        for r_arg in args.repos:
-            if "@" in r_arg:
-                rname, rbranch = r_arg.split("@", 1)
-                cfg = RepoConfig(name=rname, mode="existing", branch=rbranch, parent=None)
-            elif ":" in r_arg:
-                rname, rparent = r_arg.split(":", 1)
-                cfg = RepoConfig(name=rname, mode="new", branch=workspace_name, parent=rparent)
-            else:
-                cfg = RepoConfig(name=r_arg, mode="new", branch=workspace_name, parent="main")
-            repo_configs.append(cfg)
-            repo_paths[cfg.name] = repos_root / cfg.name
+        repo_configs = [_repo_config_from_arg(r_arg, workspace_name) for r_arg in args.repos]
+        repo_paths = {cfg.name: repos_root / cfg.name for cfg in repo_configs}
     else:
-        selected = select_repos(toolkit_dir=toolkit_dir, repos_root=repos_root, show_toolkit=False)
-        if not selected:
-            log_warning("No repository was selected.")
-            sys.exit(0)
-        repo_paths = {name: repos_root / name for name in selected}
-        repo_configs = configure_repos(workspace_name, selected, repo_paths)
-        if not repo_configs:
-            log_warning("Configuration cancelled.")
-            sys.exit(0)
+        repo_configs, repo_paths = _select_repo_configs(workspace_name, toolkit_dir, repos_root)
 
     create_workspace_structure(
         workspace_name=workspace_name,

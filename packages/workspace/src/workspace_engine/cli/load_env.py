@@ -52,9 +52,9 @@ def update_env_in_yaml(yaml_path: Path, services: list[str], key: str, value: st
         return False
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
-        description="Updates variables in GitOps or deployment YAML files."
+        prog="ws env-load", description="Updates variables in GitOps or deployment YAML files."
     )
     parser.add_argument("--envs", required=True, help="Environments (comma-separated)")
     parser.add_argument("--services", required=True, help="Services (comma-separated)")
@@ -64,7 +64,7 @@ def main() -> None:
         "--root", default=os.path.expanduser("~/projects/gitops/apps/apps"), help="Root directory"
     )
     parser.add_argument("--suffix", help="Optional suffix for values")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     envs = [e.strip() for e in args.envs.split(",")]
     services = [s.strip() for s in args.services.split(",")]

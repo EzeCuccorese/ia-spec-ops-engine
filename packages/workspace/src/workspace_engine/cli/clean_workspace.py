@@ -47,11 +47,11 @@ def clean_workspace(start_dir: Path | None = None) -> int:
     return 0
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
-        description="Cleans build artifacts and caches in the workspace."
+        prog="ws clean", description="Cleans build artifacts and caches in the workspace."
     )
-    parser.parse_args()
+    parser.parse_args(argv)
     sys.exit(clean_workspace())
 
 
