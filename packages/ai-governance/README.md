@@ -59,12 +59,15 @@ Claude Code user hooks (all through `ai-governance hook claude <event>`, fail-op
 Company-specific, always-on rules and scripts live in `packages/corporate-rules/<company>/` of
 the local checkout (gitignored, see its README; `AI_GOVERNANCE_CORPORATE_DIR` points
 elsewhere). Every pack present is installed by the regular `install --scope user`, with no flag;
-removing or swapping the folder and installing again removes or swaps its files.
+removing or swapping the folder and installing again removes or swaps its files. Rules are
+refreshed only for the agents named in that install: other installed agents keep the previous
+pack's rules until they are installed again.
 
 `rules/*.md` become `~/.claude/rules/ai-governance-<company>-<name>.md` (Claude Code) and
 `~/.gemini/config/rules/ai-governance-<company>-<name>.md` (Antigravity; Codex has a single
 global block, so it is skipped with a warning). `scripts/*` are linked into `~/.local/bin`
-(`AI_GOVERNANCE_BIN_DIR` overrides it) and removed with the last installed agent.
+(`AI_GOVERNANCE_BIN_DIR` overrides it) and removed with the last installed agent; when two packs
+ship a script with the same name, the first pack alphabetically wins and the install warns.
 
 State: `~/.local/state/ai-governance/` (ledger `installed.json`, progress, telemetry).
 Config: `~/.config/ai-governance/` (`frugal.json`, `atlassian.json`).

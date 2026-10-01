@@ -68,4 +68,5 @@ def load(name: str, root: Path | None = None) -> CorporatePack:
 
 
 def packs(root: Path | None = None) -> list[CorporatePack]:
-    return [load(name, root) for name in available(root)]
+    base = root or corporate_root()
+    return [CorporatePack(name, base / name) for name in available(base)]

@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 
 import pytest
 from ai_governance import corporate
 from ai_governance.install.cli import main as install_cli
-from ai_governance.install.installer import global_ledger, install_user, uninstall_user
+from ai_governance.install.installer import install_user, uninstall_user
 
 
 @pytest.fixture
@@ -109,20 +108,29 @@ def test_bin_dir_override(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert (home / "tools" / "acme-up").is_symlink()
 
 
-def test_ledgers_from_the_flag_era_are_adopted(home: Path) -> None:
-    install_user(["claude"])
-    path = home / "state" / "installed.json"
-    data = json.loads(path.read_text())
-    for entry in data["entries"]:
-        if "acme" in entry["path"]:
-            entry["agent"] = "corporate:acme"
-    data["corporate"] = {"acme": ["claude"]}
-    path.write_text(json.dumps(data))
+def _add_pack(pack_root: Path, name: str, script: str) -> None:
+    (pack_root / name / "rules").mkdir(parents=True)
+    (pack_root / name / "rules" / "glossary.md").write_text("# Glossary\n")
+    (pack_root / name / "scripts").mkdir()
+    (pack_root / name / "scripts" / script).write_text("#!/bin/sh\n")
 
-    uninstall_user(["claude"])
 
-    assert _pack_rules(home) == [] and not _script(home).exists()
-    assert "corporate" not in global_ledger().extra
+def test_agent_without_global_rules_warns_once_for_all_packs(home: Path, pack_root: Path) -> None:
+    _add_pack(pack_root, "globex", "globex-up")
+
+    report = install_user(["codex"])
+
+    codex = [warning for warning in report.warnings if "OpenAI Codex" in warning]
+    assert codex == ["OpenAI Codex has no per-file global rules: acme, globex rules skipped."]
+
+
+def test_script_name_clash_keeps_the_first_pack(home: Path, pack_root: Path) -> None:
+    _add_pack(pack_root, "globex", "acme-up")
+
+    report = install_user(["claude"])
+
+    assert "/acme/" in os.readlink(_script(home))
+    assert "Script acme-up of globex skipped: acme already provides it." in report.warnings
 
 
 def test_cli_installs_packs_with_a_plain_user_install(home: Path) -> None:
