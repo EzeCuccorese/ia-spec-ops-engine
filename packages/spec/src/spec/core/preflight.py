@@ -178,6 +178,19 @@ class PreflightManager:
             checks_passed=passed_count,
         )
 
+    def has_tracked_changes(self) -> bool:
+        """Reports staged or unstaged edits to tracked files; untracked files do not count."""
+        code, status_out, _ = self._run_git("status", "--porcelain", "--untracked-files=no")
+        return code == 0 and bool(status_out)
+
+    def switch_branch(self, branch: str, base_branch: str) -> None:
+        """Switches the current checkout to the branch, creating it from the base if missing."""
+        code, _, _ = self._run_git("rev-parse", "--verify", "--quiet", f"refs/heads/{branch}")
+        switch_args = ("switch", branch) if code == 0 else ("switch", "-c", branch, base_branch)
+        code, stdout, stderr = self._run_git(*switch_args)
+        if code != 0:
+            raise PreflightError(f"Failed to switch to branch '{branch}': {stderr or stdout}")
+
     def provision_worktree(self, branch: str, base_branch: str) -> Path:
         """Provisions an isolated Git Worktree and links local dependency/config caches."""
         sanitized = branch.replace("/", "-")
@@ -249,6 +262,11 @@ class PreflightManager:
         branch_info = self.resolve_branches()
         base = base_branch or branch_info.current_branch
         target_branch = branch or f"feature/{name.lower().replace(' ', '-')}"
+        if not use_worktree and self.has_tracked_changes():
+            return {
+                "status": "FAIL",
+                "error": f"Working tree has uncommitted changes; commit or stash them before preflight switches to '{target_branch}'",
+            }
 
         # 2. Sync base branch
         self.sync_base_branch(base)
@@ -291,8 +309,15 @@ class PreflightManager:
                 "baseline": baseline.status,
             }
 
-        # 4. Provision worktree or use current directory
-        target_root = self.provision_worktree(target_branch, base) if use_worktree else self.root
+        # 4. Provision worktree or switch the current checkout to the feature branch
+        if use_worktree:
+            target_root = self.provision_worktree(target_branch, base)
+        else:
+            try:
+                self.switch_branch(target_branch, base)
+            except PreflightError as exc:
+                return {"status": "FAIL", "error": str(exc), "baseline": baseline.status}
+            target_root = self.root
 
         # 5. Initialize spec inside target root
         workflow = Workflow(target_root)

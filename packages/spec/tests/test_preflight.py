@@ -576,5 +576,82 @@ def test_run_falls_back_to_root_when_base_branch_worktree_add_fails(tmp_path: Pa
     mgr = PreflightManager(repo_dir)
     result = mgr.run("Ghost Base Feature", base_branch="ghost-branch", use_worktree=False)
 
+    assert result["status"] == "FAIL"
+    assert "feature/ghost-base-feature" in result["error"]
+    assert result["baseline"] == "PASS"
+    assert not (repo_dir / ".spec" / "specs" / "ghost-base-feature").exists()
+
+
+def _passing_repo(tmp_path: Path) -> Path:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    _init_git_repo(repo_dir)
+    ProjectGovernance(repo_dir).initialize()
+    v_config = {
+        "schema_version": 1,
+        "checks": [{"id": "passing-check", "command": ["true"], "required": True}],
+    }
+    (repo_dir / ".spec" / "verification.json").write_text(json.dumps(v_config), encoding="utf-8")
+    return repo_dir
+
+
+def _current_branch(repo_dir: Path) -> str:
+    return subprocess.run(
+        ["git", "-C", str(repo_dir), "branch", "--show-current"],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=_git_env(),
+    ).stdout.strip()
+
+
+def test_run_without_worktree_creates_and_switches_to_feature_branch(tmp_path: Path) -> None:
+    repo_dir = _passing_repo(tmp_path)
+
+    result = PreflightManager(repo_dir).run("Local Feature", use_worktree=False)
+
     assert result["status"] == "READY"
-    assert result["base_branch"] == "ghost-branch"
+    assert result["branch"] == "feature/local-feature"
+    assert _current_branch(repo_dir) == "feature/local-feature"
+
+
+def test_run_without_worktree_creates_branch_from_selected_base(tmp_path: Path) -> None:
+    repo_dir = _passing_repo(tmp_path)
+    subprocess.run(["git", "-C", str(repo_dir), "branch", "other"], check=True, env=_git_env())
+    (repo_dir / "main-only.txt").write_text("main", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo_dir), "add", "."], check=True, env=_git_env())
+    subprocess.run(
+        ["git", "-C", str(repo_dir), "commit", "-qm", "main only"], check=True, env=_git_env()
+    )
+
+    result = PreflightManager(repo_dir).run("Based", base_branch="other", use_worktree=False)
+
+    assert result["status"] == "READY"
+    assert _current_branch(repo_dir) == "feature/based"
+    assert not (repo_dir / "main-only.txt").exists()
+
+
+def test_run_without_worktree_switches_to_existing_branch(tmp_path: Path) -> None:
+    repo_dir = _passing_repo(tmp_path)
+    subprocess.run(
+        ["git", "-C", str(repo_dir), "branch", "feature/again"], check=True, env=_git_env()
+    )
+
+    result = PreflightManager(repo_dir).run("Again", use_worktree=False)
+
+    assert result["status"] == "READY"
+    assert _current_branch(repo_dir) == "feature/again"
+
+
+def test_run_without_worktree_fails_on_dirty_tree(tmp_path: Path) -> None:
+    repo_dir = _passing_repo(tmp_path)
+    (repo_dir / "README.md").write_text("uncommitted edit", encoding="utf-8")
+
+    result = PreflightManager(repo_dir).run("Dirty Feature", use_worktree=False)
+
+    assert result["status"] == "FAIL"
+    assert "uncommitted changes" in result["error"]
+    assert "feature/dirty-feature" in result["error"]
+    assert _current_branch(repo_dir) == "main"
+    assert not (repo_dir / ".spec" / "specs" / "dirty-feature").exists()
+    assert not (repo_dir / ".spec" / "evidence" / "preflight").exists()
