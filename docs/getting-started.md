@@ -18,7 +18,7 @@ restores what was there before.
 | Tool | Why | Check |
 |---|---|---|
 | `uv` | Installs both CLIs in isolated environments | `uv --version` |
-| Git with config-based hooks | The quality gate uses `hook.<name>.command` | `git hook list pre-push` must not say "unknown command" |
+| Git with config-based hooks | The quality gate uses `hook.<name>.command` | Inside any repository, `git hook list pre-push` must not fail with "unknown subcommand" |
 | `jq` (optional) | Only to inspect JSON files in this guide | `jq --version` |
 | `gitleaks` (optional) | Secret scanning in pre-commit/pre-push | `gitleaks version` |
 
@@ -34,6 +34,9 @@ ws --help
 - **What it does**: installs two binaries in `~/.local/bin`: `ai-governance` and `ws`.
 - **Expect**: both `--help` outputs list their subcommands.
 - Nothing is configured yet for any agent.
+- If you will use company packs (step 2), install `ai-governance` with
+  `uv tool install --editable ./packages/ai-governance` instead: packs are read from the
+  checkout.
 
 ## 2. User scope (global) for one agent
 
@@ -49,7 +52,7 @@ What gets written for Claude Code:
 |---|---|---|
 | `~/.claude/rules/ai-governance.md` | ≤1 KB of global instructions: prefer `ws`/`ai-governance` tools, frugal reads, delegation to `scout` | Yes, every session |
 | `~/.claude/agents/scout.md` | Read-only subagent on `sonnet`, effort `medium`, for exploration, reading, summaries and web research | Only its name and description |
-| `~/.claude/skills/progress/SKILL.md` | How to use the progress tracker | Only its name and description |
+| `~/.claude/skills/{progress,test-audit}/SKILL.md` | How to use the progress tracker; how to write and prune tests | Only their names and descriptions |
 | `~/.claude/settings.json` (merged) | Five hooks: `PreToolUse`/`PostToolUse` (Bash), `Stop`, `SessionStart`, `SessionEnd`, all as `ai-governance hook claude <event>` | Only what each hook returns (see below) |
 | `~/.local/state/ai-governance/installed.json` | Ownership ledger and the list of projects you install | No |
 
@@ -61,12 +64,19 @@ What each Claude hook does:
 | PostToolUse (Bash) | Output over 4,000 characters is replaced by a `ws condense` summary (about 600 tokens). The full text is kept and read with `ws log <id>`. Diffs and explicit file reads are never condensed |
 | SessionStart | Injects up to 400 characters about the task bound to this repository/branch |
 | SessionEnd | Appends branch, HEAD and the number of uncommitted files to that task's log |
-| Stop | Spend threshold alerts through a macOS notification; nothing reaches the model |
+| Stop | Evaluates spend thresholds; a macOS notification only with `"notify_macos": true` in `~/.local/state/ai-governance/telemetry/config.json`. Nothing reaches the model |
 
 Other agents (`--agent codex`, `--agent antigravity`) get the same pieces in their own
 locations; run `ai-governance agents` for the matrix. Codex also gets
-`agents.default_subagent_model = "terra"` in a marked block at the top of
-`~/.codex/config.toml`. Their output hooks are only installed after step 8 verifies them.
+`agents.default_subagent_model = "terra"` and `agents.default_subagent_reasoning_effort =
+"medium"` in a marked block at the top of `~/.codex/config.toml`. Their output hooks are only
+installed after step 8 verifies them.
+
+**Company packs (optional)**: every folder under `packages/corporate-rules/<company>/` (or
+under `AI_GOVERNANCE_CORPORATE_DIR`) is installed by this same command: its `rules/*.md` become
+always-on rules for Claude Code and Antigravity, and its `scripts/*` are linked into
+`~/.local/bin`. Pass every agent you use in one install, because only the named agents get
+their pack rules refreshed. See [packages/corporate-rules/README.md](../packages/corporate-rules/README.md).
 
 **Check**:
 
@@ -88,7 +98,7 @@ git init -q
 echo '<project/>' > pom.xml && touch src/main/java/App.java
 echo "Use tabs." > CLAUDE.md
 ws detect                                        # → java
-ai-governance install --scope project --agent claude --agent antigravity
+ai-governance install --scope project --agent claude --agent antigravity   # --scope project is the default
 ```
 
 - **Stack detection**: `ws detect` reads marker files (`pom.xml`, `package.json`,
@@ -136,26 +146,20 @@ refreshes content from the installed package version. A rule you edited by hand 
 reported. After upgrading the package, `ai-governance update --all` refreshes every
 registered project.
 
-## Profiles
+## Profiles (optional)
 
-Most rules are automatic: they apply as soon as their stack or path is detected. Three groups
-are opt-in instead, because they only make sense for some architectures:
-
-- `architecture` — Clean/hexagonal architecture, DDD, refactoring and strangler fig
-  (`02-clean-architecture-hexagonal`, `03-ddd-domain-modeling`, `10-refactoring-strangler`).
-- `distributed` — event-driven architecture, resilience and concurrency
-  (`07-event-driven-architecture`, `08-resilience-fault-tolerance`, `09-concurrency-locking`).
-- `api` — API design and observability (`api-design`, `observability`).
+Most rules apply as soon as their stack or path is detected. Three groups are opt-in because
+they only make sense for some architectures: `architecture`, `distributed` and `api`.
 
 ```bash
+cd /tmp/gov-demo || return
 ai-governance rules profiles                     # list profiles and the rules each enables
 ai-governance install --scope project --profile architecture
 ai-governance uninstall --scope project --profile architecture   # keeps agents, drops the rules
 ```
 
-`ai-governance update` re-selects rules from the enabled profiles; if a profile is disabled
-(edited out of `.ai-governance/config.toml` by hand, or removed with `--profile`), the rules it
-had installed are removed and the report tells you which ones and how to re-enable it.
+`ai-governance update` removes the rules of a profile that is no longer enabled and tells you
+how to re-enable it. Details: [packages/ai-governance/README.md](../packages/ai-governance/README.md#profiles).
 
 ## 5. Condensed output and Git hooks with `ws`
 
@@ -173,6 +177,7 @@ output privately (0600, kept 7 days / 200 logs).
 cd /tmp/gov-demo || return
 ws hooks install                                  # registers three config-based hooks in .git/config
 git add -A && git commit -qm "chore(demo): init" && echo "commit OK"
+git config workspace.commitStyle conventional    # Conventional Commits are opt-in per repository
 git commit --allow-empty -m "anything" || echo "rejected by commit-msg"
 ws check --changed --cache                       # the gate on demand; skipped if the tree is unchanged
                                                  # (the demo has a pom.xml: without Maven the test stage fails, which is expected)
@@ -181,8 +186,8 @@ ws check --changed --cache                       # the gate on demand; skipped i
 | Hook | Event | Checks |
 |---|---|---|
 | `workspace-pre-commit` | pre-commit | `gitleaks protect --staged` (skipped without gitleaks) |
-| `workspace-commit-msg` | commit-msg | Conventional Commits subject, ≤100 characters |
-| `workspace-gate` | pre-push | Secrets, commit policies, linters, design limits, tests |
+| `workspace-commit-msg` | commit-msg | Conventional Commits subject, ≤100 characters (only with `workspace.commitStyle conventional`) |
+| `workspace-gate` | pre-push | Protected branches, secrets, commit policies, linters, design limits, tests |
 
 They are registered with `git config hook.<name>.*`, never `core.hooksPath`: Git runs them
 first and the repository's own hooks (`.git/hooks`, Husky) afterwards. `ws hooks install
@@ -191,51 +196,27 @@ first and the repository's own hooks (`.git/hooks`, Husky) afterwards. `ws hooks
 ### Design limits (`ws design`)
 
 ```bash
-ws design --changed --json           # per-function complexity/length/args/nesting, versioned contract
-ws design --focus path/to/file.py:42 # surgical brief for the function at that line
+cd /tmp/gov-demo || return
+ws design --changed --json            # per-function complexity/length/args/nesting, versioned contract
 ```
 
-Deterministic, via lizard: Java, JS/TS/TSX/JSX, Python,
-Go, Kotlin, C#, PHP, Rust, Swift, Scala, Ruby, C/C++ and more — Dart is not supported. Limits
-and `mode` (`block`/`warn`/`off`) live in the optional `[design]` table of
-`.ai-governance/config.toml`. The rule is a ratchet: legacy code must not get worse, new code
-must be clean. With `--changed`/`--files-from`, each function is compared with the merge-base:
-a function that did not exist there (new, renamed, moved) must meet the limits and blocks;
-legacy functions never block, but a touched one that got worse is reported first with its base
-value (`length 120 > 40 (was 118, +2)`) and `ws design --focus <path:line>` gives a
-one-function-at-a-time brief instead of a rewrite. Untouched legacy is one summary line
-(`--verbose` lists it). A full scan without scope is an audit: everything is a warning. See
-`packages/workspace/README.md` for the full reference.
+`ws design --focus <path>:<line>` prints a surgical brief for the function at that line.
 
-It also runs three hygiene checks by default — `empty-catch` (swallowed exceptions:
-`catch { }`, Python `except: pass`, Go `if err != nil { }`, Rust `Err(_) => {}`),
-`todo-ticket` (a `TODO`/`FIXME`/`XXX` comment with no ticket reference) and
-`commented-code` (runs of commented-out code) — toggled via `[design].checks` in
-`.ai-governance/config.toml`.
-
-On test files only it also runs five junk-test checks: `test-no-assert` (a test with no
-assertion), `test-trivial-assert` (an assertion that can never fail), `test-mock-only`
-(only mock calls are asserted), `test-sleep` (a real sleep) and `test-duplicate` (a body
-repeated in the same file). Disable any of them by leaving it out of `[design].checks`,
-for example `checks = ["complexity", "length", "args", "nesting"]` turns off all hygiene
-and junk-test checks.
-
-When the ai-governance `architecture` profile is enabled (`profiles = ["architecture"]`) and
-`[design.layers]` is configured, `ws design` also checks layer boundaries: an inner layer
-(e.g. `domain`) importing an outer one (e.g. `adapters`) is a violation, via a deterministic
-import scanner (no external tools) — no `[design.layers]` with the profile on just prints a
-one-line note and passes.
-
-In `workspace-gate`, the design stage always runs scoped to the files in the push
-(`ws design --files-from <pushed files>`), regardless of `QG_SCOPE` — it judges new code, so
-scoping never widens or shrinks. Skip it for one push with `QG_SKIP=design git push`.
+`ws design` measures every function (via lizard) plus line-based hygiene and junk-test checks.
+It is a ratchet: with `--changed` or `--files-from`, new functions must meet the limits and
+block; legacy functions never block, but a touched one that got worse is reported with its
+base value. Limits, `mode` (`block`/`warn`/`off`) and the enabled checks live in the optional
+`[design]` table of `.ai-governance/config.toml`; with the `architecture` profile,
+`[design.layers]` adds layer-boundary checks. The pre-push gate always runs it scoped to the
+pushed files; skip it for one push with `QG_SKIP=design git push`. Full reference:
+[packages/workspace/README.md](../packages/workspace/README.md#design-limits-ws-design).
 
 ## 6. Health checks
 
 ```bash
 cd /tmp/gov-demo || return
 ai-governance doctor
-echo '{}' > .agents/settings.json && ai-governance doctor | grep gemini     # Antigravity no longer reads it
+echo '{}' > .agents/settings.json && ai-governance doctor | grep gemini     # warns: Antigravity reads .gemini/config.json
 rm .agents/settings.json
 ```
 

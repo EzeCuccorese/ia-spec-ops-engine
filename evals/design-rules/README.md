@@ -7,7 +7,7 @@ rules still help once a deterministic Stop-hook gate is in place.
 
 This eval directory is standalone — it is not part of any installable
 package and is not collected by the repo's pytest (`testpaths` in the root
-`pyproject.toml` only points at `packages/*/tests`).
+`pyproject.toml` does not include `evals/`).
 
 ## Layout
 
@@ -25,7 +25,8 @@ package and is not collected by the repo's pytest (`testpaths` in the root
   behavior-only task specs.
 - `run.py`: orchestrates task x condition x repetition runs.
 - `mutate.py`: stdlib mutation step used by `run.py` (see Test-guidance conditions).
-- `summarize.py`: turns `results/results.csv` into `results/summary.md`.
+- `summarize.py`: turns `results/results.csv` into `results/summary.md` and
+  `results/tests-summary.md` (and prints the summary).
 
 ## Conditions
 
@@ -51,9 +52,12 @@ uv run python evals/design-rules/run.py --reps 3
 uv run python evals/design-rules/summarize.py
 ```
 
-Flags: `--tasks` (comma-separated, default all three), `--conditions`
-(comma-separated, default all four), `--reps` (default 1), `--model`
-(default the exact id `claude-sonnet-5-5`), `--dry-run`.
+Flags: `--tasks` (comma-separated: `discounts`, `csv_import`,
+`payment_client`; default all three), `--conditions` (comma-separated, default
+the four design conditions), `--reps` (default 1), `--model` (default the
+exact id `claude-sonnet-5-5`), `--dry-run`, `--missing-only` (skip
+task/condition/rep combinations that already have a valid row in
+`results/results.csv`).
 
 **Cost warning**: each run is a real `claude -p ... --model claude-sonnet-5-5` call
 against a nontrivial coding task (writing a new module + tests). The full
