@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from spec import __version__
+from spec.agents import RECOGNIZED_AGENTS
 from spec.core.ownership import OwnershipError
 from spec.core.paths import PathBoundary
 from spec.core.result import CheckStatus
@@ -44,7 +45,8 @@ def build_parser() -> argparse.ArgumentParser:
         "agent",
         nargs="?",
         default=None,
-        help="Agent to install (agents, antigravity, claude, cursor, windsurf, aider, copilot, gemini, custom, all)",
+        choices=RECOGNIZED_AGENTS,
+        help="Agent to install (default: agents)",
     )
     agent_install.add_argument("--root", type=Path, default=Path.cwd())
     agent_install.add_argument(
@@ -62,8 +64,9 @@ def build_parser() -> argparse.ArgumentParser:
     agent_uninstall.add_argument(
         "agent",
         nargs="?",
-        default=None,
-        help="Agent to uninstall (agents, antigravity, claude, cursor, windsurf, aider, copilot, gemini, custom, all)",
+        default="agents",
+        choices=RECOGNIZED_AGENTS,
+        help="Agent to uninstall (default: agents)",
     )
     agent_uninstall.add_argument("--root", type=Path, default=Path.cwd())
     agent_uninstall.add_argument(
@@ -284,21 +287,10 @@ def main(argv: list[str] | None = None) -> None:
             )
             raise SystemExit(0)
         if args.command == "agent" and args.agent_command == "install":
-            from spec.agents import RECOGNIZED_AGENTS, AgentsAdapter, ClaudeAdapter
+            from spec.agents import AgentsAdapter, ClaudeAdapter
 
             if args.agent:
-                target_agent = args.agent.strip().lower()
-                if target_agent == "all":
-                    keys_to_install = ["agents"]
-                elif target_agent in RECOGNIZED_AGENTS:
-                    keys_to_install = [target_agent]
-                else:
-                    valid_keys = ", ".join(RECOGNIZED_AGENTS.keys())
-                    print(
-                        f"error: Unknown agent '{args.agent}'. Choose from: {valid_keys}, all",
-                        file=sys.stderr,
-                    )
-                    raise SystemExit(1)
+                keys_to_install = [args.agent]
             else:
                 if sys.stdin.isatty() and not args.yes:
                     from spec.core.tui import select_multiple
@@ -324,37 +316,20 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"Configured {label}: {res.path}")
             raise SystemExit(0)
         if args.command == "agent" and args.agent_command == "uninstall":
-            from spec.agents import RECOGNIZED_AGENTS, AgentsAdapter, ClaudeAdapter
+            from spec.agents import AgentsAdapter, ClaudeAdapter
 
-            if args.agent:
-                target_agent = args.agent.strip().lower()
-                if target_agent == "all":
-                    keys_to_uninstall = ["agents"]
-                elif target_agent in RECOGNIZED_AGENTS:
-                    keys_to_uninstall = [target_agent]
-                else:
-                    valid_keys = ", ".join(RECOGNIZED_AGENTS.keys())
-                    print(
-                        f"error: Unknown agent '{args.agent}'. Choose from: {valid_keys}, all",
-                        file=sys.stderr,
-                    )
-                    raise SystemExit(1)
-            else:
-                keys_to_uninstall = ["agents"]
-
-            for k in keys_to_uninstall:
-                label = RECOGNIZED_AGENTS[k]
-                adapter_cls = ClaudeAdapter if k == "claude" else AgentsAdapter
-                adapter_instance = (
-                    adapter_cls(args.root, target=args.file, agent=k)
-                    if args.file
-                    else adapter_cls(args.root, agent=k)
-                )
-                del_res = adapter_instance.uninstall(dry_run=not args.apply)
-                if not args.apply and del_res.would_delete:
-                    print(f"Would delete owned adapter for {label}: {del_res.path}")
-                elif args.apply:
-                    print(f"Cleaned adapter for {label}")
+            label = RECOGNIZED_AGENTS[args.agent]
+            adapter_cls = ClaudeAdapter if args.agent == "claude" else AgentsAdapter
+            adapter_instance = (
+                adapter_cls(args.root, target=args.file, agent=args.agent)
+                if args.file
+                else adapter_cls(args.root, agent=args.agent)
+            )
+            del_res = adapter_instance.uninstall(dry_run=not args.apply)
+            if not args.apply and del_res.would_delete:
+                print(f"Would delete owned adapter for {label}: {del_res.path}")
+            elif args.apply:
+                print(f"Cleaned adapter for {label}")
             raise SystemExit(0)
         if args.command == "preflight":
             from spec.core.preflight import PreflightManager

@@ -99,9 +99,10 @@ spec init --root /path/to/project
 spec agent install --root /path/to/project --yes
 ```
 
-`spec agent install [agent]` accepts `agents` (default), `antigravity`, `claude`, `codex`,
-`cursor`, `windsurf`, `aider`, `copilot`, `gemini`, `custom` or `all` (`all` installs the same
-as `agents`); `--file` changes the target file for `custom`, and `--yes` skips prompts.
+`spec agent install [agent]` accepts one of `agents` (default), `antigravity`, `claude`,
+`cursor`, `windsurf`, `aider`, `copilot`, `gemini`, `codex` or `custom` (`spec agent install --help`
+lists them); an agent with its own skills folder (`claude`, `antigravity`, `codex`) gets it only
+when named. `--file` changes the target file for `custom`, and `--yes` skips prompts.
 
 ---
 

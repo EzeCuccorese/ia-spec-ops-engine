@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from spec.agents import RECOGNIZED_AGENTS
 from spec.cli import main, run_doctor, run_verify
 from spec.core.result import CheckStatus
 from spec.governance.project import ProjectGovernance
@@ -309,17 +310,23 @@ def test_agent_install_interactive_tui_selection(tmp_path: Path, monkeypatch) ->
 def test_agent_uninstall_unknown_agent_raises(tmp_path: Path) -> None:
     with pytest.raises(SystemExit) as exc:
         main(["agent", "uninstall", "nonexistent_ai", "--root", str(tmp_path)])
-    assert exc.value.code == 1
+    assert exc.value.code == 2
 
 
-def test_agent_uninstall_all_target(tmp_path: Path) -> None:
-    ProjectGovernance(tmp_path).initialize()
+@pytest.mark.parametrize("command", ["install", "uninstall"])
+def test_agent_help_and_choices_list_every_recognized_agent(command: str, capsys) -> None:
     with pytest.raises(SystemExit):
-        main(["agent", "install", "agents", "--root", str(tmp_path)])
+        main(["agent", command, "--help"])
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "{" + ",".join(RECOGNIZED_AGENTS) + "}" in help_text
+    assert "codex" in help_text
 
+
+@pytest.mark.parametrize("command", ["install", "uninstall"])
+def test_agent_all_is_not_an_agent(command: str, tmp_path: Path) -> None:
     with pytest.raises(SystemExit) as exc:
-        main(["agent", "uninstall", "all", "--apply", "--root", str(tmp_path)])
-    assert exc.value.code == 0
+        main(["agent", command, "all", "--root", str(tmp_path)])
+    assert exc.value.code == 2
     assert not (tmp_path / "AGENTS.md").exists()
 
 

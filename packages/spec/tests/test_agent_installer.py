@@ -145,21 +145,6 @@ def test_agent_install_custom_file(tmp_path: Path) -> None:
     assert "@.spec/governance.md" in custom_file.read_text(encoding="utf-8")
 
 
-def test_agent_install_all(tmp_path: Path) -> None:
-    ProjectGovernance(tmp_path).initialize()
-    with pytest.raises(SystemExit) as exc:
-        main(["agent", "install", "all", "--root", str(tmp_path)])
-    assert exc.value.code == 0
-
-    assert (tmp_path / "AGENTS.md").exists()
-    assert not (tmp_path / "CLAUDE.md").exists()
-    assert not (tmp_path / ".cursorrules").exists()
-    assert not (tmp_path / ".windsurfrules").exists()
-    assert not (tmp_path / ".aider.conf.yml").exists()
-    assert not (tmp_path / ".github/copilot-instructions.md").exists()
-    assert not (tmp_path / "GEMINI.md").exists()
-
-
 def test_agent_install_single_copilot(tmp_path: Path) -> None:
     ProjectGovernance(tmp_path).initialize()
     with pytest.raises(SystemExit) as exc:
@@ -212,7 +197,7 @@ def test_agent_install_unknown_raises(tmp_path: Path) -> None:
     ProjectGovernance(tmp_path).initialize()
     with pytest.raises(SystemExit) as exc:
         main(["agent", "install", "nonexistent_ai", "--root", str(tmp_path)])
-    assert exc.value.code == 1
+    assert exc.value.code == 2
 
 
 def test_agent_install_agents_default(tmp_path: Path) -> None:
