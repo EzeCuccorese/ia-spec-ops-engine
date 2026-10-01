@@ -50,7 +50,10 @@ def _emit(report: Report, *, dry_run: bool) -> None:
 
 def _add_common(parser: argparse.ArgumentParser, *, agent_required: bool = False) -> None:
     parser.add_argument(
-        "--scope", choices=("user", "project"), default="project", help="Where to install"
+        "--scope",
+        choices=("user", "project"),
+        default="project",
+        help="Where to install or uninstall from",
     )
     parser.add_argument(
         "--agent",
