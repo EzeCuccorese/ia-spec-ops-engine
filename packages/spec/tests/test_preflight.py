@@ -151,6 +151,14 @@ def test_cli_preflight_command(tmp_path: Path, capsys) -> None:
     assert payload["baseline"] == "PASS"
 
 
+def test_cli_preflight_has_no_worktree_flag(tmp_path: Path, capsys) -> None:
+    """A worktree is the default; only --no-worktree changes it."""
+    with pytest.raises(SystemExit) as exc:
+        main(["preflight", "Flag Feature", "--worktree", "--root", str(tmp_path)])
+    assert exc.value.code == 2
+    assert "--worktree" in capsys.readouterr().err
+
+
 def test_cli_preflight_command_rejects_empty_checks(tmp_path: Path, capsys) -> None:
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()

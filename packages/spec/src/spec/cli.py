@@ -87,10 +87,10 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--from", dest="from_branch", default=None, help="Base branch")
     preflight.add_argument("--branch", default=None, help="Target feature branch")
     preflight.add_argument(
-        "--worktree", action="store_true", default=True, help="Provision isolated Git Worktree"
-    )
-    preflight.add_argument(
-        "--no-worktree", dest="worktree", action="store_false", help="Do not provision worktree"
+        "--no-worktree",
+        dest="worktree",
+        action="store_false",
+        help="Work in the current directory instead of a new Git worktree",
     )
     preflight.add_argument("--description", default="", help="Feature description")
     preflight.add_argument("--root", type=Path, default=Path.cwd())
