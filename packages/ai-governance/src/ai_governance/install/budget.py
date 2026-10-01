@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .engine import END, START, Ledger
+from .installer import installed_agents
 
 BYTES_PER_TOKEN = 4
 
@@ -28,9 +29,10 @@ def _block(text: str) -> str:
 def fixed_cost(ledger: Ledger) -> dict[str, int]:
     """Bytes per agent that load at session start (rules without path scoping + blocks)."""
     totals: dict[str, int] = {}
+    agents = installed_agents(ledger)
     for entry in ledger.entries:
         path = ledger.resolve(entry["path"])
-        if not path.is_file() or entry["kind"] == "hooks":
+        if entry["agent"] not in agents or not path.is_file() or entry["kind"] == "hooks":
             continue
         text = path.read_text(encoding="utf-8")
         size = 0

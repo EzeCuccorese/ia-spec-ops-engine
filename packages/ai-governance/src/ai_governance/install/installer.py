@@ -179,7 +179,8 @@ def _corporate_scripts(packs: list[corporate.CorporatePack], report: Report) -> 
     return desired
 
 
-def _installed_agents(ledger: Ledger) -> set[str]:
+def installed_agents(ledger: Ledger) -> set[str]:
+    """Agents with entries in the ledger; the pack scripts' owner is not an agent."""
     return {entry["agent"] for entry in ledger.entries} - {SCRIPTS_OWNER}
 
 
@@ -209,7 +210,7 @@ def uninstall_user(agents: list[str], *, dry_run: bool = False) -> Report:
     scope = {spec.id for spec in resolve_agents(agents)}
     ledger = global_ledger()
     report = Report()
-    keep_scripts = bool(_installed_agents(ledger) - scope)
+    keep_scripts = bool(installed_agents(ledger) - scope)
     desired = _corporate_scripts(corporate.packs(), report) if keep_scripts else []
     sync(desired, ledger, agents_in_scope=scope | {SCRIPTS_OWNER}, dry_run=dry_run, report=report)
     ledger.save(report, dry_run)
