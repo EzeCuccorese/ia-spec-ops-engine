@@ -574,3 +574,13 @@ def test_render_consumer_when_pyproject_unreadable(tmp_path: Path, monkeypatch) 
 
     monkeypatch.setattr(Path, "read_text", boom)
     assert adapter.render() == render_consumer()
+
+
+def test_governance_spec_new_runs_preflight_like_the_skill() -> None:
+    skill = get_bundled_skills()["spec-new"]
+    for rendered in (render_consumer(), render_contributor()):
+        line = next(row for row in rendered.splitlines() if row.startswith("- spec-new"))
+        assert 'spec preflight "<name>"' in line
+        assert 'spec new "<name>" only without preflight' in line
+        assert line.index("spec preflight") < line.index("spec new")
+    assert 'spec preflight "<feature-name>"' in skill

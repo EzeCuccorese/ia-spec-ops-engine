@@ -26,7 +26,7 @@ _CONSUMER_WORKFLOW = """# Spec Governance for Coding Agents
 
 ## Recognized SDD Commands & Workflows
 When the user mentions or asks for spec-new, spec-plan, spec-verify, or spec-finish:
-- spec-new <name>: Execute spec new "<name>", stop immediately, conduct the mandatory requirements interview, then write .spec/specs/<slug>/spec.md with @s tagged Gherkin scenarios.
+- spec-new <name>: Execute spec preflight "<name>" --json, which verifies the baseline and creates the spec (run spec new "<name>" only without preflight), work from the worktree_path it reports, stop immediately, conduct the mandatory requirements interview, then write .spec/specs/<slug>/spec.md with @s tagged Gherkin scenarios.
 - spec-plan: Execute spec plan and spec tasks, stop immediately, conduct the architectural review, then write plan.md and tasks.md.
 - spec-verify: Execute spec verify and audit the verification evidence.
 - spec-finish: Upon verified PASS status and explicit human sign-off, execute spec finish.
