@@ -1033,10 +1033,14 @@ def _py_sleeps(tree: ast.Module) -> list[tuple[int, str]]:
         and any(a.name == "sleep" for a in n.names)
         for n in ast.walk(tree)
     )
+    # A sleep inside a `while` loop is polling with a deadline, which the rule recommends.
+    polling = {
+        id(n) for loop in ast.walk(tree) if isinstance(loop, ast.While) for n in ast.walk(loop)
+    }
     return [
         (node.lineno, "time.sleep")
         for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and _py_is_sleep(node, imported)
+        if isinstance(node, ast.Call) and _py_is_sleep(node, imported) and id(node) not in polling
     ]
 
 

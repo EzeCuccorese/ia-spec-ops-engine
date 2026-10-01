@@ -198,10 +198,13 @@ ws design --focus path/to/file.py:42 # surgical brief for the function at that l
 Deterministic, via lizard: Java, JS/TS/TSX/JSX, Python,
 Go, Kotlin, C#, PHP, Rust, Swift, Scala, Ruby, C/C++ and more — Dart is not supported. Limits
 and `mode` (`block`/`warn`/`off`) live in the optional `[design]` table of
-`.ai-governance/config.toml`. With `--changed`/`--files-from`, violations are classified
-`new` (touches lines changed since the merge-base) vs. `legacy` (pre-existing function in a
-touched file); both fail in block mode, but legacy violations get a surgical-fix nudge and
-`ws design --focus <path:line>` for a one-function-at-a-time brief instead of a rewrite. See
+`.ai-governance/config.toml`. The rule is a ratchet: legacy code must not get worse, new code
+must be clean. With `--changed`/`--files-from`, each function is compared with the merge-base:
+a function that did not exist there (new, renamed, moved) must meet the limits and blocks;
+legacy functions never block, but a touched one that got worse is reported first with its base
+value (`length 120 > 40 (was 118, +2)`) and `ws design --focus <path:line>` gives a
+one-function-at-a-time brief instead of a rewrite. Untouched legacy is one summary line
+(`--verbose` lists it). A full scan without scope is an audit: everything is a warning. See
 `packages/workspace/README.md` for the full reference.
 
 It also runs three hygiene checks by default — `empty-catch` (swallowed exceptions:
