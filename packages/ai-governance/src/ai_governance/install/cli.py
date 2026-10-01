@@ -7,7 +7,6 @@ import json
 import sys
 from pathlib import Path
 
-from .. import corporate
 from ..output import emit_rows, emit_status, emit_text, is_agent_mode
 from ..rules.catalog import RuleCatalog
 from . import doctor, probe
@@ -68,12 +67,6 @@ def _add_common(parser: argparse.ArgumentParser, *, agent_required: bool = False
         choices=sorted(RuleCatalog().profiles),
         help="Opt-in rule profile (repeatable). Only valid with --scope project.",
     )
-    parser.add_argument(
-        "--corporate",
-        action="append",
-        choices=corporate.available(),
-        help="Company pack of always-on rules and scripts (repeatable). Only with --scope user.",
-    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -107,23 +100,20 @@ def build_parser() -> argparse.ArgumentParser:
 def _scope_error(args: argparse.Namespace) -> str | None:
     if args.profile and args.scope != "project":
         return "--profile is only valid with --scope project."
-    if args.corporate and args.scope != "user":
-        return "--corporate is only valid with --scope user."
     return None
 
 
 def _selected_agents(args: argparse.Namespace) -> list[str]:
-    """`uninstall --profile/--corporate` without `--agent` touches no agent at all."""
-    if args.cmd == "uninstall" and not args.agent and (args.profile or args.corporate):
+    """`uninstall --profile` without `--agent` touches no agent at all."""
+    if args.cmd == "uninstall" and not args.agent and args.profile:
         return []
     return args.agent or _pick_agents()
 
 
 def _user_report(args: argparse.Namespace, agents: list[str]) -> Report:
-    packs = tuple(args.corporate or ())
     if args.cmd == "install":
-        return install_user(agents, corporate_packs=packs, dry_run=args.dry_run, force=args.force)
-    return uninstall_user(agents, corporate_packs=packs, dry_run=args.dry_run)
+        return install_user(agents, dry_run=args.dry_run, force=args.force)
+    return uninstall_user(agents, dry_run=args.dry_run)
 
 
 def _project_report(args: argparse.Namespace, agents: list[str]) -> Report:
