@@ -294,7 +294,7 @@ def test_install_git_hooks_local():
         project_dir = Path(tmp)
         _init_test_git_repo(project_dir)
 
-        res = install_git_hooks(target_dir=project_dir, is_global=False, force=True)
+        res = install_git_hooks(target_dir=project_dir, is_global=False)
         assert res["success"] is True
         assert res["is_global"] is False
 
@@ -321,7 +321,7 @@ def test_uninstall_git_hooks_local_only_removes_gate_keys():
         subprocess.run(["git", "config", "hook.other.event", "pre-push"], cwd=project_dir)
         subprocess.run(["git", "config", "hook.other.command", "true"], cwd=project_dir)
 
-        install_git_hooks(target_dir=project_dir, is_global=False, force=True)
+        install_git_hooks(target_dir=project_dir, is_global=False)
         hook_file = local_hook_path(project_dir)
         assert hook_file.exists()
 
@@ -350,7 +350,7 @@ def test_install_git_hooks_global(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home_path / ".config"))
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(home_path / ".gitconfig"))
 
-    res = install_git_hooks(is_global=True, force=True)
+    res = install_git_hooks(is_global=True)
     assert res["success"] is True
     assert res["is_global"] is True
 
@@ -369,29 +369,41 @@ def test_install_git_hooks_global(monkeypatch, tmp_path: Path):
 
 
 @requires_config_hooks
-def test_install_git_hooks_local_existing_without_force():
+def test_reinstall_refreshes_the_local_scripts():
     with tempfile.TemporaryDirectory() as tmp:
         project_dir = Path(tmp)
         _init_test_git_repo(project_dir)
-        install_git_hooks(target_dir=project_dir, is_global=False, force=True)
+        install_git_hooks(target_dir=project_dir, is_global=False)
+        hook_file = local_hook_path(project_dir)
+        hook_file.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
 
-        res = install_git_hooks(target_dir=project_dir, is_global=False, force=False)
-        assert res["success"] is False
-        assert "already exists" in res["message"]
+        res = install_git_hooks(target_dir=project_dir, is_global=False)
+        assert res["success"] is True
+        assert hook_file.read_text(encoding="utf-8") == generate_canonical_pre_push_script()
 
 
 @requires_config_hooks
-def test_install_git_hooks_global_existing_without_force(monkeypatch):
+def test_reinstall_refreshes_the_global_scripts(monkeypatch):
     with tempfile.TemporaryDirectory() as mock_home:
         home_path = Path(mock_home)
         monkeypatch.setattr(Path, "home", lambda: home_path)
         monkeypatch.setenv("HOME", str(mock_home))
+        monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
         monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(home_path / ".gitconfig"))
+        install_git_hooks(is_global=True)
+        hook_file = home_path / ".config" / "workspace" / "hooks" / "pre-push"
+        hook_file.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
 
-        install_git_hooks(is_global=True, force=True)
-        res = install_git_hooks(is_global=True, force=False)
-        assert res["success"] is False
-        assert "already exists" in res["message"]
+        res = install_git_hooks(is_global=True)
+        assert res["success"] is True
+        assert hook_file.read_text(encoding="utf-8") == generate_canonical_pre_push_script()
+
+
+def test_cli_hooks_install_has_no_force_flag(capsys):
+    with pytest.raises(SystemExit) as exc:
+        manage_hooks_cli(["install", "--force"])
+    assert exc.value.code == 2
+    assert "unrecognized arguments: --force" in capsys.readouterr().err
 
 
 def test_uninstall_git_hooks_local_no_hook_present():
@@ -442,7 +454,7 @@ def test_run_quality_gate_without_skip_arg_omits_qg_skip_env(monkeypatch):
         project_dir = Path(tmp)
         _init_test_git_repo(project_dir)
         _commit_fixture(project_dir)
-        install_git_hooks(target_dir=project_dir, is_global=False, force=True)
+        install_git_hooks(target_dir=project_dir, is_global=False)
 
         real_run = subprocess.run
         captured_env = {}
@@ -465,7 +477,7 @@ def test_run_quality_gate_uses_installed_local_hook():
         project_dir = Path(tmp)
         _init_test_git_repo(project_dir)
         _commit_fixture(project_dir)
-        install_git_hooks(target_dir=project_dir, is_global=False, force=True)
+        install_git_hooks(target_dir=project_dir, is_global=False)
 
         code = run_quality_gate(
             target_dir=project_dir,
@@ -481,7 +493,7 @@ def test_run_quality_gate_uses_installed_global_hook_when_no_local(monkeypatch):
         monkeypatch.setattr(Path, "home", lambda: home_path)
         monkeypatch.setenv("HOME", str(mock_home))
         monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(home_path / ".gitconfig"))
-        install_git_hooks(is_global=True, force=True)
+        install_git_hooks(is_global=True)
 
         project_dir = Path(tmp)
         _init_test_git_repo(project_dir)

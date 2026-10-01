@@ -86,9 +86,6 @@ def main(argv: list[str] | None = None) -> int:
         help="Register globally (git config --global hook.workspace-gate.*)",
     )
     p_inst.add_argument("--dir", "-d", help="Repository root directory (defaults to cwd)")
-    p_inst.add_argument(
-        "--force", "-f", action="store_true", default=True, help="Overwrite existing hooks"
-    )
 
     # status
     p_stat = sub.add_parser("status", help="Query local and global hook status")
@@ -148,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
     target = Path(args.dir) if getattr(args, "dir", None) else Path.cwd()
 
     if args.action == "install":
-        res = install_git_hooks(target_dir=target, is_global=args.is_global, force=args.force)
+        res = install_git_hooks(target_dir=target, is_global=args.is_global)
         if res["success"]:
             log_success(f"Git hook successfully installed at: {res['hook_path']}")
             return 0
