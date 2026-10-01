@@ -55,10 +55,9 @@ def test_pack_exposes_rules_and_executable_scripts() -> None:
     assert all(os.access(script, os.X_OK) for script in pack.scripts())
 
 
-def test_unknown_or_missing_packs(tmp_path: Path) -> None:
+def test_missing_packs_folder_lists_no_pack(tmp_path: Path) -> None:
     assert corporate.available(tmp_path / "missing") == []
-    with pytest.raises(ValueError, match="Unknown corporate pack"):
-        corporate.load("globex")
+    assert corporate.packs(tmp_path / "missing") == []
 
 
 def test_user_install_picks_up_every_pack_without_flags(home: Path) -> None:
