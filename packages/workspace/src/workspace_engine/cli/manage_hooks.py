@@ -10,6 +10,7 @@ from pathlib import Path
 
 from workspace_engine.common import emit_rows, is_agent_mode, log_error, log_success
 from workspace_engine.services.git_hooks import (
+    QG_STAGES,
     get_hooks_status,
     install_git_hooks,
     run_quality_gate,
@@ -109,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_run.add_argument(
         "--skip",
-        help="Comma-separated checks to skip (gitleaks,commits,lint,design,tests,repohooks)",
+        help=f"Comma-separated checks to skip ({','.join(QG_STAGES)})",
     )
     p_run.add_argument(
         "--timeout",

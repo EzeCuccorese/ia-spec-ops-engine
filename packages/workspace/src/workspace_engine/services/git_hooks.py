@@ -26,6 +26,8 @@ from workspace_engine.common import run_command_safe
 
 HOOK_NAME = "workspace-gate"
 HOOK_EVENT = "pre-push"
+# Names QG_SKIP / `ws hooks run --skip` accept, in the order the gate runs them.
+QG_STAGES = ("gitleaks", "commits", "lint", "design", "tests", "all")
 # Companion hooks registered next to the gate: event -> config friendly name.
 COMPANION_HOOKS = {"commit-msg": "workspace-commit-msg", "pre-commit": "workspace-pre-commit"}
 

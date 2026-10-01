@@ -1,4 +1,5 @@
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -57,7 +58,7 @@ def _run_generated_hook(
     project_dir: Path,
     *,
     output: str = "errors",
-    skip: str = "gitleaks,commits,lint,repohooks",
+    skip: str = "gitleaks,commits,lint",
 ) -> subprocess.CompletedProcess[str]:
     hook = project_dir / "quality-gate-pre-push"
     hook.write_text(generate_canonical_pre_push_script(), encoding="utf-8")
@@ -439,7 +440,7 @@ def test_run_quality_gate_writes_temp_hook_when_none_installed(monkeypatch):
         code = run_quality_gate(
             target_dir=project_dir,
             scope="none",
-            skip="gitleaks,commits,lint,tests,repohooks",
+            skip="gitleaks,commits,lint,tests",
             output="errors",
         )
         assert code == 0
@@ -482,7 +483,7 @@ def test_run_quality_gate_uses_installed_local_hook():
         code = run_quality_gate(
             target_dir=project_dir,
             scope="none",
-            skip="gitleaks,commits,lint,tests,repohooks",
+            skip="gitleaks,commits,lint,tests",
         )
         assert code == 0
 
@@ -502,7 +503,7 @@ def test_run_quality_gate_uses_installed_global_hook_when_no_local(monkeypatch):
         code = run_quality_gate(
             target_dir=project_dir,
             scope="none",
-            skip="gitleaks,commits,lint,tests,repohooks",
+            skip="gitleaks,commits,lint,tests",
             commit_style="conventional",
         )
         assert code == 0
@@ -517,7 +518,7 @@ def test_run_quality_gate_without_prior_commit_uses_zero_sha():
         code = run_quality_gate(
             target_dir=project_dir,
             scope="none",
-            skip="gitleaks,commits,lint,tests,repohooks",
+            skip="gitleaks,commits,lint,tests",
         )
         assert isinstance(code, int)
 
@@ -746,3 +747,12 @@ def test_design_stage_passes_in_warn_mode(tmp_path: Path) -> None:
 def test_pre_push_reads_the_commit_style_from_repo_config():
     script = generate_canonical_pre_push_script()
     assert "git config --get workspace.commitStyle" in script
+
+
+def test_cli_skip_help_lists_the_stages_the_gate_knows(capsys):
+    script = generate_canonical_pre_push_script()
+    stages = re.findall(r"^if skipped (\w+); then", script, re.MULTILINE)
+    with pytest.raises(SystemExit):
+        manage_hooks_cli(["run", "--help"])
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert f"({','.join([*stages, 'all'])})" in help_text
