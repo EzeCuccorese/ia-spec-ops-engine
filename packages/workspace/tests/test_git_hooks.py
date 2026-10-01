@@ -659,6 +659,8 @@ def test_design_stage_fails_on_complex_new_function(tmp_path: Path) -> None:
     assert install_git_hooks(target_dir=project_dir)["success"] is True
     bin_dir = tmp_path / "bin"
     _write_ws_shim(bin_dir)
+    # the function must be new relative to the merge-base with the default branch
+    subprocess.run(["git", "-C", str(project_dir), "checkout", "-q", "-b", "feature"], check=True)
     _commit_complex_function(project_dir, "test(fixture): add complex function")
 
     proc = _push_with_gate_custom(
