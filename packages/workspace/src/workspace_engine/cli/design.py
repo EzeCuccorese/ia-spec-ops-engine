@@ -14,6 +14,7 @@ from workspace_engine.design.config import DesignConfig
 from workspace_engine.design.hygiene import hygiene_violations
 from workspace_engine.design.layers import layer_violations
 from workspace_engine.design.metrics import (
+    DiffScope,
     Violation,
     function_at,
     measure,
@@ -22,7 +23,7 @@ from workspace_engine.design.metrics import (
 )
 from workspace_engine.design.report import format_focus, format_text, to_dict
 from workspace_engine.design.testquality import junk_test_violations
-from workspace_engine.services.changes import changed_files
+from workspace_engine.services.changes import base_ref, changed_files
 
 
 def _excluded_dir_names(exclude: tuple[str, ...]) -> frozenset[str]:
@@ -102,7 +103,8 @@ def _run_checks(
     candidates = _collect(root, args, config.exclude)
     files = [path for path in candidates if path.is_file() and supported(path)]
     changed = changed_lines(root) if (args.changed or args.files_from) else None
-    violations = measure(root, files, config, changed)
+    scope = DiffScope(changed, base_ref(root)) if changed is not None else None
+    violations = measure(root, files, config, scope)
 
     all_candidates = [path for path in candidates if path.is_file()]
     violations = violations + hygiene_violations(root, all_candidates, config.checks, changed)
@@ -128,6 +130,9 @@ def design(argv: list[str]) -> int:
     parser.add_argument(
         "--focus", help="path:line — focused brief for the function containing that line"
     )
+    parser.add_argument(
+        "--verbose", action="store_true", help="List every pre-existing violation individually"
+    )
     args = parser.parse_args(argv)
     root = Path(args.dir).resolve()
     config = DesignConfig.load(root)
@@ -144,8 +149,9 @@ def design(argv: list[str]) -> int:
     if args.json:
         print(json.dumps(to_dict(violations, config, file_count), ensure_ascii=False))
     else:
-        print(format_text(violations, config, file_count))
+        scoped = bool(args.changed or args.files_from)
+        print(format_text(violations, config, file_count, verbose=args.verbose or not scoped))
 
-    if violations and config.mode == "block":
+    if config.mode == "block" and any(v.blocking for v in violations):
         return 1
     return 0

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import subprocess
@@ -16,7 +17,7 @@ from workspace_engine.design.hygiene import (
     todo_ticket_violations,
 )
 from workspace_engine.design.layers import extract_imports, go_module_name, layer_violations
-from workspace_engine.design.metrics import measure, supported
+from workspace_engine.design.metrics import Violation, measure, supported
 from workspace_engine.design.report import format_text, to_dict
 
 # --- fixtures: violating + clean function per priority language -----------------
@@ -289,27 +290,33 @@ def test_report_text_pass() -> None:
     assert "PASS (3 files)" in text
 
 
+def _as_new(violations: list[Violation]) -> list[Violation]:
+    return [dataclasses.replace(v, origin="new") for v in violations]
+
+
 def test_report_text_violations_block_mode(tmp_path: Path) -> None:
-    violations = _measure_one(tmp_path, "deep.py", PY_VIOLATING)
+    violations = _as_new(_measure_one(tmp_path, "deep.py", PY_VIOLATING))
     text = format_text(violations, DesignConfig(), files=1)
     assert "✘ design:" in text
     assert "deep.py" in text
 
 
 def test_report_text_warn_prefix(tmp_path: Path) -> None:
-    violations = _measure_one(tmp_path, "deep.py", PY_VIOLATING)
+    violations = _as_new(_measure_one(tmp_path, "deep.py", PY_VIOLATING))
     text = format_text(violations, DesignConfig(mode="warn"), files=1)
     assert text.splitlines()[-1].startswith("⚠")
 
 
 def test_report_to_dict_shape(tmp_path: Path) -> None:
-    violations = _measure_one(tmp_path, "deep.py", PY_VIOLATING)
+    violations = _as_new(_measure_one(tmp_path, "deep.py", PY_VIOLATING))
     payload = to_dict(violations, DesignConfig(), files=1)
     assert payload["schema_version"] == 1
     assert payload["status"] == "fail"
     assert payload["files"] == 1
     assert isinstance(payload["violations"], list)
     assert payload["violations"][0]["metric"]
+    assert payload["violations"][0]["blocking"] is True
+    assert payload["violations"][0]["base_value"] is None
 
 
 # --- CLI -------------------------------------------------------------------------
@@ -320,15 +327,16 @@ def test_cli_json(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     code = design_cli.design(["--dir", str(tmp_path), str(tmp_path / "deep.py"), "--json"])
     out = capsys.readouterr().out
     payload = json.loads(out)
-    assert payload["status"] == "fail"
-    assert code == 1
+    assert payload["status"] == "warn"  # no diff scope: an audit, nothing blocks
+    assert payload["violations"][0]["blocking"] is False
+    assert code == 0
 
 
-def test_cli_warn_mode_exit_zero(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    (tmp_path / ".ai-governance").mkdir()
-    (tmp_path / ".ai-governance" / "config.toml").write_text('[design]\nmode = "warn"\n')
-    (tmp_path / "deep.py").write_text(PY_VIOLATING)
-    code = design_cli.design(["--dir", str(tmp_path), str(tmp_path / "deep.py")])
+def test_cli_warn_mode_exit_zero(git_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (git_repo / ".ai-governance").mkdir()
+    (git_repo / ".ai-governance" / "config.toml").write_text('[design]\nmode = "warn"\n')
+    (git_repo / "deep.py").write_text(PY_VIOLATING)
+    code = design_cli.design(["--dir", str(git_repo), "--changed"])
     out = capsys.readouterr().out
     assert code == 0
     assert "⚠" in out
@@ -348,9 +356,9 @@ def test_cli_files_from(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> N
     list_file = tmp_path / "files.txt"
     list_file.write_text("deep.py\n")
     code = design_cli.design(["--dir", str(tmp_path), "--files-from", str(list_file)])
-    assert code == 1
+    assert code == 0  # not a git repo: no base to compare against, nothing is new
     out = capsys.readouterr().out
-    assert "deep.py" in out
+    assert "1 pre-existing functions over the limits in touched files" in out
 
 
 def test_cli_pass_no_violations(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -528,7 +536,7 @@ def test_cli_collects_directory_via_walk(
     (excluded / "big.js").write_text(JS_VIOLATING)
     code = design_cli.design(["--dir", str(tmp_path), str(sub)])
     out = capsys.readouterr().out
-    assert code == 1
+    assert code == 0  # unscoped: an audit, never blocks
     assert "deep.py" in out
     assert "skip.py" not in out
     assert "big.js" not in out
@@ -543,7 +551,7 @@ def test_cli_walk_excludes_file_by_glob_pattern(
     (sub / "bundle.min.js").write_text(JS_VIOLATING)
     code = design_cli.design(["--dir", str(tmp_path), str(sub)])
     out = capsys.readouterr().out
-    assert code == 1
+    assert code == 0  # unscoped: an audit, never blocks
     assert "deep.py" in out
     assert "bundle.min.js" not in out
 
@@ -558,7 +566,7 @@ def test_cli_repo_files_via_git_ls_files(
     subprocess.run(["git", "add", "deep.py"], cwd=tmp_path, check=True)
     code = design_cli.design(["--dir", str(tmp_path)])
     out = capsys.readouterr().out
-    assert code == 1
+    assert code == 0  # unscoped: an audit, never blocks
     assert "deep.py" in out
 
 
@@ -568,7 +576,7 @@ def test_cli_repo_files_fallback_walk_when_not_a_git_repo(
     (tmp_path / "deep.py").write_text(PY_VIOLATING)
     code = design_cli.design(["--dir", str(tmp_path)])
     out = capsys.readouterr().out
-    assert code == 1
+    assert code == 0  # unscoped: an audit, never blocks
     assert "deep.py" in out
 
 
@@ -579,8 +587,8 @@ def test_cli_changed_flag_uses_changed_files(
     monkeypatch.setattr(design_cli, "changed_files", lambda root: ["deep.py"])
     code = design_cli.design(["--dir", str(tmp_path), "--changed"])
     out = capsys.readouterr().out
-    assert code == 1
-    assert "deep.py" in out
+    assert code == 0  # unscoped: an audit, never blocks
+    assert "1 pre-existing functions over the limits in touched files" in out
 
 
 # --- new vs. legacy classification -----------------------------------------------
@@ -681,18 +689,6 @@ def test_new_function_is_new_untouched_legacy_stays_legacy(
     assert origins["new_complex"] == "new"
 
 
-def test_editing_a_line_in_legacy_function_marks_it_new(
-    git_repo: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    lines = (git_repo / "module.py").read_text().splitlines()
-    idx = next(i for i, line in enumerate(lines) if "if x == 0" in line)
-    lines[idx] = lines[idx] + "  # touched"
-    (git_repo / "module.py").write_text("\n".join(lines) + "\n")
-    design_cli.design(["--dir", str(git_repo), "--changed", "--json"])
-    payload = json.loads(capsys.readouterr().out)
-    assert _complexity_origins(payload)["legacy_complex"] == "new"
-
-
 def test_untracked_file_is_new(git_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
     (git_repo / "extra.py").write_text(_complex_function("untracked_complex"))
     design_cli.design(["--dir", str(git_repo), "--changed", "--json"])
@@ -717,19 +713,226 @@ def test_files_from_mode_uses_same_diff_classification(
 
 
 def test_report_format_text_sections_order_and_footer() -> None:
-    from workspace_engine.design.metrics import Violation
-
     violations = [
         Violation("a.py", "new_fn(...)", 1, 5, "complexity", 15, 10, origin="new"),
-        Violation("b.py", "old_fn(...)", 1, 5, "length", 50, 40, origin="legacy"),
+        Violation("b.py", "same(...)", 1, 5, "length", 50, 40, base_value=50),
+        Violation("c.py", "worse(...)", 1, 5, "length", 52, 40, base_value=50),
+        Violation("d.py", "untouched(...)", 1, 5, "length", 70, 40),
     ]
-    text = format_text(violations, DesignConfig(), files=2)
-    assert "New code" in text
-    assert "Pre-existing code" in text
-    assert "Fix one at a time: ws design --focus" in text
-    assert text.index("New code") < text.index("Pre-existing code")
+    text = format_text(violations, DesignConfig(), files=4, verbose=False)
+    assert text.index("Blocking") < text.index("Pre-existing (not blocking)")
+    assert "length 52 > 40 (was 50, +2)" in text
+    assert text.index("c.py") < text.index("b.py")  # worsened legacy listed first
+    assert "length 50 > 40 (was 50)" in text
+    assert "untouched" not in text
+    assert "1 pre-existing functions over the limits in touched files" in text
+    assert "ws design --focus <path:line>" in text
     assert "→ extract branches into named functions / guard clauses" in text
-    assert "→ extract steps into well-named functions" in text
+    assert text.splitlines()[-1].startswith("✘ design: 1 blocking")
+
+
+def test_report_verbose_lists_untouched_legacy() -> None:
+    violations = [Violation("d.py", "untouched(...)", 1, 5, "length", 70, 40)]
+    text = format_text(violations, DesignConfig(), files=1, verbose=True)
+    assert "d.py:1-5 untouched(...)" in text
+    assert "pre-existing functions over" not in text
+
+
+# --- legacy ratchet: new code meets the limits, legacy is never blocked -------------
+
+
+def _py_function(name: str, statements: int, tag: int = 0) -> str:
+    """A straight-line Python function of ``statements + 2`` lines; ``tag`` edits its body."""
+    body = "".join(f"    x{i} = {i + tag}\n" for i in range(statements))
+    return f"def {name}(a):\n{body}    return a\n"
+
+
+def _java_class(*methods: str) -> str:
+    return "public class A {\n" + "".join(methods) + "}\n"
+
+
+def _java_method(params: str, statements: int) -> str:
+    body = "".join(f"        int x{i} = {i};\n" for i in range(statements))
+    return f"    void run({params}) {{\n{body}    }}\n"
+
+
+def _commit_all(root: Path, message: str) -> None:
+    _git(root, "add", ".")
+    _git(root, "commit", "-q", "-m", message)
+
+
+def _design_json(root: Path, capsys: pytest.CaptureFixture[str], *extra: str) -> tuple[int, dict]:
+    code = design_cli.design(["--dir", str(root), "--changed", "--json", *extra])
+    return code, json.loads(capsys.readouterr().out)
+
+
+def _length_violations(payload: dict) -> list[dict]:
+    return [v for v in payload["violations"] if v["metric"] == "length"]
+
+
+@pytest.fixture
+def length_repo(tmp_path: Path) -> Path:
+    """main holds ``legacy`` (length 50, over the limit of 40); on branch ``feature``."""
+    root = tmp_path / "repo"
+    root.mkdir()
+    _git(root, "init", "-q", "-b", "main")
+    (root / "mod.py").write_text(_py_function("legacy", 48))
+    _commit_all(root, "init")
+    _git(root, "checkout", "-q", "-b", "feature")
+    return root
+
+
+@pytest.mark.parametrize(
+    ("statements", "worsened"),
+    [(50, True), (48, False), (45, False)],
+    ids=["worse", "equal", "better"],
+)
+def test_touched_legacy_never_blocks_but_reports_base_value(
+    length_repo: Path, capsys: pytest.CaptureFixture[str], statements: int, worsened: bool
+) -> None:
+    (length_repo / "mod.py").write_text(_py_function("legacy", statements, tag=1))
+    code = design_cli.design(["--dir", str(length_repo), "--changed"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Pre-existing (not blocking)" in out
+    assert "(was 50" in out
+    assert ("+" in out.split("(was 50")[1].split(")")[0]) is worsened
+    assert "Blocking" not in out
+
+
+def test_touched_legacy_json_carries_base_value_and_blocking(
+    length_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (length_repo / "mod.py").write_text(_py_function("legacy", 50))
+    code, payload = _design_json(length_repo, capsys)
+    assert code == 0
+    assert payload["status"] == "warn"
+    (violation,) = _length_violations(payload)
+    assert (violation["value"], violation["base_value"]) == (52, 50)
+    assert (violation["origin"], violation["blocking"]) == ("legacy", False)
+
+
+def test_new_function_over_limit_blocks(
+    length_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source = (length_repo / "mod.py").read_text()
+    (length_repo / "mod.py").write_text(source + "\n" + _py_function("fresh", 48))
+    code, payload = _design_json(length_repo, capsys)
+    assert code == 1
+    by_symbol = {v["symbol"].split("(")[0].strip(): v for v in _length_violations(payload)}
+    assert (by_symbol["fresh"]["origin"], by_symbol["fresh"]["blocking"]) == ("new", True)
+    assert by_symbol["fresh"]["base_value"] is None
+    assert by_symbol["legacy"]["blocking"] is False
+
+
+def test_untouched_legacy_in_touched_file_is_one_summary_line(
+    length_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source = (length_repo / "mod.py").read_text()
+    (length_repo / "mod.py").write_text(source + "\n" + _py_function("small", 2))
+    code = design_cli.design(["--dir", str(length_repo), "--changed"])
+    out = capsys.readouterr().out
+    assert code == 0
+    summary = [line for line in out.splitlines() if "pre-existing functions over" in line]
+    assert summary == [
+        "1 pre-existing functions over the limits in touched files — "
+        "see ws design --focus <path:line>"
+    ]
+    assert "mod.py:1-" not in out
+    design_cli.design(["--dir", str(length_repo), "--changed", "--verbose"])
+    assert "mod.py:1-" in capsys.readouterr().out
+
+
+def test_renamed_function_is_new_code(
+    length_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (length_repo / "mod.py").write_text(_py_function("renamed", 48))
+    code, payload = _design_json(length_repo, capsys)
+    assert code == 1
+    (violation,) = _length_violations(payload)
+    assert (violation["origin"], violation["base_value"]) == ("new", None)
+
+
+def test_moved_and_edited_file_is_new_code(
+    length_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _git(length_repo, "mv", "mod.py", "moved.py")
+    (length_repo / "moved.py").write_text(_py_function("legacy", 49))
+    code, _ = _design_json(length_repo, capsys)
+    assert code == 1
+
+
+def test_comparison_uses_the_fork_point_not_the_tip_of_main(
+    length_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _git(length_repo, "checkout", "-q", "main")
+    (length_repo / "mod.py").write_text(_py_function("legacy", 58))  # main moves on
+    _commit_all(length_repo, "main moves on")
+    _git(length_repo, "checkout", "-q", "feature")
+    (length_repo / "mod.py").write_text(_py_function("legacy", 53))
+    code, payload = _design_json(length_repo, capsys)
+    assert code == 0
+    (violation,) = _length_violations(payload)
+    assert violation["base_value"] == 50  # the fork point, not main's 60
+
+
+def test_java_overloads_are_matched_by_signature(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    _git(root, "init", "-q", "-b", "main")
+    (root / "A.java").write_text(
+        _java_class(_java_method("int a", 50), _java_method("String a, String b", 5))
+    )
+    _commit_all(root, "init")
+    _git(root, "checkout", "-q", "-b", "feature")
+    (root / "A.java").write_text(
+        _java_class(_java_method("int a", 52), _java_method("String a, String b", 5))
+    )
+    code, payload = _design_json(root, capsys)
+    assert code == 0
+    (violation,) = _length_violations(payload)
+    assert (violation["value"], violation["base_value"]) == (54, 52)
+    assert "int a" in violation["symbol"]
+
+
+def test_java_overload_added_beside_legacy_is_new(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    _git(root, "init", "-q", "-b", "main")
+    (root / "A.java").write_text(_java_class(_java_method("int a", 5)))
+    _commit_all(root, "init")
+    _git(root, "checkout", "-q", "-b", "feature")
+    (root / "A.java").write_text(
+        _java_class(_java_method("int a", 5), _java_method("String a", 50))
+    )
+    code, payload = _design_json(root, capsys)
+    assert code == 1
+    (violation,) = _length_violations(payload)
+    assert violation["origin"] == "new"
+
+
+@pytest.mark.parametrize(("edited_line", "code"), [(5, 1), (1, 0)], ids=["on-it", "elsewhere"])
+def test_line_based_check_blocks_only_on_changed_lines(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], edited_line: int, code: int
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    _git(root, "init", "-q", "-b", "main")
+    source = "x = 1\n\ntry:\n    run()\nexcept Exception:\n    pass\n"
+    (root / "a.py").write_text(source)
+    _commit_all(root, "init")
+    _git(root, "checkout", "-q", "-b", "feature")
+    lines = source.splitlines()
+    lines[edited_line - 1] += "  # edited"
+    (root / "a.py").write_text("\n".join(lines) + "\n")
+    exit_code = design_cli.design(["--dir", str(root), "--changed"])
+    out = capsys.readouterr().out
+    assert exit_code == code
+    assert ("Blocking" in out) is bool(code)
 
 
 # --- ws design --focus -----------------------------------------------------------
@@ -1043,7 +1246,8 @@ def test_cli_profile_on_layers_violation_blocks(
         "package com.acme.domain;\nimport com.acme.adapters.Db;\npublic class Order {}\n"
     )
     _write_config(tmp_path)
-    code = design_cli.design(["--dir", str(tmp_path), str(domain / "Order.java")])
+    _git(tmp_path, "init", "-q")  # untracked files count as new code
+    code = design_cli.design(["--dir", str(tmp_path), "--changed"])
     out = capsys.readouterr().out
     assert code == 1
     assert "layers" in out
@@ -1207,7 +1411,8 @@ def test_cli_empty_catch_reported_and_blocks(
         "    }\n"
         "}\n"
     )
-    code = design_cli.design(["--dir", str(tmp_path), str(tmp_path / "A.java")])
+    _git(tmp_path, "init", "-q")  # untracked files count as new code
+    code = design_cli.design(["--dir", str(tmp_path), "--changed"])
     out = capsys.readouterr().out
     assert code == 1
     assert "empty-catch" in out

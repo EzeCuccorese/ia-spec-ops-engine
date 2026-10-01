@@ -248,22 +248,35 @@ ws design --changed         # only files changed vs. the base branch
 ws design src/ pkg/foo.go   # specific files or directories
 ws design --files-from list.txt  # newline-separated paths, relative to --dir
 ws design --json            # versioned contract: {schema_version, status, violations, files}
+ws design --changed --verbose  # also list every untouched pre-existing violation
 ```
 
-Exit code is `1` on violations in `block` mode, `0` in `warn` or `off` mode (`off` prints
-`design: off` and skips measuring).
+**Legacy code must not get worse, new code must be clean.** With `--changed` or
+`--files-from`, `ws design` compares each function against the merge-base with the default
+branch (the fork point, not the tip of `main`). The base version is read with `git show` and
+analysed in memory; functions match by file path, qualified name and parameter signature, so
+Java overloads do not collide.
 
-**New vs. legacy code.** With `--changed` or `--files-from`, every violation is classified
-`new` (its function overlaps lines added/modified since the merge-base, or its file is
-untracked) or `legacy` (a pre-existing function in a touched file); a full, unscoped scan
-marks everything `legacy`. Both fail in `block` mode, but the text report groups them —
-"New code" first, then a "Pre-existing code" section whose header and footer push toward
-a surgical fix instead of a rewrite: change only that function, keep behavior, add a
-characterization test first, one function at a time. Each line ends with a metric-specific
-hint (`complexity` → extract branches into named functions / guard clauses, `length` →
-extract steps into well-named functions, `args` → introduce a parameter object, `nesting` →
-return early, extract inner blocks). `--json` carries the same classification as an
-`"origin": "new" | "legacy"` field per violation.
+- A function that did not exist at the base (new, renamed, moved, or in a new file) is `new`
+  and must meet the limits: it blocks.
+- A legacy function never blocks, touched or not. A touched one is listed with the base value
+  (`length 120 > 40 (was 118, +2)`), worsened ones first, so a regression is visible; an
+  untouched one is folded into one line
+  (`N pre-existing functions over the limits in touched files — see ws design --focus <path:line>`);
+  `--verbose` lists them all.
+- Line-based checks (hygiene, junk tests, layers) block on changed lines and only warn elsewhere.
+- A full, unscoped scan has nothing to compare: everything is `legacy`, listed in full, exit `0`.
+  It is an audit; the gate always runs with a scope.
+
+Exit code is `1` only when something blocks in `block` mode, `0` otherwise (`off` prints
+`design: off` and skips measuring). The text report has a "Blocking" section and a
+"Pre-existing (not blocking)" section whose footer pushes toward a surgical fix: change only
+that function, keep behavior, add a characterization test first, one function at a time. Each
+line ends with a metric-specific hint (`complexity` → extract branches into named functions /
+guard clauses, `length` → extract steps into well-named functions, `args` → introduce a
+parameter object, `nesting` → return early, extract inner blocks). `--json` carries
+`"origin": "new" | "legacy"`, `"blocking": bool` and `"base_value": int | null` (the value at
+the base for a legacy function that existed there) per violation.
 
 ```bash
 ws design --focus src/app/orders.py:142   # focused brief for the function at that line:

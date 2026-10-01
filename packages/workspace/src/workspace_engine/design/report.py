@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .config import DesignConfig
-from .metrics import FunctionMetrics, Violation
+from .metrics import FUNCTION_METRICS, FunctionMetrics, Violation
 
 SCHEMA_VERSION = 1
 
@@ -23,49 +23,90 @@ HINTS = {
     "test-duplicate": "merge into one parametrized test",
 }
 
-NEW_HEADER = "New code"
-LEGACY_HEADER = (
-    "Pre-existing code — surgical fix: change only this function, keep behavior, "
-    "add a characterization test first"
-)
-LEGACY_FOOTER = "Fix one at a time: ws design --focus <path:line>"
+BLOCKING_HEADER = "Blocking"
+PREEXISTING_HEADER = "Pre-existing (not blocking)"
+PREEXISTING_FOOTER = "Fix one at a time, surgically: ws design --focus <path:line>"
 
 _FOCUS_SOURCE_CAP = 120
 
 
 def _violation_line(v: Violation) -> str:
+    was = ""
+    if v.base_value is not None:
+        delta = f", {v.value - v.base_value:+d}" if v.worsened else ""
+        was = f" (was {v.base_value}{delta})"
     return (
         f"{v.path}:{v.start_line}-{v.end_line} {v.symbol} — "
-        f"{v.metric} {v.value} > {v.limit} → {HINTS[v.metric]}"
+        f"{v.metric} {v.value} > {v.limit}{was} → {HINTS[v.metric]}"
     )
 
 
-def format_text(violations: list[Violation], config: DesignConfig, files: int) -> str:
-    new = [v for v in violations if v.origin == "new"]
-    legacy = [v for v in violations if v.origin == "legacy"]
+def _summary(violations: list[Violation]) -> str:
+    """One line for the pre-existing violations that are not listed individually."""
+    functions = {
+        (v.path, v.symbol, v.start_line) for v in violations if v.metric in FUNCTION_METRICS
+    }
+    lines = len(violations) - sum(1 for v in violations if v.metric in FUNCTION_METRICS)
+    parts = []
+    if functions:
+        parts.append(
+            f"{len(functions)} pre-existing functions over the limits in touched files — "
+            "see ws design --focus <path:line>"
+        )
+    if lines:
+        parts.append(f"{lines} pre-existing line-based findings outside the changed lines")
+    return "\n".join(parts)
+
+
+def _blocking_lines(blocking: list[Violation]) -> list[str]:
+    if not blocking:
+        return []
+    return [BLOCKING_HEADER, *(_violation_line(v) for v in blocking)]
+
+
+def _warning_lines(warnings: list[Violation], verbose: bool) -> list[str]:
+    """Worsened legacy first, then touched legacy; untouched legacy only when verbose."""
+    if not warnings:
+        return []
+    listed = [v for v in warnings if verbose or v.base_value is not None]
+    listed.sort(key=lambda v: not v.worsened)  # stable: worsened first
+    lines = [PREEXISTING_HEADER, *(_violation_line(v) for v in listed)]
+    folded = [v for v in warnings if v not in listed]
+    if folded:
+        lines.append(_summary(folded))
+    if listed:
+        lines.append(PREEXISTING_FOOTER)
+    return lines
+
+
+def _verdict(blocking: list[Violation], warnings: list[Violation], files: int, mode: str) -> str:
+    if not blocking:
+        extra = f", {len(warnings)} pre-existing warning(s)" if warnings else ""
+        return f"✔ design: PASS ({files} files{extra})"
+    functions = len({(v.path, v.symbol, v.start_line) for v in blocking})
+    summary = f"✘ design: {len(blocking)} blocking violation(s) in {functions} function(s)"
+    return f"⚠ {summary}" if mode == "warn" else summary
+
+
+def format_text(
+    violations: list[Violation], config: DesignConfig, files: int, verbose: bool = True
+) -> str:
+    """Renders the report. ``verbose=False`` folds untouched legacy into one summary line."""
+    blocking = [v for v in violations if v.blocking]
+    warnings = [v for v in violations if not v.blocking]
+    sections = [s for s in (_blocking_lines(blocking), _warning_lines(warnings, verbose)) if s]
     lines: list[str] = []
-    if new:
-        lines.append(NEW_HEADER)
-        lines.extend(_violation_line(v) for v in new)
-    if legacy:
-        if lines:
-            lines.append("")
-        lines.append(LEGACY_HEADER)
-        lines.extend(_violation_line(v) for v in legacy)
-        lines.append(LEGACY_FOOTER)
-    functions = len({(v.path, v.symbol, v.start_line) for v in violations})
-    if violations:
-        summary = f"✘ design: {len(violations)} violation(s) in {functions} function(s)"
-        if config.mode == "warn":
-            summary = f"⚠ {summary}"
-        lines.append(summary)
-    else:
-        lines.append(f"✔ design: PASS ({files} files)")
+    for section in sections:
+        lines.extend(([""] if lines else []) + section)
+    lines.append(_verdict(blocking, warnings, files, config.mode))
     return "\n".join(lines)
 
 
 def to_dict(violations: list[Violation], config: DesignConfig, files: int) -> dict[str, object]:
-    status = "pass" if not violations else ("warn" if config.mode == "warn" else "fail")
+    blocking = any(v.blocking for v in violations)
+    status = (
+        "pass" if not violations else ("fail" if blocking and config.mode == "block" else "warn")
+    )
     return {
         "schema_version": SCHEMA_VERSION,
         "status": status,
@@ -79,6 +120,8 @@ def to_dict(violations: list[Violation], config: DesignConfig, files: int) -> di
                 "value": v.value,
                 "limit": v.limit,
                 "origin": v.origin,
+                "blocking": v.blocking,
+                "base_value": v.base_value,
             }
             for v in violations
         ],
