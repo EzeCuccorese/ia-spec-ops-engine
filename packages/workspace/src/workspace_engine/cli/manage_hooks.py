@@ -153,17 +153,13 @@ def main(argv: list[str] | None = None) -> int:
             log_success(f"Git hook successfully installed at: {res['hook_path']}")
             return 0
         else:
-            log_error(f"Error installing Git hook: {res.get('error')}")
+            log_error(f"Error installing Git hook: {res['message']}")
             return 1
 
     elif args.action == "uninstall":
         res = uninstall_git_hooks(target_dir=target, is_global=args.is_global)
-        if res["success"]:
-            log_success("Git hook successfully uninstalled.")
-            return 0
-        else:
-            log_error(f"Error uninstalling Git hook: {res.get('error')}")
-            return 1
+        log_success(res["message"])
+        return 0
 
     elif args.action == "run":
         return run_quality_gate(

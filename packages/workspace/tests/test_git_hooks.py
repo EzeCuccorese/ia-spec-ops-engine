@@ -13,7 +13,13 @@ from workspace_engine.services.git_hooks import (
     install_git_hooks,
     local_hook_path,
     run_quality_gate,
+    supports_config_hooks,
     uninstall_git_hooks,
+)
+
+requires_config_hooks = pytest.mark.skipif(
+    not supports_config_hooks(),
+    reason="this Git does not run config-based hooks (hook.<name>.command)",
 )
 
 
@@ -244,6 +250,7 @@ def _write_hook(path: Path, sentinel: str, exit_code: int = 0) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
+@requires_config_hooks
 @pytest.mark.parametrize("repo_exit", [0, 3])
 def test_gate_runs_before_repository_hook_without_shadowing_it(tmp_path: Path, repo_exit: int):
     project_dir = tmp_path / "repo"
@@ -262,6 +269,7 @@ def test_gate_runs_before_repository_hook_without_shadowing_it(tmp_path: Path, r
     assert (proc.returncode == 0) is (repo_exit == 0)
 
 
+@requires_config_hooks
 def test_gate_also_runs_when_repository_uses_local_hooks_path(tmp_path: Path):
     """Husky-style repos (local core.hooksPath) keep their hook and still get the gate."""
     project_dir = tmp_path / "repo"
@@ -280,6 +288,7 @@ def test_gate_also_runs_when_repository_uses_local_hooks_path(tmp_path: Path):
     assert "HUSKY_SENTINEL" in combined
 
 
+@requires_config_hooks
 def test_install_git_hooks_local():
     with tempfile.TemporaryDirectory() as tmp:
         project_dir = Path(tmp)
@@ -304,6 +313,7 @@ def test_install_git_hooks_local():
         assert status["local"]["is_active"] is True
 
 
+@requires_config_hooks
 def test_uninstall_git_hooks_local_only_removes_gate_keys():
     with tempfile.TemporaryDirectory() as tmp:
         project_dir = Path(tmp)
@@ -331,6 +341,7 @@ def test_uninstall_git_hooks_local_only_removes_gate_keys():
         assert status["local"]["is_active"] is False
 
 
+@requires_config_hooks
 def test_install_git_hooks_global(monkeypatch, tmp_path: Path):
     home_path = tmp_path / "home"
     home_path.mkdir()
@@ -357,6 +368,7 @@ def test_install_git_hooks_global(monkeypatch, tmp_path: Path):
     assert "workspace-gate" not in (home_path / ".gitconfig").read_text()
 
 
+@requires_config_hooks
 def test_install_git_hooks_local_existing_without_force():
     with tempfile.TemporaryDirectory() as tmp:
         project_dir = Path(tmp)
@@ -368,6 +380,7 @@ def test_install_git_hooks_local_existing_without_force():
         assert "already exists" in res["message"]
 
 
+@requires_config_hooks
 def test_install_git_hooks_global_existing_without_force(monkeypatch):
     with tempfile.TemporaryDirectory() as mock_home:
         home_path = Path(mock_home)
@@ -497,6 +510,7 @@ def test_run_quality_gate_without_prior_commit_uses_zero_sha():
         assert isinstance(code, int)
 
 
+@requires_config_hooks
 def test_cli_manage_hooks():
     with tempfile.TemporaryDirectory() as tmp:
         project_dir = Path(tmp)
@@ -559,6 +573,7 @@ def test_cli_manage_hooks_run_and_test(monkeypatch):
         mh.main(["run", "--output", "unsupported"])
 
 
+@requires_config_hooks
 def test_commit_msg_hook_enforces_conventional_commits_when_opted_in(tmp_path: Path):
     project_dir = tmp_path / "repo"
     project_dir.mkdir()
@@ -651,6 +666,7 @@ def _commit_complex_function(project_dir: Path, message: str) -> None:
     )
 
 
+@requires_config_hooks
 def test_design_stage_fails_on_complex_new_function(tmp_path: Path) -> None:
     project_dir = tmp_path / "repo"
     project_dir.mkdir()
@@ -673,6 +689,7 @@ def test_design_stage_fails_on_complex_new_function(tmp_path: Path) -> None:
     assert proc.returncode != 0
 
 
+@requires_config_hooks
 def test_design_stage_skipped_via_qg_skip(tmp_path: Path) -> None:
     project_dir = tmp_path / "repo"
     project_dir.mkdir()
@@ -692,6 +709,7 @@ def test_design_stage_skipped_via_qg_skip(tmp_path: Path) -> None:
     assert proc.returncode == 0
 
 
+@requires_config_hooks
 def test_design_stage_passes_in_warn_mode(tmp_path: Path) -> None:
     project_dir = tmp_path / "repo"
     project_dir.mkdir()
