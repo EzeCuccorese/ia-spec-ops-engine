@@ -268,3 +268,25 @@ def test_main_monitors_launched_services(project: Path, capsys):
         monitor.call_args.args[2]()
     select.assert_called_once()
     assert "Services keep running in the background" in capsys.readouterr().out
+
+
+def test_missing_config_lists_the_real_search_order(tmp_path: Path, monkeypatch, capsys):
+    (tmp_path / ".git").mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+
+    with pytest.raises(SystemExit) as exc:
+        rl._exit_without_config()
+
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    expected = [
+        tmp_path / ".workspace" / "config.json",
+        tmp_path / "xdg" / "workspace" / "config.json",
+        tmp_path / "home" / ".config" / "workspace" / "config.json",
+        tmp_path / "config.json",
+    ]
+    positions = [out.index(str(path) + "\n") for path in expected]
+    assert positions == sorted(positions)
+    assert "ws config init" in out

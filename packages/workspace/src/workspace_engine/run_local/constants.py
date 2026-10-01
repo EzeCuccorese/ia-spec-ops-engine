@@ -90,6 +90,16 @@ def find_project_root(
     return current
 
 
+def config_candidates(root: Path) -> list[Path]:
+    """Config files searched for ``root``, in order; the first that exists is used."""
+    candidate_paths = [root / ".workspace" / "config.json"]
+    if "XDG_CONFIG_HOME" in os.environ:
+        candidate_paths.append(Path(os.environ["XDG_CONFIG_HOME"]) / "workspace" / "config.json")
+    candidate_paths.append(Path.home() / ".config" / "workspace" / "config.json")
+    candidate_paths.append(root / "config.json")
+    return candidate_paths
+
+
 def load_project_config(
     start_dir: Path | None = None,
     *,
@@ -117,17 +127,7 @@ def load_project_config(
         if not target_path.exists():
             raise FileNotFoundError(f"Config file not found: {target_path}")
     else:
-        root = find_project_root(start_dir)
-        candidate_paths = [
-            root / ".workspace" / "config.json",
-        ]
-        if "XDG_CONFIG_HOME" in os.environ:
-            candidate_paths.append(
-                Path(os.environ["XDG_CONFIG_HOME"]) / "workspace" / "config.json"
-            )
-        candidate_paths.append(Path.home() / ".config" / "workspace" / "config.json")
-        candidate_paths.append(root / "config.json")
-
+        candidate_paths = config_candidates(find_project_root(start_dir))
         target_path = next((p for p in candidate_paths if p.exists()), None)
 
     if target_path is not None and target_path.exists():

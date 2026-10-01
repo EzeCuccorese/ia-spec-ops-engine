@@ -14,6 +14,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
+from workspace_engine.run_local import constants
 from workspace_engine.run_local.constants import (
     _CONFIG_LOADED,
     BOLD,
@@ -309,17 +310,21 @@ def _monitor(
             results, launch_configs = _add_services(more, results, launch_configs, db_cfg)
 
 
-def main(argv: list[str] | None = None) -> None:
-    if not _CONFIG_LOADED and "pytest" not in sys.modules:
-        print(
-            f"{RED}Error: no configuration found at ~/.config/workspace/config.json or config.json in the current directory.{RESET}"
-        )
-        print(
-            f"Run 'ws config init --global' or 'ws config init --local' and review the generated values.{RESET}"
-        )
-        sys.exit(1)
+def _exit_without_config() -> None:
+    print(f"{RED}Error: no configuration found. Searched, in order:{RESET}")
+    for path in constants.config_candidates(constants.find_project_root()):
+        print(f"  {path}")
+    print(
+        "Run 'ws config init --global' or 'ws config init --local' and review the generated values."
+    )
+    sys.exit(1)
 
+
+def main(argv: list[str] | None = None) -> None:
     args = _parse_args(argv)
+    if not _CONFIG_LOADED and "pytest" not in sys.modules:
+        _exit_without_config()
+
     if args.stop:
         stop_all()
         return
