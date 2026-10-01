@@ -90,7 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-worktree",
         dest="worktree",
         action="store_false",
-        help="Work in the current directory instead of a new Git worktree",
+        help="Switch the current checkout to the feature branch instead of creating a worktree",
     )
     preflight.add_argument("--description", default="", help="Feature description")
     preflight.add_argument("--root", type=Path, default=Path.cwd())
