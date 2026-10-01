@@ -148,7 +148,10 @@ sanitized and confined to `--base-dir` or `WORKSPACE_WORKTREES_DIR` (default
 Automatically discovers microservices in the workspace, allocates deterministic ports in the **8000–8999** range, rewrites inter-service endpoints (`wire_urls`), and launches an interactive TUI monitor.
 
 It requires a workspace configuration (`ws config init`, see section 5); environments come
-from its `environments` list. Profiles are stored in `~/.config/run-local/profiles.json`, and
+from its `environments` list. To rewire a URL such as `https://core-orders-staging-01.dev.my-domain.io`
+to a local `orders` service, the hostname drops a `<namespace>-` prefix from `namespaces`
+(default `core`, `api`, `frontend`) and an `-<environment id>` suffix from the ids in
+`environments` (default `dev`, `staging`, `prod`). Profiles are stored in `~/.config/run-local/profiles.json`, and
 logs, PIDs and the last launch in `~/.local/share/run-local/`.
 
 ```bash

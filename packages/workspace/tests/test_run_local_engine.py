@@ -1,6 +1,8 @@
 import tempfile
 from pathlib import Path
 
+import pytest
+from workspace_engine.run_local import constants
 from workspace_engine.run_local.service_wiring import (
     assign_port,
     service_name_from_subdomain,
@@ -8,6 +10,12 @@ from workspace_engine.run_local.service_wiring import (
     wire_db_urls,
     wire_urls,
 )
+
+
+@pytest.fixture(autouse=True)
+def _generic_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(constants.PROJECT_CONFIG, "namespaces", [])
+    monkeypatch.setitem(constants.PROJECT_CONFIG, "environments", [])
 
 
 def test_assign_port():
@@ -21,15 +29,14 @@ def test_assign_port():
 
 def test_service_name_from_subdomain():
     assert (
-        service_name_from_subdomain("merchants-auth-service-faf-01.dev.generic.com")
-        == "auth-service"
+        service_name_from_subdomain("api-auth-service-staging-01.dev.generic.com") == "auth-service"
     )
     assert service_name_from_subdomain("core-payment-service.prod.generic.com") == "payment-service"
 
 
 def test_wire_urls():
     env = {
-        "AUTH_URL": "http://merchants-auth-service-faf.dev.generic.com/api/v1",
+        "AUTH_URL": "http://api-auth-service-staging.dev.generic.com/api/v1",
         "OTHER_VAR": "constant_value",
     }
     running = {"auth-service": 8085}

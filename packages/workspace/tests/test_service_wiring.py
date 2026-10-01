@@ -9,7 +9,15 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from workspace_engine.run_local import constants
 from workspace_engine.run_local import service_wiring as sw
+
+
+@pytest.fixture(autouse=True)
+def _generic_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No namespaces nor environments configured: the generic fallbacks apply."""
+    monkeypatch.setitem(constants.PROJECT_CONFIG, "namespaces", [])
+    monkeypatch.setitem(constants.PROJECT_CONFIG, "environments", [])
 
 
 def test_assign_port_is_deterministic_and_in_range() -> None:
@@ -24,7 +32,25 @@ def test_assign_port_differs_for_different_names() -> None:
 
 
 def test_service_name_from_subdomain_strips_known_prefix() -> None:
-    assert sw.service_name_from_subdomain("merchants-orders.example.com") == "orders"
+    assert sw.service_name_from_subdomain("core-orders.example.com") == "orders"
+
+
+def test_service_name_from_subdomain_uses_configured_namespaces(monkeypatch) -> None:
+    monkeypatch.setitem(constants.PROJECT_CONFIG, "namespaces", ["shop", "shop-eu"])
+    assert sw.service_name_from_subdomain("shop-eu-orders.example.com") == "orders"
+    assert sw.service_name_from_subdomain("core-orders.example.com") == "core-orders"
+
+
+def test_service_name_from_subdomain_uses_configured_environments(monkeypatch) -> None:
+    environments = [{"id": "qa-eu", "cluster": "c", "namespace": "n", "label": "QA"}]
+    monkeypatch.setitem(constants.PROJECT_CONFIG, "environments", environments)
+    assert sw.service_name_from_subdomain("orders-qa-eu-01.example.com") == "orders"
+    assert sw.service_name_from_subdomain("orders-staging.example.com") == "orders-staging"
+
+
+@pytest.mark.parametrize("slug", ["dev", "staging", "prod"])
+def test_service_name_from_subdomain_generic_environment_fallback(slug: str) -> None:
+    assert sw.service_name_from_subdomain(f"orders-{slug}-01.example.com") == "orders"
 
 
 def test_service_name_from_subdomain_no_prefix_match() -> None:
@@ -32,18 +58,23 @@ def test_service_name_from_subdomain_no_prefix_match() -> None:
 
 
 def test_service_name_from_subdomain_strips_env_slug() -> None:
-    result = sw.service_name_from_subdomain("prt-bgal-orders-dev.example.com", strip_env=True)
+    result = sw.service_name_from_subdomain("api-orders-dev.example.com", strip_env=True)
     assert result == "orders"
 
 
 def test_service_name_from_subdomain_keeps_env_slug_when_disabled() -> None:
-    result = sw.service_name_from_subdomain("prt-bgal-orders-dev.example.com", strip_env=False)
+    result = sw.service_name_from_subdomain("api-orders-dev.example.com", strip_env=False)
     assert result == "orders-dev"
 
 
 def test_service_name_from_subdomain_env_slug_with_trailing_suffix() -> None:
-    result = sw.service_name_from_subdomain("orders-stg-01-canary.example.com", strip_env=True)
+    result = sw.service_name_from_subdomain("orders-staging-01-canary.example.com", strip_env=True)
     assert result == "orders"
+
+
+def test_service_name_from_subdomain_unconfigured_slug_kept() -> None:
+    result = sw.service_name_from_subdomain("orders-stg-01-canary.example.com", strip_env=True)
+    assert result == "orders-stg-01-canary"
 
 
 def test_service_name_from_subdomain_no_env_match() -> None:
@@ -177,23 +208,21 @@ def test_wire_urls_skips_values_that_are_not_urls(env: dict) -> None:
 
 
 def test_wire_urls_replaces_when_port_known() -> None:
-    env = {"API_URL": "https://merchants-orders.example.com/v1/items"}
+    env = {"API_URL": "https://core-orders.example.com/v1/items"}
     res, wired = sw.wire_urls(env, {"orders": 8123})
     assert res["API_URL"] == "http://localhost:8123/v1/items"
     assert wired == {"orders": 8123}
 
 
 def test_wire_urls_leaves_unmatched_service_untouched() -> None:
-    env = {"API_URL": "https://merchants-orders.example.com/v1/items"}
+    env = {"API_URL": "https://core-orders.example.com/v1/items"}
     res, wired = sw.wire_urls(env, {})
-    assert res["API_URL"] == "https://merchants-orders.example.com/v1/items"
+    assert res["API_URL"] == "https://core-orders.example.com/v1/items"
     assert wired == {}
 
 
 def test_wire_urls_multiple_matches_in_one_value() -> None:
-    env = {
-        "URLS": ("https://merchants-orders.example.com/a https://merchants-billing.example.com/b")
-    }
+    env = {"URLS": ("https://core-orders.example.com/a https://core-billing.example.com/b")}
     res, wired = sw.wire_urls(env, {"orders": 8001, "billing": 8002})
     assert "http://localhost:8001/a" in res["URLS"]
     assert "http://localhost:8002/b" in res["URLS"]
