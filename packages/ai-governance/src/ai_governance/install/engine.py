@@ -101,7 +101,8 @@ class Ledger:
         """Resolves the parent only: a link is keyed by its own path, never by its target."""
         if self.base is not None:
             try:
-                resolved = path.parent.resolve() / path.name
+                full = self.resolve(str(path))
+                resolved = full.parent.resolve() / full.name
                 return resolved.relative_to(self.base.resolve()).as_posix()
             except ValueError:
                 pass
