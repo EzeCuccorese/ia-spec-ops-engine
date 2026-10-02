@@ -18,6 +18,12 @@ jobs:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
     steps:
+      - name: Checkout repository
+        if: ${{ env.GEMINI_API_KEY != '' }}
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Gemini Automated Code Review
         if: ${{ env.GEMINI_API_KEY != '' }}
         uses: sshnaidm/gemini-code-review-action@d4ccdaf0e2cad5cb79f80f6db07857c0e7fff28f # v1
