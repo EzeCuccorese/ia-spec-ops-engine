@@ -7,8 +7,7 @@ import spec.agents as agents_module
 from spec.agents import (
     AgentsAdapter,
     get_bundled_skills,
-    render_consumer,
-    render_contributor,
+    render_governance,
 )
 from spec.cli import main
 from spec.core.ownership import OwnershipManifest
@@ -25,15 +24,10 @@ def test_agent_install_single_claude(tmp_path: Path) -> None:
     assert agents_md.exists()
     assert "@.spec/governance.md" in agents_md.read_text(encoding="utf-8")
 
-    claude_md = tmp_path / "CLAUDE.md"
-    assert claude_md.exists()
-    claude_content = claude_md.read_text(encoding="utf-8")
-    assert "<!-- spec:governance -->" in claude_content
-    assert "@AGENTS.md" in claude_content
-    assert "<!-- /spec:governance -->" in claude_content
+    assert not (tmp_path / "CLAUDE.md").exists()
 
     manifest = OwnershipManifest(tmp_path)
-    assert manifest.get("CLAUDE.md") is not None
+    assert manifest.get("CLAUDE.md") is None
     assert (tmp_path / ".claude" / "skills" / "spec-new" / "SKILL.md").exists()
     assert (tmp_path / ".agents" / "skills" / "spec-new" / "SKILL.md").exists()
     assert manifest.get(".claude/skills/spec-new/SKILL.md") is not None
@@ -44,7 +38,6 @@ def test_agent_uninstall_single_claude(tmp_path: Path) -> None:
     with pytest.raises(SystemExit):
         main(["agent", "install", "claude", "--root", str(tmp_path)])
     assert (tmp_path / "AGENTS.md").exists()
-    assert (tmp_path / "CLAUDE.md").exists()
     assert (tmp_path / ".claude" / "skills" / "spec-new" / "SKILL.md").exists()
 
     with pytest.raises(SystemExit) as exc:
@@ -53,15 +46,35 @@ def test_agent_uninstall_single_claude(tmp_path: Path) -> None:
     assert not (tmp_path / "AGENTS.md").exists()
     assert not (tmp_path / "CLAUDE.md").exists()
     assert not (tmp_path / ".claude" / "skills" / "spec-new" / "SKILL.md").exists()
+
+
+@pytest.mark.parametrize("agent", ["claude", "agents"])
+def test_agent_uninstall_removes_claude_md_from_an_earlier_install(
+    agent: str, tmp_path: Path, legacy_claude_md
+) -> None:
+    ProjectGovernance(tmp_path).initialize()
+    with pytest.raises(SystemExit):
+        main(["agent", "install", agent, "--root", str(tmp_path)])
+    claude_md = legacy_claude_md(tmp_path)
+
+    with pytest.raises(SystemExit) as exc:
+        main(["agent", "uninstall", agent, "--root", str(tmp_path)])
+    assert exc.value.code == 0
+    assert claude_md.exists()
+
+    with pytest.raises(SystemExit) as exc:
+        main(["agent", "uninstall", agent, "--apply", "--root", str(tmp_path)])
+    assert exc.value.code == 0
+    assert not claude_md.exists()
     assert OwnershipManifest(tmp_path).get("CLAUDE.md") is None
 
 
-def test_agent_uninstall_claude_preserves_user_content(tmp_path: Path) -> None:
+def test_agent_uninstall_claude_preserves_user_content(tmp_path: Path, legacy_claude_md) -> None:
     ProjectGovernance(tmp_path).initialize()
     with pytest.raises(SystemExit):
         main(["agent", "install", "claude", "--root", str(tmp_path)])
 
-    claude_md = tmp_path / "CLAUDE.md"
+    claude_md = legacy_claude_md(tmp_path)
     custom_content = "# User Claude Instructions\nSome project notes."
     claude_md.write_text(f"{custom_content}\n\n{claude_md.read_text(encoding='utf-8')}")
 
@@ -74,7 +87,7 @@ def test_agent_uninstall_claude_preserves_user_content(tmp_path: Path) -> None:
     assert custom_content in remaining
 
 
-def test_agent_install_mock_consumer_repo_renders_consumer(tmp_path: Path) -> None:
+def test_agent_install_writes_the_governance_workflow(tmp_path: Path) -> None:
     ProjectGovernance(tmp_path).initialize()
     with pytest.raises(SystemExit) as exc:
         main(["agent", "install", "agents", "--root", str(tmp_path)])
@@ -84,41 +97,12 @@ def test_agent_install_mock_consumer_repo_renders_consumer(tmp_path: Path) -> No
     assert gov_md.exists()
     content = gov_md.read_text(encoding="utf-8")
 
-    # Pure SDD consumer workflow
     assert "Three Laws of TDD" in content
     assert "@s" in content
     assert "spec-new" in content
     assert "spec-finish" in content
     assert "spec test-assist --next" in content
-
-    # Must NOT contain contributor bootstrap commands
-    assert "uv pip install -e" not in content
-    assert "specops config init" not in content
-
-
-def test_agent_install_contributor_repo_renders_contributor(tmp_path: Path) -> None:
-    # Simulate contributor SpecOps repository
-    (tmp_path / "packages" / "spec" / "src" / "spec").mkdir(parents=True)
-    (tmp_path / "packages" / "spec" / "src" / "spec" / "__init__.py").touch()
-    (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "ia-spec-ops-engine"\n', encoding="utf-8"
-    )
-    ProjectGovernance(tmp_path).initialize()
-
-    with pytest.raises(SystemExit) as exc:
-        main(["agent", "install", "agents", "--root", str(tmp_path)])
-    assert exc.value.code == 0
-
-    gov_md = tmp_path / ".spec/governance.md"
-    assert gov_md.exists()
-    content = gov_md.read_text(encoding="utf-8")
-
-    # Contains 4-step bootstrap protocol
-    assert "Agent Post-Clone Bootstrap Protocol" in content
-    assert "./install.sh" in content
-    assert "source .venv/bin/activate" in content
-    assert "specops config init" in content
-    assert "specops doctor && specops audit" in content
+    assert content == render_governance()
 
 
 def test_agent_install_single_aider(tmp_path: Path) -> None:
@@ -143,21 +127,6 @@ def test_agent_install_custom_file(tmp_path: Path) -> None:
     custom_file = tmp_path / custom_target
     assert custom_file.exists()
     assert "@.spec/governance.md" in custom_file.read_text(encoding="utf-8")
-
-
-def test_agent_install_all(tmp_path: Path) -> None:
-    ProjectGovernance(tmp_path).initialize()
-    with pytest.raises(SystemExit) as exc:
-        main(["agent", "install", "all", "--root", str(tmp_path)])
-    assert exc.value.code == 0
-
-    assert (tmp_path / "AGENTS.md").exists()
-    assert not (tmp_path / "CLAUDE.md").exists()
-    assert not (tmp_path / ".cursorrules").exists()
-    assert not (tmp_path / ".windsurfrules").exists()
-    assert not (tmp_path / ".aider.conf.yml").exists()
-    assert not (tmp_path / ".github/copilot-instructions.md").exists()
-    assert not (tmp_path / "GEMINI.md").exists()
 
 
 def test_agent_install_single_copilot(tmp_path: Path) -> None:
@@ -212,7 +181,7 @@ def test_agent_install_unknown_raises(tmp_path: Path) -> None:
     ProjectGovernance(tmp_path).initialize()
     with pytest.raises(SystemExit) as exc:
         main(["agent", "install", "nonexistent_ai", "--root", str(tmp_path)])
-    assert exc.value.code == 1
+    assert exc.value.code == 2
 
 
 def test_agent_install_agents_default(tmp_path: Path) -> None:
@@ -308,14 +277,15 @@ def test_agent_uninstall_claude_without_prior_install(tmp_path: Path) -> None:
     assert not (tmp_path / "CLAUDE.md").exists()
 
 
-def test_agent_uninstall_claude_with_stale_manifest_record(tmp_path: Path) -> None:
+def test_agent_uninstall_claude_with_stale_manifest_record(
+    tmp_path: Path, legacy_claude_md
+) -> None:
     """CLAUDE.md was removed manually but the manifest still owns it."""
     ProjectGovernance(tmp_path).initialize()
     with pytest.raises(SystemExit):
         main(["agent", "install", "claude", "--root", str(tmp_path)])
 
-    claude_md = tmp_path / "CLAUDE.md"
-    assert claude_md.exists()
+    claude_md = legacy_claude_md(tmp_path)
     assert OwnershipManifest(tmp_path).get("CLAUDE.md") is not None
     claude_md.unlink()
 
@@ -323,42 +293,6 @@ def test_agent_uninstall_claude_with_stale_manifest_record(tmp_path: Path) -> No
         main(["agent", "uninstall", "claude", "--apply", "--root", str(tmp_path)])
     assert exc.value.code == 0
     assert OwnershipManifest(tmp_path).get("CLAUDE.md") is None
-
-
-def test_agent_install_claude_pointer_idempotent_reinstall(tmp_path: Path) -> None:
-    """Installing the claude pointer twice when it only holds the owned block."""
-    ProjectGovernance(tmp_path).initialize()
-    adapter = AgentsAdapter(tmp_path, agent="claude")
-    first = adapter.install_claude_pointer()
-    assert first.created
-
-    second = adapter.install_claude_pointer()
-    assert not second.created
-    claude_md = tmp_path / "CLAUDE.md"
-    content = claude_md.read_text(encoding="utf-8")
-    assert "<!-- spec:governance -->" in content
-
-
-def test_agent_install_claude_pointer_reclaims_ownership_with_user_content(
-    tmp_path: Path,
-) -> None:
-    """Reinstalling the claude pointer over owned content plus user edits."""
-    ProjectGovernance(tmp_path).initialize()
-    adapter = AgentsAdapter(tmp_path, agent="claude")
-    adapter.install_claude_pointer()
-
-    claude_md = tmp_path / "CLAUDE.md"
-    custom_content = "# My notes\nDo not delete this."
-    claude_md.write_text(
-        f"{custom_content}\n\n{claude_md.read_text(encoding='utf-8')}", encoding="utf-8"
-    )
-    assert OwnershipManifest(tmp_path).get("CLAUDE.md") is not None
-
-    result = adapter.install_claude_pointer()
-    assert not result.created
-    content = claude_md.read_text(encoding="utf-8")
-    assert custom_content in content
-    assert "<!-- spec:governance -->" in content
 
 
 def test_agent_uninstall_agents_markers_absent_leaves_agents_md(tmp_path: Path) -> None:
@@ -407,21 +341,6 @@ def test_uninstall_agents_md_present_without_markers_when_apply(tmp_path: Path) 
     result = adapter.uninstall(dry_run=False)
     assert result.deleted is False
     assert (tmp_path / "AGENTS.md").read_text(encoding="utf-8") == "# Notes only\n"
-
-
-def test_render_falls_back_to_consumer_when_root_is_none(tmp_path: Path) -> None:
-    adapter = AgentsAdapter(tmp_path)
-    adapter.root = None  # type: ignore[assignment]
-    assert adapter.render() == render_consumer()
-
-
-def test_render_consumer_when_pyproject_does_not_mention_engine(tmp_path: Path) -> None:
-    (tmp_path / "packages" / "spec" / "src" / "spec").mkdir(parents=True)
-    (tmp_path / "packages" / "spec" / "src" / "spec" / "__init__.py").touch()
-    (tmp_path / "pyproject.toml").write_text('[project]\nname = "other-project"\n')
-
-    adapter = AgentsAdapter(tmp_path)
-    assert adapter.render() == render_consumer()
 
 
 def test_get_bundled_skills_fallback_skips_missing_names(tmp_path: Path, monkeypatch) -> None:
@@ -482,41 +401,6 @@ def test_agent_uninstall_agents_md_preserves_user_content(tmp_path: Path) -> Non
     assert custom_content in remaining
 
 
-def test_install_claude_pointer_reclaims_unowned_block_with_user_content(
-    tmp_path: Path,
-) -> None:
-    """CLAUDE.md manually seeded with block + custom text, never owned by spec."""
-    claude_md = tmp_path / "CLAUDE.md"
-    custom_content = "# Pre-existing notes"
-    claude_md.write_text(
-        f"{custom_content}\n<!-- spec:governance -->\n@AGENTS.md\n<!-- /spec:governance -->\n",
-        encoding="utf-8",
-    )
-    adapter = AgentsAdapter(tmp_path, agent="claude")
-    assert OwnershipManifest(tmp_path).get("CLAUDE.md") is None
-
-    result = adapter.install_claude_pointer()
-    assert not result.created
-    content = claude_md.read_text(encoding="utf-8")
-    assert custom_content in content
-    assert "<!-- spec:governance -->" in content
-
-
-def test_install_claude_pointer_appends_block_to_unmarked_existing_file(
-    tmp_path: Path,
-) -> None:
-    """CLAUDE.md pre-exists with plain content and no governance markers."""
-    claude_md = tmp_path / "CLAUDE.md"
-    claude_md.write_text("# Existing project instructions\n", encoding="utf-8")
-    adapter = AgentsAdapter(tmp_path, agent="claude")
-
-    result = adapter.install_claude_pointer()
-    assert not result.created
-    content = claude_md.read_text(encoding="utf-8")
-    assert "# Existing project instructions" in content
-    assert "<!-- spec:governance -->" in content
-
-
 def test_uninstall_claude_pointer_dry_run_unowned_block_only_content(
     tmp_path: Path,
 ) -> None:
@@ -532,13 +416,15 @@ def test_uninstall_claude_pointer_dry_run_unowned_block_only_content(
     assert claude_md.read_text(encoding="utf-8") == original
 
 
-def test_uninstall_claude_pointer_dry_run_preserves_user_content(tmp_path: Path) -> None:
+def test_uninstall_claude_pointer_dry_run_preserves_user_content(
+    tmp_path: Path, legacy_claude_md
+) -> None:
     """Dry-run uninstall with owned CLAUDE.md plus user edits changes nothing."""
     ProjectGovernance(tmp_path).initialize()
     with pytest.raises(SystemExit):
         main(["agent", "install", "claude", "--root", str(tmp_path)])
 
-    claude_md = tmp_path / "CLAUDE.md"
+    claude_md = legacy_claude_md(tmp_path)
     custom_content = "# Kept during dry run"
     original = f"{custom_content}\n\n{claude_md.read_text(encoding='utf-8')}"
     claude_md.write_text(original, encoding="utf-8")
@@ -569,23 +455,36 @@ def test_uninstall_claude_pointer_unowned_block_with_user_content(tmp_path: Path
     assert OwnershipManifest(tmp_path).get("CLAUDE.md") is None
 
 
-def test_agents_adapter_static_render_helpers() -> None:
-    assert AgentsAdapter.render_consumer() == render_consumer()
-    assert AgentsAdapter.render_contributor() == render_contributor()
+def test_governance_spec_new_runs_preflight_like_the_skill() -> None:
+    skill = get_bundled_skills()["spec-new"]
+    line = next(row for row in render_governance().splitlines() if row.startswith("- spec-new"))
+    assert 'spec preflight "<name>"' in line
+    assert 'spec new "<name>" only without preflight' in line
+    assert line.index("spec preflight") < line.index("spec new")
+    assert 'spec preflight "<feature-name>"' in skill
 
 
-def test_render_consumer_when_pyproject_unreadable(tmp_path: Path, monkeypatch) -> None:
-    (tmp_path / "packages" / "spec" / "src" / "spec").mkdir(parents=True)
-    (tmp_path / "packages" / "spec" / "src" / "spec" / "__init__.py").touch()
-    (tmp_path / "pyproject.toml").write_text('[project]\nname = "ia-spec-ops-engine"\n')
-    adapter = AgentsAdapter(tmp_path)
+def test_uninstall_custom_file_removes_unedited_legacy_claude_block(tmp_path: Path) -> None:
+    """An earlier `install claude` wrote `@AGENTS.md`; uninstalling a custom target must not
+    mistake that unedited block for a user edit."""
+    claude_md = tmp_path / "CLAUDE.md"
+    claude_md.write_text(
+        "# Notes\n<!-- spec:governance -->\n@AGENTS.md\n<!-- /spec:governance -->\n",
+        encoding="utf-8",
+    )
 
-    original_read_text = Path.read_text
-
-    def boom(self: Path, *args: object, **kwargs: object) -> str:
-        if self.name == "pyproject.toml":
-            raise OSError("permission denied")
-        return original_read_text(self, *args, **kwargs)  # type: ignore[arg-type]
-
-    monkeypatch.setattr(Path, "read_text", boom)
-    assert adapter.render() == render_consumer()
+    with pytest.raises(SystemExit) as exc:
+        main(
+            [
+                "agent",
+                "uninstall",
+                "custom",
+                "--file",
+                "docs/AI.md",
+                "--apply",
+                "--root",
+                str(tmp_path),
+            ]
+        )
+    assert exc.value.code == 0
+    assert claude_md.read_text(encoding="utf-8") == "# Notes\n"

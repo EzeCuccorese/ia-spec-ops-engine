@@ -151,6 +151,14 @@ def test_cli_preflight_command(tmp_path: Path, capsys) -> None:
     assert payload["baseline"] == "PASS"
 
 
+def test_cli_preflight_has_no_worktree_flag(tmp_path: Path, capsys) -> None:
+    """A worktree is the default; only --no-worktree changes it."""
+    with pytest.raises(SystemExit) as exc:
+        main(["preflight", "Flag Feature", "--worktree", "--root", str(tmp_path)])
+    assert exc.value.code == 2
+    assert "--worktree" in capsys.readouterr().err
+
+
 def test_cli_preflight_command_rejects_empty_checks(tmp_path: Path, capsys) -> None:
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
@@ -554,7 +562,7 @@ def test_run_with_different_base_branch_copies_file_config_pattern(tmp_path: Pat
     assert result["status"] == "READY"
 
 
-def test_run_falls_back_to_root_when_base_branch_worktree_add_fails(tmp_path: Path) -> None:
+def test_run_fails_when_base_branch_cannot_be_checked_out(tmp_path: Path) -> None:
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
     _init_git_repo(repo_dir)
@@ -568,5 +576,191 @@ def test_run_falls_back_to_root_when_base_branch_worktree_add_fails(tmp_path: Pa
     mgr = PreflightManager(repo_dir)
     result = mgr.run("Ghost Base Feature", base_branch="ghost-branch", use_worktree=False)
 
+    assert result["status"] == "FAIL"
+    assert "Base branch 'ghost-branch' cannot be checked out" in result["error"]
+    assert not (repo_dir / ".spec" / "evidence" / "preflight").exists()
+    assert not (repo_dir / ".spec" / "specs" / "ghost-base-feature").exists()
+
+
+def _passing_repo(tmp_path: Path) -> Path:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    _init_git_repo(repo_dir)
+    ProjectGovernance(repo_dir).initialize()
+    v_config = {
+        "schema_version": 1,
+        "checks": [{"id": "passing-check", "command": ["true"], "required": True}],
+    }
+    (repo_dir / ".spec" / "verification.json").write_text(json.dumps(v_config), encoding="utf-8")
+    return repo_dir
+
+
+def _current_branch(repo_dir: Path) -> str:
+    return subprocess.run(
+        ["git", "-C", str(repo_dir), "branch", "--show-current"],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=_git_env(),
+    ).stdout.strip()
+
+
+def test_run_without_worktree_creates_and_switches_to_feature_branch(tmp_path: Path) -> None:
+    repo_dir = _passing_repo(tmp_path)
+
+    result = PreflightManager(repo_dir).run("Local Feature", use_worktree=False)
+
     assert result["status"] == "READY"
-    assert result["base_branch"] == "ghost-branch"
+    assert result["branch"] == "feature/local-feature"
+    assert _current_branch(repo_dir) == "feature/local-feature"
+
+
+def test_run_without_worktree_creates_branch_from_selected_base(tmp_path: Path) -> None:
+    repo_dir = _passing_repo(tmp_path)
+    subprocess.run(["git", "-C", str(repo_dir), "branch", "other"], check=True, env=_git_env())
+    (repo_dir / "main-only.txt").write_text("main", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo_dir), "add", "."], check=True, env=_git_env())
+    subprocess.run(
+        ["git", "-C", str(repo_dir), "commit", "-qm", "main only"], check=True, env=_git_env()
+    )
+
+    result = PreflightManager(repo_dir).run("Based", base_branch="other", use_worktree=False)
+
+    assert result["status"] == "READY"
+    assert _current_branch(repo_dir) == "feature/based"
+    assert not (repo_dir / "main-only.txt").exists()
+
+
+def test_run_without_worktree_switches_to_existing_branch(tmp_path: Path) -> None:
+    repo_dir = _passing_repo(tmp_path)
+    subprocess.run(
+        ["git", "-C", str(repo_dir), "branch", "feature/again"], check=True, env=_git_env()
+    )
+
+    result = PreflightManager(repo_dir).run("Again", use_worktree=False)
+
+    assert result["status"] == "READY"
+    assert _current_branch(repo_dir) == "feature/again"
+
+
+def test_run_without_worktree_fails_on_dirty_tree(tmp_path: Path) -> None:
+    repo_dir = _passing_repo(tmp_path)
+    (repo_dir / "README.md").write_text("uncommitted edit", encoding="utf-8")
+
+    result = PreflightManager(repo_dir).run("Dirty Feature", use_worktree=False)
+
+    assert result["status"] == "FAIL"
+    assert "uncommitted changes" in result["error"]
+    assert "feature/dirty-feature" in result["error"]
+    assert _current_branch(repo_dir) == "main"
+    assert not (repo_dir / ".spec" / "specs" / "dirty-feature").exists()
+    assert not (repo_dir / ".spec" / "evidence" / "preflight").exists()
+
+
+def test_run_without_worktree_fails_when_branch_cannot_be_created(tmp_path: Path) -> None:
+    repo_dir = _passing_repo(tmp_path)
+    subprocess.run(["git", "-C", str(repo_dir), "branch", "feature"], check=True, env=_git_env())
+
+    result = PreflightManager(repo_dir).run("Nested", branch="feature/nested", use_worktree=False)
+
+    assert result["status"] == "FAIL"
+    assert "Failed to switch to branch 'feature/nested'" in result["error"]
+    assert _current_branch(repo_dir) == "main"
+
+
+def test_cli_preflight_reports_existing_worktree_directory_as_fail(tmp_path: Path, capsys) -> None:
+    repo_dir = _passing_repo(tmp_path)
+    (tmp_path / "workspace-feature-taken").mkdir()
+
+    with pytest.raises(SystemExit) as exc:
+        main(["preflight", "Taken", "--root", str(repo_dir), "--json"])
+    assert exc.value.code == 1
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "FAIL"
+    assert "Target worktree directory already exists" in payload["error"]
+
+
+def test_worktree_copies_only_spec_agents_and_env_files(tmp_path: Path) -> None:
+    repo_dir = _passing_repo(tmp_path)
+    (repo_dir / ".agents").mkdir()
+    (repo_dir / ".specops").mkdir()
+    (repo_dir / ".env.local").write_text("A=1", encoding="utf-8")
+
+    result = PreflightManager(repo_dir).run("Copied")
+
+    worktree = Path(result["worktree_path"])
+    assert (worktree / ".spec" / "verification.json").is_file()
+    assert (worktree / ".agents").is_dir()
+    assert (worktree / ".env.local").is_file()
+    assert not (worktree / ".specops").exists()
+
+
+def test_base_branch_baseline_evidence_survives_the_temporary_checkout(tmp_path: Path) -> None:
+    repo_dir = _passing_repo(tmp_path)
+    subprocess.run(["git", "-C", str(repo_dir), "branch", "other"], check=True, env=_git_env())
+
+    result = PreflightManager(repo_dir).run_base_branch_baseline("other")
+
+    assert result.passed is True
+    assert result.evidence_path is not None
+    evidence = Path(result.evidence_path)
+    assert evidence.is_file()
+    assert evidence.parent == repo_dir / ".spec" / "evidence" / "preflight"
+
+
+def test_base_branch_baseline_gets_env_files_and_dependency_links(tmp_path: Path) -> None:
+    repo_dir = _passing_repo(tmp_path)
+    subprocess.run(["git", "-C", str(repo_dir), "branch", "other"], check=True, env=_git_env())
+    (repo_dir / ".env").write_text("A=1", encoding="utf-8")
+    (repo_dir / ".venv").mkdir()
+    v_config = {
+        "schema_version": 1,
+        "checks": [
+            {"id": "env", "command": ["test", "-f", ".env"], "required": True},
+            {"id": "venv", "command": ["test", "-d", ".venv"], "required": True},
+        ],
+    }
+    (repo_dir / ".spec" / "verification.json").write_text(json.dumps(v_config), encoding="utf-8")
+
+    result = PreflightManager(repo_dir).run_base_branch_baseline("other")
+
+    assert result.passed is True, result.summary
+    assert (repo_dir / ".venv").is_dir()
+
+
+def test_dependency_link_falls_back_to_absolute_path_across_drives(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On Windows, os.path.relpath raises ValueError when the temporary checkout and the
+    repository sit on different drives; the link must still be created."""
+    repo_dir = _passing_repo(tmp_path)
+    (repo_dir / ".venv").mkdir()
+    dest = tmp_path / "elsewhere"
+    dest.mkdir()
+
+    def other_drive(path: object, start: object = None) -> str:
+        raise ValueError("path is on mount 'D:', start on mount 'C:'")
+
+    monkeypatch.setattr(preflight_module.os.path, "relpath", other_drive)
+    PreflightManager(repo_dir)._link_local_environment(dest)
+
+    assert (dest / ".venv").is_symlink()
+    assert (dest / ".venv").resolve() == (repo_dir / ".venv").resolve()
+
+
+def test_run_without_worktree_on_target_branch_dirty_message_does_not_claim_a_switch(
+    tmp_path: Path,
+) -> None:
+    repo_dir = _passing_repo(tmp_path)
+    subprocess.run(
+        ["git", "-C", str(repo_dir), "switch", "-qc", "feature/here"], check=True, env=_git_env()
+    )
+    (repo_dir / "README.md").write_text("uncommitted edit", encoding="utf-8")
+
+    result = PreflightManager(repo_dir).run("Here", use_worktree=False)
+
+    assert result["status"] == "FAIL"
+    assert "uncommitted changes" in result["error"]
+    assert "switches" not in result["error"]
+    assert "feature/here" in result["error"]

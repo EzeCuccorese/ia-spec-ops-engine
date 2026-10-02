@@ -95,7 +95,6 @@ def find_test_mappings(
         ".git",
         ".venv",
         ".spec",
-        ".specops",
         "node_modules",
         ".pytest_cache",
         ".ruff_cache",
