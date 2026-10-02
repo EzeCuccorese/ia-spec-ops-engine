@@ -14,7 +14,7 @@ PATTERN = re.compile(
     re.DOTALL,
 )
 
-_CONSUMER_WORKFLOW = """# Spec Governance for Coding Agents
+_GOVERNANCE = """# Spec Governance for Coding Agents
 
 ## Required Workflow
 1. Read `.spec/state.json` and active artifacts under `.spec/specs/` before changing code.
@@ -63,42 +63,10 @@ This repository follows the universal `AGENTS.md` open standard for all AI codin
 - Never modify files outside the agreed specification scope without user confirmation.
 """
 
-_CONTRIBUTOR_BOOTSTRAP = """## ⚡ Agent Post-Clone Bootstrap Protocol (Run Once After Git Clone)
-Any AI coding agent (Antigravity, Claude Code, Cursor, Windsurf, Aider, or custom) that clones this repository MUST execute the following 4-step bootstrap:
 
-1. **Install dependencies in editable mode**:
-   ```bash
-   ./install.sh
-   source .venv/bin/activate
-   ```
-2. **Initialize project configuration**:
-   ```bash
-   specops config init --local --yes
-   # or: ./bin/specops config init --local --yes
-   ```
-3. **Configure your AI agent governance adapter**:
-   ```bash
-   specops agent install
-   # or: specops agent install antigravity
-   ```
-4. **Verify environment health**:
-   ```bash
-   specops doctor && specops audit
-   # or: ./bin/specops doctor && ./bin/specops audit
-   ```
-"""
-
-
-def render_consumer() -> str:
-    """Pure SDD engineering workflow for third-party consumer projects."""
-    return _CONSUMER_WORKFLOW
-
-
-def render_contributor() -> str:
-    """Contains the 4-step bootstrap protocol for ia-spec-ops-engine contributors."""
-    header = "# Spec Governance for Coding Agents\n\n"
-    remainder = _CONSUMER_WORKFLOW[len(header) :]
-    return f"{header}{_CONTRIBUTOR_BOOTSTRAP}\n{remainder}"
+def render_governance() -> str:
+    """Spec-driven workflow rules every agent reads through the AGENTS.md block."""
+    return _GOVERNANCE
 
 
 def get_bundled_skills() -> dict[str, str]:
@@ -290,29 +258,8 @@ class AgentsAdapter:
 
         return DeleteResult(path=self.claude_target, deleted=False, would_delete=False)
 
-    @staticmethod
-    def render_consumer() -> str:
-        return render_consumer()
-
-    @staticmethod
-    def render_contributor() -> str:
-        return render_contributor()
-
-    def render(self, root: str | Path | None = None) -> str:
-        target_root: str | Path | None = root if root is not None else self.root
-
-        if target_root is not None:
-            root_path = Path(target_root)
-            spec_init = root_path / "packages" / "spec" / "src" / "spec" / "__init__.py"
-            pyproject = root_path / "pyproject.toml"
-            if spec_init.is_file() and pyproject.is_file():
-                try:
-                    pyproject_content = pyproject.read_text(encoding="utf-8")
-                    if "ia-spec-ops-engine" in pyproject_content:
-                        return render_contributor()
-                except OSError:
-                    pass
-        return render_consumer()
+    def render(self) -> str:
+        return render_governance()
 
 
 RECOGNIZED_AGENTS = {
@@ -331,6 +278,5 @@ RECOGNIZED_AGENTS = {
 __all__ = [
     "RECOGNIZED_AGENTS",
     "AgentsAdapter",
-    "render_consumer",
-    "render_contributor",
+    "render_governance",
 ]

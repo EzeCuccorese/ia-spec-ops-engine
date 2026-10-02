@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
-from spec.agents import AgentsAdapter, render_consumer, render_contributor
+from spec.agents import AgentsAdapter, render_governance
 from spec.core.ownership import FileChangedError, OwnershipManifest
 from spec.governance.project import ProjectGovernance
 
@@ -97,25 +97,6 @@ def test_agents_adapter_refuses_to_delete_modified_governance_file(tmp_path: Pat
     assert (tmp_path / ".spec/governance.md").exists()
 
 
-def test_agents_adapter_render_detects_contributor_vs_consumer(tmp_path: Path) -> None:
-    # Consumer repo (empty dir)
-    adapter = AgentsAdapter(tmp_path)
-    assert adapter.render() == render_consumer()
-    assert "uv pip install -e" not in adapter.render()
-
-    # Contributor repo (genuine ia-spec-ops-engine repository)
-    contributor_dir = tmp_path / "contributor_repo"
-    (contributor_dir / "packages" / "spec" / "src" / "spec").mkdir(parents=True)
-    (contributor_dir / "packages" / "spec" / "src" / "spec" / "__init__.py").touch()
-    (contributor_dir / "pyproject.toml").write_text(
-        '[project]\nname = "ia-spec-ops-engine"\n', encoding="utf-8"
-    )
-    contributor_adapter = AgentsAdapter(contributor_dir)
-    assert contributor_adapter.render() == render_contributor()
-    assert "./install.sh" in contributor_adapter.render()
-    assert "source .venv/bin/activate" in contributor_adapter.render()
-
-
 def test_claude_adapter_installs_and_uninstalls_reversibly(tmp_path: Path) -> None:
     ProjectGovernance(tmp_path).initialize()
     adapter = AgentsAdapter(tmp_path, agent="claude")
@@ -139,3 +120,17 @@ def test_claude_adapter_installs_and_uninstalls_reversibly(tmp_path: Path) -> No
     assert not (tmp_path / "AGENTS.md").exists()
     assert not (tmp_path / ".claude/skills/spec-new/SKILL.md").exists()
     assert OwnershipManifest(tmp_path).get(".spec/governance.md") is None
+
+
+def test_engine_checkout_gets_the_same_governance_without_bootstrap(tmp_path: Path) -> None:
+    """The root AGENTS.md forbids installing or configuring anything unasked, so the engine
+    checkout gets the same workflow as any project and no bootstrap commands."""
+    (tmp_path / "packages" / "spec" / "src" / "spec").mkdir(parents=True)
+    (tmp_path / "packages" / "spec" / "src" / "spec" / "__init__.py").touch()
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "ia-spec-ops-engine"\n')
+
+    rendered = AgentsAdapter(tmp_path).render()
+
+    assert rendered == render_governance()
+    for command in ("./install.sh", "specops", "Bootstrap Protocol"):
+        assert command not in rendered

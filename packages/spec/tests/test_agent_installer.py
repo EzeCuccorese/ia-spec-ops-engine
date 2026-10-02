@@ -7,8 +7,7 @@ import spec.agents as agents_module
 from spec.agents import (
     AgentsAdapter,
     get_bundled_skills,
-    render_consumer,
-    render_contributor,
+    render_governance,
 )
 from spec.cli import main
 from spec.core.ownership import OwnershipManifest
@@ -88,7 +87,7 @@ def test_agent_uninstall_claude_preserves_user_content(tmp_path: Path, legacy_cl
     assert custom_content in remaining
 
 
-def test_agent_install_mock_consumer_repo_renders_consumer(tmp_path: Path) -> None:
+def test_agent_install_writes_the_governance_workflow(tmp_path: Path) -> None:
     ProjectGovernance(tmp_path).initialize()
     with pytest.raises(SystemExit) as exc:
         main(["agent", "install", "agents", "--root", str(tmp_path)])
@@ -98,41 +97,12 @@ def test_agent_install_mock_consumer_repo_renders_consumer(tmp_path: Path) -> No
     assert gov_md.exists()
     content = gov_md.read_text(encoding="utf-8")
 
-    # Pure SDD consumer workflow
     assert "Three Laws of TDD" in content
     assert "@s" in content
     assert "spec-new" in content
     assert "spec-finish" in content
     assert "spec test-assist --next" in content
-
-    # Must NOT contain contributor bootstrap commands
-    assert "uv pip install -e" not in content
-    assert "specops config init" not in content
-
-
-def test_agent_install_contributor_repo_renders_contributor(tmp_path: Path) -> None:
-    # Simulate contributor SpecOps repository
-    (tmp_path / "packages" / "spec" / "src" / "spec").mkdir(parents=True)
-    (tmp_path / "packages" / "spec" / "src" / "spec" / "__init__.py").touch()
-    (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "ia-spec-ops-engine"\n', encoding="utf-8"
-    )
-    ProjectGovernance(tmp_path).initialize()
-
-    with pytest.raises(SystemExit) as exc:
-        main(["agent", "install", "agents", "--root", str(tmp_path)])
-    assert exc.value.code == 0
-
-    gov_md = tmp_path / ".spec/governance.md"
-    assert gov_md.exists()
-    content = gov_md.read_text(encoding="utf-8")
-
-    # Contains 4-step bootstrap protocol
-    assert "Agent Post-Clone Bootstrap Protocol" in content
-    assert "./install.sh" in content
-    assert "source .venv/bin/activate" in content
-    assert "specops config init" in content
-    assert "specops doctor && specops audit" in content
+    assert content == render_governance()
 
 
 def test_agent_install_single_aider(tmp_path: Path) -> None:
@@ -373,21 +343,6 @@ def test_uninstall_agents_md_present_without_markers_when_apply(tmp_path: Path) 
     assert (tmp_path / "AGENTS.md").read_text(encoding="utf-8") == "# Notes only\n"
 
 
-def test_render_falls_back_to_consumer_when_root_is_none(tmp_path: Path) -> None:
-    adapter = AgentsAdapter(tmp_path)
-    adapter.root = None  # type: ignore[assignment]
-    assert adapter.render() == render_consumer()
-
-
-def test_render_consumer_when_pyproject_does_not_mention_engine(tmp_path: Path) -> None:
-    (tmp_path / "packages" / "spec" / "src" / "spec").mkdir(parents=True)
-    (tmp_path / "packages" / "spec" / "src" / "spec" / "__init__.py").touch()
-    (tmp_path / "pyproject.toml").write_text('[project]\nname = "other-project"\n')
-
-    adapter = AgentsAdapter(tmp_path)
-    assert adapter.render() == render_consumer()
-
-
 def test_get_bundled_skills_fallback_skips_missing_names(tmp_path: Path, monkeypatch) -> None:
     """The filesystem fallback for-loop continues past names with no SKILL.md."""
     fake_pkg_dir = tmp_path / "fake_pkg"
@@ -500,33 +455,10 @@ def test_uninstall_claude_pointer_unowned_block_with_user_content(tmp_path: Path
     assert OwnershipManifest(tmp_path).get("CLAUDE.md") is None
 
 
-def test_agents_adapter_static_render_helpers() -> None:
-    assert AgentsAdapter.render_consumer() == render_consumer()
-    assert AgentsAdapter.render_contributor() == render_contributor()
-
-
-def test_render_consumer_when_pyproject_unreadable(tmp_path: Path, monkeypatch) -> None:
-    (tmp_path / "packages" / "spec" / "src" / "spec").mkdir(parents=True)
-    (tmp_path / "packages" / "spec" / "src" / "spec" / "__init__.py").touch()
-    (tmp_path / "pyproject.toml").write_text('[project]\nname = "ia-spec-ops-engine"\n')
-    adapter = AgentsAdapter(tmp_path)
-
-    original_read_text = Path.read_text
-
-    def boom(self: Path, *args: object, **kwargs: object) -> str:
-        if self.name == "pyproject.toml":
-            raise OSError("permission denied")
-        return original_read_text(self, *args, **kwargs)  # type: ignore[arg-type]
-
-    monkeypatch.setattr(Path, "read_text", boom)
-    assert adapter.render() == render_consumer()
-
-
 def test_governance_spec_new_runs_preflight_like_the_skill() -> None:
     skill = get_bundled_skills()["spec-new"]
-    for rendered in (render_consumer(), render_contributor()):
-        line = next(row for row in rendered.splitlines() if row.startswith("- spec-new"))
-        assert 'spec preflight "<name>"' in line
-        assert 'spec new "<name>" only without preflight' in line
-        assert line.index("spec preflight") < line.index("spec new")
+    line = next(row for row in render_governance().splitlines() if row.startswith("- spec-new"))
+    assert 'spec preflight "<name>"' in line
+    assert 'spec new "<name>" only without preflight' in line
+    assert line.index("spec preflight") < line.index("spec new")
     assert 'spec preflight "<feature-name>"' in skill
