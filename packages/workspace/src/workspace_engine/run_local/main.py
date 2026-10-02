@@ -9,6 +9,7 @@ import contextlib
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 from collections.abc import Callable
@@ -99,7 +100,7 @@ def _restart_named(names: list, results: list, launch_configs: list, db_cfg: dic
         if r.get("pid"):
             for t in (-r["pid"], r["pid"]):
                 with contextlib.suppress(ProcessLookupError):
-                    os.kill(t, 15)
+                    os.kill(t, signal.SIGTERM)
         _wait_port_free(cfg["port"])
         pid, err, started_at, wired_map = _launch_one(cfg, running_ports, db_cfg)
         r["pid"], r["error"], r["started_at"] = pid, err, started_at
@@ -235,7 +236,7 @@ def _needs_launch(cfg: dict, current: dict | None, alive: set[str]) -> bool:
     if cfg["name"] not in alive or not current:
         return True
     keys = ("base_env", "db_env", "up_mode")
-    return tuple(current.get(k) for k in keys) != tuple(cfg[k] for k in keys)
+    return tuple(current.get(k) for k in keys) != tuple(cfg.get(k) for k in keys)
 
 
 def _terminate(pid: int) -> None:
@@ -244,7 +245,7 @@ def _terminate(pid: int) -> None:
         return  # 0 or less would signal our own process group
     for t in (-pid, pid):
         with contextlib.suppress(ProcessLookupError, PermissionError):
-            os.kill(t, 15)
+            os.kill(t, signal.SIGTERM)
 
 
 def _stop_running(to_launch: list, results: list) -> None:
@@ -325,12 +326,11 @@ def _exit_without_config() -> None:
 
 def main(argv: list[str] | None = None) -> None:
     args = _parse_args(argv)
-    if not _CONFIG_LOADED and "pytest" not in sys.modules:
-        _exit_without_config()
-
-    if args.stop:
+    if args.stop:  # stopping reads only the PID files, no configuration needed
         stop_all()
         return
+    if not _CONFIG_LOADED and "pytest" not in sys.modules:
+        _exit_without_config()
 
     db_cfg = _ensure_config()
     sources, force_repos_dir = _resolve_sources(args.dir)

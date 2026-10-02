@@ -476,3 +476,40 @@ def test_interrupted_generation_rolls_back_the_workspace(tmp_path: Path) -> None
 
     assert not (tmp_path / "ws" / "feat-x").exists()
     assert "feat-x" not in _git("-C", str(api), "branch", "--list")
+
+
+def test_failed_new_worktree_removes_the_branch_it_created(tmp_path: Path) -> None:
+    api = _source_repo(tmp_path / "src" / "api")
+    target = tmp_path / "ws" / "feat-x" / "repositories" / "api"
+    target.mkdir(parents=True)
+    (target / "occupied").touch()
+    configs = [RepoConfig(name="api", mode="new", branch="feat-x", parent="main")]
+
+    with pytest.raises(RuntimeError):
+        gw.create_workspace_structure("feat-x", tmp_path / "ws", configs, {"api": api})
+
+    assert "feat-x" not in _git("-C", str(api), "branch", "--list")
+
+
+def test_failed_new_worktree_keeps_a_branch_that_already_existed(tmp_path: Path) -> None:
+    api = _source_repo(tmp_path / "src" / "api")
+    _git("-C", str(api), "branch", "feat-x")
+    configs = [RepoConfig(name="api", mode="new", branch="feat-x", parent="main")]
+
+    with pytest.raises(RuntimeError):
+        gw.create_workspace_structure("feat-x", tmp_path / "ws", configs, {"api": api})
+
+    assert "feat-x" in _git("-C", str(api), "branch", "--list")
+
+
+def test_rollback_removes_the_directory_even_if_undoing_worktrees_fails(tmp_path: Path) -> None:
+    api = _source_repo(tmp_path / "src" / "api")
+    configs = [RepoConfig(name="api", mode="existing", branch="missing", parent=None)]
+
+    with (
+        patch.object(gw, "_remove_worktrees", side_effect=KeyboardInterrupt),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        gw.create_workspace_structure("feat-x", tmp_path / "ws", configs, {"api": api})
+
+    assert not (tmp_path / "ws" / "feat-x").exists()

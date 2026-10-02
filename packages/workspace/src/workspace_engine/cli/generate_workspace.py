@@ -67,6 +67,18 @@ def _remove_worktrees(created: list[tuple[Path, Path, RepoConfig]]) -> None:
         run_git(src, "worktree", "remove", "--force", str(target))
         if cfg.mode == "new":
             run_git(src, "branch", "-D", cfg.branch)
+        run_git(src, "worktree", "prune")
+
+
+def _setup_or_undo(src: Path, target: Path, cfg: RepoConfig) -> None:
+    """`setup_repo_worktree`, deleting the branch a failed `worktree add -b` leaves behind."""
+    existed = run_git(src, "rev-parse", "--verify", f"refs/heads/{cfg.branch}").returncode == 0
+    try:
+        setup_repo_worktree(src, target, cfg)
+    except BaseException:
+        if cfg.mode == "new" and not existed:
+            run_git(src, "branch", "-D", cfg.branch)
+        raise
 
 
 def _create_worktrees(
@@ -78,12 +90,14 @@ def _create_worktrees(
         for cfg in repo_configs:
             src = repo_paths[cfg.name]
             target = workspace_dir / "repositories" / cfg.name
-            setup_repo_worktree(src, target, cfg)
+            _setup_or_undo(src, target, cfg)
             created.append((src, target, cfg))
             log_success(f"Worktree created for {cfg.name} (branch: {cfg.branch})")
     except BaseException:  # interrupts too: never leave a half-built workspace
-        _remove_worktrees(created)
-        shutil.rmtree(workspace_dir, ignore_errors=True)
+        try:
+            _remove_worktrees(created)
+        finally:
+            shutil.rmtree(workspace_dir, ignore_errors=True)
         raise
 
 

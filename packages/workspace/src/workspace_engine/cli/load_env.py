@@ -61,7 +61,8 @@ def _update_envs(
     for env, value in env_to_value.items():
         log_info(f"Processing environment {env}...")
         yaml_path = root_dir / f"values.{env}.yaml"
-        all_ok = update_env_in_yaml(yaml_path, services, key, value) and all_ok
+        if not update_env_in_yaml(yaml_path, services, key, value):
+            all_ok = False
     return all_ok
 
 

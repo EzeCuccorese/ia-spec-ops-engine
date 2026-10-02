@@ -327,3 +327,18 @@ def test_add_services_drops_a_stopped_service_that_failed_to_relaunch():
         results, launch_configs = rl._add_services([relaunched], results, launch_configs, {})
     assert [r["name"] for r in results] == ["web"]
     assert [c["name"] for c in launch_configs] == ["web"]
+
+
+def test_stop_works_without_a_configuration(monkeypatch, capsys):
+    import sys
+
+    monkeypatch.setattr(rl, "_CONFIG_LOADED", False)
+    monkeypatch.delitem(sys.modules, "pytest")
+    with patch(f"{MAIN}.stop_all") as stop:
+        rl.main(["--stop"])
+    stop.assert_called_once_with()
+    assert "no configuration found" not in capsys.readouterr().out
+
+
+def test_needs_launch_tolerates_configs_without_mode_keys():
+    assert rl._needs_launch({"name": "api"}, {"name": "api"}, {"api"}) is False

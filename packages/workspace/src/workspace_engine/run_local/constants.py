@@ -97,7 +97,7 @@ def config_candidates(root: Path) -> list[Path]:
         candidate_paths.append(Path(os.environ["XDG_CONFIG_HOME"]) / "workspace" / "config.json")
     candidate_paths.append(Path.home() / ".config" / "workspace" / "config.json")
     candidate_paths.append(root / "config.json")
-    return candidate_paths
+    return list(dict.fromkeys(candidate_paths))  # XDG_CONFIG_HOME may be ~/.config
 
 
 def load_project_config(
