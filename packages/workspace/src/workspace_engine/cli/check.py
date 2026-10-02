@@ -13,7 +13,7 @@ from workspace_engine.services.changes import (
     changed_files,
     tree_fingerprint,
 )
-from workspace_engine.services.git_hooks import local_hook_path, run_quality_gate
+from workspace_engine.services.git_hooks import QG_STAGES, local_hook_path, run_quality_gate
 
 
 def _pass_marker(root: Path) -> Path:
@@ -24,7 +24,7 @@ def check(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="ws check", description="Run the quality gate")
     parser.add_argument("--dir", "-d", default=".", help="Repository root")
     parser.add_argument("--changed", action="store_true", help="Lint/test only changed files")
-    parser.add_argument("--skip", help="Stages to skip: gitleaks,commits,lint,design,tests")
+    parser.add_argument("--skip", help=f"Stages to skip: {','.join(QG_STAGES)}")
     parser.add_argument("--budget", type=int, default=1500, help="Max characters of output")
     parser.add_argument(
         "--cache", action="store_true", help="Skip when the tree is unchanged since the last pass"
