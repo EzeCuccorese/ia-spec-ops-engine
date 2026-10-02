@@ -65,7 +65,7 @@ jobs:
           REVIEW_LANGUAGE: ${{ inputs.language }}
           EXCLUDE_PATTERNS: ${{ inputs.exclude }}
           REVIEW_STANDARDS: ${{ inputs.standards }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           python .engine_tools/.github/scripts/gemini_review.py

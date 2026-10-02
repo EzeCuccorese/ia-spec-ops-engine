@@ -48,8 +48,12 @@ def call_gemini(prompt: str, api_key: str, model: str) -> str:
             "x-goog-api-key": api_key,
         },
     )
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        err_msg = e.read().decode("utf-8")
+        raise RuntimeError(f"Gemini API call failed (HTTP {e.code}): {err_msg}") from e
     
     candidates = data.get("candidates", [])
     if not candidates or "content" not in candidates[0]:
@@ -70,7 +74,10 @@ def _matches_any(filepath: str, patterns: list[str]) -> bool:
 
 def get_pr_diff(exclude_patterns: list[str]) -> str:
     base_ref = os.environ.get("GITHUB_BASE_REF", "main")
-    subprocess.run(["git", "fetch", "origin", base_ref], check=False)
+    subprocess.run(
+        ["git", "fetch", "origin", f"+refs/heads/{base_ref}:refs/remotes/origin/{base_ref}"],
+        check=False,
+    )
     
     # Get all changed files
     name_status = subprocess.check_output(
@@ -117,8 +124,11 @@ def _post_fallback(target: ReviewTarget, summary: str, comments: list[dict[str, 
             "Content-Type": "application/json",
         },
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        print(f"Posted fallback review: HTTP {resp.status}")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            print(f"Posted fallback review: HTTP {resp.status}")
+    except urllib.error.HTTPError as e:
+        print(f"Failed to post fallback review: HTTP {e.code} - {e.read().decode('utf-8')}", file=sys.stderr)
 
 
 def post_github_review(target: ReviewTarget, summary: str, comments: list[dict[str, Any]]) -> None:
