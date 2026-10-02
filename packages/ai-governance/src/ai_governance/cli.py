@@ -14,7 +14,7 @@ COMMANDS: dict[str, str] = {
     "agents": "Capability matrix of the supported agents",
     "budget": "Fixed context (bytes/tokens) loaded per agent every session",
     "probe": "Verify on this machine what an agent loads and which hooks fire",
-    "rules": "Browse the engineering-rules catalog (list, show)",
+    "rules": "Browse the engineering-rules catalog (list, show, profiles)",
     "progress": "Compact cross-session task tracker",
     "telemetry": "Claude spend estimates (claude-usage), prices and threshold alerts",
     "jira": "Jira issues and transitions in Markdown",
