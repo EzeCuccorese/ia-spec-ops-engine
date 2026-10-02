@@ -19,6 +19,15 @@ jobs:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
     steps:
+      # The action checks out with fetch-depth 2 and diffs base.sha..head.sha; once the
+      # branch contains the base, base.sha is not within those 2 commits ("bad object").
+      # A full checkout first keeps every commit; the action's shallow fetch reuses it.
+      - name: Checkout full history
+        if: ${{ env.GEMINI_API_KEY != '' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
       - name: Gemini Automated Code Review
         if: ${{ env.GEMINI_API_KEY != '' }}
         uses: sshnaidm/gemini-code-review-action@d4ccdaf0e2cad5cb79f80f6db07857c0e7fff28f # v1
