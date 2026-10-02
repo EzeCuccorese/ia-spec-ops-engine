@@ -89,7 +89,12 @@ def main(argv: list[str] | None = None) -> None:
     if args.suffix:
         values = [f"{v}{args.suffix}" for v in values]
 
-    env_to_value = {envs[i]: values[i] for i in range(min(len(envs), len(values)))}
+    if len(envs) != len(values):
+        log_error(
+            f"--envs and --values differ: {len(envs)} environment(s) but {len(values)} value(s)."
+        )
+        sys.exit(1)
+    env_to_value = dict(zip(envs, values, strict=True))
 
     if not _update_envs(root_dir, env_to_value, services, key):
         sys.exit(1)

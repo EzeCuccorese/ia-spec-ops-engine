@@ -239,8 +239,8 @@ def _needs_launch(cfg: dict, current: dict | None, alive: set[str]) -> bool:
 
 def _terminate(pid: int) -> None:
     """SIGTERM to the process group, then to the process itself."""
-    if pid <= 0:
-        return  # 0 or less would signal our own process group
+    if pid <= 0 or pid in (os.getpid(), os.getpgrp()):
+        return  # a stale PID must never make ws signal itself or its own group
     for t in (-pid, pid):
         with contextlib.suppress(ProcessLookupError, PermissionError):
             os.kill(t, signal.SIGTERM)

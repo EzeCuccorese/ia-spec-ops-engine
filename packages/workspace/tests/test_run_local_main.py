@@ -365,3 +365,13 @@ def test_restart_named_ignores_processes_it_cannot_signal():
     ):
         rl._restart_named(["api"], results, launch_configs, {})
     assert results[0]["pid"] == 43
+
+
+@pytest.mark.parametrize("own", ["getpid", "getpgrp"])
+def test_terminate_never_signals_ws_itself(own):
+    import os
+
+    pid = getattr(os, own)()
+    with patch(f"{MAIN}.os.kill") as kill:
+        rl._terminate(pid)
+    assert kill.call_args_list == []
