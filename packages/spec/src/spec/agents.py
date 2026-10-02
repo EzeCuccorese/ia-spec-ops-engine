@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from spec.core.ownership import DeleteResult, OwnershipManifest, sha256_file
+from spec.core.ownership import DeleteResult, OwnershipManifest
 from spec.core.paths import PathBoundary
 from spec.core.write import SafeWriter, WriteResult
 
@@ -14,7 +14,7 @@ PATTERN = re.compile(
     re.DOTALL,
 )
 
-_CONSUMER_WORKFLOW = """# Spec Governance for Coding Agents
+_GOVERNANCE = """# Spec Governance for Coding Agents
 
 ## Required Workflow
 1. Read `.spec/state.json` and active artifacts under `.spec/specs/` before changing code.
@@ -26,7 +26,7 @@ _CONSUMER_WORKFLOW = """# Spec Governance for Coding Agents
 
 ## Recognized SDD Commands & Workflows
 When the user mentions or asks for spec-new, spec-plan, spec-verify, or spec-finish:
-- spec-new <name>: Execute spec new "<name>", stop immediately, conduct the mandatory requirements interview, then write .spec/specs/<slug>/spec.md with @s tagged Gherkin scenarios.
+- spec-new <name>: Execute spec preflight "<name>" --json, which verifies the baseline and creates the spec (run spec new "<name>" only without preflight), work from the worktree_path it reports, stop immediately, conduct the mandatory requirements interview, then write .spec/specs/<slug>/spec.md with @s tagged Gherkin scenarios.
 - spec-plan: Execute spec plan and spec tasks, stop immediately, conduct the architectural review, then write plan.md and tasks.md.
 - spec-verify: Execute spec verify and audit the verification evidence.
 - spec-finish: Upon verified PASS status and explicit human sign-off, execute spec finish.
@@ -63,42 +63,10 @@ This repository follows the universal `AGENTS.md` open standard for all AI codin
 - Never modify files outside the agreed specification scope without user confirmation.
 """
 
-_CONTRIBUTOR_BOOTSTRAP = """## ⚡ Agent Post-Clone Bootstrap Protocol (Run Once After Git Clone)
-Any AI coding agent (Antigravity, Claude Code, Cursor, Windsurf, Aider, or custom) that clones this repository MUST execute the following 4-step bootstrap:
 
-1. **Install dependencies in editable mode**:
-   ```bash
-   ./install.sh
-   source .venv/bin/activate
-   ```
-2. **Initialize project configuration**:
-   ```bash
-   specops config init --local --yes
-   # or: ./bin/specops config init --local --yes
-   ```
-3. **Configure your AI agent governance adapter**:
-   ```bash
-   specops agent install
-   # or: specops agent install antigravity
-   ```
-4. **Verify environment health**:
-   ```bash
-   specops doctor && specops audit
-   # or: ./bin/specops doctor && ./bin/specops audit
-   ```
-"""
-
-
-def render_consumer() -> str:
-    """Pure SDD engineering workflow for third-party consumer projects."""
-    return _CONSUMER_WORKFLOW
-
-
-def render_contributor() -> str:
-    """Contains the 4-step bootstrap protocol for ia-spec-ops-engine contributors."""
-    header = "# Spec Governance for Coding Agents\n\n"
-    remainder = _CONSUMER_WORKFLOW[len(header) :]
-    return f"{header}{_CONTRIBUTOR_BOOTSTRAP}\n{remainder}"
+def render_governance() -> str:
+    """Spec-driven workflow rules every agent reads through the AGENTS.md block."""
+    return _GOVERNANCE
 
 
 def get_bundled_skills() -> dict[str, str]:
@@ -207,9 +175,6 @@ class AgentsAdapter:
 
         agents_path.write_text(new_content, encoding="utf-8")
 
-        if self.agent == "claude":
-            self.install_claude_pointer()
-
         self.install_skills()
 
         return writer_res
@@ -231,52 +196,16 @@ class AgentsAdapter:
                 else:
                     agents_path.write_text(cleaned.rstrip() + "\n", encoding="utf-8")
 
-        if self.agent == "claude":
-            claude_res = self.uninstall_claude_pointer(dry_run=dry_run)
-            if not del_res.deleted and not del_res.would_delete:
-                del_res = claude_res
+        claude_res = self.uninstall_claude_pointer(dry_run=dry_run)
+        if not del_res.deleted and not del_res.would_delete:
+            del_res = claude_res
 
         self.uninstall_skills(dry_run=dry_run)
 
         return del_res
 
-    def install_claude_pointer(self) -> WriteResult:
-        manifest = OwnershipManifest(self.root)
-        claude_path = self.boundary.resolve(self.claude_target)
-        claude_path.parent.mkdir(parents=True, exist_ok=True)
-        pointer_ref = f"@{self.target}"
-        block = f"{START_MARKER}\n{pointer_ref}\n{END_MARKER}\n"
-
-        if not claude_path.exists():
-            return SafeWriter(self.root, manifest).write(self.claude_target, block, mode=0o644)
-
-        content = claude_path.read_text(encoding="utf-8")
-        is_owned = manifest.get(self.claude_target) is not None
-        cleaned = PATTERN.sub("", content).strip()
-        has_user_content = bool(cleaned)
-
-        if is_owned and not has_user_content:
-            return SafeWriter(self.root, manifest).write(self.claude_target, block, mode=0o644)
-
-        if is_owned:
-            del manifest._records[manifest.boundary.relative(self.claude_target)]
-            manifest._save()
-
-        if START_MARKER in content and END_MARKER in content:
-            new_content = PATTERN.sub(block, content)
-        else:
-            stripped = content.rstrip()
-            new_content = f"{stripped}\n\n{block}" if stripped else block
-
-        claude_path.write_text(new_content, encoding="utf-8")
-        return WriteResult(
-            path=self.claude_target,
-            sha256=sha256_file(claude_path),
-            created=False,
-            updated=(new_content != content),
-        )
-
     def uninstall_claude_pointer(self, *, dry_run: bool = True) -> DeleteResult:
+        """Removes the CLAUDE.md block an earlier Spec install wrote; AGENTS.md is the only file now."""
         manifest = OwnershipManifest(self.root)
         claude_path = self.boundary.resolve(self.claude_target)
         if not claude_path.exists():
@@ -294,6 +223,7 @@ class AgentsAdapter:
                 inner = match.group(0)
                 extracted = inner.replace(START_MARKER, "").replace(END_MARKER, "").strip()
                 valid_pointers = {
+                    f"@{AgentsAdapter.target}",
                     f"@{self.target}",
                     f"@{self.governance_file}",
                     f"@{self.boundary.relative(self.target)}",
@@ -329,58 +259,25 @@ class AgentsAdapter:
 
         return DeleteResult(path=self.claude_target, deleted=False, would_delete=False)
 
-    @staticmethod
-    def render_consumer() -> str:
-        return render_consumer()
-
-    @staticmethod
-    def render_contributor() -> str:
-        return render_contributor()
-
-    def render(self, root: str | Path | None = None) -> str:
-        target_root: str | Path | None = root if root is not None else self.root
-
-        if target_root is not None:
-            root_path = Path(target_root)
-            spec_init = root_path / "packages" / "spec" / "src" / "spec" / "__init__.py"
-            pyproject = root_path / "pyproject.toml"
-            if spec_init.is_file() and pyproject.is_file():
-                try:
-                    pyproject_content = pyproject.read_text(encoding="utf-8")
-                    if "ia-spec-ops-engine" in pyproject_content:
-                        return render_contributor()
-                except OSError:
-                    pass
-        return render_consumer()
-
-
-class ClaudeAdapter(AgentsAdapter):
-    """Adapter for Claude Code configuring AGENTS.md and discovery pointer CLAUDE.md."""
-
-    def __init__(self, root: str | Path, target: str | None = None, **kwargs: object) -> None:
-        super().__init__(root, target=target, agent="claude")
+    def render(self) -> str:
+        return render_governance()
 
 
 RECOGNIZED_AGENTS = {
-    "agents": "Universal AGENTS.md Standard (AGENTS.md)",
-    "antigravity": "Universal AGENTS.md Standard (AGENTS.md)",
-    "claude": "Universal AGENTS.md Standard (AGENTS.md)",
-    "cursor": "Universal AGENTS.md Standard (AGENTS.md)",
-    "windsurf": "Universal AGENTS.md Standard (AGENTS.md)",
-    "aider": "Universal AGENTS.md Standard (AGENTS.md)",
-    "copilot": "Universal AGENTS.md Standard (AGENTS.md)",
-    "gemini": "Universal AGENTS.md Standard (AGENTS.md)",
-    "codex": "Universal AGENTS.md Standard (AGENTS.md)",
-    "custom": "Universal AGENTS.md Standard (AGENTS.md)",
+    "agents": "Any AGENTS.md agent (AGENTS.md, .agents/skills)",
+    "antigravity": "Antigravity (AGENTS.md, .agents/skills, .gemini/skills)",
+    "claude": "Claude Code (AGENTS.md, .agents/skills, .claude/skills)",
+    "cursor": "Cursor (AGENTS.md, .agents/skills)",
+    "windsurf": "Windsurf (AGENTS.md, .agents/skills)",
+    "aider": "Aider (AGENTS.md, .agents/skills)",
+    "copilot": "GitHub Copilot (AGENTS.md, .agents/skills)",
+    "gemini": "Gemini CLI (AGENTS.md, .agents/skills)",
+    "codex": "Codex (AGENTS.md, .agents/skills, .codex/skills)",
+    "custom": "Custom instructions file (--file, default AGENTS.md)",
 }
-
-CodexAdapter = AgentsAdapter
 
 __all__ = [
     "RECOGNIZED_AGENTS",
     "AgentsAdapter",
-    "ClaudeAdapter",
-    "CodexAdapter",
-    "render_consumer",
-    "render_contributor",
+    "render_governance",
 ]

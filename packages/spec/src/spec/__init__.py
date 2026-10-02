@@ -1,3 +1,9 @@
 """Spec personal agent workflow."""
 
-__version__ = "0.1.0.dev0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("spec")
+except PackageNotFoundError:
+    # Imported from a source tree without metadata: pyproject.toml stays the only release number.
+    __version__ = "0+unknown"
