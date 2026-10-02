@@ -14,7 +14,7 @@ description: "Spec-Driven Development assistant for initiating specifications. V
 ## Workflow
 
 ### Phase 1: Pre-Flight Baseline Execution
-1. Run `spec preflight "<feature-name>" [--from "<base_branch>"] [--branch "<feature_branch>"] [--worktree] --json`.
+1. Run `spec preflight "<feature-name>" [--from "<base_branch>"] [--branch "<feature_branch>"] [--no-worktree] --json`. Without `--no-worktree` it provisions a Git worktree; run every following step from the `worktree_path` it reports.
 2. Inspect the JSON result:
    - If `"status": "FAIL"`: **STOP IMMEDIATELY**. Report the baseline failure and evidence path to the user. Do not proceed until the base branch is healthy.
    - If `"status": "READY"`: Confirm target directory and active feature.
