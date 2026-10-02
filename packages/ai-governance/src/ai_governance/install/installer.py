@@ -34,6 +34,7 @@ from .agents import (
 from .engine import Ledger, Owned, Report, sync
 
 PROJECT_DIR = ".ai-governance"
+PROJECT_OWNER = "project"
 CLAUDE_MEMORY_FILES = ("CLAUDE.md", ".claude/CLAUDE.md")
 
 
@@ -180,8 +181,8 @@ def _corporate_scripts(packs: list[corporate.CorporatePack], report: Report) -> 
 
 
 def installed_agents(ledger: Ledger) -> set[str]:
-    """Agents with entries in the ledger; the pack scripts' owner is not an agent."""
-    return {entry["agent"] for entry in ledger.entries} - {SCRIPTS_OWNER}
+    """Agents with entries in the ledger; the scripts and shared project owners are not."""
+    return {entry["agent"] for entry in ledger.entries} - {SCRIPTS_OWNER, PROJECT_OWNER}
 
 
 def install_user(agents: list[str], *, dry_run: bool = False, force: bool = False) -> Report:
@@ -260,13 +261,13 @@ def _project_desired(
     if specs:
         desired.extend(
             Owned(
-                "project",
+                PROJECT_OWNER,
                 FileArtifact(canonical_rule_path(root, rule), render_canonical_rule(rule)),
             )
             for rule in rules
         )
         body = content.PROJECT_BLOCK.format(rule_locations=f"`{RULES_DIR.as_posix()}/`")
-        desired.append(Owned("project", BlockArtifact(root / "AGENTS.md", body)))
+        desired.append(Owned(PROJECT_OWNER, BlockArtifact(root / "AGENTS.md", body)))
     return desired
 
 
@@ -400,7 +401,7 @@ def sync_project(
     sync(
         _project_desired(root, config, stacks, catalog),
         ledger,
-        agents_in_scope=set(AGENTS) | {"project"},
+        agents_in_scope=set(AGENTS) | {PROJECT_OWNER},
         dry_run=dry_run,
         force=force,
         report=report,

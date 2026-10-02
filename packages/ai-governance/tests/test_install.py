@@ -10,6 +10,7 @@ from ai_governance.install import installer
 from ai_governance.install.agents import AGENTS, capability_table
 from ai_governance.install.cli import main as install_cli
 from ai_governance.install.doctor import FAIL, check
+from ai_governance.install.engine import Ledger
 from ai_governance.install.installer import (
     ProjectConfig,
     install_user,
@@ -175,6 +176,12 @@ def test_uninstalling_claude_and_antigravity_leaves_no_links_or_false_warnings(
     report = sync_project(project, remove_agents=["claude", "antigravity"])
     assert report.warnings == []
     assert sorted(project.rglob("*")) == before
+
+
+def test_installed_agents_of_a_project_excludes_the_shared_owner(project: Path) -> None:
+    sync_project(project, add_agents=["claude", "antigravity"])
+    lock = Ledger(project / installer.PROJECT_DIR / "lock.json", base=project)
+    assert installer.installed_agents(lock) == {"claude"}  # antigravity reads the shared rules
 
 
 def test_update_follows_stack_changes_and_keeps_local_edits(

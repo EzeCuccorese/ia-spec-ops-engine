@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .engine import END, START, Ledger
-from .installer import installed_agents
+from .installer import SCRIPTS_OWNER
 
 BYTES_PER_TOKEN = 4
 
@@ -27,10 +27,9 @@ def _block(text: str) -> str:
 def fixed_cost(ledger: Ledger) -> dict[str, int]:
     """Bytes per owner (each agent, ``project`` = shared) loaded at session start."""
     totals: dict[str, int] = {}
-    agents = installed_agents(ledger)
     for entry in ledger.entries:
         path = ledger.resolve(entry["path"])
-        if entry["agent"] not in agents or not path.is_file() or entry["kind"] == "hooks":
+        if entry["agent"] == SCRIPTS_OWNER or not path.is_file() or entry["kind"] == "hooks":
             continue
         text = path.read_text(encoding="utf-8")
         size = 0
