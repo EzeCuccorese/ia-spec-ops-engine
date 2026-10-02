@@ -295,10 +295,9 @@ def main(argv: list[str] | None = None) -> None:
                 if sys.stdin.isatty() and not args.yes:
                     from spec.core.tui import select_multiple
 
-                    options = [("agents", "Universal AGENTS.md Standard (AGENTS.md)")]
                     keys_to_install = select_multiple(
                         "Select AI coding agents to configure with Spec governance:",
-                        options,
+                        list(RECOGNIZED_AGENTS.items()),
                         default_checked=["agents"],
                     )
                 else:

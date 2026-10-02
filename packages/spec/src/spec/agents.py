@@ -263,16 +263,16 @@ class AgentsAdapter:
 
 
 RECOGNIZED_AGENTS = {
-    "agents": "Universal AGENTS.md Standard (AGENTS.md)",
-    "antigravity": "Universal AGENTS.md Standard (AGENTS.md)",
-    "claude": "Universal AGENTS.md Standard (AGENTS.md)",
-    "cursor": "Universal AGENTS.md Standard (AGENTS.md)",
-    "windsurf": "Universal AGENTS.md Standard (AGENTS.md)",
-    "aider": "Universal AGENTS.md Standard (AGENTS.md)",
-    "copilot": "Universal AGENTS.md Standard (AGENTS.md)",
-    "gemini": "Universal AGENTS.md Standard (AGENTS.md)",
-    "codex": "Universal AGENTS.md Standard (AGENTS.md)",
-    "custom": "Universal AGENTS.md Standard (AGENTS.md)",
+    "agents": "Any AGENTS.md agent (AGENTS.md, .agents/skills)",
+    "antigravity": "Antigravity (AGENTS.md, .agents/skills, .gemini/skills)",
+    "claude": "Claude Code (AGENTS.md, .agents/skills, .claude/skills)",
+    "cursor": "Cursor (AGENTS.md, .agents/skills)",
+    "windsurf": "Windsurf (AGENTS.md, .agents/skills)",
+    "aider": "Aider (AGENTS.md, .agents/skills)",
+    "copilot": "GitHub Copilot (AGENTS.md, .agents/skills)",
+    "gemini": "Gemini CLI (AGENTS.md, .agents/skills)",
+    "codex": "Codex (AGENTS.md, .agents/skills, .codex/skills)",
+    "custom": "Custom instructions file (--file, default AGENTS.md)",
 }
 
 __all__ = [

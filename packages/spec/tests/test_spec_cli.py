@@ -393,3 +393,26 @@ def test_version_comes_from_the_installed_distribution(capsys) -> None:
     with pytest.raises(SystemExit):
         main(["--version"])
     assert capsys.readouterr().out.strip() == f"spec {version('spec')}"
+
+
+def test_agent_install_picker_offers_every_recognized_agent(tmp_path: Path, monkeypatch) -> None:
+    ProjectGovernance(tmp_path).initialize()
+    offered: list[tuple[str, str]] = []
+
+    class FakeStdin:
+        def isatty(self) -> bool:
+            return True
+
+    def pick(title: str, options, default_checked=None) -> list[str]:
+        offered.extend(options)
+        return ["claude"]
+
+    monkeypatch.setattr("spec.cli.sys.stdin", FakeStdin())
+    monkeypatch.setattr("spec.core.tui.select_multiple", pick)
+
+    with pytest.raises(SystemExit) as exc:
+        main(["agent", "install", "--root", str(tmp_path)])
+    assert exc.value.code == 0
+    assert offered == list(RECOGNIZED_AGENTS.items())
+    assert len(set(RECOGNIZED_AGENTS.values())) == len(RECOGNIZED_AGENTS)
+    assert (tmp_path / ".claude" / "skills" / "spec-new" / "SKILL.md").exists()
