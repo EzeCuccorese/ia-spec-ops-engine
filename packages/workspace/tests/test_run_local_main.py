@@ -10,6 +10,7 @@ from unittest.mock import patch
 import pytest
 
 MAIN = "workspace_engine.run_local.main"
+PM = "workspace_engine.run_local.process_manager"
 # The package re-exports `main` the function, which shadows the submodule attribute.
 rl = importlib.import_module(MAIN)
 
@@ -153,7 +154,7 @@ def test_needs_launch(current, alive, expected):
 def test_stop_running_terminates_the_process_group():
     with (
         patch(f"{MAIN}._pid_alive", return_value=True),
-        patch(f"{MAIN}.os.kill", side_effect=[ProcessLookupError, None]) as kill,
+        patch(f"{PM}.os.kill", side_effect=[ProcessLookupError, None]) as kill,
     ):
         rl._stop_running([_config("api"), _config("web")], [_result("api", pid=42)])
     assert [c.args for c in kill.call_args_list] == [(-42, 15), (42, 15)]
@@ -198,7 +199,7 @@ def test_add_services_replaces_the_relaunched_entries():
     relaunched = _config("api", base_env="staging")
     with (
         patch(f"{MAIN}._pid_alive", return_value=True),
-        patch(f"{MAIN}.os.kill"),
+        patch(f"{PM}.os.kill"),
         patch(
             f"{MAIN}._launch_and_report",
             return_value=([_result("api", pid=3)], [relaunched]),
@@ -298,13 +299,13 @@ def test_missing_config_lists_the_real_search_order(tmp_path: Path, monkeypatch,
 
 
 def test_terminate_ignores_processes_it_cannot_signal():
-    with patch(f"{MAIN}.os.kill", side_effect=PermissionError) as kill:
+    with patch(f"{PM}.os.kill", side_effect=PermissionError) as kill:
         rl._terminate(42)
     assert [c.args for c in kill.call_args_list] == [(-42, 15), (42, 15)]
 
 
 def test_terminate_never_signals_its_own_process_group():
-    with patch(f"{MAIN}.os.kill") as kill:
+    with patch(f"{PM}.os.kill") as kill:
         rl._terminate(0)
     assert kill.call_args_list == []
 
@@ -315,7 +316,7 @@ def test_add_services_drops_a_stopped_service_that_failed_to_relaunch():
     relaunched = _config("api", base_env="staging")
     with (
         patch(f"{MAIN}._pid_alive", return_value=True),
-        patch(f"{MAIN}.os.kill"),
+        patch(f"{PM}.os.kill"),
         patch(
             f"{MAIN}._launch_and_report",
             return_value=([_result("api", pid=None, ok=False)], [relaunched]),
@@ -348,7 +349,7 @@ def test_stop_running_waits_for_the_port_before_relaunch():
     events: list[tuple] = []
     with (
         patch(f"{MAIN}._pid_alive", return_value=True),
-        patch(f"{MAIN}.os.kill", side_effect=lambda pid, sig: events.append(("kill", pid))),
+        patch(f"{PM}.os.kill", side_effect=lambda pid, sig: events.append(("kill", pid))),
         patch(f"{MAIN}._wait_port_free", side_effect=lambda port: events.append(("wait", port))),
     ):
         rl._stop_running([{**_config("api"), "port": 8123}], [_result("api", pid=42)])
@@ -359,7 +360,7 @@ def test_restart_named_ignores_processes_it_cannot_signal():
     results = [_result("api", pid=42)]
     launch_configs = [{**_config("api"), "port": 8123}]
     with (
-        patch(f"{MAIN}.os.kill", side_effect=PermissionError),
+        patch(f"{PM}.os.kill", side_effect=PermissionError),
         patch(f"{MAIN}._wait_port_free"),
         patch(f"{MAIN}._launch_one", return_value=(43, None, 1.0, {})),
     ):
@@ -372,7 +373,7 @@ def test_terminate_never_signals_ws_itself(own):
     import os
 
     pid = getattr(os, own)()
-    with patch(f"{MAIN}.os.kill") as kill:
+    with patch(f"{PM}.os.kill") as kill:
         rl._terminate(pid)
     assert kill.call_args_list == []
 
@@ -397,10 +398,17 @@ def test_restart_named_marks_a_failed_restart_as_not_ok():
     results = [_result("api", pid=42)]
     launch_configs = [{**_config("api"), "port": 8123}]
     with (
-        patch(f"{MAIN}.os.kill"),
+        patch(f"{PM}.os.kill"),
         patch(f"{MAIN}._wait_port_free"),
         patch(f"{MAIN}._launch_one", return_value=(None, "port in use", None, {})),
     ):
         rl._restart_named(["api"], results, launch_configs, {})
     assert results[0]["ok"] is False
     assert results[0]["error"] == "port in use"
+
+
+def test_terminate_never_broadcasts_to_every_process():
+    # kill(-1, sig) signals every process the user owns; a stale PID file may say 1.
+    with patch(f"{PM}.os.kill") as kill:
+        rl._terminate(1)
+    assert kill.call_args_list == []

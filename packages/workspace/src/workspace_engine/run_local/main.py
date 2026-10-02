@@ -5,11 +5,8 @@ workspace_engine.run_local.main — Main entry point for run_local.
 from __future__ import annotations
 
 import argparse
-import contextlib
-import os
 import re
 import shutil
-import signal
 import subprocess
 import sys
 from collections.abc import Callable
@@ -36,6 +33,7 @@ from workspace_engine.run_local.discovery import (
 from workspace_engine.run_local.process_manager import (
     _launch_one,
     _pid_alive,
+    _terminate,
     _wait_port_free,
     fetch_env_for,
     launch_services,
@@ -237,15 +235,6 @@ def _needs_launch(cfg: dict, current: dict | None, alive: set[str]) -> bool:
         return True
     keys = ("base_env", "db_env", "up_mode")
     return tuple(current.get(k) for k in keys) != tuple(cfg.get(k) for k in keys)
-
-
-def _terminate(pid: int) -> None:
-    """SIGTERM to the process group, then to the process itself."""
-    if pid <= 0 or pid in (os.getpid(), os.getpgrp()):
-        return  # a stale PID must never make ws signal itself or its own group
-    for t in (-pid, pid):
-        with contextlib.suppress(ProcessLookupError, PermissionError):
-            os.kill(t, signal.SIGTERM)
 
 
 def _stop_running(to_launch: list, results: list) -> None:

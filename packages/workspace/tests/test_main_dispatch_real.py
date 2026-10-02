@@ -190,3 +190,24 @@ def test_env_load_fails_when_a_values_file_is_missing(tmp_path: Path, capsys):
     assert code == 1
     assert "LOG_LEVEL: debug" in (tmp_path / "values.dev.yaml").read_text(encoding="utf-8")
     assert f"File not found: {tmp_path / 'values.prod.yaml'}" in _output(capsys)
+
+
+def test_env_load_expands_a_tilde_root(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "gitops").mkdir()
+    values = tmp_path / "gitops" / "values.dev.yaml"
+    values.write_text("apps:\n  - name: svc\n", encoding="utf-8")
+    args = ["--envs", "dev", "--services", "svc", "--var", "LOG_LEVEL", "--values", "debug"]
+
+    assert _ws("env-load", *args, "--root=~/gitops") is None
+    assert "LOG_LEVEL: debug" in values.read_text(encoding="utf-8")
+
+
+def test_build_expands_a_tilde_dir(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "project").mkdir()
+    (tmp_path / "project" / "Cargo.toml").touch()
+
+    with patch("workspace_engine.cli.build_project.run_command", return_value="") as run:
+        assert _ws("build", "~/project") == 0
+    assert run.call_args_list[0].kwargs["cwd"] == (tmp_path / "project").resolve()

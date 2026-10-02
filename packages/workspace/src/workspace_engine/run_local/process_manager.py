@@ -7,6 +7,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import signal
 import socket
 import subprocess
 import threading
@@ -384,6 +385,17 @@ def launch_services(configs: list, db_cfg: dict) -> tuple[list, list]:
         cfg["wiring"] = wired_map
 
     return results, configs
+
+
+def _terminate(pid: int) -> None:
+    """SIGTERM to the process group, then to the process itself."""
+    # kill(0) and kill(-1) would signal ws's own group and every process the user owns;
+    # a stale PID file must never turn into that, nor into ws's own PID or group.
+    if pid <= 1 or pid in (os.getpid(), os.getpgrp()):
+        return
+    for t in (-pid, pid):
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.kill(t, signal.SIGTERM)
 
 
 def _pid_alive(pid: int | None) -> bool:

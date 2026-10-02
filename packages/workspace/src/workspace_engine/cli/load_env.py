@@ -84,7 +84,7 @@ def main(argv: list[str] | None = None) -> None:
     services = [s.strip() for s in args.services.split(",")]
     values = [v.strip() for v in args.values.split(",")]
     key = args.var.strip()
-    root_dir = Path(args.root)
+    root_dir = Path(args.root).expanduser()
 
     if args.suffix:
         values = [f"{v}{args.suffix}" for v in values]

@@ -89,7 +89,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("dir", nargs="?", default=".", help="Project directory (defaults to cwd)")
     args = parser.parse_args(argv)
-    sys.exit(build_project(Path(args.dir).resolve()))
+    sys.exit(build_project(Path(args.dir).expanduser().resolve()))
 
 
 if __name__ == "__main__":

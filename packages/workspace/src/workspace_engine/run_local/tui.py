@@ -23,8 +23,6 @@ except ImportError:
     tty = None  # Non-Unix platform fallback
 
 
-import contextlib
-
 from workspace_engine.run_local.constants import (
     BOLD,
     CYAN,
@@ -57,6 +55,7 @@ from workspace_engine.run_local.process_manager import (
     _log_rotation_worker,
     _pid_alive,
     _status_str,
+    _terminate,
     _wait_port_free,
     load_state,
     save_state,
@@ -661,9 +660,7 @@ def panel_monitor(
 
     def _stop_service(r: dict) -> None:
         if r.get("pid"):
-            for target in (-r["pid"], r["pid"]):
-                with contextlib.suppress(ProcessLookupError):
-                    os.kill(target, 15)
+            _terminate(r["pid"])
             (PIDS_DIR / f"{r['name']}.pid").unlink(missing_ok=True)
             r["pid"] = None
             _HEALTH.pop(r["name"], None)
