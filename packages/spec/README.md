@@ -79,7 +79,7 @@ packages/spec/
 | `.spec/specs/<feature-slug>/` | Feature artifacts: `spec.md`, `plan.md`, `tasks.md`, `work.md` | **Yes** (Human / Agent) |
 | `.spec/evidence/<feature-slug>/`| Immutable, append-only verification reports on disk | **No** (Sealed evidence) |
 | `AGENTS.md` | `<!-- spec:governance -->` block importing `.spec/governance.md`; the rest of the file is yours | Outside the block |
-| `CLAUDE.md` | Same block importing `AGENTS.md` (only for `spec agent install claude`) | Outside the block |
+| `CLAUDE.md` | Never written: `AGENTS.md` is the only instructions file, as in ai-governance (which moves any `CLAUDE.md` into it). `spec agent uninstall` still removes the block an earlier Spec install left there | Yes (not Spec's) |
 | `.agents/skills/spec-*/SKILL.md` | Bundled skills (`spec-new`, `spec-plan`, `spec-verify`, `spec-finish`); also copied to `.claude/skills/`, `.gemini/skills/` or `.codex/skills/` for `claude`, `antigravity` or `codex` | **No** |
 
 ---
@@ -99,9 +99,10 @@ spec init --root /path/to/project
 spec agent install --root /path/to/project --yes
 ```
 
-`spec agent install [agent]` accepts `agents` (default), `antigravity`, `claude`, `codex`,
-`cursor`, `windsurf`, `aider`, `copilot`, `gemini`, `custom` or `all` (`all` installs the same
-as `agents`); `--file` changes the target file for `custom`, and `--yes` skips prompts.
+`spec agent install [agent]` accepts one of `agents` (default), `antigravity`, `claude`,
+`cursor`, `windsurf`, `aider`, `copilot`, `gemini`, `codex` or `custom` (`spec agent install --help`
+lists them); an agent with its own skills folder (`claude`, `antigravity`, `codex`) gets it only
+when named. `--file` changes the target file for `custom`, and `--yes` skips prompts.
 
 ---
 
@@ -111,8 +112,8 @@ Before introducing dirty changes or new branches, validate baseline checks and i
 spec preflight "user-auth" --from "main" --branch "feature/user-auth" --root /path/to/project
 ```
 - Fetches the base branch (`--from`, default the current branch) and fast-forwards it when it is checked out and clean.
-- Runs the checks of `.spec/verification.json` on the base branch; with no checks configured, or any failing, it reports `FAIL` and stops.
-- Provisions a Git worktree for the target branch (`--branch`, default `feature/<name>`) at `../workspace-<branch>`, copying `.spec/`, `.agents/` and `.env*` and symlinking `.venv`/`node_modules`/`.gradle`; `--no-worktree` uses the current directory instead.
+- Runs the checks of `.spec/verification.json` on the base branch (another `--from` branch gets a temporary checkout with the same `.env*` files and dependency links as a worktree); with no checks configured, any failing, or a base branch that cannot be checked out, it reports `FAIL` and stops. Every failure, including an existing worktree directory, is reported as `FAIL` (exit code 1), never as a traceback.
+- Provisions a Git worktree for the target branch (`--branch`, default `feature/<name>`) at `../workspace-<branch>`, copying `.spec/`, `.agents/` and `.env*` and symlinking `.venv`/`node_modules`/`.gradle`; `--no-worktree` instead switches the current checkout to that branch (`git switch -c` from the base, or `git switch` when it already exists) and fails before running any check if tracked files have uncommitted changes.
 - Creates the active specification (`--description` fills it) and prints the directory where the agent must work; `--json` prints the result (`"status": "READY"` or `"FAIL"`). Run the following steps from that directory.
 
 ---
@@ -201,7 +202,7 @@ Verifies that the latest recorded verification status was strictly `PASS` and se
 ---
 
 ### Clean Adapter Uninstallation
-To remove the adapter (the `AGENTS.md` block, `.spec/governance.md` and the skills) without touching unowned files:
+To remove the adapter (the `AGENTS.md` block, `.spec/governance.md`, the skills, and any `CLAUDE.md` block an earlier Spec install wrote) without touching unowned files:
 ```bash
 # Dry-run preview (default)
 spec agent uninstall

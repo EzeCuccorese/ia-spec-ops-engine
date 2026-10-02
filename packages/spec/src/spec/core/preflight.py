@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -32,6 +33,14 @@ class BaselineGateResult:
     evidence_path: str | None
     checks_total: int
     checks_passed: int
+
+
+def _link_path(src: Path, link_dir: Path) -> str:
+    """Relative path from link_dir to src, or absolute when they sit on different drives."""
+    try:
+        return os.path.relpath(src, link_dir)
+    except ValueError:
+        return str(src.resolve())
 
 
 class PreflightError(Exception):
@@ -178,6 +187,83 @@ class PreflightManager:
             checks_passed=passed_count,
         )
 
+    def has_tracked_changes(self) -> bool:
+        """Reports staged or unstaged edits to tracked files; untracked files do not count."""
+        code, status_out, _ = self._run_git("status", "--porcelain", "--untracked-files=no")
+        return code == 0 and bool(status_out)
+
+    def switch_branch(self, branch: str, base_branch: str) -> None:
+        """Switches the current checkout to the branch, creating it from the base if missing."""
+        code, _, _ = self._run_git("rev-parse", "--verify", "--quiet", f"refs/heads/{branch}")
+        switch_args = ("switch", branch) if code == 0 else ("switch", "-c", branch, base_branch)
+        code, stdout, stderr = self._run_git(*switch_args)
+        if code != 0:
+            raise PreflightError(f"Failed to switch to branch '{branch}': {stderr or stdout}")
+
+    def run_base_branch_baseline(self, base_branch: str) -> BaselineGateResult:
+        """Runs the baseline gate on a temporary detached checkout of another base branch."""
+        base_dir = Path(tempfile.mkdtemp(prefix="spec-baseline-"))
+        try:
+            code, stdout, stderr = self._run_git(
+                "worktree", "add", "--detach", str(base_dir), base_branch
+            )
+            if code != 0:
+                raise PreflightError(
+                    f"Base branch '{base_branch}' cannot be checked out: {stderr or stdout}"
+                )
+            try:
+                self._copy_missing_config(base_dir)
+                self._link_local_environment(base_dir)
+                return self.run_baseline_gate(target_root=base_dir)
+            finally:
+                self._run_git("worktree", "remove", "--force", str(base_dir))
+        finally:
+            shutil.rmtree(base_dir, ignore_errors=True)
+
+    def _copy_missing_config(self, dest_root: Path) -> None:
+        """Copies local configuration the checkout at dest_root does not already track."""
+        for pattern in [".spec", ".agents"]:
+            src = self.root / pattern
+            dest = dest_root / pattern
+            if not src.exists() or dest.exists():
+                continue
+            if src.is_dir():
+                shutil.copytree(src, dest)
+            else:
+                shutil.copy2(src, dest)
+
+    def _link_local_environment(self, dest_root: Path) -> None:
+        """Copies .env* files and symlinks dependency folders so checks run as in the main checkout."""
+        # Copy env files if present
+        for env_file in self.root.glob(".env*"):
+            if env_file.is_file():
+                shutil.copy2(env_file, dest_root / env_file.name)
+
+        # Create relative symlinks for heavy gitignored dependencies if they exist (.venv, node_modules)
+        dep_folders = [
+            Path(".venv"),
+            Path("node_modules"),
+            Path("backend/.venv"),
+            Path("frontend/node_modules"),
+            Path(".gradle"),
+        ]
+        for dep in dep_folders:
+            src = self.root / dep
+            target = dest_root / dep
+            if not src.is_dir() or target.exists():
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            # Without symlink support the checks simply run without the cached dependencies.
+            with contextlib.suppress(OSError):
+                os.symlink(_link_path(src, target.parent), target, target_is_directory=True)
+
+    def prepare_target(self, branch: str, base_branch: str, *, use_worktree: bool) -> Path:
+        """Returns the directory to work in: a new worktree, or the current checkout on the branch."""
+        if use_worktree:
+            return self.provision_worktree(branch, base_branch)
+        self.switch_branch(branch, base_branch)
+        return self.root
+
     def provision_worktree(self, branch: str, base_branch: str) -> Path:
         """Provisions an isolated Git Worktree and links local dependency/config caches."""
         sanitized = branch.replace("/", "-")
@@ -196,8 +282,8 @@ class PreflightManager:
             if code != 0:
                 raise PreflightError(f"Failed to create Git worktree: {stderr or stdout}")
 
-        # 2. Copy configuration files (.spec/, .specops/, .agents/, .env*)
-        config_patterns = [".spec", ".specops", ".agents"]
+        # 2. Copy configuration files (.spec/, .agents/, .env*)
+        config_patterns = [".spec", ".agents"]
         for pattern in config_patterns:
             src = self.root / pattern
             if src.exists():
@@ -207,31 +293,8 @@ class PreflightManager:
                 else:
                     shutil.copy2(src, dest)
 
-        # Copy env files if present
-        for env_file in self.root.glob(".env*"):
-            if env_file.is_file():
-                shutil.copy2(env_file, worktree_dir / env_file.name)
-
-        # 3. Create relative symlinks for heavy gitignored dependencies if they exist (.venv, node_modules)
-        dep_folders = [
-            Path(".venv"),
-            Path("node_modules"),
-            Path("backend/.venv"),
-            Path("frontend/node_modules"),
-            Path(".gradle"),
-        ]
-        for dep in dep_folders:
-            src = self.root / dep
-            if src.exists() and src.is_dir():
-                target = worktree_dir / dep
-                target.parent.mkdir(parents=True, exist_ok=True)
-                if not target.exists():
-                    try:
-                        # Compute relative path from target back to src
-                        rel_link = os.path.relpath(src, target.parent)
-                        os.symlink(rel_link, target)
-                    except OSError:
-                        pass
+        # 3. Copy env files and link heavy gitignored dependencies
+        self._link_local_environment(worktree_dir)
 
         return worktree_dir
 
@@ -249,37 +312,24 @@ class PreflightManager:
         branch_info = self.resolve_branches()
         base = base_branch or branch_info.current_branch
         target_branch = branch or f"feature/{name.lower().replace(' ', '-')}"
+        if not use_worktree and self.has_tracked_changes():
+            return {
+                "status": "FAIL",
+                "error": f"Working tree has uncommitted changes; commit or stash them before preflight works on '{target_branch}' without a worktree",
+            }
 
         # 2. Sync base branch
         self.sync_base_branch(base)
 
         # 3. Baseline verification gate on selected base
-        if base != branch_info.current_branch:
-            tmp_base = tempfile.mkdtemp(prefix="spec-baseline-")
-            base_dir = Path(tmp_base)
-            try:
-                code, stdout, stderr = self._run_git(
-                    "worktree", "add", "--detach", str(base_dir), base
-                )
-                if code == 0:
-                    try:
-                        for pattern in [".spec", ".specops", ".agents"]:
-                            src = self.root / pattern
-                            dest = base_dir / pattern
-                            if src.exists() and not dest.exists():
-                                if src.is_dir():
-                                    shutil.copytree(src, dest, dirs_exist_ok=True)
-                                else:
-                                    shutil.copy2(src, dest)
-                        baseline = self.run_baseline_gate(target_root=base_dir)
-                    finally:
-                        self._run_git("worktree", "remove", "--force", str(base_dir))
-                else:
-                    baseline = self.run_baseline_gate(target_root=self.root)
-            finally:
-                shutil.rmtree(base_dir, ignore_errors=True)
-        else:
-            baseline = self.run_baseline_gate(target_root=self.root)
+        try:
+            baseline = (
+                self.run_baseline_gate()
+                if base == branch_info.current_branch
+                else self.run_base_branch_baseline(base)
+            )
+        except PreflightError as exc:
+            return {"status": "FAIL", "error": str(exc)}
 
         if not baseline.passed:
             return {
@@ -291,8 +341,11 @@ class PreflightManager:
                 "baseline": baseline.status,
             }
 
-        # 4. Provision worktree or use current directory
-        target_root = self.provision_worktree(target_branch, base) if use_worktree else self.root
+        # 4. Provision worktree or switch the current checkout to the feature branch
+        try:
+            target_root = self.prepare_target(target_branch, base, use_worktree=use_worktree)
+        except PreflightError as exc:
+            return {"status": "FAIL", "error": str(exc), "baseline": baseline.status}
 
         # 5. Initialize spec inside target root
         workflow = Workflow(target_root)
