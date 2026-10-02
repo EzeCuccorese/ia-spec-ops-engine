@@ -167,7 +167,7 @@ def build_table(
     t.add_column("#", width=2, no_wrap=True)
     t.add_column("", width=2, no_wrap=True)
     t.add_column("REPO", min_width=22, max_width=30, no_wrap=True)
-    t.add_column("TIPO", width=6, no_wrap=True)
+    t.add_column("TYPE", width=6, no_wrap=True)
     t.add_column("TESTS", width=8, no_wrap=True)
     t.add_column("PRE-I", width=8, no_wrap=True)
     t.add_column("INSTALL", width=14, no_wrap=True)
@@ -178,8 +178,8 @@ def build_table(
         t.add_column("PRE-W", width=8, no_wrap=True)
         t.add_column("WARM", width=18, no_wrap=True)
     t.add_column("TOTAL", width=7, no_wrap=True)
-    t.add_column("HORA", width=8, no_wrap=True)
-    t.add_column("ESTADO", min_width=13, no_wrap=True, overflow="ellipsis")
+    t.add_column("TIME", width=8, no_wrap=True)
+    t.add_column("STATUS", min_width=13, no_wrap=True, overflow="ellipsis")
 
     ordered = _sorted_repos(repos, statuses)
     hidden = 0

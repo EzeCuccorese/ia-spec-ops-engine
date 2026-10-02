@@ -274,3 +274,22 @@ def test_load_project_config_default_fallback(
     cfg = load_project_config(start_dir=empty_dir)
     assert cfg["project_name"] == "generic"
     assert cfg["domain"] == "generic.com"
+
+
+def test_config_candidates_are_listed_once_when_xdg_is_the_default(tmp_path, monkeypatch):
+    from workspace_engine.run_local.constants import config_candidates
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "home" / ".config"))
+    candidates = config_candidates(tmp_path / "proj")
+    assert len(candidates) == len(set(candidates)) == 3
+
+
+def test_config_candidates_ignore_an_empty_xdg_config_home(tmp_path, monkeypatch):
+    from workspace_engine.run_local.constants import config_candidates
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    monkeypatch.setenv("XDG_CONFIG_HOME", "")
+    candidates = config_candidates(tmp_path / "proj")
+    assert all(path.is_absolute() for path in candidates)
+    assert len(candidates) == 3

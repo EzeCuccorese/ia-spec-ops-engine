@@ -1,5 +1,5 @@
 """
-workspace_engine.cli.kube — Paquete modular de Kubernetes para Workspace Engine.
+workspace_engine.cli.kube — Kubernetes helpers for Workspace Engine.
 """
 
 from workspace_engine.cli.kube.client import (

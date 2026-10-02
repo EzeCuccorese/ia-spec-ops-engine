@@ -1,5 +1,5 @@
 """
-Tests para el cliente modular y exportador seguro de Kubernetes (workspace_engine.cli.kube).
+Tests for the Kubernetes client and safe env exporter (workspace_engine.cli.kube).
 """
 
 import os
@@ -153,3 +153,13 @@ def test_get_pod_env_command_failure_logs_warning(mock_run, mock_warn):
     env_vars = get_pod_env("pod-1")
     assert env_vars == {}
     mock_warn.assert_called_once()
+
+
+@patch("workspace_engine.cli.kube.client.run_command_safe")
+def test_get_pod_env_failure_warns_in_english(mock_run, capsys):
+    mock_run.return_value = (1, "", "pod not found")
+
+    assert get_pod_env("auth-service-pod") == {}
+    assert (
+        "Could not read variables from auth-service-pod: pod not found" in capsys.readouterr().out
+    )

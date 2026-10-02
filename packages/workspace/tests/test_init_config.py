@@ -19,7 +19,7 @@ def test_generate_default_config_minimal() -> None:
     assert cfg["project_name"] == "my-test-proj"
     assert cfg["domain"] == "my-domain.io"
     assert cfg["namespaces"] == ["core", "services", "tools"]
-    assert cfg["env_slugs"] == ["dev", "staging", "prod"]
+    assert "env_slugs" not in cfg
     assert cfg["repositories_dir_env_var"] == "PROJECT_REPOSITORIES_DIR"
     assert cfg["local_envs_dir_name"] == "local-envs"
     assert cfg["workspaces_dir_name"] == "workspaces"

@@ -23,8 +23,6 @@ except ImportError:
     tty = None  # Non-Unix platform fallback
 
 
-import contextlib
-
 from workspace_engine.run_local.constants import (
     BOLD,
     CYAN,
@@ -57,6 +55,7 @@ from workspace_engine.run_local.process_manager import (
     _log_rotation_worker,
     _pid_alive,
     _status_str,
+    _terminate,
     _wait_port_free,
     load_state,
     save_state,
@@ -170,7 +169,7 @@ def panel_source_picker(tty_fd: Any, sources: list) -> dict | None:
 
         out = ["\033[H\033[J"]
         out.append(_sep(cols) + "\r\n")
-        out.append(f"{BOLD}  run-local.py — Select source{RESET}\r\n")
+        out.append(f"{BOLD}  ws run-local — Select source{RESET}\r\n")
         out.append(_sep(cols) + "\r\n")
         out.append(f"  {DIM}up/down navigate   Enter select   ESC exit{RESET}\r\n\r\n")
         out.append(f"  {DIM}{'':2} {'Source':<40} {'Type'}{RESET}\r\n")
@@ -359,7 +358,7 @@ def panel_run_config(tty_fd: Any, repos: list, db_cfg: dict) -> list | None:
 
         out = ["\033[H\033[J"]
         out.append(_sep(cols) + "\r\n")
-        out.append(f"{BOLD}  run-local.py — Configure services{RESET}\r\n")
+        out.append(f"{BOLD}  ws run-local — Configure services{RESET}\r\n")
         out.append(_sep(cols) + "\r\n")
         out.append(
             f"  {DIM}up/down navigate   left/right Env   d Local DB   m Local MS   SPACE toggle   Enter   ESC{RESET}\r\n"
@@ -661,9 +660,7 @@ def panel_monitor(
 
     def _stop_service(r: dict) -> None:
         if r.get("pid"):
-            for target in (-r["pid"], r["pid"]):
-                with contextlib.suppress(ProcessLookupError):
-                    os.kill(target, 15)
+            _terminate(r["pid"])
             (PIDS_DIR / f"{r['name']}.pid").unlink(missing_ok=True)
             r["pid"] = None
             _HEALTH.pop(r["name"], None)
@@ -794,7 +791,7 @@ def panel_monitor(
             key = _read_key(tty_fd) if ask_cascade else _read_key(tty_fd, timeout=2.0)
 
             if ask_cascade is not None:
-                if key in (b"y", b"Y", b"s", b"S"):
+                if key in (b"y", b"Y"):
                     from workspace_engine.run_local.main import _restart_named
 
                     _restart_named(ask_cascade, results, launch_configs, db_cfg)

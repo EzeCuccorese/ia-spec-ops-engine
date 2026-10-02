@@ -5,6 +5,8 @@ workspace_engine.cli.set_java — Automatic detection and configuration of the J
 
 from __future__ import annotations
 
+import argparse
+import contextlib
 import json
 import os
 import re
@@ -140,10 +142,18 @@ def setups_java(project_dir: Path | None = None) -> dict[str, str] | None:
     return None
 
 
-def main() -> None:
-    env = setups_java()
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        prog="ws java",
+        description="Prints the JAVA_HOME/PATH exports for the JDK the project requires.",
+    )
+    parser.add_argument("--json", action="store_true", help="Print the environment as JSON")
+    args = parser.parse_args(argv)
+    # stdout carries only the exports (or JSON) so `eval "$(ws java)"` and parsers work.
+    with contextlib.redirect_stdout(sys.stderr):
+        env = setups_java()
     if env:
-        if len(sys.argv) > 1 and sys.argv[1] == "--json":
+        if args.json:
             print(json.dumps(env))
         else:
             print(f"export JAVA_HOME='{env.get('JAVA_HOME')}'")
