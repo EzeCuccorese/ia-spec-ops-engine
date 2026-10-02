@@ -128,7 +128,7 @@ ls -l .claude/rules | head -3                    # symlinks -> ../../.agents/rul
 cat AGENTS.md                                    # starts with "Use tabs." then the block
 cat .ai-governance/config.toml
 ai-governance doctor                             # project:drift | OK | up to date
-ai-governance budget                             # fixed bytes/tokens each agent loads per session
+ai-governance budget                             # fixed bytes/tokens per session: each agent + shared `project`
 ```
 
 ## 4. Keep rules in sync with the stack: `update`
