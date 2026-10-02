@@ -407,3 +407,48 @@ def test_main_uses_ai_repositories_dir_env_var(
         gw.main()
     kwargs = mock_create.call_args.kwargs
     assert kwargs["repo_paths"]["repo-a"] == custom_repos / "repo-a"
+
+
+def _git(*args: str) -> str:
+    import subprocess
+
+    return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout
+
+
+def _source_repo(path: Path) -> Path:
+    _git("init", "-q", "-b", "main", str(path))
+    _git("-C", str(path), "commit", "-q", "--allow-empty", "-m", "init")
+    return path
+
+
+def test_failed_worktree_rolls_back_the_workspace(tmp_path: Path, capsys) -> None:
+    api = _source_repo(tmp_path / "src" / "api")
+    web = _source_repo(tmp_path / "src" / "web")
+    configs = [
+        RepoConfig(name="api", mode="new", branch="feat-x", parent="main"),
+        RepoConfig(name="web", mode="existing", branch="missing", parent=None),
+    ]
+
+    with pytest.raises(RuntimeError, match="Failed to create worktree for web"):
+        gw.create_workspace_structure("feat-x", tmp_path / "ws", configs, {"api": api, "web": web})
+
+    assert not (tmp_path / "ws" / "feat-x").exists()
+    assert str(tmp_path / "ws") not in _git("-C", str(api), "worktree", "list")
+    assert "feat-x" not in _git("-C", str(api), "branch", "--list")
+
+
+def test_main_reports_a_failed_worktree_without_a_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    toolkit = tmp_path / "toolkit"
+    (toolkit / ".git").mkdir(parents=True)
+    _source_repo(tmp_path / "ai-repositories" / "api")
+    monkeypatch.chdir(toolkit)
+    monkeypatch.delenv("AI_REPOSITORIES_DIR", raising=False)
+
+    with pytest.raises(SystemExit) as exc:
+        gw.main(["feat-x", "api@missing"])
+
+    assert exc.value.code == 1
+    assert "Failed to create worktree for api" in capsys.readouterr().err
+    assert not (tmp_path / "workspaces" / "feat-x").exists()

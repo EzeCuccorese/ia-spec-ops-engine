@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -60,6 +61,32 @@ def setup_repo_worktree(repo_path: Path, target_path: Path, config: RepoConfig) 
             raise RuntimeError(f"Failed to create worktree for {config.name}: {result.stderr}")
 
 
+def _remove_worktrees(created: list[tuple[Path, Path, RepoConfig]]) -> None:
+    """Undoes the worktrees (and the branches of `new` ones) this run created."""
+    for src, target, cfg in reversed(created):
+        run_git(src, "worktree", "remove", "--force", str(target))
+        if cfg.mode == "new":
+            run_git(src, "branch", "-D", cfg.branch)
+
+
+def _create_worktrees(
+    workspace_dir: Path, repo_configs: list[RepoConfig], repo_paths: dict[str, Path]
+) -> None:
+    """Creates every worktree, or none: on failure the workspace is rolled back and re-raised."""
+    created: list[tuple[Path, Path, RepoConfig]] = []
+    try:
+        for cfg in repo_configs:
+            src = repo_paths[cfg.name]
+            target = workspace_dir / "repositories" / cfg.name
+            setup_repo_worktree(src, target, cfg)
+            created.append((src, target, cfg))
+            log_success(f"Worktree created for {cfg.name} (branch: {cfg.branch})")
+    except RuntimeError:
+        _remove_worktrees(created)
+        shutil.rmtree(workspace_dir, ignore_errors=True)
+        raise
+
+
 def create_workspace_structure(
     workspace_name: str,
     workspaces_root: Path,
@@ -74,11 +101,7 @@ def create_workspace_structure(
 
     print(f"\n{Color.BOLD}Creating workspace '{workspace_name}'...{Color.RESET}")
 
-    for cfg in repo_configs:
-        src = repo_paths[cfg.name]
-        target = workspace_repos / cfg.name
-        setup_repo_worktree(src, target, cfg)
-        log_success(f"Worktree created for {cfg.name} (branch: {cfg.branch})")
+    _create_worktrees(workspace_dir, repo_configs, repo_paths)
 
     # Write manifest
     ai_dir = workspace_dir / ".ai-toolkit"
@@ -183,12 +206,16 @@ def main(argv: list[str] | None = None) -> None:
     else:
         repo_configs, repo_paths = _select_repo_configs(workspace_name, toolkit_dir, repos_root)
 
-    create_workspace_structure(
-        workspace_name=workspace_name,
-        workspaces_root=workspaces_root,
-        repo_configs=repo_configs,
-        repo_paths=repo_paths,
-    )
+    try:
+        create_workspace_structure(
+            workspace_name=workspace_name,
+            workspaces_root=workspaces_root,
+            repo_configs=repo_configs,
+            repo_paths=repo_paths,
+        )
+    except RuntimeError as e:
+        log_error(str(e).strip())
+        sys.exit(1)
 
 
 if __name__ == "__main__":
