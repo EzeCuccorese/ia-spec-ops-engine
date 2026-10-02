@@ -67,7 +67,7 @@ def _matches_any(filepath: str, patterns: list[str]) -> bool:
         p = p.strip()
         if not p:
             continue
-        if fnmatch.fnmatch(filepath, p) or fnmatch.fnmatch(name, p):
+        if fnmatch.fnmatch(filepath, p) or fnmatch.fnmatch(filepath, f"*/{p}") or fnmatch.fnmatch(name, p):
             return True
     return False
 
@@ -134,11 +134,16 @@ def _post_fallback(target: ReviewTarget, summary: str, comments: list[dict[str, 
 def post_github_review(target: ReviewTarget, summary: str, comments: list[dict[str, Any]]) -> None:
     valid_comments = _filter_comments(comments)
     url = f"https://api.github.com/repos/{target.owner}/{target.repo}/pulls/{target.pr_number}/reviews"
-    payload = {
+    
+    payload: dict[str, Any] = {
         "body": summary,
         "event": "COMMENT",
-        "comments": valid_comments,
     }
+    if valid_comments:
+        head_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+        payload["commit_id"] = head_sha
+        payload["comments"] = valid_comments
+
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
