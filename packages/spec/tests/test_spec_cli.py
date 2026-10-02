@@ -416,3 +416,22 @@ def test_agent_install_picker_offers_every_recognized_agent(tmp_path: Path, monk
     assert offered == list(RECOGNIZED_AGENTS.items())
     assert len(set(RECOGNIZED_AGENTS.values())) == len(RECOGNIZED_AGENTS)
     assert (tmp_path / ".claude" / "skills" / "spec-new" / "SKILL.md").exists()
+
+
+def test_version_without_installed_metadata_is_explicitly_unknown(monkeypatch) -> None:
+    """Imported from a source tree with no distribution metadata, spec must not crash and must
+    not invent a release number that could drift from pyproject.toml."""
+    import importlib
+    import importlib.metadata
+
+    import spec
+
+    def missing(name: str) -> str:
+        raise importlib.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(importlib.metadata, "version", missing)
+    try:
+        assert importlib.reload(spec).__version__ == "0+unknown"
+    finally:
+        monkeypatch.undo()
+        importlib.reload(spec)
