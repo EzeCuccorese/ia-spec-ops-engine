@@ -48,6 +48,13 @@ def test_service_name_from_subdomain_uses_configured_environments(monkeypatch) -
     assert sw.service_name_from_subdomain("orders-staging.example.com") == "orders-staging"
 
 
+def test_namespace_fallback_matches_the_generated_config() -> None:
+    from workspace_engine.config.init_config import generate_default_config
+
+    generated = generate_default_config("p", "p.dev")["namespaces"]
+    assert sw._namespace_prefixes() == sorted((f"{ns}-" for ns in generated), key=len, reverse=True)
+
+
 @pytest.mark.parametrize("slug", ["dev", "staging", "prod"])
 def test_service_name_from_subdomain_generic_environment_fallback(slug: str) -> None:
     assert sw.service_name_from_subdomain(f"orders-{slug}-01.example.com") == "orders"
@@ -58,12 +65,12 @@ def test_service_name_from_subdomain_no_prefix_match() -> None:
 
 
 def test_service_name_from_subdomain_strips_env_slug() -> None:
-    result = sw.service_name_from_subdomain("api-orders-dev.example.com", strip_env=True)
+    result = sw.service_name_from_subdomain("services-orders-dev.example.com", strip_env=True)
     assert result == "orders"
 
 
 def test_service_name_from_subdomain_keeps_env_slug_when_disabled() -> None:
-    result = sw.service_name_from_subdomain("api-orders-dev.example.com", strip_env=False)
+    result = sw.service_name_from_subdomain("services-orders-dev.example.com", strip_env=False)
     assert result == "orders-dev"
 
 

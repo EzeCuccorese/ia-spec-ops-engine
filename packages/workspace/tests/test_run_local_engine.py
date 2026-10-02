@@ -29,14 +29,15 @@ def test_assign_port():
 
 def test_service_name_from_subdomain():
     assert (
-        service_name_from_subdomain("api-auth-service-staging-01.dev.generic.com") == "auth-service"
+        service_name_from_subdomain("services-auth-service-staging-01.dev.generic.com")
+        == "auth-service"
     )
     assert service_name_from_subdomain("core-payment-service.prod.generic.com") == "payment-service"
 
 
 def test_wire_urls():
     env = {
-        "AUTH_URL": "http://api-auth-service-staging.dev.generic.com/api/v1",
+        "AUTH_URL": "http://services-auth-service-staging.dev.generic.com/api/v1",
         "OTHER_VAR": "constant_value",
     }
     running = {"auth-service": 8085}

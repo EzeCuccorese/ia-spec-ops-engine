@@ -111,7 +111,6 @@ def load_project_config(
         "project_name": "generic",
         "domain": "generic.com",
         "namespaces": [],
-        "env_slugs": [],
         "environments": [],
         "repositories_dir_env_var": "PROJECT_REPOSITORIES_DIR",
         "local_envs_dir_name": "local-envs",

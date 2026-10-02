@@ -20,7 +20,7 @@ def assign_port(repo_name: str) -> int:
 
 # Generic fallbacks; a project lists its own in the workspace config
 # (`namespaces`, and the ids of `environments`).
-_DEFAULT_NAMESPACES = ("core", "api", "frontend")
+_DEFAULT_NAMESPACES = ("core", "services", "tools")  # same as `ws config init`
 _DEFAULT_ENV_SLUGS = ("dev", "staging", "prod")
 _URL_RE = re.compile(r"https?://([a-z0-9.-]+)(\/[^\s\"']*)?", re.IGNORECASE)
 

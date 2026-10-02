@@ -148,9 +148,9 @@ sanitized and confined to `--base-dir` or `WORKSPACE_WORKTREES_DIR` (default
 Automatically discovers microservices in the workspace, allocates deterministic ports in the **8000–8999** range, rewrites inter-service endpoints (`wire_urls`), and launches an interactive TUI monitor.
 
 It requires a workspace configuration (`ws config init`, see section 5); environments come
-from its `environments` list. To rewire a URL such as `https://core-orders-staging-01.dev.my-domain.io`
+from its `environments` list. To rewire a URL such as `https://services-orders-staging-01.dev.my-domain.io`
 to a local `orders` service, the hostname drops a `<namespace>-` prefix from `namespaces`
-(default `core`, `api`, `frontend`) and an `-<environment id>` suffix from the ids in
+(default `core`, `services`, `tools`) and an `-<environment id>` suffix from the ids in
 `environments` (default `dev`, `staging`, `prod`). Profiles are stored in `~/.config/run-local/profiles.json`, and
 logs, PIDs and the last launch in `~/.local/share/run-local/`.
 
@@ -473,6 +473,18 @@ ws config init --local --force --yes
 
 `--name` defaults to the current directory name and `--domain` to `local.dev`; `--local`,
 `--global` and `--path` are mutually exclusive.
+
+The generated file has no `environments`; `ws run-local` then offers only `local`. Add one
+entry per Kubernetes environment it should be able to read variables from:
+
+```json
+"environments": [
+  {"id": "staging", "cluster": "dev", "namespace": "apps"}
+]
+```
+
+`cluster` picks the kubectl context: `prod` uses the first context whose name contains
+`prod`, `dev` the first one that does not. `namespace` is the namespace of the service pods.
 
 ---
 
