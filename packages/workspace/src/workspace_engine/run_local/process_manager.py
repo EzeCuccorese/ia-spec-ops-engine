@@ -163,7 +163,7 @@ def _save_env_dump(name: str, env_vars: dict, base_env: str, db_env: str, up_mod
         dump_file = constants.ENVS_DIR / f"{name}.env"
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         lines = [
-            f"# run-local.py | {name} | {ts}",
+            f"# ws run-local | {name} | {ts}",
             f"# env={base_env}  db={db_env}  up={up_mode}",
             "",
         ]
@@ -329,7 +329,7 @@ def _launch_one(
         with open(log_path, "w", encoding="utf-8") as log_file:
             ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             log_file.write(
-                f"# run-local.py | {name} | env={env_info['id']} | {ts}\n"
+                f"# ws run-local | {name} | env={env_info['id']} | {ts}\n"
                 f"# cmd: {' '.join(cmd_list)}\n"
                 f"# port: {cfg['port']}\n\n"
             )

@@ -170,7 +170,7 @@ def panel_source_picker(tty_fd: Any, sources: list) -> dict | None:
 
         out = ["\033[H\033[J"]
         out.append(_sep(cols) + "\r\n")
-        out.append(f"{BOLD}  run-local.py — Select source{RESET}\r\n")
+        out.append(f"{BOLD}  ws run-local — Select source{RESET}\r\n")
         out.append(_sep(cols) + "\r\n")
         out.append(f"  {DIM}up/down navigate   Enter select   ESC exit{RESET}\r\n\r\n")
         out.append(f"  {DIM}{'':2} {'Source':<40} {'Type'}{RESET}\r\n")
@@ -359,7 +359,7 @@ def panel_run_config(tty_fd: Any, repos: list, db_cfg: dict) -> list | None:
 
         out = ["\033[H\033[J"]
         out.append(_sep(cols) + "\r\n")
-        out.append(f"{BOLD}  run-local.py — Configure services{RESET}\r\n")
+        out.append(f"{BOLD}  ws run-local — Configure services{RESET}\r\n")
         out.append(_sep(cols) + "\r\n")
         out.append(
             f"  {DIM}up/down navigate   left/right Env   d Local DB   m Local MS   SPACE toggle   Enter   ESC{RESET}\r\n"

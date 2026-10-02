@@ -183,7 +183,7 @@ def _last_configs_to_start(spec: str) -> list:
     specific = [r.strip() for r in spec.split(",") if r.strip()]
     last_cfgs = load_last_configs()
     if not last_cfgs:
-        print(f"{RED}No saved config. Run run-local.py without --start first.{RESET}")
+        print(f"{RED}No saved config. Run `ws run-local` without --start first.{RESET}")
         sys.exit(1)
     if specific:
         last_cfgs = [c for c in last_cfgs if c["name"] in specific]
@@ -213,7 +213,7 @@ def _start_headless(spec: str, results: list, launch_configs: list, db_cfg: dict
     results += [r for r in new_results if r["ok"]]
     launch_configs += [c for c in new_lc if c["name"] in started]
     save_state(results, launch_configs)
-    print(f"\n{DIM}Logs: {LOGS_DIR}/   Stop: run-local.py --stop{RESET}\n")
+    print(f"\n{DIM}Logs: {LOGS_DIR}/   Stop: ws run-local --stop{RESET}\n")
 
 
 def _launch_selection(sources: list, force_repos_dir: Path | None, db_cfg: dict) -> tuple:
@@ -300,7 +300,7 @@ def _monitor(
 ) -> None:
     """Monitor TUI loop; "add" opens ``select`` and launches what it returns."""
     while True:
-        print(f"\n{DIM}Logs: {LOGS_DIR}/   Stop: run-local.py --stop{RESET}\n")
+        print(f"\n{DIM}Logs: {LOGS_DIR}/   Stop: ws run-local --stop{RESET}\n")
         action = _run_monitor_tui(results, launch_configs, db_cfg)
         save_state(results, launch_configs)
         if action != "add":
@@ -353,7 +353,7 @@ def main(argv: list[str] | None = None) -> None:
         db_cfg,
     )
     print(
-        f"{DIM}Services keep running in the background. Use run-local.py --stop to stop them.{RESET}\n"
+        f"{DIM}Services keep running in the background. Use `ws run-local --stop` to stop them.{RESET}\n"
     )
 
 

@@ -76,7 +76,10 @@ def test_last_configs_to_start_filters_by_name():
 
 @pytest.mark.parametrize(
     ("saved", "spec", "message"),
-    [([], "", "No saved config"), ([_config("api")], "web", "No repo found")],
+    [
+        ([], "", "No saved config. Run `ws run-local` without --start first."),
+        ([_config("api")], "web", "No repo found"),
+    ],
 )
 def test_last_configs_to_start_exits_when_nothing_matches(saved, spec, message, capsys):
     with patch(f"{MAIN}.load_last_configs", return_value=saved), pytest.raises(SystemExit):
@@ -95,7 +98,7 @@ def test_start_headless_skips_running_services(capsys):
     assert "already running" in capsys.readouterr().out
 
 
-def test_start_headless_launches_and_keeps_only_started():
+def test_start_headless_launches_and_keeps_only_started(capsys):
     results: list = []
     launch_configs: list = []
     launched = ([_result("api"), _result("web", ok=False)], [_config("api"), _config("web")])
@@ -108,6 +111,7 @@ def test_start_headless_launches_and_keeps_only_started():
     assert [r["name"] for r in results] == ["api"]
     assert [c["name"] for c in launch_configs] == ["api"]
     save.assert_called_once_with(results, launch_configs)
+    assert "Stop: ws run-local --stop" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +222,7 @@ def test_monitor_adds_until_the_user_quits(capsys):
     ):
         rl._monitor([], [], lambda: next(select_calls), {})
     add.assert_called_once_with([_config("web")], [], [], {})
-    assert capsys.readouterr().out.count("Logs:") == 3
+    assert capsys.readouterr().out.count("Stop: ws run-local --stop") == 3
 
 
 # ---------------------------------------------------------------------------
@@ -267,7 +271,8 @@ def test_main_monitors_launched_services(project: Path, capsys):
         rl.main([])
         monitor.call_args.args[2]()
     select.assert_called_once()
-    assert "Services keep running in the background" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Services keep running in the background. Use `ws run-local --stop`" in out
 
 
 def test_missing_config_lists_the_real_search_order(tmp_path: Path, monkeypatch, capsys):

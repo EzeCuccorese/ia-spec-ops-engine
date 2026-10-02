@@ -174,7 +174,7 @@ _NOISE_PREFIX = ("KUBERNETES_", "JAVA_", "LC_", "LS_COLORS", "JVM_")
 _NOISE_SUFFIX = ("_SERVICE_HOST", "_SERVICE_PORT")
 
 _DEFAULT_DB_CFG = """\
-# run-local.py — local database configuration
+# ws run-local — local database configuration
 # Used when DB=local to override URIs in Spring/Node services.
 local:
   mongodb: mongodb://localhost:27018
