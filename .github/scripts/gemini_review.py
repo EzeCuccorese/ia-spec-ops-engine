@@ -87,9 +87,13 @@ def get_pr_diff(exclude_patterns: list[str]) -> str:
     return diff
 
 
-def _filter_comments(comments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _filter_comments(comments: Any) -> list[dict[str, Any]]:
+    if not isinstance(comments, list):
+        return []
     valid = []
     for c in comments:
+        if not isinstance(c, dict):
+            continue
         path = c.get("path")
         line = c.get("line")
         body = c.get("body")
@@ -99,13 +103,13 @@ def _filter_comments(comments: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _post_fallback(target: ReviewTarget, summary: str, comments: list[dict[str, Any]]) -> None:
-    url = f"https://api.github.com/repos/{target.owner}/{target.repo}/issues/{target.pr_number}/comments"
+    url = f"https://api.github.com/repos/{target.owner}/{target.repo}/pulls/{target.pr_number}/reviews"
     fallback_body = f"## Gemini Code Review\n\n{summary}\n\n### Detailed Comments\n"
     for c in comments:
         fallback_body += f"\n- **{c['path']}:{c['line']}**: {c['body']}"
     req = urllib.request.Request(
         url,
-        data=json.dumps({"body": fallback_body}).encode("utf-8"),
+        data=json.dumps({"body": fallback_body, "event": "COMMENT"}).encode("utf-8"),
         headers={
             "Authorization": f"Bearer {target.token}",
             "Accept": "application/vnd.github+json",
@@ -114,7 +118,7 @@ def _post_fallback(target: ReviewTarget, summary: str, comments: list[dict[str, 
         },
     )
     with urllib.request.urlopen(req, timeout=30) as resp:
-        print(f"Posted fallback comment: HTTP {resp.status}")
+        print(f"Posted fallback review: HTTP {resp.status}")
 
 
 def post_github_review(target: ReviewTarget, summary: str, comments: list[dict[str, Any]]) -> None:
@@ -230,10 +234,17 @@ def main() -> None:
     cleaned = raw_response.strip()
     if cleaned.startswith("```"):
         cleaned = cleaned.strip("`").removeprefix("json").strip()
-    review_data = json.loads(cleaned)
 
     owner, repo = repo_slug.split("/")
     target = ReviewTarget(owner=owner, repo=repo, pr_number=pr_num, token=token)
+
+    try:
+        review_data = json.loads(cleaned)
+    except json.JSONDecodeError as err:
+        print(f"Failed to parse Gemini response as JSON: {err}", file=sys.stderr)
+        _post_fallback(target, f"Review completed, but response was not valid JSON:\n\n{raw_response}", [])
+        return
+
     post_github_review(target, review_data.get("summary", "Review completed."), review_data.get("comments", []))
 
 
