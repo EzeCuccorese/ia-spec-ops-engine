@@ -38,7 +38,7 @@ Personal, project-agnostic harness. Nothing about engineering policy.
 | | Claude Code | OpenAI Codex | Google Antigravity 2 |
 |---|---|---|---|
 | Global instructions | ~/.claude/rules/ai-governance.md | $CODEX_HOME/AGENTS.md (marker block) | ~/.gemini/config/rules/ai-governance.md (`trigger: always_on`) |
-| Global hooks | ~/.claude/settings.json (Pre/PostToolUse Bash, Stop, SessionStart/End) | $CODEX_HOME/hooks.json PostToolUse condensing (after `probe` verifies) | antigravity-cli/hooks.json PreToolUse: raw noisy commands -> `ws run` (after `probe`) |
+| Global hooks | ~/.claude/settings.json (Pre/PostToolUse Bash, Stop, SessionStart/End) | $CODEX_HOME/hooks.json PostToolUse condensing (after `probe` verifies) | ~/.gemini/antigravity-cli/hooks.json PreToolUse: raw noisy commands -> `ws run` (after `probe`) |
 | Scout subagent | ~/.claude/agents/scout.md (sonnet, effort medium) | $CODEX_HOME/agents/scout.toml (terra, effort medium, read-only) + config.toml default subagent model terra | ~/.gemini/config/agents/scout.md (model flash, read-only tools, no commands) |
 | Skills | ~/.claude/skills/{progress,test-audit}/SKILL.md | ~/.agents/skills/{progress,test-audit}/SKILL.md | ~/.gemini/config/skills/{progress,test-audit}/SKILL.md |
 | Project rules | .claude/rules/ai-governance-<id>.md -> symlink to .agents/rules | .agents/rules/ai-governance-<id>.md (shared) | .agents/rules/ai-governance-<id>.md (single source) |
@@ -138,9 +138,9 @@ hint to re-enable it.
 |---|---|
 | `ai-governance update [--root DIR] [--all] [--check] [--dry-run]` | Re-detect stacks and refresh only the applicable rules; local edits are kept and reported; `--all` covers every registered project; `--check` exits 1 on drift (for CI) |
 | `ai-governance uninstall --scope ... --agent ...` | Remove exactly what was written |
-| `ai-governance status [--root DIR]` / `doctor [--root DIR]` | What is installed where / read-only health checks (exit 1 on a failing check) |
+| `ai-governance status [--root DIR]` / `doctor [--root DIR]` | What is installed where, per owner (an agent, `project` for the shared rules and `AGENTS.md` block, `corporate` for pack scripts) / read-only health checks (exit 1 on a failing check) |
 | `ai-governance agents` | Capability matrix of the supported agents (the table above) |
-| `ai-governance budget [--root DIR]` | Fixed context bytes (~tokens) each agent loads every session |
+| `ai-governance budget [--root DIR]` | Fixed context bytes (~tokens) loaded every session, per agent plus a `project` row for the shared rules and `AGENTS.md` block |
 | `ai-governance probe --agent <a> [--dir DIR]` then `--verify --seen <tokens>` | Proves on this machine which instruction locations the agent loads and which hooks fire. Codex/Antigravity hooks are installed only after a verified probe |
 | `ai-governance rules list` / `rules show <id>` / `rules profiles` | Browse the rule catalog and opt-in profiles |
 | `ai-governance progress <subcommand>` | Compact cross-session task state (see below) |

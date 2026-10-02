@@ -7,8 +7,10 @@ from pathlib import Path
 
 import pytest
 from ai_governance import corporate
+from ai_governance.install import cli, doctor
+from ai_governance.install.budget import fixed_cost
 from ai_governance.install.cli import main as install_cli
-from ai_governance.install.installer import install_user, uninstall_user
+from ai_governance.install.installer import global_ledger, install_user, uninstall_user
 
 
 @pytest.fixture
@@ -53,10 +55,9 @@ def test_pack_exposes_rules_and_executable_scripts() -> None:
     assert all(os.access(script, os.X_OK) for script in pack.scripts())
 
 
-def test_unknown_or_missing_packs(tmp_path: Path) -> None:
+def test_missing_packs_folder_lists_no_pack(tmp_path: Path) -> None:
     assert corporate.available(tmp_path / "missing") == []
-    with pytest.raises(ValueError, match="Unknown corporate pack"):
-        corporate.load("globex")
+    assert corporate.packs(tmp_path / "missing") == []
 
 
 def test_user_install_picks_up_every_pack_without_flags(home: Path) -> None:
@@ -100,6 +101,26 @@ def test_scripts_go_with_the_last_installed_agent(home: Path) -> None:
 
     uninstall_user(["antigravity"])
     assert not _script(home).exists()
+
+
+def test_script_owner_is_not_reported_as_an_agent(home: Path) -> None:
+    install_user(["claude"])
+
+    assert ("user:agents", doctor.OK, "claude") in doctor.check(None)
+    assert set(fixed_cost(global_ledger())) == {"claude"}
+
+
+def test_status_and_budget_name_the_owner_column(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_user(["claude"])
+    tables: list[tuple[str, ...]] = []
+    monkeypatch.setattr(cli, "emit_rows", lambda rows, *, headers, full: tables.append(headers))
+
+    install_cli("status", ["--root", str(home)])
+    install_cli("budget", ["--root", str(home)])
+
+    assert [headers[1] for headers in tables] == ["Owner", "Owner"]
 
 
 def test_bin_dir_override(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:

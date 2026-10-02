@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .agents import HOOK_COMMAND_PREFIX
 from .engine import END, START, Ledger, sha256
-from .installer import PROJECT_DIR, ProjectConfig, global_ledger, sync_project
+from .installer import PROJECT_DIR, ProjectConfig, global_ledger, installed_agents, sync_project
 
 OK, WARN, FAIL = "OK", "WARN", "FAIL"
 Row = tuple[str, str, str]
@@ -64,7 +64,7 @@ def _legacy_gemini_block() -> list[Row]:
 
 def _user_rows() -> list[Row]:
     user = global_ledger()
-    agents = sorted({entry["agent"] for entry in user.entries})
+    agents = sorted(installed_agents(user))
     rows: list[Row] = [("user:agents", OK, ", ".join(agents) or "none installed")]
     rows.extend(_ledger_rows(user, "user"))
     if "antigravity" in agents:

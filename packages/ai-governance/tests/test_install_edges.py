@@ -55,7 +55,17 @@ def test_doctor_reports_missing_edited_and_legacy(project: Path) -> None:
     assert any(c == "project:drift" and s == WARN for c, s, _ in rows)
 
 
-def test_budget_counts_blocks_and_skips_injected_codex_rules(project: Path) -> None:
+def test_ledger_key_reads_relative_paths_against_the_base(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    base = tmp_path / "repo"
+    (base / "rules").mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+    ledger = Ledger(base / "lock.json", base=base)
+    assert ledger.key(Path("rules/../AGENTS.md")) == ledger.key(base / "AGENTS.md") == "AGENTS.md"
+
+
+def test_budget_counts_shared_blocks_and_no_codex_project_rules(project: Path) -> None:
     install_user(["codex"])
     sync_project(project, add_agents=["codex"])
     user = fixed_cost(installer.global_ledger())

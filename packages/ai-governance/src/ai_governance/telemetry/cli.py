@@ -158,16 +158,20 @@ def _build_parser() -> argparse.ArgumentParser:
     report = sub.add_parser("report", help="Today/month estimate by model and token type")
     report.add_argument("--budget", type=float)
     report.add_argument("--json", action="store_true")
-    calibrate = sub.add_parser("calibrate")
+    calibrate = sub.add_parser(
+        "calibrate", help="Store the ratio between the real spend and the estimate for a period"
+    )
     calibrate.add_argument("--from", dest="from_date", required=True)
     calibrate.add_argument("--to", dest="to_date", required=True)
     calibrate.add_argument("--actual", type=float, required=True)
-    prices = sub.add_parser("prices")
+    prices = sub.add_parser("prices", help="Manage the cached model price table")
     prices_sub = prices.add_subparsers(dest="prices_cmd")
-    update = prices_sub.add_parser("update")
+    update = prices_sub.add_parser("update", help="Refresh the cached price table")
     update.add_argument("--url", default=DEFAULT_FEED_URL)
     sub.add_parser("statusline", help="Compact spend segment for the Claude Code status line")
-    thresholds = sub.add_parser("thresholds")
+    thresholds = sub.add_parser(
+        "thresholds", help="Evaluate the daily/monthly alert thresholds (what the Stop hook runs)"
+    )
     thresholds.add_argument("--notify", action="store_true")
     thresholds.add_argument("--json", action="store_true")
     return parser

@@ -58,15 +58,6 @@ def available(root: Path | None = None) -> list[str]:
     return sorted(p.name for p in base.iterdir() if p.is_dir() and not p.name.startswith("."))
 
 
-def load(name: str, root: Path | None = None) -> CorporatePack:
-    names = available(root)
-    if name not in names:
-        raise ValueError(
-            f"Unknown corporate pack: {name}. Choose from: {', '.join(names) or '(none)'}"
-        )
-    return CorporatePack(name, (root or corporate_root()) / name)
-
-
 def packs(root: Path | None = None) -> list[CorporatePack]:
     base = root or corporate_root()
     return [CorporatePack(name, base / name) for name in available(base)]
