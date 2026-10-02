@@ -93,7 +93,7 @@ def find_project_root(
 def config_candidates(root: Path) -> list[Path]:
     """Config files searched for ``root``, in order; the first that exists is used."""
     candidate_paths = [root / ".workspace" / "config.json"]
-    if "XDG_CONFIG_HOME" in os.environ:
+    if os.environ.get("XDG_CONFIG_HOME"):  # empty means unset (XDG spec)
         candidate_paths.append(Path(os.environ["XDG_CONFIG_HOME"]) / "workspace" / "config.json")
     candidate_paths.append(Path.home() / ".config" / "workspace" / "config.json")
     candidate_paths.append(root / "config.json")

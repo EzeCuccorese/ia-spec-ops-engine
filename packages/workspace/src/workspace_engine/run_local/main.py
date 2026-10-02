@@ -209,8 +209,9 @@ def _start_headless(spec: str, results: list, launch_configs: list, db_cfg: dict
         return
     new_results, new_lc = _launch_and_report(to_launch, db_cfg)
     started = _started_names(new_results)
-    results += [r for r in new_results if r["ok"]]
-    launch_configs += [c for c in new_lc if c["name"] in started]
+    relaunched = {c["name"] for c in to_launch}  # drops records of services that died meanwhile
+    results[:] = _replace_by_name(results, relaunched, new_results, started)
+    launch_configs[:] = _replace_by_name(launch_configs, relaunched, new_lc, started)
     save_state(results, launch_configs)
     print(f"\n{DIM}Logs: {LOGS_DIR}/   Stop: ws run-local --stop{RESET}\n")
 

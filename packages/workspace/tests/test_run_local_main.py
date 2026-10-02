@@ -375,3 +375,19 @@ def test_terminate_never_signals_ws_itself(own):
     with patch(f"{MAIN}.os.kill") as kill:
         rl._terminate(pid)
     assert kill.call_args_list == []
+
+
+def test_start_headless_replaces_a_dead_record_of_the_relaunched_service():
+    results = [_result("api", pid=7)]
+    launch_configs = [_config("api")]
+    with (
+        patch(f"{MAIN}.load_last_configs", return_value=[_config("api")]),
+        patch(f"{MAIN}._pid_alive", return_value=False),
+        patch(
+            f"{MAIN}._launch_and_report", return_value=([_result("api", pid=8)], [_config("api")])
+        ),
+        patch(f"{MAIN}.save_state"),
+    ):
+        rl._start_headless("", results, launch_configs, {})
+    assert [(r["name"], r["pid"]) for r in results] == [("api", 8)]
+    assert len(launch_configs) == 1
