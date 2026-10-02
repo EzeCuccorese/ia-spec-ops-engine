@@ -391,3 +391,16 @@ def test_start_headless_replaces_a_dead_record_of_the_relaunched_service():
         rl._start_headless("", results, launch_configs, {})
     assert [(r["name"], r["pid"]) for r in results] == [("api", 8)]
     assert len(launch_configs) == 1
+
+
+def test_restart_named_marks_a_failed_restart_as_not_ok():
+    results = [_result("api", pid=42)]
+    launch_configs = [{**_config("api"), "port": 8123}]
+    with (
+        patch(f"{MAIN}.os.kill"),
+        patch(f"{MAIN}._wait_port_free"),
+        patch(f"{MAIN}._launch_one", return_value=(None, "port in use", None, {})),
+    ):
+        rl._restart_named(["api"], results, launch_configs, {})
+    assert results[0]["ok"] is False
+    assert results[0]["error"] == "port in use"

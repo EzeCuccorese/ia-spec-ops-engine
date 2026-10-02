@@ -102,6 +102,7 @@ def _restart_named(names: list, results: list, launch_configs: list, db_cfg: dic
         _wait_port_free(cfg["port"])
         pid, err, started_at, wired_map = _launch_one(cfg, running_ports, db_cfg)
         r["pid"], r["error"], r["started_at"] = pid, err, started_at
+        r["ok"] = pid is not None
         cfg["wiring"] = wired_map
         print(
             f"  {('✔ ' + nm + ' restarted (PID ' + str(pid) + ')') if pid else ('✖ ' + nm + ': ' + str(err))}"

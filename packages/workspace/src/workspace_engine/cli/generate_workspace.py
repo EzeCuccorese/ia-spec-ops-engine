@@ -61,44 +61,84 @@ def setup_repo_worktree(repo_path: Path, target_path: Path, config: RepoConfig) 
             raise RuntimeError(f"Failed to create worktree for {config.name}: {result.stderr}")
 
 
-def _remove_worktrees(created: list[tuple[Path, Path, RepoConfig]]) -> None:
-    """Undoes the worktrees (and the branches of `new` ones) this run created."""
-    for src, target, cfg in reversed(created):
+# (source repo, worktree path, config, whether this run created the branch)
+_Created = tuple[Path, Path, RepoConfig, bool]
+
+
+def _remove_worktrees(created: list[_Created]) -> None:
+    """Undoes the worktrees this run created, and the branches it created for them."""
+    for src, target, cfg, own_branch in reversed(created):
         run_git(src, "worktree", "remove", "--force", str(target))
-        if cfg.mode == "new":
+        if own_branch:
             run_git(src, "branch", "-D", cfg.branch)
         run_git(src, "worktree", "prune")
 
 
-def _setup_or_undo(src: Path, target: Path, cfg: RepoConfig) -> None:
-    """`setup_repo_worktree`, deleting the branch a failed `worktree add -b` leaves behind."""
+def _setup_or_undo(src: Path, target: Path, cfg: RepoConfig) -> bool:
+    """`setup_repo_worktree`; True when it created the branch.
+
+    A failed `worktree add -b` leaves its new branch behind, so that branch is deleted.
+    """
     existed = run_git(src, "rev-parse", "--verify", f"refs/heads/{cfg.branch}").returncode == 0
+    own_branch = cfg.mode == "new" and not existed
     try:
         setup_repo_worktree(src, target, cfg)
     except BaseException:
-        if cfg.mode == "new" and not existed:
+        if own_branch:
             run_git(src, "branch", "-D", cfg.branch)
         raise
+    return own_branch
+
+
+def _rollback(workspace_dir: Path, created: list[_Created]) -> None:
+    try:
+        _remove_worktrees(created)
+    finally:
+        shutil.rmtree(workspace_dir, ignore_errors=True)
 
 
 def _create_worktrees(
     workspace_dir: Path, repo_configs: list[RepoConfig], repo_paths: dict[str, Path]
-) -> None:
+) -> list[_Created]:
     """Creates every worktree, or none: on any failure the workspace is rolled back."""
-    created: list[tuple[Path, Path, RepoConfig]] = []
+    created: list[_Created] = []
     try:
         for cfg in repo_configs:
             src = repo_paths[cfg.name]
             target = workspace_dir / "repositories" / cfg.name
-            _setup_or_undo(src, target, cfg)
-            created.append((src, target, cfg))
+            own_branch = _setup_or_undo(src, target, cfg)
+            created.append((src, target, cfg, own_branch))
             log_success(f"Worktree created for {cfg.name} (branch: {cfg.branch})")
     except BaseException:  # interrupts too: never leave a half-built workspace
-        try:
-            _remove_worktrees(created)
-        finally:
-            shutil.rmtree(workspace_dir, ignore_errors=True)
+        _rollback(workspace_dir, created)
         raise
+    return created
+
+
+def _write_metadata(
+    workspace_dir: Path, repo_configs: list[RepoConfig], template_dir: Path | None
+) -> None:
+    """Writes `.ai-toolkit/workspace.json` and `AGENTS.md`."""
+    ai_dir = workspace_dir / ".ai-toolkit"
+    ai_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "schema_version": 1,
+        "workspace": workspace_dir.name,
+        "repositories": [
+            {
+                "name": cfg.name,
+                "branch": cfg.branch,
+                "parent_branch": cfg.parent if cfg.mode == "new" else None,
+            }
+            for cfg in repo_configs
+        ],
+    }
+    (ai_dir / "workspace.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    repos = [cfg.name for cfg in repo_configs]
+    template_file = (template_dir / "workspace-agents.md.template") if template_dir else None
+    content = render_agents_md(template_file, workspace_dir.name, "repositories", repos)
+    (workspace_dir / "AGENTS.md").write_text(content, encoding="utf-8")
 
 
 def create_workspace_structure(
@@ -115,31 +155,12 @@ def create_workspace_structure(
 
     print(f"\n{Color.BOLD}Creating workspace '{workspace_name}'...{Color.RESET}")
 
-    _create_worktrees(workspace_dir, repo_configs, repo_paths)
-
-    # Write manifest
-    ai_dir = workspace_dir / ".ai-toolkit"
-    ai_dir.mkdir(parents=True, exist_ok=True)
-    manifest = {
-        "schema_version": 1,
-        "workspace": workspace_name,
-        "repositories": [
-            {
-                "name": cfg.name,
-                "branch": cfg.branch,
-                "parent_branch": cfg.parent if cfg.mode == "new" else None,
-            }
-            for cfg in repo_configs
-        ],
-    }
-    (ai_dir / "workspace.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-
-    # Render AGENTS.md
-    repos = [cfg.name for cfg in repo_configs]
-    template_file = (template_dir / "workspace-agents.md.template") if template_dir else None
-    content = render_agents_md(template_file, workspace_name, "repositories", repos)
-
-    (workspace_dir / "AGENTS.md").write_text(content, encoding="utf-8")
+    created = _create_worktrees(workspace_dir, repo_configs, repo_paths)
+    try:
+        _write_metadata(workspace_dir, repo_configs, template_dir)
+    except BaseException:
+        _rollback(workspace_dir, created)
+        raise
     log_success(f"Workspace '{workspace_name}' generated successfully at {workspace_dir}")
     return workspace_dir
 
