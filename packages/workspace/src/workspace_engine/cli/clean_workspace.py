@@ -14,7 +14,7 @@ from workspace_engine.common import find_project_root, log_info, log_success
 
 
 def clean_workspace(start_dir: Path | None = None) -> int:
-    """Limpia caches de build y temporales en repositories/ y .ai-toolkit/."""
+    """Removes build caches and temporary files in repositories/ and .ai-toolkit/."""
     workspace_dir = find_project_root(start_dir)
     log_info(f"[clean-workspace] {workspace_dir}")
 
@@ -23,7 +23,7 @@ def clean_workspace(start_dir: Path | None = None) -> int:
         for entry in ai_dir.iterdir():
             if entry.name == "workspace.json":
                 continue
-            log_info(f"  eliminando: {entry}")
+            log_info(f"  removing: {entry}")
             if entry.is_dir() and not entry.is_symlink():
                 shutil.rmtree(entry, ignore_errors=True)
             else:
@@ -37,13 +37,13 @@ def clean_workspace(start_dir: Path | None = None) -> int:
             for cache_folder in ("node_modules", ".gradle", "build", "dist", "target"):
                 cache_dir = repo / cache_folder
                 if cache_dir.exists():
-                    log_info(f"  eliminando: {cache_dir}")
+                    log_info(f"  removing: {cache_dir}")
                     if cache_dir.is_dir() and not cache_dir.is_symlink():
                         shutil.rmtree(cache_dir, ignore_errors=True)
                     else:
                         cache_dir.unlink(missing_ok=True)
 
-    log_success("[clean-workspace] Limpieza completada.")
+    log_success("[clean-workspace] Cleanup completed.")
     return 0
 
 

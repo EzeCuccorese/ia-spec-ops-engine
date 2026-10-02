@@ -794,7 +794,7 @@ def panel_monitor(
             key = _read_key(tty_fd) if ask_cascade else _read_key(tty_fd, timeout=2.0)
 
             if ask_cascade is not None:
-                if key in (b"y", b"Y", b"s", b"S"):
+                if key in (b"y", b"Y"):
                     from workspace_engine.run_local.main import _restart_named
 
                     _restart_named(ask_cascade, results, launch_configs, db_cfg)
