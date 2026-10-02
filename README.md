@@ -43,4 +43,3 @@ uv run python -m pytest -q --cov
 ## License
 
 [MIT](LICENSE)
- 

@@ -32,7 +32,7 @@ class ReviewConfig:
 
 
 def call_gemini(prompt: str, api_key: str, model: str) -> str:
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
@@ -43,13 +43,18 @@ def call_gemini(prompt: str, api_key: str, model: str) -> str:
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": api_key,
+        },
     )
     with urllib.request.urlopen(req, timeout=120) as resp:
         data = json.loads(resp.read().decode("utf-8"))
     
-    text = data["candidates"][0]["content"]["parts"][0]["text"]
-    return text
+    candidates = data.get("candidates", [])
+    if not candidates or "content" not in candidates[0]:
+        raise ValueError(f"No valid candidate generated from Gemini: {data}")
+    return candidates[0]["content"]["parts"][0]["text"]
 
 
 def _matches_any(filepath: str, patterns: list[str]) -> bool:
@@ -222,7 +227,10 @@ def main() -> None:
     prompt = build_prompt(diff, config, repo_instructions)
 
     raw_response = call_gemini(prompt, api_key, config.model)
-    review_data = json.loads(raw_response)
+    cleaned = raw_response.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`").removeprefix("json").strip()
+    review_data = json.loads(cleaned)
 
     owner, repo = repo_slug.split("/")
     target = ReviewTarget(owner=owner, repo=repo, pr_number=pr_num, token=token)
