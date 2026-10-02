@@ -56,9 +56,12 @@ def call_gemini(prompt: str, api_key: str, model: str) -> str:
         raise RuntimeError(f"Gemini API call failed (HTTP {e.code}): {err_msg}") from e
     
     candidates = data.get("candidates", [])
-    if not candidates or "content" not in candidates[0]:
-        raise ValueError(f"No valid candidate generated from Gemini: {data}")
-    return candidates[0]["content"]["parts"][0]["text"]
+    if not candidates:
+        raise ValueError(f"No candidates generated from Gemini: {data}")
+    parts = candidates[0].get("content", {}).get("parts", [])
+    if not parts or "text" not in parts[0]:
+        raise ValueError(f"No valid content parts generated from Gemini: {data}")
+    return parts[0]["text"]
 
 
 def _matches_any(filepath: str, patterns: list[str]) -> bool:
@@ -232,7 +235,11 @@ def _load_review_config() -> ReviewConfig:
 
 def _parse_review_response(raw_response: str) -> dict[str, Any] | None:
     cleaned = raw_response.strip()
-    if cleaned.startswith("```"):
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end != -1:
+        cleaned = cleaned[start : end + 1]
+    elif cleaned.startswith("```"):
         cleaned = cleaned.strip("`").removeprefix("json").strip()
     try:
         data = json.loads(cleaned)
@@ -267,7 +274,7 @@ def main() -> None:
     repo_instructions = _load_repo_instructions()
     prompt = build_prompt(diff, config, repo_instructions)
 
-    owner, repo = repo_slug.split("/")
+    owner, repo = repo_slug.split("/", 1)
     target = ReviewTarget(owner=owner, repo=repo, pr_number=pr_num, token=token)
 
     raw_response = call_gemini(prompt, api_key, config.model)
