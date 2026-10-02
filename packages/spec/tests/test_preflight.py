@@ -562,7 +562,7 @@ def test_run_with_different_base_branch_copies_file_config_pattern(tmp_path: Pat
     assert result["status"] == "READY"
 
 
-def test_run_falls_back_to_root_when_base_branch_worktree_add_fails(tmp_path: Path) -> None:
+def test_run_fails_when_base_branch_cannot_be_checked_out(tmp_path: Path) -> None:
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
     _init_git_repo(repo_dir)
@@ -577,8 +577,8 @@ def test_run_falls_back_to_root_when_base_branch_worktree_add_fails(tmp_path: Pa
     result = mgr.run("Ghost Base Feature", base_branch="ghost-branch", use_worktree=False)
 
     assert result["status"] == "FAIL"
-    assert "feature/ghost-base-feature" in result["error"]
-    assert result["baseline"] == "PASS"
+    assert "Base branch 'ghost-branch' cannot be checked out" in result["error"]
+    assert not (repo_dir / ".spec" / "evidence" / "preflight").exists()
     assert not (repo_dir / ".spec" / "specs" / "ghost-base-feature").exists()
 
 
@@ -655,3 +655,27 @@ def test_run_without_worktree_fails_on_dirty_tree(tmp_path: Path) -> None:
     assert _current_branch(repo_dir) == "main"
     assert not (repo_dir / ".spec" / "specs" / "dirty-feature").exists()
     assert not (repo_dir / ".spec" / "evidence" / "preflight").exists()
+
+
+def test_run_without_worktree_fails_when_branch_cannot_be_created(tmp_path: Path) -> None:
+    repo_dir = _passing_repo(tmp_path)
+    subprocess.run(["git", "-C", str(repo_dir), "branch", "feature"], check=True, env=_git_env())
+
+    result = PreflightManager(repo_dir).run("Nested", branch="feature/nested", use_worktree=False)
+
+    assert result["status"] == "FAIL"
+    assert "Failed to switch to branch 'feature/nested'" in result["error"]
+    assert _current_branch(repo_dir) == "main"
+
+
+def test_cli_preflight_reports_existing_worktree_directory_as_fail(tmp_path: Path, capsys) -> None:
+    repo_dir = _passing_repo(tmp_path)
+    (tmp_path / "workspace-feature-taken").mkdir()
+
+    with pytest.raises(SystemExit) as exc:
+        main(["preflight", "Taken", "--root", str(repo_dir), "--json"])
+    assert exc.value.code == 1
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "FAIL"
+    assert "Target worktree directory already exists" in payload["error"]

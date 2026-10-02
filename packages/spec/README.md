@@ -112,7 +112,7 @@ Before introducing dirty changes or new branches, validate baseline checks and i
 spec preflight "user-auth" --from "main" --branch "feature/user-auth" --root /path/to/project
 ```
 - Fetches the base branch (`--from`, default the current branch) and fast-forwards it when it is checked out and clean.
-- Runs the checks of `.spec/verification.json` on the base branch; with no checks configured, or any failing, it reports `FAIL` and stops.
+- Runs the checks of `.spec/verification.json` on the base branch; with no checks configured, any failing, or a base branch that cannot be checked out, it reports `FAIL` and stops. Every failure, including an existing worktree directory, is reported as `FAIL` (exit code 1), never as a traceback.
 - Provisions a Git worktree for the target branch (`--branch`, default `feature/<name>`) at `../workspace-<branch>`, copying `.spec/`, `.agents/` and `.env*` and symlinking `.venv`/`node_modules`/`.gradle`; `--no-worktree` instead switches the current checkout to that branch (`git switch -c` from the base, or `git switch` when it already exists) and fails before running any check if tracked files have uncommitted changes.
 - Creates the active specification (`--description` fills it) and prints the directory where the agent must work; `--json` prints the result (`"status": "READY"` or `"FAIL"`). Run the following steps from that directory.
 

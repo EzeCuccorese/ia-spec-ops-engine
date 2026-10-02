@@ -191,6 +191,44 @@ class PreflightManager:
         if code != 0:
             raise PreflightError(f"Failed to switch to branch '{branch}': {stderr or stdout}")
 
+    def run_base_branch_baseline(self, base_branch: str) -> BaselineGateResult:
+        """Runs the baseline gate on a temporary detached checkout of another base branch."""
+        base_dir = Path(tempfile.mkdtemp(prefix="spec-baseline-"))
+        try:
+            code, stdout, stderr = self._run_git(
+                "worktree", "add", "--detach", str(base_dir), base_branch
+            )
+            if code != 0:
+                raise PreflightError(
+                    f"Base branch '{base_branch}' cannot be checked out: {stderr or stdout}"
+                )
+            try:
+                self._copy_missing_config(base_dir)
+                return self.run_baseline_gate(target_root=base_dir)
+            finally:
+                self._run_git("worktree", "remove", "--force", str(base_dir))
+        finally:
+            shutil.rmtree(base_dir, ignore_errors=True)
+
+    def _copy_missing_config(self, dest_root: Path) -> None:
+        """Copies local configuration the checkout at dest_root does not already track."""
+        for pattern in [".spec", ".specops", ".agents"]:
+            src = self.root / pattern
+            dest = dest_root / pattern
+            if not src.exists() or dest.exists():
+                continue
+            if src.is_dir():
+                shutil.copytree(src, dest)
+            else:
+                shutil.copy2(src, dest)
+
+    def prepare_target(self, branch: str, base_branch: str, *, use_worktree: bool) -> Path:
+        """Returns the directory to work in: a new worktree, or the current checkout on the branch."""
+        if use_worktree:
+            return self.provision_worktree(branch, base_branch)
+        self.switch_branch(branch, base_branch)
+        return self.root
+
     def provision_worktree(self, branch: str, base_branch: str) -> Path:
         """Provisions an isolated Git Worktree and links local dependency/config caches."""
         sanitized = branch.replace("/", "-")
@@ -272,32 +310,14 @@ class PreflightManager:
         self.sync_base_branch(base)
 
         # 3. Baseline verification gate on selected base
-        if base != branch_info.current_branch:
-            tmp_base = tempfile.mkdtemp(prefix="spec-baseline-")
-            base_dir = Path(tmp_base)
-            try:
-                code, stdout, stderr = self._run_git(
-                    "worktree", "add", "--detach", str(base_dir), base
-                )
-                if code == 0:
-                    try:
-                        for pattern in [".spec", ".specops", ".agents"]:
-                            src = self.root / pattern
-                            dest = base_dir / pattern
-                            if src.exists() and not dest.exists():
-                                if src.is_dir():
-                                    shutil.copytree(src, dest, dirs_exist_ok=True)
-                                else:
-                                    shutil.copy2(src, dest)
-                        baseline = self.run_baseline_gate(target_root=base_dir)
-                    finally:
-                        self._run_git("worktree", "remove", "--force", str(base_dir))
-                else:
-                    baseline = self.run_baseline_gate(target_root=self.root)
-            finally:
-                shutil.rmtree(base_dir, ignore_errors=True)
-        else:
-            baseline = self.run_baseline_gate(target_root=self.root)
+        try:
+            baseline = (
+                self.run_baseline_gate()
+                if base == branch_info.current_branch
+                else self.run_base_branch_baseline(base)
+            )
+        except PreflightError as exc:
+            return {"status": "FAIL", "error": str(exc)}
 
         if not baseline.passed:
             return {
@@ -310,14 +330,10 @@ class PreflightManager:
             }
 
         # 4. Provision worktree or switch the current checkout to the feature branch
-        if use_worktree:
-            target_root = self.provision_worktree(target_branch, base)
-        else:
-            try:
-                self.switch_branch(target_branch, base)
-            except PreflightError as exc:
-                return {"status": "FAIL", "error": str(exc), "baseline": baseline.status}
-            target_root = self.root
+        try:
+            target_root = self.prepare_target(target_branch, base, use_worktree=use_worktree)
+        except PreflightError as exc:
+            return {"status": "FAIL", "error": str(exc), "baseline": baseline.status}
 
         # 5. Initialize spec inside target root
         workflow = Workflow(target_root)
