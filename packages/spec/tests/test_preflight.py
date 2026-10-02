@@ -694,3 +694,16 @@ def test_worktree_copies_only_spec_agents_and_env_files(tmp_path: Path) -> None:
     assert (worktree / ".agents").is_dir()
     assert (worktree / ".env.local").is_file()
     assert not (worktree / ".specops").exists()
+
+
+def test_base_branch_baseline_evidence_survives_the_temporary_checkout(tmp_path: Path) -> None:
+    repo_dir = _passing_repo(tmp_path)
+    subprocess.run(["git", "-C", str(repo_dir), "branch", "other"], check=True, env=_git_env())
+
+    result = PreflightManager(repo_dir).run_base_branch_baseline("other")
+
+    assert result.passed is True
+    assert result.evidence_path is not None
+    evidence = Path(result.evidence_path)
+    assert evidence.is_file()
+    assert evidence.parent == repo_dir / ".spec" / "evidence" / "preflight"
