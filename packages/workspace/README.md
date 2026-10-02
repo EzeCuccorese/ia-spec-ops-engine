@@ -9,7 +9,7 @@
 Developing modern distributed systems and microservices architectures poses recurring challenges:
 - Managing multiple interconnected repositories concurrently without polluting branches or duplicating entire workspace directories.
 - Spinning up 5 to 10 microservices locally while manually resolving port collisions and inter-service endpoints.
-- Leaking secrets, syntax errors, or AI markers into upstream branches, causing CI failures.
+- Leaking secrets, lint errors, or failing tests into upstream branches, causing CI failures.
 - Inconsistent JDK, Node, or environment variable versions across development machines.
 
 `ws` automates and unifies these workflows under a single, deterministic CLI interface.
@@ -18,15 +18,15 @@ Developing modern distributed systems and microservices architectures poses recu
 
 ## 💻 Installation & Setup
 
-### 1. Editable Installation
+### 1. Installation
 From the monorepo root:
 
 ```bash
-# With uv (recommended)
-uv pip install -e packages/workspace
+# As a global tool (recommended)
+uv tool install ./packages/workspace
 
-# Or with standard pip
-pip install -e packages/workspace
+# Or editable, into an existing environment
+uv pip install -e packages/workspace
 ```
 
 ### 2. Global Executable CLI Commands
@@ -44,37 +44,30 @@ Verifies availability of: Git, uv, kubectl, Java JDK, Maven, Node.js, npm, Docke
 
 ## 🏛️ Internal Architecture
 
-The engine is modularly structured across 4 subsystems:
-
 ```
 packages/workspace/
 ├── src/workspace_engine/
-│   ├── cli/                   # 19 subcommands unified by main.py
+│   ├── cli/                   # Subcommand entry points dispatched by main.py
 │   │   ├── main.py            # Master CLI dispatcher (`ws`)
-│   │   ├── manage_hooks.py    # Subcommand `ws hooks`
-│   │   ├── generate_workspace.py # Interactive multi-repo workspace generator
-│   │   ├── create_worktree.py # Atomic Git worktree generator
-│   │   ├── kube/              # Modular Kubernetes pod manager (`ws kube`)
-│   │   └── ...
-│   ├── config/                # `ws config` — workspace config.json bootstrapping
-│   │   └── init_config.py     # Local/global/custom config generation
+│   │   ├── check.py           # `ws check` / `ws changed`
+│   │   ├── design.py          # `ws design`
+│   │   ├── manage_hooks.py    # `ws hooks`
+│   │   ├── create_worktree.py # `ws worktree`
+│   │   ├── kube/              # Kubernetes pod manager (`ws kube`)
+│   │   └── ...                # generate, edit, clean, stop, reset, delete, build, deps, java, env-*, benchmark
+│   ├── condense/              # `ws run` / `ws condense` / `ws log`: deterministic condenser and private log store
+│   ├── design/                # `ws design`: lizard metrics, hygiene, junk-test and layer checks, merge-base ratchet
+│   ├── config/                # `ws config init` — workspace config.json bootstrapping
 │   ├── integrations/claude/   # Coding-agent integration hooks (`ws hook ...`)
 │   │   └── worktree_hook.py   # Claude WorktreeCreate destination suggestion
-│   ├── run_local/             # Local microservices orchestrator
-│   │   ├── discovery.py       # Service auto-discovery and deterministic ports (8000-8999)
-│   │   ├── service_wiring.py  # Dynamic URL re-writing (wire_urls)
-│   │   ├── process_manager.py # Non-blocking background supervisor and log streaming
-│   │   ├── profiles.py        # JSON execution profile management
-│   │   └── tui.py             # Interactive dashboard with live logs and Swagger links
-│   ├── services/              # Domain services and quality gates
-│   │   ├── git_hooks.py       # 5-stage Quality Gate (Secrets, Commits, Linters, Tests)
-│   │   ├── configure_repos.py # Repository synchronization and worktree binding
-│   │   └── benchmark_display.py # Concurrent test suite benchmarking
-│   ├── common/                # Safe subprocess, .env manipulation, and colors
-│   └── resources/             # Packaged workspace resources
-│       ├── templates/         # .env.example / boilerplate templates for `ws env-init`
-│       └── hooks/             # Canonical Git hooks (e.g. pre-push Quality Gate)
-└── tests/                     # Automated test suites
+│   ├── run_local/             # `ws run-local`: discovery, ports (8000-8999), URL wiring, process manager, TUI
+│   ├── services/              # Stack detection, change sets, Git hooks/quality gate, repository helpers
+│   ├── common/                # Safe subprocess, .env parsing, colors and agent-mode output
+│   └── resources/
+│       ├── hooks/             # Git hook scripts: pre-commit, commit-msg, pre-push (quality gate)
+│       └── templates/         # Workspace AGENTS.md template used by `ws generate`
+├── tests/                     # Unit and acceptance tests
+└── tests_integration/         # End-to-end tests
 ```
 
 ---
@@ -83,30 +76,38 @@ packages/workspace/
 
 | Command | Purpose |
 | --- | --- |
-| `ws generate` | Generate a new multi-repo workspace from Git worktrees |
-| `ws edit` | Edit and add/remove repositories in an active workspace |
-| `ws worktree` | Create an isolated Git worktree |
-| `ws clean` | Clean dependencies, caches, and build artifacts in workspace |
-| `ws stop` | Stop all running processes and services in workspace |
-| `ws reset` | Reset workspace repositories to clean upstream state |
-| `ws delete` | Delete workspaces and unregister associated worktrees |
-| `ws build` | Build project auto-detecting the technology stack |
-| `ws deps` | Install project dependencies (Gradle, Maven, NPM, uv, etc.) |
-| `ws java` | Configure local Java JDK version via SDKMAN |
-| `ws env-init` | Initialize repository environment files from templates |
-| `ws env-load` | Load and inspect environment variables |
-| `ws benchmark` | Execute parallel unit test benchmarks with visual reports |
-| `ws run-local` | Orchestrate and launch local microservices with live TUI |
-| `ws kube` | Kubernetes pod manager for environment extraction and shells |
-| `ws hooks` | Multi-stack Git Hooks & Quality Gates manager |
-| `ws check` | Run the quality gate with condensed output (`--changed`, `--cache`, `--json`) |
-| `ws changed` | Files changed vs. the base branch |
-| `ws design` | Per-function design/complexity metrics (`--changed`, `--files-from`, `--json`) |
+| `ws generate [name] [repos ...]` | Generate a new multi-repo workspace from Git worktrees |
+| `ws edit [name]` | Add/remove repositories in the current workspace (interactive) |
+| `ws worktree <repo> <target> <branch>` | Create an isolated Git worktree |
+| `ws clean [target]` | Clean dependencies, caches, and build artifacts in workspace |
+| `ws stop [workspace]` | Stop all running processes and services in workspace |
+| `ws reset [workspace] [--force]` | Reset workspace repositories to clean upstream state |
+| `ws delete [names ...]` | Delete workspaces and unregister associated worktrees |
+| `ws build [dir]` | Build the current directory, auto-detecting Maven, Gradle, npm, Go, Cargo or Python |
+| `ws deps [dir]` | Install project dependencies (Gradle, Maven, npm, uv, etc.) |
+| `ws java [version]` | Print the `JAVA_HOME`/`PATH` exports for the project's JDK via SDKMAN |
+| `ws env-init [repo]` | Initialize or sync `config/.env` |
+| `ws env-load [repo]` | Update a variable across environment config files |
+| `ws benchmark [dir]` | Run unit test suites in parallel with a visual report |
+| `ws run-local [--profile P] [--env E]` | Orchestrate and launch local microservices with live TUI |
+| `ws kube [env\|logs\|shell]` | Kubernetes pod manager: env extraction, logs, shells (interactive without an action) |
+| `ws hooks [install\|status\|uninstall\|run\|test]` | Git hooks and quality gate manager |
+| `ws check` | Run the quality gate with condensed output (`--changed`, `--cache`, `--json`, `--skip`, `--budget`, `--dir`) |
+| `ws changed [--json] [--dir DIR]` | Files changed vs. the base branch plus the working tree |
+| `ws design` | Per-function design metrics and checks (`--changed`, `--files-from`, `--focus`, `--json`, `--verbose`, `--dir`) |
 | `ws run` / `ws log` / `ws condense` | Condensed command output and saved full logs |
-| `ws detect` | Detect repository technology stacks |
-| `ws hook` | Run a coding-agent integration hook |
+| `ws detect [--json] [--dir DIR]` | Detect repository technology stacks |
+| `ws hook claude-worktree-create` | Run a coding-agent integration hook |
 | `ws doctor` | Verify system tools, compilers, and development environment |
-| `ws config` | Initialize and manage workspace configuration |
+| `ws config init` | Initialize workspace configuration |
+
+> **Known limitation.** `ws` does not forward its arguments to `generate`, `edit`, `clean`,
+> `stop`, `reset`, `delete`, `build`, `deps`, `java`, `env-init`, `env-load`, `benchmark` and
+> `run-local`: each re-reads the whole command line, subcommand name included. As a result
+> `clean`, `stop`, `env-init`, `env-load` and `run-local` currently exit with an argument
+> error; `generate`, `reset`, `delete`, `deps` and `benchmark` receive the subcommand name as
+> their first positional argument; `build`, `java` and `edit` ignore their arguments and work
+> on the current directory. The commands from `ws hooks` down in the table are not affected.
 
 ---
 
@@ -117,33 +118,21 @@ packages/workspace/
 Enables working across multiple decoupled repositories grouped under an isolated development space, utilizing Git worktrees to prevent redundant filesystem clones.
 
 ```bash
-# Create an interactive multi-repo workspace
-ws generate my-feature
-
 # Create an isolated Git worktree for a specific branch
 ws worktree /path/to/base-repo /path/to/target-worktree feature/new-api
 
+# Modify repositories linked in the current workspace (run from inside it)
+ws edit
+
 # Claude WorktreeCreate hook: suggest a confined central location (never creates files)
-export WORKSPACE_WORKTREES_DIR="$HOME/projects/worktree"
-ws hook claude-worktree-create
-
-# Modify repositories linked in an active workspace
-ws edit my-feature
-
-# Deep clean build caches and heavy artifacts (node_modules, .gradle, build/, dist/, .venv)
-ws clean /path/to/workspace
-
-# Reset repositories to upstream HEAD discarding local uncommitted changes
-ws reset my-feature --force
-
-# Delete a workspace and unregister its worktrees cleanly
-ws delete my-feature
+echo '{"root_path": "/src/api", "worktree_base": "fix-login"}' \
+  | WORKSPACE_WORKTREES_DIR="$HOME/projects/worktree" ws hook claude-worktree-create
 ```
 
 The Claude hook consumes the native JSON payload on stdin and is fail-open: malformed,
 unsafe, or colliding inputs emit no suggestion and exit successfully. Suggested names are
-sanitized and confined to `WORKSPACE_WORKTREES_DIR`; the hook itself never creates or removes
-a worktree.
+sanitized and confined to `--base-dir` or `WORKSPACE_WORKTREES_DIR` (default
+`~/projects/worktree`); the hook itself never creates or removes a worktree.
 
 ---
 
@@ -151,16 +140,10 @@ a worktree.
 
 Automatically discovers microservices in the workspace, allocates deterministic ports in the **8000–8999** range, rewrites inter-service endpoints (`wire_urls`), and launches an interactive TUI monitor.
 
-```bash
-# Launch services in the current workspace
-ws run-local
-
-# Launch with a specific execution profile and environment target
-ws run-local --profile core-payments --env staging
-
-# Stop all running background services
-ws stop my-feature
-```
+It requires a workspace configuration (`ws config init`, see section 5); environments come
+from its `environments` list. Profiles are stored in `~/.config/run-local/profiles.json`, and
+logs, PIDs and the last launch in `~/.local/share/run-local/`. See the known limitation above:
+`ws run-local` currently exits with an argument error.
 
 **Interactive TUI Features**:
 - Real-time process monitoring (PID, CPU, Memory, Port).
@@ -181,11 +164,17 @@ hook of any type is shadowed, and the gate also runs in Husky repositories.
 |---|---|---|
 | `workspace-pre-commit` | pre-commit | `gitleaks protect --staged` (skipped if gitleaks is absent) |
 | `workspace-commit-msg` | commit-msg | Conventional Commits subject, max 100 characters — only where the repo opts in |
-| `workspace-gate` | pre-push | 5 stages: secrets (gitleaks), commit policies, linters, design limits, test suites |
+| `workspace-gate` | pre-push | Protected-branch check, then 5 stages: secrets (gitleaks), commit policies, linters, design limits, test suites |
+
+Before the stages, the gate refuses direct pushes to (and deletion of) protected branches:
+`main`, `master`, `develop` and `staging` by default (`QG_PROTECTED` overrides the regex). The
+commit-policy stage rejects empty messages and unapplied `fixup!`/`squash!`/`amend!` commits,
+and warns on subjects over 100 characters.
 
 Output is compact by default; a failing command keeps its full transcript at
 `.git/workspace/quality-gate/latest.log` (`QG_OUTPUT=verbose` streams everything).
-Skip stages with `QG_SKIP=gitleaks,commits,lint,design,tests`.
+Skip stages with `QG_SKIP=gitleaks,commits,lint,design,tests` (`all` skips every stage), and
+scope linters and tests to the pushed files with `QG_SCOPE=changed`.
 
 Conventional Commits are **opt-in per repository**, so a global install never imposes a style
 on projects with their own conventions: `git config workspace.commitStyle conventional` turns
@@ -206,14 +195,20 @@ being pushed. If `ws` is not on `PATH` it warns and passes rather than blocking 
 ```bash
 ws hooks install            # this repository (keys in .git/config, scripts in .git/workspace/hooks)
 ws hooks install --global   # every repository (keys in ~/.gitconfig, scripts in ~/.config/workspace/hooks)
-ws hooks status             # registration status per scope
+ws hooks status             # registration status per scope (also the default action)
 ws hooks uninstall [--global]  # removes only the workspace-* hook sections
+ws hooks run --scope changed --skip tests   # run the full gate script now (--timeout, --style, --output)
+ws hooks test               # run the gate on the whole repository with a 120 s step timeout
 
 ws check                    # run the gate now; condensed output, exit code preserved
 ws check --changed --cache  # only changed files; skip if the tree is unchanged since the last pass
 ws check --json             # versioned contract used by agent hooks
 ws changed [--json]         # files changed vs. the base branch plus the working tree
 ```
+
+Every `ws hooks` subcommand accepts `--dir` (default: the current directory). `ws check`
+condenses the gate output to `--budget` characters (default 1500) and saves the full log on
+failure (`ws log <id>`); `--skip` takes the same stage names as `QG_SKIP`.
 
 ### Design limits (`ws design`)
 
@@ -239,31 +234,44 @@ max_complexity = 12
 max_function_lines = 60
 max_args = 5
 max_nesting = 4
-exclude = ["**/node_modules/**", "**/legacy/**"]
+exclude = ["**/node_modules/**", "**/legacy/**"]   # replaces the default list
 ```
 
 ```bash
 ws design                   # whole repo (git ls-files, or a walk without git)
 ws design --changed         # only files changed vs. the base branch
 ws design src/ pkg/foo.go   # specific files or directories
-ws design --files-from list.txt  # newline-separated paths, relative to --dir
+ws design --files-from list.txt  # newline-separated paths, relative to --dir (default: the current directory)
 ws design --json            # versioned contract: {schema_version, status, violations, files}
+ws design --changed --verbose  # also list every untouched pre-existing violation
 ```
 
-Exit code is `1` on violations in `block` mode, `0` in `warn` or `off` mode (`off` prints
-`design: off` and skips measuring).
+**Legacy code must not get worse, new code must be clean.** With `--changed` or
+`--files-from`, `ws design` compares each function against the merge-base with the default
+branch (the fork point, not the tip of `main`). The base version is read with `git show` and
+analysed in memory; functions match by file path, qualified name and parameter signature, so
+Java overloads do not collide.
 
-**New vs. legacy code.** With `--changed` or `--files-from`, every violation is classified
-`new` (its function overlaps lines added/modified since the merge-base, or its file is
-untracked) or `legacy` (a pre-existing function in a touched file); a full, unscoped scan
-marks everything `legacy`. Both fail in `block` mode, but the text report groups them —
-"New code" first, then a "Pre-existing code" section whose header and footer push toward
-a surgical fix instead of a rewrite: change only that function, keep behavior, add a
-characterization test first, one function at a time. Each line ends with a metric-specific
-hint (`complexity` → extract branches into named functions / guard clauses, `length` →
-extract steps into well-named functions, `args` → introduce a parameter object, `nesting` →
-return early, extract inner blocks). `--json` carries the same classification as an
-`"origin": "new" | "legacy"` field per violation.
+- A function that did not exist at the base (new, renamed, moved, or in a new file) is `new`
+  and must meet the limits: it blocks.
+- A legacy function never blocks, touched or not. A touched one is listed with the base value
+  (`length 120 > 40 (was 118, +2)`), worsened ones first, so a regression is visible; an
+  untouched one is folded into one line
+  (`N pre-existing functions over the limits in touched files — see ws design --focus <path:line>`);
+  `--verbose` lists them all.
+- Line-based checks (hygiene, junk tests, layers) block on changed lines and only warn elsewhere.
+- A full, unscoped scan has nothing to compare: everything is `legacy`, listed in full, exit `0`.
+  It is an audit; the gate always runs with a scope.
+
+Exit code is `1` only when something blocks in `block` mode, `0` otherwise (`off` prints
+`design: off` and skips measuring). The text report has a "Blocking" section and a
+"Pre-existing (not blocking)" section whose footer pushes toward a surgical fix: change only
+that function, keep behavior, add a characterization test first, one function at a time. Each
+line ends with a metric-specific hint (`complexity` → extract branches into named functions /
+guard clauses, `length` → extract steps into well-named functions, `args` → introduce a
+parameter object, `nesting` → return early, extract inner blocks). `--json` carries
+`"origin": "new" | "legacy"`, `"blocking": bool` and `"base_value": int | null` (the value at
+the base for a legacy function that existed there) per violation.
 
 ```bash
 ws design --focus src/app/orders.py:142   # focused brief for the function at that line:
@@ -369,10 +377,14 @@ other metrics. With the profile on but `[design.layers]` missing, `ws design` pr
 
 ```bash
 ws run -- mvn test          # runs, keeps the exit code, prints a condensed summary
+ws run --budget 4000 -- mvn test   # summary budget in characters (default 2500)
 ws log <id> --grep ERROR    # read the saved full output (0600, 7 days / 200 logs)
 ws log <id> --lines 120-180
-ws condense --command "pytest" --json < output.txt   # contract used by ai-governance hooks
+ws log --last               # the most recent saved log
+ws condense --command "pytest" --json < output.txt   # contract used by ai-governance hooks (--exit-code, --budget)
 ```
+
+Logs are stored in `~/.local/state/workspace/logs/` (`WORKSPACE_LOG_DIR` overrides it).
 
 The condenser is deterministic: tool profiles (pytest, jest/vitest, go, cargo,
 maven/gradle, linters) keep the summary and every failure with context; ANSI codes,
@@ -381,43 +393,40 @@ line; output never exceeds the character budget.
 
 ### Stack detection (`ws detect`)
 
-`ws detect [--json]` reports stacks (java, kotlin, node, typescript, react, python, go, rust,
+`ws detect [--json] [--dir DIR]` reports stacks (java, kotlin, node, typescript, react, python, go, rust,
 php, flutter, dotnet, docker, kubernetes, sql, migrations, github-actions, gitlab-ci, jenkins)
 from marker files. ai-governance uses it to install only the rules a project needs.
 
 ### 4. Runtime, Build & Kubernetes Utilities
 
 ```bash
-# Auto-detect stack and build (Maven, Gradle, NPM, Go, Python)
+# Auto-detect the stack of the current directory and build (Maven, Gradle, npm, Go, Cargo, Python)
 ws build
 
-# Deterministically install project dependencies
-ws deps
+# Print the JAVA_HOME/PATH exports for the JDK the project needs (via SDKMAN)
+ws java
 
-# Auto-configure JDK version via SDKMAN
-ws java 21
-
-# Interactively initialize and synchronize .env from .env.example
-ws env-init
-ws env-load
-
-# Benchmark test suites with concurrent execution and Rich visual report
-ws benchmark
-
-# Kubernetes: Secure pod environment variable extraction (.env chmod 600)
+# Kubernetes: pod environment variable extraction (.env written with mode 600)
 ws kube env
 
-# Kubernetes: Live pod log streaming (stern/tmux) and interactive shell
+# Kubernetes: live pod log streaming and interactive shell
 ws kube logs
 ws kube shell
 ```
+
+`ws deps`, `ws env-init`, `ws env-load` and `ws benchmark` are affected by the known
+limitation described under the subcommand reference.
 
 ---
 
 ### 5. Workspace Configuration (`ws config`)
 
-Bootstraps the `config.json` that `ws` reads for project naming and namespaces. Written project-locally
-(`.workspace/config.json`) or user-globally (under `XDG_CONFIG_HOME`, see below).
+Bootstraps the `config.json` that `ws` reads for project naming, domain, namespaces and
+environments. Written project-locally (`.workspace/config.json`) or user-globally
+(`$XDG_CONFIG_HOME/workspace/config.json`, default `~/.config/workspace/config.json`), which is
+the default scope. The first file found is used, in this order: `.workspace/config.json` of
+the project root, `$XDG_CONFIG_HOME/workspace/config.json`, `~/.config/workspace/config.json`,
+`config.json` at the project root.
 
 ```bash
 # Interactively initialize project-local configuration
@@ -433,8 +442,8 @@ ws config init --path ./custom-config.json --yes
 ws config init --local --force --yes
 ```
 
-`ws config` currently exposes a single subcommand, `init`; run `ws config --help`
-or `ws config init --help` for the full, up-to-date list of subcommands and flags.
+`--name` defaults to the current directory name and `--domain` to `local.dev`; `--local`,
+`--global` and `--path` are mutually exclusive.
 
 ---
 
@@ -443,12 +452,18 @@ or `ws config init --help` for the full, up-to-date list of subcommands and flag
 | Variable | Used by | Description | Default |
 | --- | --- | --- | --- |
 | `AI_REPOSITORIES_DIR` | `ws generate`, `ws edit` | Directory containing local project repositories used when wiring up a new/edited workspace. | none (falls back to values already present in the workspace's `.env`) |
-| `WORKSPACE_WORKTREES_DIR` | `ws hook claude-worktree-create` | Confines suggested Git worktree destinations for the Claude WorktreeCreate integration hook; suggestions are sanitized and never leave this directory, and the hook never creates the worktree itself. | `~/projects/worktree` |
-| `XDG_CONFIG_HOME` | `ws config init` (global scope), config discovery | Base directory for the user-global workspace configuration file. | `~/.config` (i.e. config lives at `~/.config/workspace/config.json`) |
-| `JAVA_HOME` | `ws run-local` (process manager) | JDK home used when launching Java-based services locally. | whatever is already set in the environment; unset means the system default `java` is used |
-| `QG_OUTPUT` | `ws hooks run` / the installed `pre-push` Quality Gate hook | Controls verbosity of Quality Gate output: `errors` hides successful command output, `verbose` streams every command live. | `errors` |
+| `WORKSPACE_WORKTREES_DIR` | `ws hook claude-worktree-create` | Confines suggested Git worktree destinations (`--base-dir` takes precedence). | `~/projects/worktree` |
+| `WORKSPACE_LOG_DIR` | `ws run`, `ws log`, `ws check` | Where full outputs are saved. | `$XDG_STATE_HOME/workspace/logs` (`~/.local/state/workspace/logs`) |
+| `WORKSPACE_AGENT` | all commands | Force agent (`1`) or human (`0`) output; otherwise detected from the agent environment. | auto |
+| `XDG_CONFIG_HOME` | `ws config init`, config discovery, `ws hooks install --global` | Base directory for the user-global configuration and global hook scripts. | `~/.config` |
+| `XDG_STATE_HOME` | `ws run`, `ws log` | Base directory of the log store. | `~/.local/state` |
+| `JAVA_HOME` | `ws run-local` (process manager) | JDK home used when launching Java-based services locally. | whatever is already set; unset means the system default `java` |
+| `QG_SCOPE` | pre-push gate | `all` or `changed`: scope of linters and tests. | `all` |
+| `QG_SKIP` | all three hooks | Comma-separated stages to skip: `gitleaks`, `commits`, `lint`, `design`, `tests`, or `all`. | none |
+| `QG_TIMEOUT` | pre-push gate | Timeout in seconds per step. | `900` |
+| `QG_COMMIT_STYLE` | commit-msg hook, pre-push gate | `conventional` enforces Conventional Commits for one command (per repo: `git config workspace.commitStyle conventional`). | unset |
+| `QG_PROTECTED` | pre-push gate | Regex of protected destination branches. | `^(main\|master\|develop\|staging)$` |
+| `QG_OUTPUT` | pre-push gate | `errors` hides successful command output, `verbose` streams every command live. | `errors` |
 
-Package-manager cache locations (`YARN_CACHE_DIR`, `GRADLE_CACHE_DIR`, `M2_CACHE_DIR`,
-`NPM_CACHE_DIR`) are
-project-level conventions read from generated `.env` files rather than by the
-`workspace_engine` package itself — see `config/.env.example` at the repo root.
+`ws hooks run` sets the `QG_*` variables from its flags (`--scope`, `--skip`, `--timeout`,
+`--style`, `--output`); `ws check` sets the scope from `--changed` and the skip list from `--skip`.

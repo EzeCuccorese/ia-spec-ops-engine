@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -331,6 +332,7 @@ def test_mock_only_flags_tests_that_never_check_a_result(
         ("py", "time.sleep(0.5)", True),
         ("py", "time.sleep(0)", False),
         ("py", "clock.sleep(1)", False),
+        ("py", "while not ready(): time.sleep(0.1)", False),  # polling with a deadline
         ("go", "time.Sleep(time.Second)", True),
         ("go", "clock.Sleep(time.Second)", False),
     ],
@@ -495,7 +497,8 @@ def test_cli_reports_junk_tests_unless_their_check_is_disabled(
     (tmp_path / ".ai-governance").mkdir()
     (tmp_path / ".ai-governance" / "config.toml").write_text(config)
     (tmp_path / "test_a.py").write_text("def test_a():\n    run()\n")
-    exit_code = design_cli.design(["--dir", str(tmp_path), str(tmp_path / "test_a.py")])
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)  # untracked = new code
+    exit_code = design_cli.design(["--dir", str(tmp_path), "--changed"])
     out = capsys.readouterr().out
     assert exit_code == code
     assert ("assert the observable result or delete the test" in out) is bool(code)
