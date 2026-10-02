@@ -34,6 +34,9 @@ jobs:
         if: ${{ env.GEMINI_API_KEY != '' }}
         env:
           GEMINI_MODEL: "gemini-flash-latest"
+          REVIEW_LANGUAGE: "English"
+          EXCLUDE_PATTERNS: "*.lock,package-lock.json"
+          REVIEW_STANDARDS: "SOLID, Clean Code, Resource Safety"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
