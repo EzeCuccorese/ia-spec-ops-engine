@@ -5,14 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from .engine import END, START, Ledger
+from .installer import SCRIPTS_OWNER
 
 BYTES_PER_TOKEN = 4
 
 
 def _always_loaded(path: Path, text: str) -> bool:
     """Path-scoped rules load only for matching files; everything else is fixed cost."""
-    if "/.codex/ai-governance/rules/" in path.as_posix():
-        return False  # injected on edit, never preloaded
     if path.suffix != ".md" or "/rules/" not in path.as_posix():
         return False  # scouts/skills: only name + description preload (not counted)
     header = text.split("\n---", 1)[0] if text.startswith("---") else ""
@@ -26,11 +25,11 @@ def _block(text: str) -> str:
 
 
 def fixed_cost(ledger: Ledger) -> dict[str, int]:
-    """Bytes per agent that load at session start (rules without path scoping + blocks)."""
+    """Bytes per owner (each agent, ``project`` = shared) loaded at session start."""
     totals: dict[str, int] = {}
     for entry in ledger.entries:
         path = ledger.resolve(entry["path"])
-        if not path.is_file() or entry["kind"] == "hooks":
+        if entry["agent"] == SCRIPTS_OWNER or not path.is_file() or entry["kind"] == "hooks":
             continue
         text = path.read_text(encoding="utf-8")
         size = 0
