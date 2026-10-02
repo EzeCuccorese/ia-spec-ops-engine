@@ -111,9 +111,11 @@ def _filter_comments(comments: Any) -> list[dict[str, Any]]:
 
 def _post_fallback(target: ReviewTarget, summary: str, comments: list[dict[str, Any]]) -> None:
     url = f"https://api.github.com/repos/{target.owner}/{target.repo}/pulls/{target.pr_number}/reviews"
-    fallback_body = f"## Gemini Code Review\n\n{summary}\n\n### Detailed Comments\n"
-    for c in comments:
-        fallback_body += f"\n- **{c['path']}:{c['line']}**: {c['body']}"
+    fallback_body = f"## Gemini Code Review\n\n{summary}"
+    if comments:
+        fallback_body += "\n\n### Detailed Comments\n"
+        for c in comments:
+            fallback_body += f"\n- **{c['path']}:{c['line']}**: {c['body']}"
     req = urllib.request.Request(
         url,
         data=json.dumps({"body": fallback_body, "event": "COMMENT"}).encode("utf-8"),
@@ -218,6 +220,31 @@ Diff to review:
 """
 
 
+def _load_review_config() -> ReviewConfig:
+    raw_excludes = os.environ.get("EXCLUDE_PATTERNS", "*.lock,package-lock.json")
+    return ReviewConfig(
+        language=os.environ.get("REVIEW_LANGUAGE", "English"),
+        exclude_patterns=[p.strip() for p in raw_excludes.split(",") if p.strip()],
+        standards=os.environ.get("REVIEW_STANDARDS", "SOLID, Clean Code, Resource Safety"),
+        model=os.environ.get("GEMINI_MODEL", "gemini-flash-latest"),
+    )
+
+
+def _parse_review_response(raw_response: str) -> dict[str, Any] | None:
+    cleaned = raw_response.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`").removeprefix("json").strip()
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError as err:
+        print(f"Failed to parse Gemini response as JSON: {err}", file=sys.stderr)
+        return None
+    if not isinstance(data, dict):
+        print(f"Expected JSON object from Gemini response, got {type(data).__name__}", file=sys.stderr)
+        return None
+    return data
+
+
 def main() -> None:
     api_key = os.environ.get("GEMINI_API_KEY")
     token = os.environ.get("GITHUB_TOKEN")
@@ -231,14 +258,7 @@ def main() -> None:
         print("Missing GitHub context environment variables.", file=sys.stderr)
         sys.exit(1)
 
-    raw_excludes = os.environ.get("EXCLUDE_PATTERNS", "*.lock,package-lock.json")
-    config = ReviewConfig(
-        language=os.environ.get("REVIEW_LANGUAGE", "English"),
-        exclude_patterns=[p.strip() for p in raw_excludes.split(",") if p.strip()],
-        standards=os.environ.get("REVIEW_STANDARDS", "SOLID, Clean Code, Resource Safety"),
-        model=os.environ.get("GEMINI_MODEL", "gemini-flash-latest"),
-    )
-
+    config = _load_review_config()
     diff = get_pr_diff(config.exclude_patterns)
     if not diff.strip():
         print("Empty diff after excludes. Nothing to review.")
@@ -247,19 +267,13 @@ def main() -> None:
     repo_instructions = _load_repo_instructions()
     prompt = build_prompt(diff, config, repo_instructions)
 
-    raw_response = call_gemini(prompt, api_key, config.model)
-    cleaned = raw_response.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.strip("`").removeprefix("json").strip()
-
     owner, repo = repo_slug.split("/")
     target = ReviewTarget(owner=owner, repo=repo, pr_number=pr_num, token=token)
 
-    try:
-        review_data = json.loads(cleaned)
-    except json.JSONDecodeError as err:
-        print(f"Failed to parse Gemini response as JSON: {err}", file=sys.stderr)
-        _post_fallback(target, f"Review completed, but response was not valid JSON:\n\n{raw_response}", [])
+    raw_response = call_gemini(prompt, api_key, config.model)
+    review_data = _parse_review_response(raw_response)
+    if review_data is None:
+        _post_fallback(target, f"Review completed, but response was not a valid JSON object:\n\n{raw_response}", [])
         return
 
     post_github_review(target, review_data.get("summary", "Review completed."), review_data.get("comments", []))
