@@ -462,3 +462,29 @@ def test_governance_spec_new_runs_preflight_like_the_skill() -> None:
     assert 'spec new "<name>" only without preflight' in line
     assert line.index("spec preflight") < line.index("spec new")
     assert 'spec preflight "<feature-name>"' in skill
+
+
+def test_uninstall_custom_file_removes_unedited_legacy_claude_block(tmp_path: Path) -> None:
+    """An earlier `install claude` wrote `@AGENTS.md`; uninstalling a custom target must not
+    mistake that unedited block for a user edit."""
+    claude_md = tmp_path / "CLAUDE.md"
+    claude_md.write_text(
+        "# Notes\n<!-- spec:governance -->\n@AGENTS.md\n<!-- /spec:governance -->\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main(
+            [
+                "agent",
+                "uninstall",
+                "custom",
+                "--file",
+                "docs/AI.md",
+                "--apply",
+                "--root",
+                str(tmp_path),
+            ]
+        )
+    assert exc.value.code == 0
+    assert claude_md.read_text(encoding="utf-8") == "# Notes\n"

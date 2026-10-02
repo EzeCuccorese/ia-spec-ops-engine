@@ -223,6 +223,7 @@ class AgentsAdapter:
                 inner = match.group(0)
                 extracted = inner.replace(START_MARKER, "").replace(END_MARKER, "").strip()
                 valid_pointers = {
+                    f"@{AgentsAdapter.target}",
                     f"@{self.target}",
                     f"@{self.governance_file}",
                     f"@{self.boundary.relative(self.target)}",
