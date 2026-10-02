@@ -199,13 +199,13 @@ def delete_workspaces(
     return 0
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
-        description="Deletes workspaces and deregisters their worktrees."
+        prog="ws delete", description="Deletes workspaces and deregisters their worktrees."
     )
     parser.add_argument("--force", action="store_true", help="Skip confirmation")
     parser.add_argument("workspaces", nargs="*", help="Names of the workspaces to delete")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     try:
         sys.exit(delete_workspaces(workspaces=args.workspaces, force=args.force))

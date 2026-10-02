@@ -1,5 +1,5 @@
 """
-workspace_engine.run_local — Orquestador y lanzador determinista de microservicios locales.
+workspace_engine.run_local — Deterministic orchestrator and launcher for local microservices.
 """
 
 from __future__ import annotations

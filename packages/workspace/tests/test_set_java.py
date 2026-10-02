@@ -4,6 +4,7 @@ Tests for workspace_engine.cli.set_java (Java version detection and SDKMAN parsi
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -267,17 +268,14 @@ def test_main_no_env_exits_1() -> None:
         patch("workspace_engine.cli.set_java.setups_java", return_value=None),
         pytest.raises(SystemExit) as exc,
     ):
-        main()
+        main([])
     assert exc.value.code == 1
 
 
 def test_main_prints_export_statements(capsys: pytest.CaptureFixture[str]) -> None:
     env = {"JAVA_HOME": "/opt/java/17", "PATH": "/opt/java/17/bin"}
-    with (
-        patch("workspace_engine.cli.set_java.setups_java", return_value=env),
-        patch("sys.argv", ["set-java"]),
-    ):
-        main()
+    with patch("workspace_engine.cli.set_java.setups_java", return_value=env):
+        main([])
     captured = capsys.readouterr()
     assert "export JAVA_HOME='/opt/java/17'" in captured.out
     assert "export PATH='/opt/java/17/bin'" in captured.out
@@ -285,10 +283,19 @@ def test_main_prints_export_statements(capsys: pytest.CaptureFixture[str]) -> No
 
 def test_main_json_output(capsys: pytest.CaptureFixture[str]) -> None:
     env = {"JAVA_HOME": "/opt/java/17", "PATH": "/opt/java/17/bin"}
-    with (
-        patch("workspace_engine.cli.set_java.setups_java", return_value=env),
-        patch("sys.argv", ["set-java", "--json"]),
-    ):
-        main()
+    with patch("workspace_engine.cli.set_java.setups_java", return_value=env):
+        main(["--json"])
     captured = capsys.readouterr()
     assert '"JAVA_HOME": "/opt/java/17"' in captured.out
+
+
+def test_main_json_stdout_is_only_the_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "pom.xml").write_text("<java.version>21</java.version>", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    with patch("workspace_engine.cli.set_java.get_current_java_version", return_value="21.0.4"):
+        main(["--json"])
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["PATH"] == os.environ["PATH"]
+    assert "Java 21.0.4 is already in use." in captured.err

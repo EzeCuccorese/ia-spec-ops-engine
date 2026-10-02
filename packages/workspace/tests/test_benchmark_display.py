@@ -488,3 +488,9 @@ def test_main_live_loop_without_done_message_counts_statuses(monkeypatch, capsys
     lines = [json.dumps({"repo": "repo-a", "status": "green"})]
     out = _run_live_main(monkeypatch, capsys, lines, ["repo-a"])
     assert "passed=1" in out
+
+
+def test_build_table_headers_are_english() -> None:
+    headers = [c.header for c in bd.build_table(["svc"], {}, repeat=False).columns]
+    assert {"TYPE", "TIME", "STATUS"} <= set(headers)
+    assert not {"TIPO", "HORA", "ESTADO"} & set(headers)

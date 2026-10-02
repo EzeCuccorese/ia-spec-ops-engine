@@ -175,12 +175,12 @@ def run_benchmark(repos_filter: list[str] | None = None, start_dir: Path | None 
     return 1 if has_failures else 0
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
-        description="Runs a unit test benchmark for local repositories."
+        prog="ws benchmark", description="Runs a unit test benchmark for local repositories."
     )
     parser.add_argument("repos", nargs="*", help="Specific repositories to test")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     sys.exit(run_benchmark(repos_filter=args.repos))
 
 

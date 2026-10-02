@@ -1,5 +1,5 @@
 """
-workspace_engine.common.dotenv — Parser robusto y determinista de archivos .env y set-env.sh.
+workspace_engine.common.dotenv — Robust, deterministic parser for .env and set-env.sh files.
 """
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ _EXPORT_PREFIX_RE = re.compile(r"^\s*export\s+")
 
 def parse_dotenv(dotenv_path: Path | str) -> dict[str, str]:
     """
-    Parsea un archivo .env o set-env.sh a un diccionario clave-valor.
-    Soporta prefijos 'export', comentarios, y remueve comillas envolventes.
+    Parses a .env or set-env.sh file into a key-value dictionary.
+    Handles 'export' prefixes and comments, and strips surrounding quotes.
     """
     env_vars: dict[str, str] = {}
     path = Path(dotenv_path)

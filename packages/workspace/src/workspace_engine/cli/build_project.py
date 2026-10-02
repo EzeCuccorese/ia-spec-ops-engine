@@ -5,6 +5,7 @@ workspace_engine.cli.build_project — Deterministic build for projects (Gradle,
 
 from __future__ import annotations
 
+import argparse
 import os
 import subprocess
 import sys
@@ -82,8 +83,13 @@ def build_project(project_dir: Path | None = None) -> int:
     return 0
 
 
-def main() -> None:
-    sys.exit(build_project())
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        prog="ws build", description="Builds a project auto-detecting its build tool."
+    )
+    parser.add_argument("dir", nargs="?", default=".", help="Project directory (defaults to cwd)")
+    args = parser.parse_args(argv)
+    sys.exit(build_project(Path(args.dir).expanduser().resolve()))
 
 
 if __name__ == "__main__":

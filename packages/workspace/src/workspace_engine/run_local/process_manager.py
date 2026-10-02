@@ -7,6 +7,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import signal
 import socket
 import subprocess
 import threading
@@ -163,7 +164,7 @@ def _save_env_dump(name: str, env_vars: dict, base_env: str, db_env: str, up_mod
         dump_file = constants.ENVS_DIR / f"{name}.env"
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         lines = [
-            f"# run-local.py | {name} | {ts}",
+            f"# ws run-local | {name} | {ts}",
             f"# env={base_env}  db={db_env}  up={up_mode}",
             "",
         ]
@@ -329,7 +330,7 @@ def _launch_one(
         with open(log_path, "w", encoding="utf-8") as log_file:
             ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             log_file.write(
-                f"# run-local.py | {name} | env={env_info['id']} | {ts}\n"
+                f"# ws run-local | {name} | env={env_info['id']} | {ts}\n"
                 f"# cmd: {' '.join(cmd_list)}\n"
                 f"# port: {cfg['port']}\n\n"
             )
@@ -384,6 +385,17 @@ def launch_services(configs: list, db_cfg: dict) -> tuple[list, list]:
         cfg["wiring"] = wired_map
 
     return results, configs
+
+
+def _terminate(pid: int) -> None:
+    """SIGTERM to the process group, then to the process itself."""
+    # kill(0) and kill(-1) would signal ws's own group and every process the user owns;
+    # a stale PID file must never turn into that, nor into ws's own PID or group.
+    if pid <= 1 or pid in (os.getpid(), os.getpgrp()):
+        return
+    for t in (-pid, pid):
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.kill(t, signal.SIGTERM)
 
 
 def _pid_alive(pid: int | None) -> bool:

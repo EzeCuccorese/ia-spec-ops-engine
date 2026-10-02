@@ -2,7 +2,7 @@
 Additional coverage tests for workspace_engine.cli.manage_hooks.
 
 Covers the human-readable (non agent-mode) status rendering, sys.argv-derived
-argv parsing, install/uninstall failure branches, and the defensive fallback
+argv parsing, the install failure branch, and the defensive fallback
 return at the end of main().
 """
 
@@ -108,13 +108,23 @@ def test_main_uses_sys_argv_without_hooks_prefix(mock_render):
     mock_render.assert_called_once()
 
 
-def test_main_install_failure_returns_1():
+def test_main_install_failure_returns_1(capsys):
     with patch(
         "workspace_engine.cli.manage_hooks.install_git_hooks",
-        return_value={"success": False, "error": "disk full"},
+        return_value={"success": False, "message": "disk full"},
     ):
         rc = manage_hooks.main(["install"])
         assert rc == 1
+    assert "Error installing Git hook: disk full" in capsys.readouterr().err
+
+
+def test_main_install_without_config_hooks_reports_the_reason(tmp_path, capsys):
+    with patch("workspace_engine.services.git_hooks.supports_config_hooks", return_value=False):
+        rc = manage_hooks.main(["install", "--dir", str(tmp_path)])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "does not support config-based hooks" in err
+    assert "None" not in err
 
 
 def test_main_install_success_returns_0():
@@ -126,22 +136,14 @@ def test_main_install_success_returns_0():
         assert rc == 0
 
 
-def test_main_uninstall_failure_returns_1():
+def test_main_uninstall_success_returns_0(capsys):
     with patch(
         "workspace_engine.cli.manage_hooks.uninstall_git_hooks",
-        return_value={"success": False, "error": "not found"},
-    ):
-        rc = manage_hooks.main(["uninstall"])
-        assert rc == 1
-
-
-def test_main_uninstall_success_returns_0():
-    with patch(
-        "workspace_engine.cli.manage_hooks.uninstall_git_hooks",
-        return_value={"success": True},
+        return_value={"success": True, "message": "Local hook.workspace-gate removed."},
     ):
         rc = manage_hooks.main(["uninstall"])
         assert rc == 0
+    assert "Local hook.workspace-gate removed." in capsys.readouterr().out
 
 
 def test_main_fallback_return_for_unrecognized_action():

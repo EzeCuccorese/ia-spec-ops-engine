@@ -18,7 +18,7 @@ def is_kubectl_available() -> bool:
 
 
 def get_contexts() -> list[dict[str, Any]]:
-    """Obtiene la lista de contextos de kubectl configurados."""
+    """Returns the configured kubectl contexts."""
     if not is_kubectl_available():
         return []
 
@@ -29,7 +29,7 @@ def get_contexts() -> list[dict[str, Any]]:
         return []
 
     contexts = []
-    # Obtener el contexto actual
+    # Current context
     code_cur, cur_ctx, _ = run_command_safe(
         ["kubectl", "config", "current-context"], timeout=KUBECTL_TIMEOUT
     )
@@ -50,7 +50,7 @@ def get_contexts() -> list[dict[str, Any]]:
 def find_pod(
     service_name: str, namespace: str | None = None, context: str | None = None
 ) -> str | None:
-    """Encuentra el nombre del pod activo (Running) para un microservicio."""
+    """Finds the name of the Running pod of a microservice."""
     cmd = ["kubectl"]
     if context:
         cmd.extend(["--context", context])
@@ -63,7 +63,7 @@ def find_pod(
         return None
 
     pods = stdout.split()
-    # Buscar match exacto o por prefijo del servicio
+    # Exact match or service-name prefix
     for pod in pods:
         if pod.startswith(f"{service_name}-") or pod == service_name:
             return pod
@@ -73,7 +73,7 @@ def find_pod(
 def get_pod_env(
     pod_name: str, namespace: str | None = None, context: str | None = None
 ) -> dict[str, str]:
-    """Extrae las variables de entorno de un pod de Kubernetes."""
+    """Reads the environment variables of a Kubernetes pod."""
     cmd = ["kubectl"]
     if context:
         cmd.extend(["--context", context])
@@ -83,7 +83,7 @@ def get_pod_env(
 
     code, stdout, stderr = run_command_safe(cmd, timeout=KUBECTL_TIMEOUT)
     if code != 0:
-        log_warning(f"No se pudieron extraer variables de {pod_name}: {stderr}")
+        log_warning(f"Could not read variables from {pod_name}: {stderr}")
         return {}
 
     env_vars: dict[str, str] = {}

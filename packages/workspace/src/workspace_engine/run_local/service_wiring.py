@@ -6,7 +6,10 @@ from __future__ import annotations
 
 import hashlib
 import re
+from functools import lru_cache
 from pathlib import Path
+
+from workspace_engine.run_local import constants
 
 
 def assign_port(repo_name: str) -> int:
@@ -15,23 +18,41 @@ def assign_port(repo_name: str) -> int:
     return 8000 + (int(h, 16) % 1000)
 
 
-_NS_PREFIXES = ("merchants-", "prt-bgal-", "prt-", "core-", "frontend-", "partners-", "api-")
-_ENV_SLUGS = ("faf", "csf", "ars", "staging", "dev", "prod", "stg-01", "stg-02", "stg-03")
-_ENV_SLUG_RE = re.compile(
-    r"-(" + "|".join(sorted(_ENV_SLUGS, key=len, reverse=True)) + r")(-[a-z0-9-]+)?$", re.IGNORECASE
-)
+# Generic fallbacks; a project lists its own in the workspace config
+# (`namespaces`, and the ids of `environments`).
+_DEFAULT_NAMESPACES = ("core", "services", "tools")  # same as `ws config init`
+_DEFAULT_ENV_SLUGS = ("dev", "staging", "prod")
 _URL_RE = re.compile(r"https?://([a-z0-9.-]+)(\/[^\s\"']*)?", re.IGNORECASE)
+
+
+def _namespace_prefixes() -> list[str]:
+    """Configured namespaces as `<ns>-` prefixes, longest first."""
+    namespaces = constants.PROJECT_CONFIG.get("namespaces") or _DEFAULT_NAMESPACES
+    return sorted((f"{ns.lower()}-" for ns in namespaces), key=len, reverse=True)
+
+
+def _env_slugs() -> tuple[str, ...]:
+    """Ids of the configured environments (the ones `ws run-local` offers)."""
+    environments = constants.PROJECT_CONFIG.get("environments") or []
+    slugs = tuple(env["id"] for env in environments if env.get("id"))
+    return slugs or _DEFAULT_ENV_SLUGS
+
+
+@lru_cache(maxsize=8)
+def _env_slug_re(slugs: tuple[str, ...]) -> re.Pattern[str]:
+    alternatives = "|".join(re.escape(s) for s in sorted(slugs, key=len, reverse=True))
+    return re.compile(r"-(" + alternatives + r")(-[a-z0-9-]+)?$", re.IGNORECASE)
 
 
 def service_name_from_subdomain(subdomain: str, strip_env: bool = True) -> str:
     """Extracts the canonical service name by stripping namespace prefixes or environment hashes."""
     s = subdomain.split(".")[0].lower()
-    for prefix in _NS_PREFIXES:
+    for prefix in _namespace_prefixes():
         if s.startswith(prefix):
             s = s[len(prefix) :]
             break
     if strip_env:
-        m = _ENV_SLUG_RE.search(s)
+        m = _env_slug_re(_env_slugs()).search(s)
         if m:
             s = s[: m.start()]
     return s

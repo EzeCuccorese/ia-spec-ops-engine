@@ -90,6 +90,16 @@ def find_project_root(
     return current
 
 
+def config_candidates(root: Path) -> list[Path]:
+    """Config files searched for ``root``, in order; the first that exists is used."""
+    candidate_paths = [root / ".workspace" / "config.json"]
+    if os.environ.get("XDG_CONFIG_HOME"):  # empty means unset (XDG spec)
+        candidate_paths.append(Path(os.environ["XDG_CONFIG_HOME"]) / "workspace" / "config.json")
+    candidate_paths.append(Path.home() / ".config" / "workspace" / "config.json")
+    candidate_paths.append(root / "config.json")
+    return list(dict.fromkeys(candidate_paths))  # XDG_CONFIG_HOME may be ~/.config
+
+
 def load_project_config(
     start_dir: Path | None = None,
     *,
@@ -101,7 +111,6 @@ def load_project_config(
         "project_name": "generic",
         "domain": "generic.com",
         "namespaces": [],
-        "env_slugs": [],
         "environments": [],
         "repositories_dir_env_var": "PROJECT_REPOSITORIES_DIR",
         "local_envs_dir_name": "local-envs",
@@ -117,17 +126,7 @@ def load_project_config(
         if not target_path.exists():
             raise FileNotFoundError(f"Config file not found: {target_path}")
     else:
-        root = find_project_root(start_dir)
-        candidate_paths = [
-            root / ".workspace" / "config.json",
-        ]
-        if "XDG_CONFIG_HOME" in os.environ:
-            candidate_paths.append(
-                Path(os.environ["XDG_CONFIG_HOME"]) / "workspace" / "config.json"
-            )
-        candidate_paths.append(Path.home() / ".config" / "workspace" / "config.json")
-        candidate_paths.append(root / "config.json")
-
+        candidate_paths = config_candidates(find_project_root(start_dir))
         target_path = next((p for p in candidate_paths if p.exists()), None)
 
     if target_path is not None and target_path.exists():
@@ -175,7 +174,7 @@ _NOISE_PREFIX = ("KUBERNETES_", "JAVA_", "LC_", "LS_COLORS", "JVM_")
 _NOISE_SUFFIX = ("_SERVICE_HOST", "_SERVICE_PORT")
 
 _DEFAULT_DB_CFG = """\
-# run-local.py — local database configuration
+# ws run-local — local database configuration
 # Used when DB=local to override URIs in Spring/Node services.
 local:
   mongodb: mongodb://localhost:27018

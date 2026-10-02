@@ -10,6 +10,7 @@ from pathlib import Path
 
 from workspace_engine.common import emit_rows, is_agent_mode, log_error, log_success
 from workspace_engine.services.git_hooks import (
+    QG_STAGES,
     get_hooks_status,
     install_git_hooks,
     run_quality_gate,
@@ -86,9 +87,6 @@ def main(argv: list[str] | None = None) -> int:
         help="Register globally (git config --global hook.workspace-gate.*)",
     )
     p_inst.add_argument("--dir", "-d", help="Repository root directory (defaults to cwd)")
-    p_inst.add_argument(
-        "--force", "-f", action="store_true", default=True, help="Overwrite existing hooks"
-    )
 
     # status
     p_stat = sub.add_parser("status", help="Query local and global hook status")
@@ -112,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_run.add_argument(
         "--skip",
-        help="Comma-separated checks to skip (gitleaks,commits,lint,design,tests,repohooks)",
+        help=f"Comma-separated checks to skip ({','.join(QG_STAGES)})",
     )
     p_run.add_argument(
         "--timeout",
@@ -148,22 +146,18 @@ def main(argv: list[str] | None = None) -> int:
     target = Path(args.dir) if getattr(args, "dir", None) else Path.cwd()
 
     if args.action == "install":
-        res = install_git_hooks(target_dir=target, is_global=args.is_global, force=args.force)
+        res = install_git_hooks(target_dir=target, is_global=args.is_global)
         if res["success"]:
             log_success(f"Git hook successfully installed at: {res['hook_path']}")
             return 0
         else:
-            log_error(f"Error installing Git hook: {res.get('error')}")
+            log_error(f"Error installing Git hook: {res['message']}")
             return 1
 
     elif args.action == "uninstall":
         res = uninstall_git_hooks(target_dir=target, is_global=args.is_global)
-        if res["success"]:
-            log_success("Git hook successfully uninstalled.")
-            return 0
-        else:
-            log_error(f"Error uninstalling Git hook: {res.get('error')}")
-            return 1
+        log_success(res["message"])
+        return 0
 
     elif args.action == "run":
         return run_quality_gate(
