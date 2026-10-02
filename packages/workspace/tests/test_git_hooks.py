@@ -1,4 +1,5 @@
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -13,7 +14,13 @@ from workspace_engine.services.git_hooks import (
     install_git_hooks,
     local_hook_path,
     run_quality_gate,
+    supports_config_hooks,
     uninstall_git_hooks,
+)
+
+requires_config_hooks = pytest.mark.skipif(
+    not supports_config_hooks(),
+    reason="this Git does not run config-based hooks (hook.<name>.command)",
 )
 
 
@@ -51,7 +58,7 @@ def _run_generated_hook(
     project_dir: Path,
     *,
     output: str = "errors",
-    skip: str = "gitleaks,commits,lint,repohooks",
+    skip: str = "gitleaks,commits,lint",
 ) -> subprocess.CompletedProcess[str]:
     hook = project_dir / "quality-gate-pre-push"
     hook.write_text(generate_canonical_pre_push_script(), encoding="utf-8")
@@ -244,6 +251,7 @@ def _write_hook(path: Path, sentinel: str, exit_code: int = 0) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
+@requires_config_hooks
 @pytest.mark.parametrize("repo_exit", [0, 3])
 def test_gate_runs_before_repository_hook_without_shadowing_it(tmp_path: Path, repo_exit: int):
     project_dir = tmp_path / "repo"
@@ -262,6 +270,7 @@ def test_gate_runs_before_repository_hook_without_shadowing_it(tmp_path: Path, r
     assert (proc.returncode == 0) is (repo_exit == 0)
 
 
+@requires_config_hooks
 def test_gate_also_runs_when_repository_uses_local_hooks_path(tmp_path: Path):
     """Husky-style repos (local core.hooksPath) keep their hook and still get the gate."""
     project_dir = tmp_path / "repo"
@@ -280,12 +289,13 @@ def test_gate_also_runs_when_repository_uses_local_hooks_path(tmp_path: Path):
     assert "HUSKY_SENTINEL" in combined
 
 
+@requires_config_hooks
 def test_install_git_hooks_local():
     with tempfile.TemporaryDirectory() as tmp:
         project_dir = Path(tmp)
         _init_test_git_repo(project_dir)
 
-        res = install_git_hooks(target_dir=project_dir, is_global=False, force=True)
+        res = install_git_hooks(target_dir=project_dir, is_global=False)
         assert res["success"] is True
         assert res["is_global"] is False
 
@@ -304,6 +314,7 @@ def test_install_git_hooks_local():
         assert status["local"]["is_active"] is True
 
 
+@requires_config_hooks
 def test_uninstall_git_hooks_local_only_removes_gate_keys():
     with tempfile.TemporaryDirectory() as tmp:
         project_dir = Path(tmp)
@@ -311,7 +322,7 @@ def test_uninstall_git_hooks_local_only_removes_gate_keys():
         subprocess.run(["git", "config", "hook.other.event", "pre-push"], cwd=project_dir)
         subprocess.run(["git", "config", "hook.other.command", "true"], cwd=project_dir)
 
-        install_git_hooks(target_dir=project_dir, is_global=False, force=True)
+        install_git_hooks(target_dir=project_dir, is_global=False)
         hook_file = local_hook_path(project_dir)
         assert hook_file.exists()
 
@@ -331,6 +342,7 @@ def test_uninstall_git_hooks_local_only_removes_gate_keys():
         assert status["local"]["is_active"] is False
 
 
+@requires_config_hooks
 def test_install_git_hooks_global(monkeypatch, tmp_path: Path):
     home_path = tmp_path / "home"
     home_path.mkdir()
@@ -339,7 +351,7 @@ def test_install_git_hooks_global(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home_path / ".config"))
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(home_path / ".gitconfig"))
 
-    res = install_git_hooks(is_global=True, force=True)
+    res = install_git_hooks(is_global=True)
     assert res["success"] is True
     assert res["is_global"] is True
 
@@ -357,28 +369,42 @@ def test_install_git_hooks_global(monkeypatch, tmp_path: Path):
     assert "workspace-gate" not in (home_path / ".gitconfig").read_text()
 
 
-def test_install_git_hooks_local_existing_without_force():
+@requires_config_hooks
+def test_reinstall_refreshes_the_local_scripts():
     with tempfile.TemporaryDirectory() as tmp:
         project_dir = Path(tmp)
         _init_test_git_repo(project_dir)
-        install_git_hooks(target_dir=project_dir, is_global=False, force=True)
+        install_git_hooks(target_dir=project_dir, is_global=False)
+        hook_file = local_hook_path(project_dir)
+        hook_file.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
 
-        res = install_git_hooks(target_dir=project_dir, is_global=False, force=False)
-        assert res["success"] is False
-        assert "already exists" in res["message"]
+        res = install_git_hooks(target_dir=project_dir, is_global=False)
+        assert res["success"] is True
+        assert hook_file.read_text(encoding="utf-8") == generate_canonical_pre_push_script()
 
 
-def test_install_git_hooks_global_existing_without_force(monkeypatch):
+@requires_config_hooks
+def test_reinstall_refreshes_the_global_scripts(monkeypatch):
     with tempfile.TemporaryDirectory() as mock_home:
         home_path = Path(mock_home)
         monkeypatch.setattr(Path, "home", lambda: home_path)
         monkeypatch.setenv("HOME", str(mock_home))
+        monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
         monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(home_path / ".gitconfig"))
+        install_git_hooks(is_global=True)
+        hook_file = home_path / ".config" / "workspace" / "hooks" / "pre-push"
+        hook_file.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
 
-        install_git_hooks(is_global=True, force=True)
-        res = install_git_hooks(is_global=True, force=False)
-        assert res["success"] is False
-        assert "already exists" in res["message"]
+        res = install_git_hooks(is_global=True)
+        assert res["success"] is True
+        assert hook_file.read_text(encoding="utf-8") == generate_canonical_pre_push_script()
+
+
+def test_cli_hooks_install_has_no_force_flag(capsys):
+    with pytest.raises(SystemExit) as exc:
+        manage_hooks_cli(["install", "--force"])
+    assert exc.value.code == 2
+    assert "unrecognized arguments: --force" in capsys.readouterr().err
 
 
 def test_uninstall_git_hooks_local_no_hook_present():
@@ -414,7 +440,7 @@ def test_run_quality_gate_writes_temp_hook_when_none_installed(monkeypatch):
         code = run_quality_gate(
             target_dir=project_dir,
             scope="none",
-            skip="gitleaks,commits,lint,tests,repohooks",
+            skip="gitleaks,commits,lint,tests",
             output="errors",
         )
         assert code == 0
@@ -429,7 +455,7 @@ def test_run_quality_gate_without_skip_arg_omits_qg_skip_env(monkeypatch):
         project_dir = Path(tmp)
         _init_test_git_repo(project_dir)
         _commit_fixture(project_dir)
-        install_git_hooks(target_dir=project_dir, is_global=False, force=True)
+        install_git_hooks(target_dir=project_dir, is_global=False)
 
         real_run = subprocess.run
         captured_env = {}
@@ -452,12 +478,12 @@ def test_run_quality_gate_uses_installed_local_hook():
         project_dir = Path(tmp)
         _init_test_git_repo(project_dir)
         _commit_fixture(project_dir)
-        install_git_hooks(target_dir=project_dir, is_global=False, force=True)
+        install_git_hooks(target_dir=project_dir, is_global=False)
 
         code = run_quality_gate(
             target_dir=project_dir,
             scope="none",
-            skip="gitleaks,commits,lint,tests,repohooks",
+            skip="gitleaks,commits,lint,tests",
         )
         assert code == 0
 
@@ -468,7 +494,7 @@ def test_run_quality_gate_uses_installed_global_hook_when_no_local(monkeypatch):
         monkeypatch.setattr(Path, "home", lambda: home_path)
         monkeypatch.setenv("HOME", str(mock_home))
         monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(home_path / ".gitconfig"))
-        install_git_hooks(is_global=True, force=True)
+        install_git_hooks(is_global=True)
 
         project_dir = Path(tmp)
         _init_test_git_repo(project_dir)
@@ -477,7 +503,7 @@ def test_run_quality_gate_uses_installed_global_hook_when_no_local(monkeypatch):
         code = run_quality_gate(
             target_dir=project_dir,
             scope="none",
-            skip="gitleaks,commits,lint,tests,repohooks",
+            skip="gitleaks,commits,lint,tests",
             commit_style="conventional",
         )
         assert code == 0
@@ -492,11 +518,12 @@ def test_run_quality_gate_without_prior_commit_uses_zero_sha():
         code = run_quality_gate(
             target_dir=project_dir,
             scope="none",
-            skip="gitleaks,commits,lint,tests,repohooks",
+            skip="gitleaks,commits,lint,tests",
         )
         assert isinstance(code, int)
 
 
+@requires_config_hooks
 def test_cli_manage_hooks():
     with tempfile.TemporaryDirectory() as tmp:
         project_dir = Path(tmp)
@@ -559,6 +586,7 @@ def test_cli_manage_hooks_run_and_test(monkeypatch):
         mh.main(["run", "--output", "unsupported"])
 
 
+@requires_config_hooks
 def test_commit_msg_hook_enforces_conventional_commits_when_opted_in(tmp_path: Path):
     project_dir = tmp_path / "repo"
     project_dir.mkdir()
@@ -651,6 +679,7 @@ def _commit_complex_function(project_dir: Path, message: str) -> None:
     )
 
 
+@requires_config_hooks
 def test_design_stage_fails_on_complex_new_function(tmp_path: Path) -> None:
     project_dir = tmp_path / "repo"
     project_dir.mkdir()
@@ -673,6 +702,7 @@ def test_design_stage_fails_on_complex_new_function(tmp_path: Path) -> None:
     assert proc.returncode != 0
 
 
+@requires_config_hooks
 def test_design_stage_skipped_via_qg_skip(tmp_path: Path) -> None:
     project_dir = tmp_path / "repo"
     project_dir.mkdir()
@@ -692,6 +722,7 @@ def test_design_stage_skipped_via_qg_skip(tmp_path: Path) -> None:
     assert proc.returncode == 0
 
 
+@requires_config_hooks
 def test_design_stage_passes_in_warn_mode(tmp_path: Path) -> None:
     project_dir = tmp_path / "repo"
     project_dir.mkdir()
@@ -716,3 +747,12 @@ def test_design_stage_passes_in_warn_mode(tmp_path: Path) -> None:
 def test_pre_push_reads_the_commit_style_from_repo_config():
     script = generate_canonical_pre_push_script()
     assert "git config --get workspace.commitStyle" in script
+
+
+def test_cli_skip_help_lists_the_stages_the_gate_knows(capsys):
+    script = generate_canonical_pre_push_script()
+    stages = re.findall(r"^if skipped (\w+); then", script, re.MULTILINE)
+    with pytest.raises(SystemExit):
+        manage_hooks_cli(["run", "--help"])
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert f"({','.join([*stages, 'all'])})" in help_text

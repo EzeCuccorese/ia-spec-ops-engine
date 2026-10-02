@@ -1,5 +1,5 @@
 """
-Tests para utilidades compartidas de workspace_engine.common (colores, frontmatter, dotenv, project, subprocess).
+Tests for the shared workspace_engine.common utilities (colors, frontmatter, dotenv, project, subprocess).
 """
 
 from enum import Enum

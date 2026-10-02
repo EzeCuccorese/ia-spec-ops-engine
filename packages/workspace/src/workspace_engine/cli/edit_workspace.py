@@ -5,6 +5,7 @@ workspace_engine.cli.edit_workspace — Interactive editing of repositories in a
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import shutil
@@ -84,7 +85,11 @@ def remove_repositories_from_workspace(workspace_dir: Path) -> None:
     log_success(f"Repositories removed successfully: {', '.join(to_remove)}")
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    argparse.ArgumentParser(
+        prog="ws edit",
+        description="Adds or removes repositories in the current workspace (interactive).",
+    ).parse_args(argv)
     workspace_dir = find_project_root()
     if not (workspace_dir / "repositories").is_dir():
         log_error("edit-workspace must be run from inside a workspace.")

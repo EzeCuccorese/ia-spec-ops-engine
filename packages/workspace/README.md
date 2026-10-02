@@ -77,19 +77,19 @@ packages/workspace/
 | Command | Purpose |
 | --- | --- |
 | `ws generate [name] [repos ...]` | Generate a new multi-repo workspace from Git worktrees |
-| `ws edit [name]` | Add/remove repositories in the current workspace (interactive) |
+| `ws edit` | Add/remove repositories in the current workspace (interactive) |
 | `ws worktree <repo> <target> <branch>` | Create an isolated Git worktree |
-| `ws clean [target]` | Clean dependencies, caches, and build artifacts in workspace |
-| `ws stop [workspace]` | Stop all running processes and services in workspace |
-| `ws reset [workspace] [--force]` | Reset workspace repositories to clean upstream state |
-| `ws delete [names ...]` | Delete workspaces and unregister associated worktrees |
+| `ws clean` | Clean dependencies, caches, and build artifacts in the current workspace |
+| `ws stop [--timeout S]` | Stop all running processes and services in the current workspace |
+| `ws reset [--force] [--dry-run] [repos ...]` | Reset workspace repositories to their branch point or a clean HEAD |
+| `ws delete [--force] [names ...]` | Delete workspaces and unregister associated worktrees |
 | `ws build [dir]` | Build the current directory, auto-detecting Maven, Gradle, npm, Go, Cargo or Python |
-| `ws deps [dir]` | Install project dependencies (Gradle, Maven, npm, uv, etc.) |
-| `ws java [version]` | Print the `JAVA_HOME`/`PATH` exports for the project's JDK via SDKMAN |
-| `ws env-init [repo]` | Initialize or sync `config/.env` |
-| `ws env-load [repo]` | Update a variable across environment config files |
-| `ws benchmark [dir]` | Run unit test suites in parallel with a visual report |
-| `ws run-local [--profile P] [--env E]` | Orchestrate and launch local microservices with live TUI |
+| `ws deps [repos ...]` | Install workspace repository dependencies (Gradle, Maven, npm, uv, etc.) |
+| `ws java [--json]` | Print the `JAVA_HOME`/`PATH` exports (or JSON) for the project's JDK via SDKMAN |
+| `ws env-init [--force] [--check-only]` | Initialize or sync `config/.env` from `config/.env.example` |
+| `ws env-load --envs E --services S --var NAME --values V` | Update a variable across per-environment `values.<env>.yaml` files |
+| `ws benchmark [repos ...]` | Run unit test suites in parallel with a visual report |
+| `ws run-local [--dir PATH] [--stop] [--start [REPOS]]` | Orchestrate and launch local microservices with live TUI |
 | `ws kube [env\|logs\|shell]` | Kubernetes pod manager: env extraction, logs, shells (interactive without an action) |
 | `ws hooks [install\|status\|uninstall\|run\|test]` | Git hooks and quality gate manager |
 | `ws check` | Run the quality gate with condensed output (`--changed`, `--cache`, `--json`, `--skip`, `--budget`, `--dir`) |
@@ -101,13 +101,8 @@ packages/workspace/
 | `ws doctor` | Verify system tools, compilers, and development environment |
 | `ws config init` | Initialize workspace configuration |
 
-> **Known limitation.** `ws` does not forward its arguments to `generate`, `edit`, `clean`,
-> `stop`, `reset`, `delete`, `build`, `deps`, `java`, `env-init`, `env-load`, `benchmark` and
-> `run-local`: each re-reads the whole command line, subcommand name included. As a result
-> `clean`, `stop`, `env-init`, `env-load` and `run-local` currently exit with an argument
-> error; `generate`, `reset`, `delete`, `deps` and `benchmark` receive the subcommand name as
-> their first positional argument; `build`, `java` and `edit` ignore their arguments and work
-> on the current directory. The commands from `ws hooks` down in the table are not affected.
+Every command from `ws generate` to `ws run-local` owns its options: `ws <command> --help`
+prints them.
 
 ---
 
@@ -121,8 +116,20 @@ Enables working across multiple decoupled repositories grouped under an isolated
 # Create an isolated Git worktree for a specific branch
 ws worktree /path/to/base-repo /path/to/target-worktree feature/new-api
 
+# Create a workspace: new branch `checkout-v2` from main in api, from develop in web,
+# and the existing branch release/1.4 in docs
+ws generate checkout-v2 api web:develop docs@release/1.4
+
 # Modify repositories linked in the current workspace (run from inside it)
 ws edit
+
+# From inside a workspace: drop build caches, preview a reset, install dependencies
+ws clean
+ws reset --dry-run api
+ws deps api web
+
+# Delete a workspace and unregister its worktrees without confirmation
+ws delete --force checkout-v2
 
 # Claude WorktreeCreate hook: suggest a confined central location (never creates files)
 echo '{"root_path": "/src/api", "worktree_base": "fix-login"}' \
@@ -141,9 +148,22 @@ sanitized and confined to `--base-dir` or `WORKSPACE_WORKTREES_DIR` (default
 Automatically discovers microservices in the workspace, allocates deterministic ports in the **8000–8999** range, rewrites inter-service endpoints (`wire_urls`), and launches an interactive TUI monitor.
 
 It requires a workspace configuration (`ws config init`, see section 5); environments come
-from its `environments` list. Profiles are stored in `~/.config/run-local/profiles.json`, and
-logs, PIDs and the last launch in `~/.local/share/run-local/`. See the known limitation above:
-`ws run-local` currently exits with an argument error.
+from its `environments` list. To rewire a URL such as `https://services-orders-staging-01.dev.my-domain.io`
+to a local `orders` service, the hostname drops a `<namespace>-` prefix from `namespaces`
+(default `core`, `services`, `tools`) and an `-<environment id>` suffix from the ids in
+`environments` (default `dev`, `staging`, `prod`). Profiles are stored in `~/.config/run-local/profiles.json`, and
+logs, PIDs and the last launch in `~/.local/share/run-local/`.
+
+```bash
+# Pick services, environments and profiles in the TUI (repos auto-detected from the cwd)
+ws run-local --dir ~/projects/workspaces/checkout-v2/repositories
+
+# Relaunch the last configuration without the TUI, optionally only some repos
+ws run-local --start api,web
+
+# Stop every service it launched
+ws run-local --stop
+```
 
 **Interactive TUI Features**:
 - Real-time process monitoring (PID, CPU, Memory, Port).
@@ -404,7 +424,19 @@ from marker files. ai-governance uses it to install only the rules a project nee
 ws build
 
 # Print the JAVA_HOME/PATH exports for the JDK the project needs (via SDKMAN)
-ws java
+eval "$(ws java)"
+ws java --json
+
+# Sync config/.env with config/.env.example (prompts only for missing values)
+ws env-init
+ws env-init --check-only
+
+# Set LOG_LEVEL for api and web in values.dev.yaml and values.prod.yaml under --root
+ws env-load --envs dev,prod --services api,web --var LOG_LEVEL --values debug,info \
+  --root ~/projects/gitops/apps
+
+# Run the unit tests of every workspace repository (or only the named ones) in parallel
+ws benchmark api web
 
 # Kubernetes: pod environment variable extraction (.env written with mode 600)
 ws kube env
@@ -413,9 +445,6 @@ ws kube env
 ws kube logs
 ws kube shell
 ```
-
-`ws deps`, `ws env-init`, `ws env-load` and `ws benchmark` are affected by the known
-limitation described under the subcommand reference.
 
 ---
 
@@ -444,6 +473,18 @@ ws config init --local --force --yes
 
 `--name` defaults to the current directory name and `--domain` to `local.dev`; `--local`,
 `--global` and `--path` are mutually exclusive.
+
+The generated file has no `environments`; `ws run-local` then offers only `local`. Add one
+entry per Kubernetes environment it should be able to read variables from:
+
+```json
+"environments": [
+  {"id": "staging", "cluster": "dev", "namespace": "apps"}
+]
+```
+
+`cluster` picks the kubectl context: `prod` uses the first context whose name contains
+`prod`, `dev` the first one that does not. `namespace` is the namespace of the service pods.
 
 ---
 
