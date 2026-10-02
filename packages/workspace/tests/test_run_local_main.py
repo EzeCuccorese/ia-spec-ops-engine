@@ -342,3 +342,26 @@ def test_stop_works_without_a_configuration(monkeypatch, capsys):
 
 def test_needs_launch_tolerates_configs_without_mode_keys():
     assert rl._needs_launch({"name": "api"}, {"name": "api"}, {"api"}) is False
+
+
+def test_stop_running_waits_for_the_port_before_relaunch():
+    events: list[tuple] = []
+    with (
+        patch(f"{MAIN}._pid_alive", return_value=True),
+        patch(f"{MAIN}.os.kill", side_effect=lambda pid, sig: events.append(("kill", pid))),
+        patch(f"{MAIN}._wait_port_free", side_effect=lambda port: events.append(("wait", port))),
+    ):
+        rl._stop_running([{**_config("api"), "port": 8123}], [_result("api", pid=42)])
+    assert events == [("kill", -42), ("kill", 42), ("wait", 8123)]
+
+
+def test_restart_named_ignores_processes_it_cannot_signal():
+    results = [_result("api", pid=42)]
+    launch_configs = [{**_config("api"), "port": 8123}]
+    with (
+        patch(f"{MAIN}.os.kill", side_effect=PermissionError),
+        patch(f"{MAIN}._wait_port_free"),
+        patch(f"{MAIN}._launch_one", return_value=(43, None, 1.0, {})),
+    ):
+        rl._restart_named(["api"], results, launch_configs, {})
+    assert results[0]["pid"] == 43

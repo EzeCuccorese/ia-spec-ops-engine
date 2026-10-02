@@ -98,9 +98,7 @@ def _restart_named(names: list, results: list, launch_configs: list, db_cfg: dic
         if not cfg or not r:
             continue
         if r.get("pid"):
-            for t in (-r["pid"], r["pid"]):
-                with contextlib.suppress(ProcessLookupError):
-                    os.kill(t, signal.SIGTERM)
+            _terminate(r["pid"])
         _wait_port_free(cfg["port"])
         pid, err, started_at, wired_map = _launch_one(cfg, running_ports, db_cfg)
         r["pid"], r["error"], r["started_at"] = pid, err, started_at
@@ -253,6 +251,8 @@ def _stop_running(to_launch: list, results: list) -> None:
         r_old = next((r for r in results if r["name"] == c["name"]), None)
         if r_old and _pid_alive(r_old.get("pid")):
             _terminate(r_old["pid"])
+            if c.get("port"):
+                _wait_port_free(c["port"])  # the relaunch binds the same port
 
 
 def _offer_rewire(results: list, launch_configs: list, new_names: set[str], db_cfg: dict) -> None:
