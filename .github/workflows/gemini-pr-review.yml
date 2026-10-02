@@ -24,10 +24,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Gemini Automated Code Review
+      - name: Set up Python
         if: ${{ env.GEMINI_API_KEY != '' }}
-        uses: sshnaidm/gemini-code-review-action@d4ccdaf0e2cad5cb79f80f6db07857c0e7fff28f # v1
+        uses: actions/setup-python@v5
         with:
-          gemini-key: ${{ secrets.GEMINI_API_KEY }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          model: "gemini-flash-latest"
+          python-version: "3.11"
+
+      - name: Run In-House Gemini Code Review
+        if: ${{ env.GEMINI_API_KEY != '' }}
+        env:
+          GEMINI_MODEL: "gemini-flash-latest"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          python .github/scripts/gemini_review.py
