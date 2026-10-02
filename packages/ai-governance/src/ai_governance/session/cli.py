@@ -110,6 +110,13 @@ def show_task(
             console.print(log)
 
 
+STATUS_COMMANDS = {
+    "close": "Mark a task closed",
+    "reopen": "Mark a closed or paused task active again",
+    "pause": "Mark a task paused without closing it",
+}
+
+
 def _add_json_flag(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
@@ -141,13 +148,13 @@ def _build_parser() -> argparse.ArgumentParser:
         item.add_argument("--title", required=True)
         item.add_argument("--summary", default="")
 
-    for name in ("close", "reopen", "pause"):
-        item = sub.add_parser(name)
+    for name, text in STATUS_COMMANDS.items():
+        item = sub.add_parser(name, help=text)
         item.add_argument("task_id")
         item.add_argument("--reason", default="")
 
     for name in ("resume",):
-        item = sub.add_parser(name)
+        item = sub.add_parser(name, help="Reactivate a paused task (default: by branch or repo)")
         item.add_argument("task_id", nargs="?")
         item.add_argument("--full", action="store_true")
 
