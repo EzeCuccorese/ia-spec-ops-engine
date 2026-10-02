@@ -679,3 +679,18 @@ def test_cli_preflight_reports_existing_worktree_directory_as_fail(tmp_path: Pat
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "FAIL"
     assert "Target worktree directory already exists" in payload["error"]
+
+
+def test_worktree_copies_only_spec_agents_and_env_files(tmp_path: Path) -> None:
+    repo_dir = _passing_repo(tmp_path)
+    (repo_dir / ".agents").mkdir()
+    (repo_dir / ".specops").mkdir()
+    (repo_dir / ".env.local").write_text("A=1", encoding="utf-8")
+
+    result = PreflightManager(repo_dir).run("Copied")
+
+    worktree = Path(result["worktree_path"])
+    assert (worktree / ".spec" / "verification.json").is_file()
+    assert (worktree / ".agents").is_dir()
+    assert (worktree / ".env.local").is_file()
+    assert not (worktree / ".specops").exists()

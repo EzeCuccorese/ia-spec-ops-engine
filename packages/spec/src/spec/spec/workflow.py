@@ -73,7 +73,6 @@ def compute_tree_fingerprint(root: str | Path) -> str:
         "__pycache__",
         ".pytest_cache",
         ".ruff_cache",
-        ".specops",
     }
 
     entries: list[tuple[str, str]] = []

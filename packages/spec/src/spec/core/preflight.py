@@ -212,7 +212,7 @@ class PreflightManager:
 
     def _copy_missing_config(self, dest_root: Path) -> None:
         """Copies local configuration the checkout at dest_root does not already track."""
-        for pattern in [".spec", ".specops", ".agents"]:
+        for pattern in [".spec", ".agents"]:
             src = self.root / pattern
             dest = dest_root / pattern
             if not src.exists() or dest.exists():
@@ -247,8 +247,8 @@ class PreflightManager:
             if code != 0:
                 raise PreflightError(f"Failed to create Git worktree: {stderr or stdout}")
 
-        # 2. Copy configuration files (.spec/, .specops/, .agents/, .env*)
-        config_patterns = [".spec", ".specops", ".agents"]
+        # 2. Copy configuration files (.spec/, .agents/, .env*)
+        config_patterns = [".spec", ".agents"]
         for pattern in config_patterns:
             src = self.root / pattern
             if src.exists():
