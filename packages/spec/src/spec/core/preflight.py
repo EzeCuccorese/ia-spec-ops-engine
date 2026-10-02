@@ -35,6 +35,14 @@ class BaselineGateResult:
     checks_passed: int
 
 
+def _link_path(src: Path, link_dir: Path) -> str:
+    """Relative path from link_dir to src, or absolute when they sit on different drives."""
+    try:
+        return os.path.relpath(src, link_dir)
+    except ValueError:
+        return str(src.resolve())
+
+
 class PreflightError(Exception):
     """Raised when pre-flight validation, sync, or baseline checks fail."""
 
@@ -245,10 +253,9 @@ class PreflightManager:
             if not src.is_dir() or target.exists():
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
-            # Relative link from target back to src; without symlink support the checks
-            # simply run without the cached dependencies.
+            # Without symlink support the checks simply run without the cached dependencies.
             with contextlib.suppress(OSError):
-                os.symlink(os.path.relpath(src, target.parent), target)
+                os.symlink(_link_path(src, target.parent), target, target_is_directory=True)
 
     def prepare_target(self, branch: str, base_branch: str, *, use_worktree: bool) -> Path:
         """Returns the directory to work in: a new worktree, or the current checkout on the branch."""
@@ -308,7 +315,7 @@ class PreflightManager:
         if not use_worktree and self.has_tracked_changes():
             return {
                 "status": "FAIL",
-                "error": f"Working tree has uncommitted changes; commit or stash them before preflight switches to '{target_branch}'",
+                "error": f"Working tree has uncommitted changes; commit or stash them before preflight works on '{target_branch}' without a worktree",
             }
 
         # 2. Sync base branch

@@ -727,3 +727,40 @@ def test_base_branch_baseline_gets_env_files_and_dependency_links(tmp_path: Path
 
     assert result.passed is True, result.summary
     assert (repo_dir / ".venv").is_dir()
+
+
+def test_dependency_link_falls_back_to_absolute_path_across_drives(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On Windows, os.path.relpath raises ValueError when the temporary checkout and the
+    repository sit on different drives; the link must still be created."""
+    repo_dir = _passing_repo(tmp_path)
+    (repo_dir / ".venv").mkdir()
+    dest = tmp_path / "elsewhere"
+    dest.mkdir()
+
+    def other_drive(path: object, start: object = None) -> str:
+        raise ValueError("path is on mount 'D:', start on mount 'C:'")
+
+    monkeypatch.setattr(preflight_module.os.path, "relpath", other_drive)
+    PreflightManager(repo_dir)._link_local_environment(dest)
+
+    assert (dest / ".venv").is_symlink()
+    assert (dest / ".venv").resolve() == (repo_dir / ".venv").resolve()
+
+
+def test_run_without_worktree_on_target_branch_dirty_message_does_not_claim_a_switch(
+    tmp_path: Path,
+) -> None:
+    repo_dir = _passing_repo(tmp_path)
+    subprocess.run(
+        ["git", "-C", str(repo_dir), "switch", "-qc", "feature/here"], check=True, env=_git_env()
+    )
+    (repo_dir / "README.md").write_text("uncommitted edit", encoding="utf-8")
+
+    result = PreflightManager(repo_dir).run("Here", use_worktree=False)
+
+    assert result["status"] == "FAIL"
+    assert "uncommitted changes" in result["error"]
+    assert "switches" not in result["error"]
+    assert "feature/here" in result["error"]
