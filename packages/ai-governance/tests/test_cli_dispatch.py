@@ -91,3 +91,36 @@ def test_cli_dispatch_hook() -> None:
     with patch("ai_governance.hooks.main", return_value=0) as mock_hook:
         assert main(["hook", "claude", "stop"]) == 0
         mock_hook.assert_called_once_with(["claude", "stop"])
+
+
+def _subcommand_helps(parser: argparse.ArgumentParser) -> dict[str, str | None]:
+    """Help of every subcommand, nested ones included as ``parent child``."""
+    helps: dict[str, str | None] = {}
+    for action in parser._actions:
+        if not isinstance(action, argparse._SubParsersAction):
+            continue
+        described = {choice.dest: choice.help for choice in action._choices_actions}
+        for name, child in action.choices.items():
+            helps[name] = described.get(name)
+            helps.update({f"{name} {k}": v for k, v in _subcommand_helps(child).items()})
+    return helps
+
+
+def test_every_progress_and_telemetry_subcommand_has_help() -> None:
+    from ai_governance.session.cli import _build_parser as progress_parser
+    from ai_governance.telemetry.cli import _build_parser as telemetry_parser
+
+    for parser in (progress_parser(), telemetry_parser()):
+        missing = [name for name, text in _subcommand_helps(parser).items() if not text]
+        assert missing == []
+
+
+def test_scope_and_rules_help_cover_every_case() -> None:
+    from ai_governance.cli import COMMANDS
+    from ai_governance.install.cli import build_parser
+
+    (commands,) = [a for a in build_parser()._actions if isinstance(a, argparse._SubParsersAction)]
+    uninstall = commands.choices["uninstall"]
+    scope = next(action for action in uninstall._actions if action.dest == "scope")
+    assert scope.help == "Where to install or uninstall from"
+    assert "profiles" in COMMANDS["rules"]
