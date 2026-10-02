@@ -168,3 +168,25 @@ def test_run_local_stop(tmp_path: Path, monkeypatch, capsys):
 
     assert _ws("run-local", "--stop") is None
     assert "No active services." in _output(capsys)
+
+
+def test_env_load_fails_when_a_values_file_is_missing(tmp_path: Path, capsys):
+    (tmp_path / "values.dev.yaml").write_text("apps:\n  - name: svc\n", encoding="utf-8")
+
+    code = _ws(
+        "env-load",
+        "--envs",
+        "dev,prod",
+        "--services",
+        "svc",
+        "--var",
+        "LOG_LEVEL",
+        "--values",
+        "debug,info",
+        "--root",
+        str(tmp_path),
+    )
+
+    assert code == 1
+    assert "LOG_LEVEL: debug" in (tmp_path / "values.dev.yaml").read_text(encoding="utf-8")
+    assert f"File not found: {tmp_path / 'values.prod.yaml'}" in _output(capsys)
