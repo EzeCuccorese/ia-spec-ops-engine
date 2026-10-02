@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from ai_governance import corporate
-from ai_governance.install import doctor
+from ai_governance.install import cli, doctor
 from ai_governance.install.budget import fixed_cost
 from ai_governance.install.cli import main as install_cli
 from ai_governance.install.installer import global_ledger, install_user, uninstall_user
@@ -108,6 +108,19 @@ def test_script_owner_is_not_reported_as_an_agent(home: Path) -> None:
 
     assert ("user:agents", doctor.OK, "claude") in doctor.check(None)
     assert set(fixed_cost(global_ledger())) == {"claude"}
+
+
+def test_status_and_budget_name_the_owner_column(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_user(["claude"])
+    tables: list[tuple[str, ...]] = []
+    monkeypatch.setattr(cli, "emit_rows", lambda rows, *, headers, full: tables.append(headers))
+
+    install_cli("status", ["--root", str(home)])
+    install_cli("budget", ["--root", str(home)])
+
+    assert [headers[1] for headers in tables] == ["Owner", "Owner"]
 
 
 def test_bin_dir_override(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:

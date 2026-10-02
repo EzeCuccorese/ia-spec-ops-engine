@@ -25,7 +25,7 @@ def _block(text: str) -> str:
 
 
 def fixed_cost(ledger: Ledger) -> dict[str, int]:
-    """Bytes per agent that load at session start (rules without path scoping + blocks)."""
+    """Bytes per owner (each agent, ``project`` = shared) loaded at session start."""
     totals: dict[str, int] = {}
     agents = installed_agents(ledger)
     for entry in ledger.entries:

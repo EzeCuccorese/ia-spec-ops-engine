@@ -178,7 +178,7 @@ def _status(args: argparse.Namespace) -> int:
         rows.append(("project", ",".join(config.agents), "config", PROJECT_DIR))
         lock = Ledger(args.root / PROJECT_DIR / "lock.json", base=args.root)
         rows.extend(("project", e["agent"], e["kind"], e["path"]) for e in lock.entries)
-    emit_rows(rows, headers=("Scope", "Agent", "Kind", "Path"), full=True)
+    emit_rows(rows, headers=("Scope", "Owner", "Kind", "Path"), full=True)
     return 0
 
 
@@ -217,7 +217,7 @@ def _budget(args: argparse.Namespace) -> int:
         for scope, ledger in ledgers
         for agent, size in sorted(fixed_cost(ledger).items())
     ]
-    emit_rows(rows, headers=("Scope", "Agent", "Bytes", "Tokens"), full=True)
+    emit_rows(rows, headers=("Scope", "Owner", "Bytes", "Tokens"), full=True)
     return 0
 
 

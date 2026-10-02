@@ -138,9 +138,9 @@ hint to re-enable it.
 |---|---|
 | `ai-governance update [--root DIR] [--all] [--check] [--dry-run]` | Re-detect stacks and refresh only the applicable rules; local edits are kept and reported; `--all` covers every registered project; `--check` exits 1 on drift (for CI) |
 | `ai-governance uninstall --scope ... --agent ...` | Remove exactly what was written |
-| `ai-governance status [--root DIR]` / `doctor [--root DIR]` | What is installed where / read-only health checks (exit 1 on a failing check) |
+| `ai-governance status [--root DIR]` / `doctor [--root DIR]` | What is installed where, per owner (an agent, `project` for the shared rules and `AGENTS.md` block, `corporate` for pack scripts) / read-only health checks (exit 1 on a failing check) |
 | `ai-governance agents` | Capability matrix of the supported agents (the table above) |
-| `ai-governance budget [--root DIR]` | Fixed context bytes (~tokens) each agent loads every session |
+| `ai-governance budget [--root DIR]` | Fixed context bytes (~tokens) loaded every session, per agent plus a `project` row for the shared rules and `AGENTS.md` block |
 | `ai-governance probe --agent <a> [--dir DIR]` then `--verify --seen <tokens>` | Proves on this machine which instruction locations the agent loads and which hooks fire. Codex/Antigravity hooks are installed only after a verified probe |
 | `ai-governance rules list` / `rules show <id>` / `rules profiles` | Browse the rule catalog and opt-in profiles |
 | `ai-governance progress <subcommand>` | Compact cross-session task state (see below) |
