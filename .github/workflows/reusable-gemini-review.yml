@@ -67,5 +67,6 @@ jobs:
           REVIEW_STANDARDS: ${{ inputs.standards }}
           GITHUB_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           python .engine_tools/.github/scripts/gemini_review.py

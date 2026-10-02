@@ -39,5 +39,6 @@ jobs:
           REVIEW_STANDARDS: "SOLID, Clean Code, Resource Safety"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           python .github/scripts/gemini_review.py

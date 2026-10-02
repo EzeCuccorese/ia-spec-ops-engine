@@ -140,8 +140,10 @@ def post_github_review(target: ReviewTarget, summary: str, comments: list[dict[s
         "event": "COMMENT",
     }
     if valid_comments:
-        head_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-        payload["commit_id"] = head_sha
+        commit_sha = os.environ.get("COMMIT_SHA")
+        if not commit_sha:
+            commit_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+        payload["commit_id"] = commit_sha
         payload["comments"] = valid_comments
 
     req = urllib.request.Request(
