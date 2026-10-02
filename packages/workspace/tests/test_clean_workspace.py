@@ -108,3 +108,11 @@ def test_main_forwards_exit_code() -> None:
         cw.main()
     assert exc.value.code == 0
     mock_clean.assert_called_once_with()
+
+
+def test_clean_workspace_reports_in_english(tmp_path: Path, capsys) -> None:
+    (tmp_path / "repositories" / "svc" / "dist").mkdir(parents=True)
+    assert cw.clean_workspace(tmp_path) == 0
+    out = capsys.readouterr().out
+    assert f"removing: {tmp_path / 'repositories' / 'svc' / 'dist'}" in out
+    assert "[clean-workspace] Cleanup completed." in out

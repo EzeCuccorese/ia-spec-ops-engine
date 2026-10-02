@@ -121,8 +121,12 @@ def test_build_project_defaults_to_cwd(tmp_path: Path, monkeypatch: pytest.Monke
     assert build_project.build_project() == 1
 
 
-def test_main_exits_with_build_project_result(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(build_project, "build_project", lambda: 3)
+def test_main_exits_with_build_project_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[Path] = []
+    monkeypatch.setattr(build_project, "build_project", lambda d: calls.append(d) or 3)
     with pytest.raises(SystemExit) as exc:
-        build_project.main()
+        build_project.main([str(tmp_path)])
     assert exc.value.code == 3
+    assert calls == [tmp_path.resolve()]

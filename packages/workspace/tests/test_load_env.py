@@ -99,7 +99,7 @@ def test_main_updates_matching_environments(
         [
             "load-env",
             "--envs",
-            "dev,staging,prod",
+            "dev,staging",
             "--services",
             "service-a",
             "--var",
@@ -116,8 +116,20 @@ def test_main_updates_matching_environments(
     assert 'FEATURE_FLAG: "on"' in dev_content
     staging_content = (root_dir / "values.staging.yaml").read_text(encoding="utf-8")
     assert 'FEATURE_FLAG: "off"' in staging_content
-    # "prod" has no matching value and no file was created for it.
-    assert not (root_dir / "values.prod.yaml").exists()
+
+
+def test_main_rejects_a_different_number_of_envs_and_values(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "values.dev.yaml").write_text(SAMPLE_YAML, encoding="utf-8")
+    argv = ["--envs", "dev,prod", "--services", "service-a", "--var", "NEW_VAR", "--values", "on"]
+
+    with pytest.raises(SystemExit) as exc:
+        main([*argv, "--root", str(tmp_path)])
+
+    assert exc.value.code == 1
+    assert "2 environment(s) but 1 value(s)" in capsys.readouterr().err
+    assert (tmp_path / "values.dev.yaml").read_text(encoding="utf-8") == SAMPLE_YAML
 
 
 def test_main_applies_suffix_to_values(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -146,7 +146,7 @@ def test_main_not_inside_workspace_exits(tmp_path: Path, monkeypatch: pytest.Mon
     outside.mkdir()
     monkeypatch.setattr(edit_workspace, "find_project_root", lambda: outside)
     with pytest.raises(SystemExit) as exc:
-        edit_workspace.main()
+        edit_workspace.main([])
     assert exc.value.code == 1
 
 
@@ -161,7 +161,7 @@ def test_main_add_option(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
         patch("builtins.input", return_value="1"),
         patch.object(edit_workspace, "add_repositories_to_workspace") as mock_add,
     ):
-        edit_workspace.main()
+        edit_workspace.main([])
 
     mock_add.assert_called_once()
     called_workspace_dir, called_repos_root = mock_add.call_args.args
@@ -181,7 +181,7 @@ def test_main_add_option_with_env_var(tmp_path: Path, monkeypatch: pytest.Monkey
         patch("builtins.input", return_value="1"),
         patch.object(edit_workspace, "add_repositories_to_workspace") as mock_add,
     ):
-        edit_workspace.main()
+        edit_workspace.main([])
 
     called_repos_root = mock_add.call_args.args[1]
     assert called_repos_root == repos_dir.resolve()
@@ -212,6 +212,6 @@ def test_main_menu_dispatch(
             side_effect=lambda *a: calls.append("remove"),
         ),
     ):
-        edit_workspace.main()
+        edit_workspace.main([])
 
     assert calls == expected

@@ -159,14 +159,15 @@ def reset_repositories(
     return 1 if failed else 0
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
-        description="Resets the workspace repositories to the source commit or a clean HEAD."
+        prog="ws reset",
+        description="Resets the workspace repositories to the source commit or a clean HEAD.",
     )
     parser.add_argument("--force", action="store_true", help="Skip interactive confirmation")
     parser.add_argument("--dry-run", action="store_true", help="Simulate without modifying files")
     parser.add_argument("repos", nargs="*", help="Specific repositories to reset")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     sys.exit(reset_repositories(force=args.force, dry_run=args.dry_run, repo_filter=args.repos))
 

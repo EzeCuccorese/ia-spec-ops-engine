@@ -204,15 +204,17 @@ def stop_workspace(start_dir: Path | None = None, timeout: float = 5.0) -> int:
     return 0
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Stops the workspace's active services.")
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        prog="ws stop", description="Stops the workspace's active services."
+    )
     parser.add_argument(
         "--timeout",
         type=float,
         default=5.0,
         help="Timeout in seconds for stopping processes.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     sys.exit(stop_workspace(timeout=args.timeout))
 
 

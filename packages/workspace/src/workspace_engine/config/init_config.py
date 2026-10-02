@@ -21,7 +21,6 @@ def generate_default_config(project_name: str, domain: str) -> dict:
         "project_name": project_name,
         "domain": domain,
         "namespaces": ["core", "services", "tools"],
-        "env_slugs": ["dev", "staging", "prod"],
         "repositories_dir_env_var": "PROJECT_REPOSITORIES_DIR",
         "local_envs_dir_name": "local-envs",
         "workspaces_dir_name": "workspaces",

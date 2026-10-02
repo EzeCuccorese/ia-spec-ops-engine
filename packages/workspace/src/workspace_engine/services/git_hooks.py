@@ -26,6 +26,8 @@ from workspace_engine.common import run_command_safe
 
 HOOK_NAME = "workspace-gate"
 HOOK_EVENT = "pre-push"
+# Names QG_SKIP / `ws hooks run --skip` accept, in the order the gate runs them.
+QG_STAGES = ("gitleaks", "commits", "lint", "design", "tests", "all")
 # Companion hooks registered next to the gate: event -> config friendly name.
 COMPANION_HOOKS = {"commit-msg": "workspace-commit-msg", "pre-commit": "workspace-pre-commit"}
 
@@ -105,9 +107,12 @@ def _register_companions(hooks_dir: Path, cwd: Path, is_global: bool) -> bool:
 def install_git_hooks(
     target_dir: str | Path | None = None,
     is_global: bool = False,
-    force: bool = True,
 ) -> dict[str, Any]:
-    """Installs the quality gate as a config-based pre-push hook (global or local)."""
+    """Installs the quality gate as a config-based pre-push hook (global or local).
+
+    The scripts live in a workspace-owned directory, so a reinstall overwrites them
+    (that is how an upgrade refreshes them); repository hooks are never touched.
+    """
     cwd = Path.home() if is_global else Path(target_dir or Path.cwd()).resolve()
     if not supports_config_hooks():
         return {
@@ -117,13 +122,6 @@ def install_git_hooks(
             "is_global": is_global,
         }
     hook_path = global_hook_path() if is_global else local_hook_path(cwd)
-    if hook_path.exists() and not force:
-        return {
-            "success": False,
-            "message": f"The hook already exists at {hook_path}. Use --force to overwrite.",
-            "hook_path": str(hook_path),
-            "is_global": is_global,
-        }
     _write_script(hook_path)
     code_cmd, _, err_cmd = _git_config(
         [f"hook.{HOOK_NAME}.command", str(hook_path)], cwd, is_global
