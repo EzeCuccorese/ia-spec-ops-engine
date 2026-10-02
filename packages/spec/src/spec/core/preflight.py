@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -204,6 +205,7 @@ class PreflightManager:
                 )
             try:
                 self._copy_missing_config(base_dir)
+                self._link_local_environment(base_dir)
                 return self.run_baseline_gate(target_root=base_dir)
             finally:
                 self._run_git("worktree", "remove", "--force", str(base_dir))
@@ -221,6 +223,32 @@ class PreflightManager:
                 shutil.copytree(src, dest)
             else:
                 shutil.copy2(src, dest)
+
+    def _link_local_environment(self, dest_root: Path) -> None:
+        """Copies .env* files and symlinks dependency folders so checks run as in the main checkout."""
+        # Copy env files if present
+        for env_file in self.root.glob(".env*"):
+            if env_file.is_file():
+                shutil.copy2(env_file, dest_root / env_file.name)
+
+        # Create relative symlinks for heavy gitignored dependencies if they exist (.venv, node_modules)
+        dep_folders = [
+            Path(".venv"),
+            Path("node_modules"),
+            Path("backend/.venv"),
+            Path("frontend/node_modules"),
+            Path(".gradle"),
+        ]
+        for dep in dep_folders:
+            src = self.root / dep
+            target = dest_root / dep
+            if not src.is_dir() or target.exists():
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            # Relative link from target back to src; without symlink support the checks
+            # simply run without the cached dependencies.
+            with contextlib.suppress(OSError):
+                os.symlink(os.path.relpath(src, target.parent), target)
 
     def prepare_target(self, branch: str, base_branch: str, *, use_worktree: bool) -> Path:
         """Returns the directory to work in: a new worktree, or the current checkout on the branch."""
@@ -258,31 +286,8 @@ class PreflightManager:
                 else:
                     shutil.copy2(src, dest)
 
-        # Copy env files if present
-        for env_file in self.root.glob(".env*"):
-            if env_file.is_file():
-                shutil.copy2(env_file, worktree_dir / env_file.name)
-
-        # 3. Create relative symlinks for heavy gitignored dependencies if they exist (.venv, node_modules)
-        dep_folders = [
-            Path(".venv"),
-            Path("node_modules"),
-            Path("backend/.venv"),
-            Path("frontend/node_modules"),
-            Path(".gradle"),
-        ]
-        for dep in dep_folders:
-            src = self.root / dep
-            if src.exists() and src.is_dir():
-                target = worktree_dir / dep
-                target.parent.mkdir(parents=True, exist_ok=True)
-                if not target.exists():
-                    try:
-                        # Compute relative path from target back to src
-                        rel_link = os.path.relpath(src, target.parent)
-                        os.symlink(rel_link, target)
-                    except OSError:
-                        pass
+        # 3. Copy env files and link heavy gitignored dependencies
+        self._link_local_environment(worktree_dir)
 
         return worktree_dir
 

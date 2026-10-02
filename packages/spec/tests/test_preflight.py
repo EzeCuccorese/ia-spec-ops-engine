@@ -707,3 +707,23 @@ def test_base_branch_baseline_evidence_survives_the_temporary_checkout(tmp_path:
     evidence = Path(result.evidence_path)
     assert evidence.is_file()
     assert evidence.parent == repo_dir / ".spec" / "evidence" / "preflight"
+
+
+def test_base_branch_baseline_gets_env_files_and_dependency_links(tmp_path: Path) -> None:
+    repo_dir = _passing_repo(tmp_path)
+    subprocess.run(["git", "-C", str(repo_dir), "branch", "other"], check=True, env=_git_env())
+    (repo_dir / ".env").write_text("A=1", encoding="utf-8")
+    (repo_dir / ".venv").mkdir()
+    v_config = {
+        "schema_version": 1,
+        "checks": [
+            {"id": "env", "command": ["test", "-f", ".env"], "required": True},
+            {"id": "venv", "command": ["test", "-d", ".venv"], "required": True},
+        ],
+    }
+    (repo_dir / ".spec" / "verification.json").write_text(json.dumps(v_config), encoding="utf-8")
+
+    result = PreflightManager(repo_dir).run_base_branch_baseline("other")
+
+    assert result.passed is True, result.summary
+    assert (repo_dir / ".venv").is_dir()
