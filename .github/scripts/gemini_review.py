@@ -77,24 +77,25 @@ def _matches_any(filepath: str, patterns: list[str]) -> bool:
 
 def get_pr_diff(exclude_patterns: list[str]) -> str:
     base_ref = os.environ.get("GITHUB_BASE_REF", "main")
-    subprocess.run(
-        ["git", "fetch", "origin", f"+refs/heads/{base_ref}:refs/remotes/origin/{base_ref}"],
-        check=False,
-    )
-    
-    # Get all changed files
-    name_status = subprocess.check_output(
-        ["git", "diff", "--name-only", f"origin/{base_ref}...HEAD"],
-        text=True,
-    ).splitlines()
+    try:
+        subprocess.run(
+            ["git", "fetch", "origin", f"+refs/heads/{base_ref}:refs/remotes/origin/{base_ref}"],
+            check=False,
+        )
+        name_status = subprocess.check_output(
+            ["git", "diff", "--name-only", f"origin/{base_ref}...HEAD"],
+            text=True,
+        ).splitlines()
 
-    included_files = [f for f in name_status if not _matches_any(f, exclude_patterns)]
-    if not included_files:
+        included_files = [f for f in name_status if not _matches_any(f, exclude_patterns)]
+        if not included_files:
+            return ""
+
+        cmd = ["git", "diff", f"origin/{base_ref}...HEAD", "--"] + included_files
+        return subprocess.check_output(cmd, text=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error computing git diff against origin/{base_ref}: {e}", file=sys.stderr)
         return ""
-
-    cmd = ["git", "diff", f"origin/{base_ref}...HEAD", "--"] + included_files
-    diff = subprocess.check_output(cmd, text=True)
-    return diff
 
 
 def _filter_comments(comments: Any) -> list[dict[str, Any]]:
@@ -114,7 +115,8 @@ def _filter_comments(comments: Any) -> list[dict[str, Any]]:
 
 def _post_fallback(target: ReviewTarget, summary: str, comments: list[dict[str, Any]]) -> None:
     url = f"https://api.github.com/repos/{target.owner}/{target.repo}/pulls/{target.pr_number}/reviews"
-    fallback_body = f"## Gemini Code Review\n\n{summary}"
+    clean_summary = summary.strip() or "Review completed."
+    fallback_body = f"## Gemini Code Review\n\n{clean_summary}"
     if comments:
         fallback_body += "\n\n### Detailed Comments\n"
         for c in comments:
@@ -140,8 +142,9 @@ def post_github_review(target: ReviewTarget, summary: str, comments: list[dict[s
     valid_comments = _filter_comments(comments)
     url = f"https://api.github.com/repos/{target.owner}/{target.repo}/pulls/{target.pr_number}/reviews"
     
+    clean_summary = summary.strip() or "Review completed."
     payload: dict[str, Any] = {
-        "body": summary,
+        "body": clean_summary,
         "event": "COMMENT",
     }
     if valid_comments:
