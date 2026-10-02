@@ -407,3 +407,146 @@ def test_main_uses_ai_repositories_dir_env_var(
         gw.main()
     kwargs = mock_create.call_args.kwargs
     assert kwargs["repo_paths"]["repo-a"] == custom_repos / "repo-a"
+
+
+def _git(*args: str) -> str:
+    import subprocess
+
+    return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout
+
+
+def _source_repo(path: Path) -> Path:
+    _git("init", "-q", "-b", "main", str(path))
+    _git("-C", str(path), "commit", "-q", "--allow-empty", "-m", "init")
+    return path
+
+
+def test_failed_worktree_rolls_back_the_workspace(tmp_path: Path, capsys) -> None:
+    api = _source_repo(tmp_path / "src" / "api")
+    web = _source_repo(tmp_path / "src" / "web")
+    configs = [
+        RepoConfig(name="api", mode="new", branch="feat-x", parent="main"),
+        RepoConfig(name="web", mode="existing", branch="missing", parent=None),
+    ]
+
+    with pytest.raises(RuntimeError, match="Failed to create worktree for web"):
+        gw.create_workspace_structure("feat-x", tmp_path / "ws", configs, {"api": api, "web": web})
+
+    assert not (tmp_path / "ws" / "feat-x").exists()
+    assert str(tmp_path / "ws") not in _git("-C", str(api), "worktree", "list")
+    assert "feat-x" not in _git("-C", str(api), "branch", "--list")
+
+
+def test_main_reports_a_failed_worktree_without_a_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    toolkit = tmp_path / "toolkit"
+    (toolkit / ".git").mkdir(parents=True)
+    _source_repo(tmp_path / "ai-repositories" / "api")
+    monkeypatch.chdir(toolkit)
+    monkeypatch.delenv("AI_REPOSITORIES_DIR", raising=False)
+
+    with pytest.raises(SystemExit) as exc:
+        gw.main(["feat-x", "api@missing"])
+
+    assert exc.value.code == 1
+    assert "Failed to create worktree for api" in capsys.readouterr().err
+    assert not (tmp_path / "workspaces" / "feat-x").exists()
+
+
+def test_interrupted_generation_rolls_back_the_workspace(tmp_path: Path) -> None:
+    api = _source_repo(tmp_path / "src" / "api")
+    web = _source_repo(tmp_path / "src" / "web")
+    configs = [
+        RepoConfig(name="api", mode="new", branch="feat-x", parent="main"),
+        RepoConfig(name="web", mode="new", branch="feat-x", parent="main"),
+    ]
+    real_setup = gw.setup_repo_worktree
+
+    def interrupt_on_web(src: Path, target: Path, cfg: RepoConfig) -> None:
+        if cfg.name == "web":
+            raise KeyboardInterrupt
+        real_setup(src, target, cfg)
+
+    with (
+        patch.object(gw, "setup_repo_worktree", side_effect=interrupt_on_web),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        gw.create_workspace_structure("feat-x", tmp_path / "ws", configs, {"api": api, "web": web})
+
+    assert not (tmp_path / "ws" / "feat-x").exists()
+    assert "feat-x" not in _git("-C", str(api), "branch", "--list")
+
+
+def test_failed_new_worktree_removes_the_branch_it_created(tmp_path: Path) -> None:
+    api = _source_repo(tmp_path / "src" / "api")
+    target = tmp_path / "ws" / "feat-x" / "repositories" / "api"
+    target.mkdir(parents=True)
+    (target / "occupied").touch()
+    configs = [RepoConfig(name="api", mode="new", branch="feat-x", parent="main")]
+
+    with pytest.raises(RuntimeError):
+        gw.create_workspace_structure("feat-x", tmp_path / "ws", configs, {"api": api})
+
+    assert "feat-x" not in _git("-C", str(api), "branch", "--list")
+
+
+def test_failed_new_worktree_keeps_a_branch_that_already_existed(tmp_path: Path) -> None:
+    api = _source_repo(tmp_path / "src" / "api")
+    _git("-C", str(api), "branch", "feat-x")
+    configs = [RepoConfig(name="api", mode="new", branch="feat-x", parent="main")]
+
+    with pytest.raises(RuntimeError):
+        gw.create_workspace_structure("feat-x", tmp_path / "ws", configs, {"api": api})
+
+    assert "feat-x" in _git("-C", str(api), "branch", "--list")
+
+
+def test_rollback_removes_the_directory_even_if_undoing_worktrees_fails(tmp_path: Path) -> None:
+    api = _source_repo(tmp_path / "src" / "api")
+    configs = [RepoConfig(name="api", mode="existing", branch="missing", parent=None)]
+
+    with (
+        patch.object(gw, "_remove_worktrees", side_effect=KeyboardInterrupt),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        gw.create_workspace_structure("feat-x", tmp_path / "ws", configs, {"api": api})
+
+    assert not (tmp_path / "ws" / "feat-x").exists()
+
+
+def test_rollback_keeps_a_branch_the_run_did_not_create(tmp_path: Path) -> None:
+    api = _source_repo(tmp_path / "src" / "api")
+    web = _source_repo(tmp_path / "src" / "web")
+    _git("-C", str(api), "branch", "feat-x")
+    configs = [
+        RepoConfig(name="api", mode="new", branch="feat-x", parent="main"),
+        RepoConfig(name="web", mode="existing", branch="missing", parent=None),
+    ]
+    real_setup = gw.setup_repo_worktree
+
+    def api_already_registered(src: Path, target: Path, cfg: RepoConfig) -> None:
+        if cfg.name != "api":  # api's worktree "already exists": setup returns early
+            real_setup(src, target, cfg)
+
+    with (
+        patch.object(gw, "setup_repo_worktree", side_effect=api_already_registered),
+        pytest.raises(RuntimeError),
+    ):
+        gw.create_workspace_structure("feat-x", tmp_path / "ws", configs, {"api": api, "web": web})
+
+    assert "feat-x" in _git("-C", str(api), "branch", "--list")
+
+
+def test_failure_after_the_worktrees_rolls_back_the_workspace(tmp_path: Path) -> None:
+    api = _source_repo(tmp_path / "src" / "api")
+    configs = [RepoConfig(name="api", mode="new", branch="feat-x", parent="main")]
+
+    with (
+        patch.object(gw, "render_agents_md", side_effect=OSError("template unreadable")),
+        pytest.raises(OSError),
+    ):
+        gw.create_workspace_structure("feat-x", tmp_path / "ws", configs, {"api": api})
+
+    assert not (tmp_path / "ws" / "feat-x").exists()
+    assert "feat-x" not in _git("-C", str(api), "branch", "--list")

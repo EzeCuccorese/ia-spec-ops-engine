@@ -100,3 +100,12 @@ def test_base_ref_without_default_branch(tmp_path: Path) -> None:
     root.mkdir()
     _git(root, "init", "-q", "-b", "trunk")
     assert changes.base_ref(root) is None
+
+
+def test_check_skip_help_lists_the_gate_stages(capsys):
+    from workspace_engine.services.git_hooks import QG_STAGES
+
+    with pytest.raises(SystemExit):
+        check_cli.check(["--help"])
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert f"Stages to skip: {','.join(QG_STAGES)}" in help_text

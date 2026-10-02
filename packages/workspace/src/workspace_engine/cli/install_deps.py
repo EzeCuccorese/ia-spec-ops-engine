@@ -90,10 +90,12 @@ def install_all_deps(repos_filter: list[str] | None = None, start_dir: Path | No
     return 0 if all_ok else 1
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Installs local project dependencies.")
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        prog="ws deps", description="Installs local project dependencies."
+    )
     parser.add_argument("repos", nargs="*", help="Specific repository names (optional)")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     sys.exit(install_all_deps(repos_filter=args.repos))
 
 

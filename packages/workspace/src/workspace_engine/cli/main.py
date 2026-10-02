@@ -24,6 +24,7 @@ Unifies workspace management operations into a single command:
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import shutil
 import sys
@@ -81,8 +82,70 @@ def doctor_check() -> None:
 
 CONDENSE_COMMANDS = ("run", "condense", "log", "check", "changed", "design")
 
+# Commands that own their argument parser: `ws <command> ...` forwards everything after the
+# command name to `<module>.main(argv)`.
+DELEGATED_COMMANDS = {
+    "generate": (
+        "workspace_engine.cli.generate_workspace",
+        "Generate a new multi-repo workspace from Git worktrees",
+    ),
+    "edit": (
+        "workspace_engine.cli.edit_workspace",
+        "Add/remove repositories in the current workspace",
+    ),
+    "clean": (
+        "workspace_engine.cli.clean_workspace",
+        "Clean dependencies, caches, and build artifacts in workspace",
+    ),
+    "stop": (
+        "workspace_engine.cli.stop_workspace",
+        "Stop all running processes and services in workspace",
+    ),
+    "reset": (
+        "workspace_engine.cli.reset_repos",
+        "Reset workspace repositories to their branch point or a clean HEAD",
+    ),
+    "delete": (
+        "workspace_engine.cli.delete_workspaces",
+        "Delete workspaces and unregister associated worktrees",
+    ),
+    "build": (
+        "workspace_engine.cli.build_project",
+        "Build project auto-detecting the technology stack",
+    ),
+    "deps": (
+        "workspace_engine.cli.install_deps",
+        "Install workspace repository dependencies (Gradle, Maven, npm, uv, etc.)",
+    ),
+    "java": (
+        "workspace_engine.cli.set_java",
+        "Print the JAVA_HOME/PATH exports for the project's JDK via SDKMAN",
+    ),
+    "env-init": (
+        "workspace_engine.cli.init_env",
+        "Initialize or sync config/.env from its .env.example template",
+    ),
+    "env-load": (
+        "workspace_engine.cli.load_env",
+        "Update a variable across per-environment values.<env>.yaml files",
+    ),
+    "benchmark": (
+        "workspace_engine.cli.unit_test_benchmark",
+        "Execute parallel unit test benchmarks with visual reports",
+    ),
+    "run-local": (
+        "workspace_engine.run_local.main",
+        "Orchestrate and launch local microservices with live TUI",
+    ),
+}
+
 
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] in DELEGATED_COMMANDS:
+        module_name, _ = DELEGATED_COMMANDS[sys.argv[1]]
+        importlib.import_module(module_name).main(sys.argv[2:])
+        return
+
     if len(sys.argv) > 1 and sys.argv[1] in CONDENSE_COMMANDS:
         from workspace_engine.cli import check as check_cli
         from workspace_engine.cli import design as design_cli
@@ -105,92 +168,14 @@ def main() -> None:
     )
     subparsers = parser.add_subparsers(dest="command", help="Available Workspace Engine commands")
 
-    # ws generate
-    p_gen = subparsers.add_parser(
-        "generate", help="Generate a new multi-repo workspace from Git worktrees"
-    )
-    p_gen.add_argument("name", nargs="?", help="Workspace name")
-    p_gen.add_argument(
-        "repos", nargs="*", help="Initial repositories (repo, repo:parent, or repo@branch format)"
-    )
-
-    # ws edit
-    p_edit = subparsers.add_parser(
-        "edit", help="Edit and add/remove repositories in an active workspace"
-    )
-    p_edit.add_argument("name", nargs="?", help="Workspace name to edit")
+    for name, (_, help_text) in DELEGATED_COMMANDS.items():
+        subparsers.add_parser(name, help=help_text)
 
     # ws worktree
     p_wt = subparsers.add_parser("worktree", help="Create an isolated Git worktree")
     p_wt.add_argument("repo", help="Base repository path or name")
     p_wt.add_argument("target", help="Target path for new worktree")
     p_wt.add_argument("branch", help="Branch name to associate")
-
-    # ws clean
-    p_clean = subparsers.add_parser(
-        "clean", help="Clean dependencies, caches, and build artifacts in workspace"
-    )
-    p_clean.add_argument("target", nargs="?", default=".", help="Workspace directory")
-
-    # ws stop
-    p_stop = subparsers.add_parser(
-        "stop", help="Stop all running processes and services in workspace"
-    )
-    p_stop.add_argument("workspace", nargs="?", help="Workspace name")
-
-    # ws reset
-    p_reset = subparsers.add_parser(
-        "reset", help="Reset workspace repositories to clean upstream state"
-    )
-    p_reset.add_argument("workspace", nargs="?", help="Workspace name")
-    p_reset.add_argument(
-        "--force", "-f", action="store_true", help="Force reset discarding local changes"
-    )
-
-    # ws delete
-    p_del = subparsers.add_parser(
-        "delete", help="Delete workspaces and unregister associated worktrees"
-    )
-    p_del.add_argument("names", nargs="*", help="Names of workspaces to delete")
-
-    # ws build
-    p_build = subparsers.add_parser(
-        "build", help="Build project auto-detecting the technology stack"
-    )
-    p_build.add_argument("dir", nargs="?", default=".", help="Project directory")
-
-    # ws deps
-    p_deps = subparsers.add_parser(
-        "deps", help="Install project dependencies (Gradle, Maven, NPM, uv, etc.)"
-    )
-    p_deps.add_argument("dir", nargs="?", default=".", help="Project directory")
-
-    # ws java
-    p_java = subparsers.add_parser("java", help="Configure local Java JDK version via SDKMAN")
-    p_java.add_argument("version", nargs="?", help="Java version (e.g. 17, 21)")
-
-    # ws env-init
-    p_einit = subparsers.add_parser(
-        "env-init", help="Initialize repository environment files from templates"
-    )
-    p_einit.add_argument("repo", nargs="?", help="Repository name")
-
-    # ws env-load
-    p_eload = subparsers.add_parser("env-load", help="Load and inspect environment variables")
-    p_eload.add_argument("repo", nargs="?", help="Repository name")
-
-    # ws benchmark
-    p_bench = subparsers.add_parser(
-        "benchmark", help="Execute parallel unit test benchmarks with visual reports"
-    )
-    p_bench.add_argument("dir", nargs="?", default=".", help="Project directory")
-
-    # ws run-local
-    p_run = subparsers.add_parser(
-        "run-local", help="Orchestrate and launch local microservices with live TUI"
-    )
-    p_run.add_argument("--profile", "-p", help="Execution profile to load")
-    p_run.add_argument("--env", "-e", help="Target environment (faf, granos, staging)")
 
     # ws kube
     p_kube = subparsers.add_parser(
@@ -271,62 +256,10 @@ def main() -> None:
             from workspace_engine.integrations.claude.worktree_hook import main as hook_main
 
             sys.exit(hook_main(args.hook_args))
-    elif args.command == "generate":
-        from workspace_engine.cli.generate_workspace import main as gen_main
-
-        gen_main()
-    elif args.command == "edit":
-        from workspace_engine.cli.edit_workspace import main as edit_main
-
-        edit_main()
     elif args.command == "worktree":
         from workspace_engine.cli.create_worktree import main as wt_main
 
         wt_main([args.repo, args.target, args.branch])
-    elif args.command == "clean":
-        from workspace_engine.cli.clean_workspace import main as clean_main
-
-        clean_main()
-    elif args.command == "stop":
-        from workspace_engine.cli.stop_workspace import main as stop_main
-
-        stop_main()
-    elif args.command == "reset":
-        from workspace_engine.cli.reset_repos import main as reset_main
-
-        reset_main()
-    elif args.command == "delete":
-        from workspace_engine.cli.delete_workspaces import main as del_main
-
-        del_main()
-    elif args.command == "build":
-        from workspace_engine.cli.build_project import main as build_main
-
-        build_main()
-    elif args.command == "deps":
-        from workspace_engine.cli.install_deps import main as deps_main
-
-        deps_main()
-    elif args.command == "java":
-        from workspace_engine.cli.set_java import main as java_main
-
-        java_main()
-    elif args.command == "env-init":
-        from workspace_engine.cli.init_env import main as einit_main
-
-        einit_main()
-    elif args.command == "env-load":
-        from workspace_engine.cli.load_env import main as eload_main
-
-        eload_main()
-    elif args.command == "benchmark":
-        from workspace_engine.cli.unit_test_benchmark import main as bench_main
-
-        bench_main()
-    elif args.command == "run-local":
-        from workspace_engine.run_local.main import main as run_main
-
-        run_main()
     elif args.command == "kube":
         from workspace_engine.cli.kube.main import main as kube_main
 

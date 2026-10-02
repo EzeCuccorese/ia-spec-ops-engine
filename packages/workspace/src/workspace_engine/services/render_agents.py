@@ -52,7 +52,7 @@ def update_workspace_agents(
     else:
         content = target.read_text(encoding="utf-8")
         section = "## Repositories\n\n" + "\n".join(f"- {repo}" for repo in repos) + "\n\n"
-        pattern = r"^## (?:Repositories|Repositorios)[^\n]*\n.*?(?=^## |\Z)"
+        pattern = r"^## Repositories[^\n]*\n.*?(?=^## |\Z)"
         if re.search(pattern, content, flags=re.MULTILINE | re.DOTALL):
             content = re.sub(
                 pattern, lambda _: section, content, count=1, flags=re.MULTILINE | re.DOTALL

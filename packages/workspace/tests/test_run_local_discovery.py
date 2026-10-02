@@ -1,5 +1,5 @@
 """
-Tests unitarios calibrados para workspace_engine.run_local.discovery.
+Unit tests for workspace_engine.run_local.discovery.
 """
 
 import json

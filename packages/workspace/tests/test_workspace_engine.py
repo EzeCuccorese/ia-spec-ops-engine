@@ -136,3 +136,13 @@ def test_detect_required_java_version():
         (ws / "pom.xml").unlink()
         (ws / "build.gradle").write_text("sourceCompatibility = '21'")
         assert detect_required_java_version(ws) == "21"
+
+
+def test_update_workspace_agents_only_rewrites_the_english_section(tmp_path: Path):
+    (tmp_path / "AGENTS.md").write_text("# WS\n\n## Repositorios\n\n- old\n", encoding="utf-8")
+
+    update_workspace_agents(tmp_path, ["api"])
+
+    content = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+    assert "## Repositorios\n\n- old\n" in content
+    assert content.endswith("## Repositories\n\n- api\n\n")

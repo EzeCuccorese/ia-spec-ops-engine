@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from spec.agents import RECOGNIZED_AGENTS
 from spec.cli import main, run_doctor, run_verify
 from spec.core.result import CheckStatus
 from spec.governance.project import ProjectGovernance
@@ -309,17 +310,23 @@ def test_agent_install_interactive_tui_selection(tmp_path: Path, monkeypatch) ->
 def test_agent_uninstall_unknown_agent_raises(tmp_path: Path) -> None:
     with pytest.raises(SystemExit) as exc:
         main(["agent", "uninstall", "nonexistent_ai", "--root", str(tmp_path)])
-    assert exc.value.code == 1
+    assert exc.value.code == 2
 
 
-def test_agent_uninstall_all_target(tmp_path: Path) -> None:
-    ProjectGovernance(tmp_path).initialize()
+@pytest.mark.parametrize("command", ["install", "uninstall"])
+def test_agent_help_and_choices_list_every_recognized_agent(command: str, capsys) -> None:
     with pytest.raises(SystemExit):
-        main(["agent", "install", "agents", "--root", str(tmp_path)])
+        main(["agent", command, "--help"])
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "{" + ",".join(RECOGNIZED_AGENTS) + "}" in help_text
+    assert "codex" in help_text
 
+
+@pytest.mark.parametrize("command", ["install", "uninstall"])
+def test_agent_all_is_not_an_agent(command: str, tmp_path: Path) -> None:
     with pytest.raises(SystemExit) as exc:
-        main(["agent", "uninstall", "all", "--apply", "--root", str(tmp_path)])
-    assert exc.value.code == 0
+        main(["agent", command, "all", "--root", str(tmp_path)])
+    assert exc.value.code == 2
     assert not (tmp_path / "AGENTS.md").exists()
 
 
@@ -375,3 +382,56 @@ def test_main_fallback_raises_system_exit_two(monkeypatch) -> None:
     with pytest.raises(SystemExit) as exc:
         main([])
     assert exc.value.code == 2
+
+
+def test_version_comes_from_the_installed_distribution(capsys) -> None:
+    from importlib.metadata import version
+
+    import spec
+
+    assert spec.__version__ == version("spec")
+    with pytest.raises(SystemExit):
+        main(["--version"])
+    assert capsys.readouterr().out.strip() == f"spec {version('spec')}"
+
+
+def test_agent_install_picker_offers_every_recognized_agent(tmp_path: Path, monkeypatch) -> None:
+    ProjectGovernance(tmp_path).initialize()
+    offered: list[tuple[str, str]] = []
+
+    class FakeStdin:
+        def isatty(self) -> bool:
+            return True
+
+    def pick(title: str, options, default_checked=None) -> list[str]:
+        offered.extend(options)
+        return ["claude"]
+
+    monkeypatch.setattr("spec.cli.sys.stdin", FakeStdin())
+    monkeypatch.setattr("spec.core.tui.select_multiple", pick)
+
+    with pytest.raises(SystemExit) as exc:
+        main(["agent", "install", "--root", str(tmp_path)])
+    assert exc.value.code == 0
+    assert offered == list(RECOGNIZED_AGENTS.items())
+    assert len(set(RECOGNIZED_AGENTS.values())) == len(RECOGNIZED_AGENTS)
+    assert (tmp_path / ".claude" / "skills" / "spec-new" / "SKILL.md").exists()
+
+
+def test_version_without_installed_metadata_is_explicitly_unknown(monkeypatch) -> None:
+    """Imported from a source tree with no distribution metadata, spec must not crash and must
+    not invent a release number that could drift from pyproject.toml."""
+    import importlib
+    import importlib.metadata
+
+    import spec
+
+    def missing(name: str) -> str:
+        raise importlib.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(importlib.metadata, "version", missing)
+    try:
+        assert importlib.reload(spec).__version__ == "0+unknown"
+    finally:
+        monkeypatch.undo()
+        importlib.reload(spec)
