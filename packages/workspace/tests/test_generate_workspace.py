@@ -452,3 +452,27 @@ def test_main_reports_a_failed_worktree_without_a_traceback(
     assert exc.value.code == 1
     assert "Failed to create worktree for api" in capsys.readouterr().err
     assert not (tmp_path / "workspaces" / "feat-x").exists()
+
+
+def test_interrupted_generation_rolls_back_the_workspace(tmp_path: Path) -> None:
+    api = _source_repo(tmp_path / "src" / "api")
+    web = _source_repo(tmp_path / "src" / "web")
+    configs = [
+        RepoConfig(name="api", mode="new", branch="feat-x", parent="main"),
+        RepoConfig(name="web", mode="new", branch="feat-x", parent="main"),
+    ]
+    real_setup = gw.setup_repo_worktree
+
+    def interrupt_on_web(src: Path, target: Path, cfg: RepoConfig) -> None:
+        if cfg.name == "web":
+            raise KeyboardInterrupt
+        real_setup(src, target, cfg)
+
+    with (
+        patch.object(gw, "setup_repo_worktree", side_effect=interrupt_on_web),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        gw.create_workspace_structure("feat-x", tmp_path / "ws", configs, {"api": api, "web": web})
+
+    assert not (tmp_path / "ws" / "feat-x").exists()
+    assert "feat-x" not in _git("-C", str(api), "branch", "--list")

@@ -295,3 +295,35 @@ def test_missing_config_lists_the_real_search_order(tmp_path: Path, monkeypatch,
     positions = [out.index(str(path) + "\n") for path in expected]
     assert positions == sorted(positions)
     assert "ws config init" in out
+
+
+def test_terminate_ignores_processes_it_cannot_signal():
+    with patch(f"{MAIN}.os.kill", side_effect=PermissionError) as kill:
+        rl._terminate(42)
+    assert [c.args for c in kill.call_args_list] == [(-42, 15), (42, 15)]
+
+
+def test_terminate_never_signals_its_own_process_group():
+    with patch(f"{MAIN}.os.kill") as kill:
+        rl._terminate(0)
+    assert kill.call_args_list == []
+
+
+def test_add_services_drops_a_stopped_service_that_failed_to_relaunch():
+    results = [_result("api", pid=1), _result("web", pid=2)]
+    launch_configs = [_config("api"), _config("web")]
+    relaunched = _config("api", base_env="staging")
+    with (
+        patch(f"{MAIN}._pid_alive", return_value=True),
+        patch(f"{MAIN}.os.kill"),
+        patch(
+            f"{MAIN}._launch_and_report",
+            return_value=([_result("api", pid=None, ok=False)], [relaunched]),
+        ),
+        patch(f"{MAIN}.save_state"),
+        patch(f"{MAIN}.save_last_configs"),
+        patch(f"{MAIN}._offer_rewire"),
+    ):
+        results, launch_configs = rl._add_services([relaunched], results, launch_configs, {})
+    assert [r["name"] for r in results] == ["web"]
+    assert [c["name"] for c in launch_configs] == ["web"]

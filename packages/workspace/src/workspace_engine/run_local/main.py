@@ -240,8 +240,10 @@ def _needs_launch(cfg: dict, current: dict | None, alive: set[str]) -> bool:
 
 def _terminate(pid: int) -> None:
     """SIGTERM to the process group, then to the process itself."""
+    if pid <= 0:
+        return  # 0 or less would signal our own process group
     for t in (-pid, pid):
-        with contextlib.suppress(ProcessLookupError):
+        with contextlib.suppress(ProcessLookupError, PermissionError):
             os.kill(t, 15)
 
 
@@ -269,10 +271,10 @@ def _offer_rewire(results: list, launch_configs: list, new_names: set[str], db_c
         save_state(results, launch_configs)
 
 
-def _replace_by_name(current: list, fresh: list, names: set[str]) -> list:
-    """``current`` with the entries named in ``names`` replaced by those from ``fresh``."""
-    kept = [e for e in current if e["name"] not in names]
-    return kept + [e for e in fresh if e["name"] in names]
+def _replace_by_name(current: list, stopped: set[str], fresh: list, started: set[str]) -> list:
+    """``current`` without the ``stopped`` entries, plus the ``started`` ones from ``fresh``."""
+    kept = [e for e in current if e["name"] not in stopped]
+    return kept + [e for e in fresh if e["name"] in started]
 
 
 def _add_services(
@@ -287,8 +289,9 @@ def _add_services(
     _stop_running(to_launch, results)
     new_results, new_lc = _launch_and_report(to_launch, db_cfg)
     new_names = _started_names(new_results)
-    results = _replace_by_name(results, new_results, new_names)
-    launch_configs = _replace_by_name(launch_configs, new_lc, new_names)
+    stopped = {c["name"] for c in to_launch}
+    results = _replace_by_name(results, stopped, new_results, new_names)
+    launch_configs = _replace_by_name(launch_configs, stopped, new_lc, new_names)
     save_state(results, launch_configs)
     save_last_configs(launch_configs)
     _offer_rewire(results, launch_configs, new_names, db_cfg)

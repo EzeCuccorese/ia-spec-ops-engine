@@ -72,7 +72,7 @@ def _remove_worktrees(created: list[tuple[Path, Path, RepoConfig]]) -> None:
 def _create_worktrees(
     workspace_dir: Path, repo_configs: list[RepoConfig], repo_paths: dict[str, Path]
 ) -> None:
-    """Creates every worktree, or none: on failure the workspace is rolled back and re-raised."""
+    """Creates every worktree, or none: on any failure the workspace is rolled back."""
     created: list[tuple[Path, Path, RepoConfig]] = []
     try:
         for cfg in repo_configs:
@@ -81,7 +81,7 @@ def _create_worktrees(
             setup_repo_worktree(src, target, cfg)
             created.append((src, target, cfg))
             log_success(f"Worktree created for {cfg.name} (branch: {cfg.branch})")
-    except RuntimeError:
+    except BaseException:  # interrupts too: never leave a half-built workspace
         _remove_worktrees(created)
         shutil.rmtree(workspace_dir, ignore_errors=True)
         raise
