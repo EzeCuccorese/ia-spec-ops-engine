@@ -1,0 +1,25 @@
+name: Gemini PR Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.GEMINI_API_KEY != '' }}
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Gemini Automated Code Review
+        uses: sshnaidm/gemini-code-review-action@d4ccdaf0e2cad5cb79f80f6db07857c0e7fff28f # v1
+        with:
+          gemini-key: ${{ secrets.GEMINI_API_KEY }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          model: "gemini-flash-latest"
