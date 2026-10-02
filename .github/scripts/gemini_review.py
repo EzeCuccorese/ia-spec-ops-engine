@@ -98,24 +98,39 @@ def get_pr_diff(exclude_patterns: list[str]) -> str:
         return ""
 
 
+def _validate_comment(c: Any) -> dict[str, Any] | None:
+    if not isinstance(c, dict):
+        return None
+    path = c.get("path")
+    line = c.get("line")
+    body = c.get("body")
+    if isinstance(line, str) and line.strip().isdigit():
+        line = int(line.strip())
+    if (
+        isinstance(path, str)
+        and isinstance(body, str)
+        and isinstance(line, int)
+        and not isinstance(line, bool)
+        and line > 0
+    ):
+        return {"path": path, "line": line, "body": body}
+    return None
+
+
 def _filter_comments(comments: Any) -> list[dict[str, Any]]:
     if not isinstance(comments, list):
         return []
     valid = []
     for c in comments:
-        if not isinstance(c, dict):
-            continue
-        path = c.get("path")
-        line = c.get("line")
-        body = c.get("body")
-        if path and isinstance(line, int) and line > 0 and body:
-            valid.append({"path": path, "line": line, "body": body})
+        v = _validate_comment(c)
+        if v:
+            valid.append(v)
     return valid
 
 
-def _post_fallback(target: ReviewTarget, summary: str, comments: list[dict[str, Any]]) -> None:
+def _post_fallback(target: ReviewTarget, summary: Any, comments: list[dict[str, Any]]) -> None:
     url = f"https://api.github.com/repos/{target.owner}/{target.repo}/pulls/{target.pr_number}/reviews"
-    clean_summary = summary.strip() or "Review completed."
+    clean_summary = (summary or "").strip() or "Review completed."
     fallback_body = f"## Gemini Code Review\n\n{clean_summary}"
     if comments:
         fallback_body += "\n\n### Detailed Comments\n"
@@ -138,11 +153,11 @@ def _post_fallback(target: ReviewTarget, summary: str, comments: list[dict[str, 
         print(f"Failed to post fallback review: HTTP {e.code} - {e.read().decode('utf-8')}", file=sys.stderr)
 
 
-def post_github_review(target: ReviewTarget, summary: str, comments: list[dict[str, Any]]) -> None:
+def post_github_review(target: ReviewTarget, summary: Any, comments: list[dict[str, Any]]) -> None:
     valid_comments = _filter_comments(comments)
     url = f"https://api.github.com/repos/{target.owner}/{target.repo}/pulls/{target.pr_number}/reviews"
     
-    clean_summary = summary.strip() or "Review completed."
+    clean_summary = (summary or "").strip() or "Review completed."
     payload: dict[str, Any] = {
         "body": clean_summary,
         "event": "COMMENT",
