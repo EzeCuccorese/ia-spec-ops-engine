@@ -1,0 +1,82 @@
+name: Reusable Gemini PR Code Review
+
+on:
+  workflow_call:
+    inputs:
+      language:
+        description: "Language for the review output (e.g. English, Spanish)"
+        required: false
+        default: "English"
+        type: string
+      exclude:
+        description: "Comma-separated glob patterns to exclude from diff"
+        required: false
+        default: "*.lock,package-lock.json,dist/*,build/*,node_modules/*"
+        type: string
+      standards:
+        description: "Engineering standards to enforce in addition to SOLID"
+        required: false
+        default: "SOLID, Clean Code, Resource Safety, Security & Concurrency"
+        type: string
+      model:
+        description: "Gemini model to use"
+        required: false
+        default: "gemini-flash-latest"
+        type: string
+      engine-repo:
+        description: "Repository where review engine scripts are located"
+        required: false
+        default: "EzeCuccorese/ia-spec-ops-engine"
+        type: string
+      engine-ref:
+        description: "Git ref or branch to fetch engine scripts from"
+        required: false
+        default: "main"
+        type: string
+    secrets:
+      GEMINI_API_KEY:
+        required: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+    steps:
+      - name: Checkout caller repository
+        if: ${{ env.GEMINI_API_KEY != '' }}
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        if: ${{ env.GEMINI_API_KEY != '' }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Checkout review engine script
+        if: ${{ env.GEMINI_API_KEY != '' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.engine-repo }}
+          ref: ${{ inputs.engine-ref }}
+          path: ".engine_tools"
+          sparse-checkout: ".github/scripts"
+
+      - name: Run In-House Gemini Code Review
+        if: ${{ env.GEMINI_API_KEY != '' }}
+        env:
+          GEMINI_MODEL: ${{ inputs.model }}
+          REVIEW_LANGUAGE: ${{ inputs.language }}
+          EXCLUDE_PATTERNS: ${{ inputs.exclude }}
+          REVIEW_STANDARDS: ${{ inputs.standards }}
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python .engine_tools/.github/scripts/gemini_review.py

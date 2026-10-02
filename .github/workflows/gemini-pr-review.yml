@@ -14,24 +14,31 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    # `secrets` is not available in a job-level `if`; check it per step through env.
     env:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
     steps:
-      # The action checks out with fetch-depth 2 and diffs base.sha..head.sha; once the
-      # branch contains the base, base.sha is not within those 2 commits ("bad object").
-      # A full checkout first keeps every commit; the action's shallow fetch reuses it.
-      - name: Checkout full history
+      - name: Checkout repository
         if: ${{ env.GEMINI_API_KEY != '' }}
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Gemini Automated Code Review
+      - name: Set up Python
         if: ${{ env.GEMINI_API_KEY != '' }}
-        uses: sshnaidm/gemini-code-review-action@d4ccdaf0e2cad5cb79f80f6db07857c0e7fff28f # v1
+        uses: actions/setup-python@v5
         with:
-          gemini-key: ${{ env.GEMINI_API_KEY }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          model: "gemini-flash-latest"
+          python-version: "3.11"
+
+      - name: Run In-House Gemini Code Review
+        if: ${{ env.GEMINI_API_KEY != '' }}
+        env:
+          GEMINI_MODEL: "gemini-flash-latest"
+          REVIEW_LANGUAGE: "English"
+          EXCLUDE_PATTERNS: "*.lock,package-lock.json"
+          REVIEW_STANDARDS: "SOLID, Clean Code, Resource Safety"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python .github/scripts/gemini_review.py
