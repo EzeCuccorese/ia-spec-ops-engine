@@ -40,6 +40,58 @@ uv run mypy
 uv run python -m pytest -q --cov
 ```
 
+## Gemini PR review: recommended trigger for consumers
+
+Repositories that call `reusable-gemini-review.yml` should run the review once per PR and
+re-run it on demand with a label. Do not trigger on `synchronize`: it re-runs the review on
+every push, so each fix produces a new batch of comments and the review never converges.
+
+```yaml
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, labeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false # an unrelated label event must not abort a review in progress
+
+jobs:
+  review:
+    # Automatic once per PR (opened/reopened/ready, never for drafts); on demand with the
+    # `gemini-review` label, even on drafts.
+    if: >-
+      (github.event.action == 'labeled' && github.event.label.name == 'gemini-review') ||
+      (github.event.action != 'labeled' && github.event.pull_request.draft == false)
+    uses: EzeCuccorese/ia-spec-ops-engine/.github/workflows/reusable-gemini-review.yml@main
+    secrets: inherit
+
+  clear-label:
+    needs: review
+    if: always() && github.event.action == 'labeled' && github.event.label.name == 'gemini-review'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Remove the trigger label so it can be added again
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        # The label may already be gone (removed by hand while the review ran).
+        run: gh pr edit "${{ github.event.pull_request.number }}" --remove-label gemini-review || true
+```
+
+Notes:
+
+- Create the `gemini-review` label in each consumer repository.
+- The caller needs `permissions: pull-requests: write` (and `contents: read`) so the review
+  can post comments and `clear-label` can remove the label.
+- To request another review, add the `gemini-review` label to the PR; it is removed
+  automatically once the run finishes.
+
 ## License
 
 [MIT](LICENSE)
