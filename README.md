@@ -80,7 +80,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh pr edit "${{ github.event.pull_request.number }}" --remove-label gemini-review
+        # The label may already be gone (removed by hand while the review ran).
+        run: gh pr edit "${{ github.event.pull_request.number }}" --remove-label gemini-review || true
 ```
 
 Notes:
