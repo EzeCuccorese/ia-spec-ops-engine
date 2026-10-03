@@ -61,10 +61,11 @@ concurrency:
 
 jobs:
   review:
-    # Once per PR (not on every push); re-run on demand with the `gemini-review` label.
+    # Automatic once per PR (opened/reopened/ready, never for drafts); on demand with the
+    # `gemini-review` label, even on drafts.
     if: >-
-      github.event.pull_request.draft == false &&
-      (github.event.action != 'labeled' || github.event.label.name == 'gemini-review')
+      (github.event.action == 'labeled' && github.event.label.name == 'gemini-review') ||
+      (github.event.action != 'labeled' && github.event.pull_request.draft == false)
     uses: EzeCuccorese/ia-spec-ops-engine/.github/workflows/reusable-gemini-review.yml@main
     secrets: inherit
 
