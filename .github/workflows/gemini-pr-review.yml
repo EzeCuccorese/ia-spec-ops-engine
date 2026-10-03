@@ -2,14 +2,19 @@ name: Gemini PR Code Review
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, reopened, ready_for_review, labeled]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Don't cancel: an unrelated label event must not abort a review in progress.
+  cancel-in-progress: false
 
 jobs:
   review:
+    # Once per PR (not on every push); re-run on demand with the `gemini-review` label.
+    if: >-
+      github.event.pull_request.draft == false &&
+      (github.event.action != 'labeled' || github.event.label.name == 'gemini-review')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -42,3 +47,16 @@ jobs:
           COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           python .github/scripts/gemini_review.py
+
+  clear-label:
+    needs: review
+    if: always() && github.event.action == 'labeled' && github.event.label.name == 'gemini-review'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Remove the trigger label so it can be added again
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh pr edit "${{ github.event.pull_request.number }}" --remove-label gemini-review
