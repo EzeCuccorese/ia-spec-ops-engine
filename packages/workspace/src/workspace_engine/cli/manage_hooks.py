@@ -5,6 +5,7 @@ workspace_engine.cli.manage_hooks — CLI for multi-stack Git Hooks and Quality 
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 from pathlib import Path
 
@@ -63,6 +64,41 @@ def render_hooks_status(target_dir: Path | None = None) -> None:
         title="Git Hooks & Quality Gate Status",
         full=True,
     )
+
+
+def _skip_command(target: Path, action: str, stages: str | None) -> int:
+    """Reads or writes the repo default `workspace.skip` (shared by every worktree of the repo)."""
+
+    def git(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", "-C", str(target), *args], capture_output=True, text=True, check=False
+        )
+
+    if git("rev-parse", "--git-dir").returncode != 0:
+        log_error(f"{target} is not a git repository.")
+        return 1
+    if action == "show":
+        value = git("config", "--get", "workspace.skip").stdout.strip()
+        print(value or "(none: every check runs)")
+        return 0
+    if action == "clear":
+        git("config", "--unset", "workspace.skip")
+        log_success("workspace.skip removed: every check runs again.")
+        return 0
+    chosen = [s.strip() for s in (stages or "").split(",") if s.strip()]
+    invalid = [s for s in chosen if s not in (*QG_STAGES, "all")]
+    if not chosen or invalid:
+        log_error(f"Invalid stages {invalid or '(empty)'}; valid: {','.join(QG_STAGES)}")
+        return 1
+    res = git("config", "workspace.skip", ",".join(chosen))
+    if res.returncode != 0:
+        log_error(res.stderr.strip() or "git config failed")
+        return 1
+    log_success(
+        f"workspace.skip={','.join(chosen)} saved; applies to every worktree of this repo. "
+        "Force all checks once with QG_SKIP=none."
+    )
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -132,6 +168,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_run.add_argument("--dir", "-d", help="Repository root directory")
 
+    # skip
+    p_skip = sub.add_parser(
+        "skip", help="Per-repo default for skipped checks (e.g. tests run in CI)"
+    )
+    p_skip.add_argument("skip_action", choices=["set", "show", "clear"])
+    p_skip.add_argument(
+        "stages", nargs="?", help=f"For 'set': comma-separated ({','.join(QG_STAGES)})"
+    )
+    p_skip.add_argument("--dir", "-d", help="Repository root directory")
+
     # test
     p_test = sub.add_parser("test", help="Test Quality Gate execution in current repository")
     p_test.add_argument("--dir", "-d", help="Repository root directory")
@@ -158,6 +204,9 @@ def main(argv: list[str] | None = None) -> int:
         res = uninstall_git_hooks(target_dir=target, is_global=args.is_global)
         log_success(res["message"])
         return 0
+
+    elif args.action == "skip":
+        return _skip_command(target, args.skip_action, args.stages)
 
     elif args.action == "run":
         return run_quality_gate(

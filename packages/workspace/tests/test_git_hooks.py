@@ -756,3 +756,64 @@ def test_cli_skip_help_lists_the_stages_the_gate_knows(capsys):
         manage_hooks_cli(["run", "--help"])
     help_text = " ".join(capsys.readouterr().out.split())
     assert f"({','.join([*stages, 'all'])})" in help_text
+
+
+# --- workspace.skip repo default ------------------------------------------------
+
+
+def _push_without_qg_skip(project_dir: Path, **extra_env: str) -> subprocess.CompletedProcess[str]:
+    remote = project_dir.parent / f"{project_dir.name}-skipcfg-remote.git"
+    if not remote.exists():
+        subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=project_dir, check=True)
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "QG_"))}
+    env.update(GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_SYSTEM="/dev/null", **extra_env)
+    return subprocess.run(
+        ["git", "push", "origin", "HEAD:refs/heads/feature"],
+        cwd=project_dir,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+
+@requires_config_hooks
+def test_workspace_skip_config_skips_stage_and_env_wins(tmp_path: Path) -> None:
+    project_dir = tmp_path / "repo"
+    project_dir.mkdir()
+    _init_test_git_repo(project_dir)
+    _commit_fixture(project_dir)
+    assert install_git_hooks(target_dir=project_dir)["success"] is True
+    subprocess.run(
+        ["git", "config", "workspace.skip", "gitleaks,commits,lint,design,tests"],
+        cwd=project_dir,
+        check=True,
+    )
+
+    proc = _push_without_qg_skip(project_dir)
+    combined = proc.stdout + proc.stderr
+    assert "Test Suites: skipped by workspace.skip (repo config)" in combined
+    assert proc.returncode == 0
+
+    # QG_SKIP=none overrides the repo default: the test stage runs again.
+    proc = _push_without_qg_skip(project_dir, QG_SKIP="none")
+    assert "Test Suites: skipped" not in proc.stdout + proc.stderr
+
+
+@requires_config_hooks
+def test_skip_command_sets_shows_and_clears(tmp_path: Path, capsys) -> None:
+    from workspace_engine.cli.manage_hooks import main as hooks_main
+
+    project_dir = tmp_path / "repo"
+    project_dir.mkdir()
+    _init_test_git_repo(project_dir)
+
+    assert hooks_main(["skip", "set", "tests", "--dir", str(project_dir)]) == 0
+    assert hooks_main(["skip", "show", "--dir", str(project_dir)]) == 0
+    assert "tests" in capsys.readouterr().out
+    assert hooks_main(["skip", "set", "bogus", "--dir", str(project_dir)]) == 1
+    assert hooks_main(["skip", "clear", "--dir", str(project_dir)]) == 0
+    got = subprocess.run(
+        ["git", "config", "--get", "workspace.skip"], cwd=project_dir, capture_output=True
+    )
+    assert got.returncode != 0
