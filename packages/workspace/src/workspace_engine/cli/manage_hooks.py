@@ -72,11 +72,18 @@ def _git(target: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _skip_set(target: Path, stages: str | None) -> int:
+def _parse_stages(stages: str | None) -> list[str] | None:
     chosen = [s.strip() for s in (stages or "").split(",") if s.strip()]
     invalid = [s for s in chosen if s not in (*QG_STAGES, "all")]
-    if not chosen or invalid:
-        log_error(f"Invalid stages {invalid or '(empty)'}; valid: {','.join(QG_STAGES)}")
+    if chosen and not invalid:
+        return chosen
+    log_error(f"Invalid stages {invalid or '(empty)'}; valid: {','.join(QG_STAGES)}")
+    return None
+
+
+def _skip_set(target: Path, stages: str | None) -> int:
+    chosen = _parse_stages(stages)
+    if chosen is None:
         return 1
     res = _git(target, "config", "workspace.skip", ",".join(chosen))
     if res.returncode != 0:
