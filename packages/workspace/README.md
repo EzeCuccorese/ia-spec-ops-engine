@@ -193,6 +193,10 @@ and warns on subjects over 100 characters.
 
 Output is compact by default; a failing command keeps its full transcript at
 `.git/workspace/quality-gate/latest.log` (`QG_OUTPUT=verbose` streams everything).
+Repos whose CI already runs the full suite can skip a stage by default: `ws hooks skip set tests`
+(also `show` and `clear`). It is stored in the repo's shared git config, so every worktree of the
+repo inherits it, and only the `pre-push` gate reads it. `QG_SKIP` in the environment overrides it.
+
 Skip stages with `QG_SKIP=gitleaks,commits,lint,design,tests` (`all` skips every stage), and
 scope linters and tests to the pushed files with `QG_SCOPE=changed`.
 
@@ -500,7 +504,7 @@ entry per Kubernetes environment it should be able to read variables from:
 | `XDG_STATE_HOME` | `ws run`, `ws log` | Base directory of the log store. | `~/.local/state` |
 | `JAVA_HOME` | `ws run-local` (process manager) | JDK home used when launching Java-based services locally. | whatever is already set; unset means the system default `java` |
 | `QG_SCOPE` | pre-push gate | `all` or `changed`: scope of linters and tests. | `all` |
-| `QG_SKIP` | all three hooks | Comma-separated stages to skip: `gitleaks`, `commits`, `lint`, `design`, `tests`, or `all`. | none |
+| `QG_SKIP` | all three hooks | Comma-separated stages to skip: `gitleaks`, `commits`, `lint`, `design`, `tests`, or `all`. In `pre-push`, when unset it falls back to `git config workspace.skip`; `QG_SKIP=none` forces every stage. | none |
 | `QG_TIMEOUT` | pre-push gate | Timeout in seconds per step. | `900` |
 | `QG_COMMIT_STYLE` | commit-msg hook, pre-push gate | `conventional` enforces Conventional Commits for one command (per repo: `git config workspace.commitStyle conventional`). | unset |
 | `QG_PROTECTED` | pre-push gate | Regex of protected destination branches. | `^(main\|master\|develop\|staging)$` |

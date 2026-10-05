@@ -37,8 +37,9 @@ class BaselineGateResult:
 
 def _link_path(src: Path, link_dir: Path) -> str:
     """Relative path from link_dir to src, or absolute when they sit on different drives."""
+    # Resolve first: a lexical relpath breaks when a side crosses a symlink (macOS /var -> /private/var).
     try:
-        return os.path.relpath(src, link_dir)
+        return os.path.relpath(src.resolve(), link_dir.resolve())
     except ValueError:
         return str(src.resolve())
 
