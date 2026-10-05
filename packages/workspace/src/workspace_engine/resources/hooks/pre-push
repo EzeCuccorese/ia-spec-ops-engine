@@ -8,6 +8,8 @@
 # Environment variables:
 #   QG_SCOPE=all|changed        Scope of linters and tests (default: all)
 #   QG_SKIP=a,b,c               Skip checks: gitleaks,commits,lint,design,tests,all
+#                               (per repo: git config workspace.skip tests; the variable wins,
+#                               QG_SKIP=none forces every check for one push)
 #   QG_TIMEOUT=900              Timeout in seconds per step
 #   QG_COMMIT_STYLE=conventional  Require Conventional Commits in messages
 #                               (per repo: git config workspace.commitStyle conventional)
@@ -16,7 +18,14 @@
 set -uo pipefail
 
 QG_SCOPE="${QG_SCOPE:-all}"
-QG_SKIP="${QG_SKIP:-}"
+# QG_SKIP wins when defined (even empty). Otherwise the repo default applies; it lives in the
+# shared git config, so every worktree of the repo gets it.
+if [ "${QG_SKIP+x}" = "x" ]; then
+  QG_SKIP_SOURCE="QG_SKIP"
+else
+  QG_SKIP="$(git config --get workspace.skip 2>/dev/null || true)"
+  QG_SKIP_SOURCE="workspace.skip (repo config)"
+fi
 QG_TIMEOUT="${QG_TIMEOUT:-900}"
 QG_COMMIT_STYLE="${QG_COMMIT_STYLE:-$(git config --get workspace.commitStyle 2>/dev/null || true)}"
 QG_OUTPUT="${QG_OUTPUT:-errors}"
@@ -271,7 +280,7 @@ changed_files() {
 echo ""
 echo "🔒 [1/5] Checking for secrets in the commits being pushed..."
 if skipped gitleaks; then
-  warn "Security and Secrets: skipped by QG_SKIP"
+  warn "Security and Secrets: skipped by $QG_SKIP_SOURCE"
 elif [ "$NOTHING_NEW" = "1" ]; then
   note "No new commits, skipping."
 elif ! command -v gitleaks >/dev/null 2>&1; then
@@ -313,7 +322,7 @@ fi
 echo ""
 echo "📝 [2/5] Checking commit policies..."
 if skipped commits; then
-  warn "Git Policies: skipped by QG_SKIP"
+  warn "Git Policies: skipped by $QG_SKIP_SOURCE"
 elif [ "$NOTHING_NEW" = "1" ]; then
   note "No new commits, skipping."
 else
@@ -360,7 +369,7 @@ fi
 echo ""
 echo "🔍 [3/5] Running static analysis and linters..."
 if skipped lint; then
-  warn "Linters and Static Analysis: skipped by QG_SKIP"
+  warn "Linters and Static Analysis: skipped by $QG_SKIP_SOURCE"
 else
   LINT_OK=1
   LINT_RAN=0
@@ -503,7 +512,7 @@ fi
 echo ""
 echo "📐 [4/5] Checking design limits on the files in this push..."
 if skipped design; then
-  warn "Design limits: skipped by QG_SKIP"
+  warn "Design limits: skipped by $QG_SKIP_SOURCE"
 elif [ "$NOTHING_NEW" = "1" ]; then
   note "No new commits, skipping."
 elif [ ! -s "$DIFF_FILES_FILE" ]; then
@@ -524,7 +533,7 @@ fi
 echo ""
 echo "🧪 [5/5] Running test suites..."
 if skipped tests; then
-  warn "Test Suites: skipped by QG_SKIP"
+  warn "Test Suites: skipped by $QG_SKIP_SOURCE"
 else
   TESTS_OK=1
   RAN_ANY=0
