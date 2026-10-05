@@ -77,7 +77,7 @@ def _parse_stages(stages: str | None) -> list[str] | None:
     invalid = [s for s in chosen if s not in (*QG_STAGES, "all")]
     if chosen and not invalid:
         return chosen
-    log_error(f"Invalid stages {invalid or '(empty)'}; valid: {','.join(QG_STAGES)}")
+    log_error(f"Invalid stages {invalid or '(empty)'}; valid: {','.join((*QG_STAGES, 'all'))}")
     return None
 
 
@@ -106,7 +106,10 @@ def _skip_command(target: Path, action: str, stages: str | None) -> int:
         print(value or "(none: every check runs)")
         return 0
     if action == "clear":
-        _git(target, "config", "--unset", "workspace.skip")
+        res = _git(target, "config", "--unset-all", "workspace.skip")
+        if res.returncode not in (0, 5):  # 5: the key was not set
+            log_error(res.stderr.strip() or "Failed to unset workspace.skip")
+            return 1
         log_success("workspace.skip removed: every check runs again.")
         return 0
     return _skip_set(target, stages)
