@@ -66,31 +66,19 @@ def render_hooks_status(target_dir: Path | None = None) -> None:
     )
 
 
-def _skip_command(target: Path, action: str, stages: str | None) -> int:
-    """Reads or writes the repo default `workspace.skip` (shared by every worktree of the repo)."""
+def _git(target: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(target), *args], capture_output=True, text=True, check=False
+    )
 
-    def git(*args: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            ["git", "-C", str(target), *args], capture_output=True, text=True, check=False
-        )
 
-    if git("rev-parse", "--git-dir").returncode != 0:
-        log_error(f"{target} is not a git repository.")
-        return 1
-    if action == "show":
-        value = git("config", "--get", "workspace.skip").stdout.strip()
-        print(value or "(none: every check runs)")
-        return 0
-    if action == "clear":
-        git("config", "--unset", "workspace.skip")
-        log_success("workspace.skip removed: every check runs again.")
-        return 0
+def _skip_set(target: Path, stages: str | None) -> int:
     chosen = [s.strip() for s in (stages or "").split(",") if s.strip()]
     invalid = [s for s in chosen if s not in (*QG_STAGES, "all")]
     if not chosen or invalid:
         log_error(f"Invalid stages {invalid or '(empty)'}; valid: {','.join(QG_STAGES)}")
         return 1
-    res = git("config", "workspace.skip", ",".join(chosen))
+    res = _git(target, "config", "workspace.skip", ",".join(chosen))
     if res.returncode != 0:
         log_error(res.stderr.strip() or "git config failed")
         return 1
@@ -99,6 +87,22 @@ def _skip_command(target: Path, action: str, stages: str | None) -> int:
         "Force all checks once with QG_SKIP=none."
     )
     return 0
+
+
+def _skip_command(target: Path, action: str, stages: str | None) -> int:
+    """Reads or writes the repo default `workspace.skip` (shared by every worktree of the repo)."""
+    if _git(target, "rev-parse", "--git-dir").returncode != 0:
+        log_error(f"{target} is not a git repository.")
+        return 1
+    if action == "show":
+        value = _git(target, "config", "--get", "workspace.skip").stdout.strip()
+        print(value or "(none: every check runs)")
+        return 0
+    if action == "clear":
+        _git(target, "config", "--unset", "workspace.skip")
+        log_success("workspace.skip removed: every check runs again.")
+        return 0
+    return _skip_set(target, stages)
 
 
 def main(argv: list[str] | None = None) -> int:
