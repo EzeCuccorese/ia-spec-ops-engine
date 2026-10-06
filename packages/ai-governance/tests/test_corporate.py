@@ -82,7 +82,9 @@ def test_claude_rules_are_symlinks_and_old_copies_migrate(home: Path, pack_root:
     # Turn it back into what the copy-based installer left: a plain file with a "file" entry.
     ledger = global_ledger()
     ledger.entries = [e for e in ledger.entries if e["path"] != ledger.key(link)]
-    ledger.entries.append({"agent": "claude", "kind": "file", "path": ledger.key(link), "sha256": "x"})
+    ledger.entries.append(
+        {"agent": "claude", "kind": "file", "path": ledger.key(link), "sha256": "x"}
+    )
     ledger.save(cli.Report(), False)
     link.unlink()
     link.write_text("# Glossary\n")
@@ -90,7 +92,11 @@ def test_claude_rules_are_symlinks_and_old_copies_migrate(home: Path, pack_root:
     install_user(["claude"])
 
     assert link.is_symlink() and Path(os.readlink(link)) == source
-    assert not [e for e in global_ledger().entries if e["kind"] == "file" and e["path"] == global_ledger().key(link)]
+    assert not [
+        e
+        for e in global_ledger().entries
+        if e["kind"] == "file" and e["path"] == global_ledger().key(link)
+    ]
 
 
 def test_no_packs_installs_nothing_corporate(home: Path, pack_root: Path) -> None:
