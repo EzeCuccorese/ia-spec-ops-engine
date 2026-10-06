@@ -80,8 +80,8 @@ installing again removes or swaps its files.
 
 | Pack content | Installed as |
 |---|---|
-| `rules/<name>.md` | Claude Code: `~/.claude/rules/ai-governance-<company>-<name>.md` (copied as is) |
-| | Antigravity: `~/.gemini/config/rules/ai-governance-<company>-<name>.md` (with `trigger: always_on` front matter) |
+| `rules/<name>.md` | Claude Code: `~/.claude/rules/ai-governance-<company>-<name>.md` (symlink to the source file) |
+| | Antigravity: `~/.gemini/config/rules/ai-governance-<company>-<name>.md` (symlink to the same file; its `trigger: always_on` front matter is what Antigravity reads) |
 | | Codex: skipped (no per-file global rules), with one warning naming the skipped packs |
 | `scripts/*` | Symlinks in `~/.local/bin` (`AI_GOVERNANCE_BIN_DIR`), removed when the last installed agent is uninstalled |
 

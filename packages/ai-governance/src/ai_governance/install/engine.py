@@ -265,7 +265,12 @@ def _apply_link(
     path = artifact.path
     if path.is_symlink() and os.readlink(path) == artifact.target:
         report.add("unchanged", path)
-    elif (path.exists() or path.is_symlink()) and ledger.find("link", path) is None and not force:
+    elif (
+        (path.exists() or path.is_symlink())
+        and ledger.find("link", path) is None
+        and ledger.find("file", path) is None  # our own old copy: migrate it to a link
+        and not force
+    ):
         report.warnings.append(
             f"{path} exists and was not created by ai-governance; left untouched "
             "(use --force to replace it)."
@@ -279,6 +284,9 @@ def _apply_link(
                 path.unlink()
             path.symlink_to(artifact.target)
         report.add("updated" if existed else "linked", path)
+    ledger.entries = [
+        e for e in ledger.entries if (e["kind"], e["path"]) != ("file", ledger.key(path))
+    ]
     _record(
         ledger,
         {"agent": agent, "kind": "link", "path": ledger.key(path), "target": artifact.target},

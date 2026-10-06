@@ -174,7 +174,7 @@ class ClaudeSpec(AgentSpec):
     def corporate_artifacts(self, rules: list[CorporateRule]) -> list[Artifact]:
         home = Path.home() / ".claude" / "rules"
         return [
-            FileArtifact(home / f"ai-governance-{r.pack}-{r.name}.md", r.content) for r in rules
+            LinkArtifact(home / f"ai-governance-{r.pack}-{r.name}.md", str(r.path)) for r in rules
         ]
 
     def project_artifacts(
@@ -231,11 +231,7 @@ class AntigravitySpec(AgentSpec):
     def corporate_artifacts(self, rules: list[CorporateRule]) -> list[Artifact]:
         home = Path.home() / ".gemini" / "config" / "rules"
         return [
-            FileArtifact(
-                home / f"ai-governance-{r.pack}-{r.name}.md",
-                "---\ntrigger: always_on\n---\n" + r.content,
-            )
-            for r in rules
+            LinkArtifact(home / f"ai-governance-{r.pack}-{r.name}.md", str(r.path)) for r in rules
         ]
 
     def global_artifacts(self) -> list[Artifact]:
