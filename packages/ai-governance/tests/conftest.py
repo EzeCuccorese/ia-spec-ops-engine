@@ -16,3 +16,12 @@ def _no_corporate_packs(
 ) -> None:
     """The developer's own company packs (gitignored, next to the packages) must not leak in."""
     monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(tmp_path_factory.mktemp("no-packs")))
+
+
+@pytest.fixture(autouse=True)
+def _no_real_shell(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """Completions go to a temp data dir and never follow the developer's ZDOTDIR."""
+    monkeypatch.delenv("ZDOTDIR", raising=False)
+    monkeypatch.setenv("AI_GOVERNANCE_DATA_DIR", str(tmp_path_factory.mktemp("data")))

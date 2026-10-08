@@ -4,6 +4,8 @@
   (default ``~/.config/ai-governance``).
 - State: ``$AI_GOVERNANCE_STATE_DIR`` or ``$XDG_STATE_HOME/ai-governance``
   (default ``~/.local/state/ai-governance``).
+- Data: ``$AI_GOVERNANCE_DATA_DIR`` or ``$XDG_DATA_HOME/ai-governance``
+  (default ``~/.local/share/ai-governance``; generated shell completions).
 
 Paths are resolved on every call so tests can monkeypatch the environment.
 """
@@ -29,4 +31,12 @@ def state_dir() -> Path:
     if explicit:
         return Path(explicit).expanduser()
     base = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+    return Path(base).expanduser() / APP_NAME
+
+
+def data_dir() -> Path:
+    explicit = os.environ.get("AI_GOVERNANCE_DATA_DIR")
+    if explicit:
+        return Path(explicit).expanduser()
+    base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
     return Path(base).expanduser() / APP_NAME

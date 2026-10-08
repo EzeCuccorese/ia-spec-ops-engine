@@ -70,6 +70,25 @@ Claude Code user hooks (all through `ai-governance hook claude <event>`, fail-op
 | SessionEnd | Logs branch, HEAD and the number of uncommitted files to the active task |
 | Stop | Evaluates spend thresholds; a macOS notification is sent only with `"notify_macos": true` in the telemetry config. Never reaches the model |
 
+### Shell completion (zsh)
+
+Any user install also writes `<TAB>` completion for `ai-governance`, `ws` and `spec` (the
+ones on `PATH`) to `~/.local/share/ai-governance/zsh/_<tool>`, and prepends one marked
+`fpath=(...)` line to `~/.zshrc` so it is found before `compinit` (oh-my-zsh included).
+Subcommands, options and their choices complete with their help text:
+
+```text
+$ ai-governance telemetry <TAB>
+calibrate     -- Store the ratio between the real spend and the estimate for a period
+claude-usage  -- Month-to-date Claude spend vs. business-day budget pace
+...
+```
+
+The scripts are static (nothing runs on `<TAB>`); `ai-governance update` regenerates them
+from each tool's argparse tree, so new commands show up after an update. Open a new shell
+to load them. `ai-governance completion zsh [tool]` prints one; skipped without a
+`~/.zshrc`; removed with the last uninstalled agent.
+
 ### Corporate packs
 
 Company-specific, always-on rules and scripts live in `packages/corporate-rules/<company>/` of
@@ -196,13 +215,14 @@ A plain pipe keeps full human output.
 ## Configuration and environment
 
 State: `~/.local/state/ai-governance/` (ledger `installed.json`, `progress/`, `telemetry/`,
-`probe/`, `frugal/`). Config: `~/.config/ai-governance/` (`frugal.json` with `threshold_chars`
+`probe/`, `frugal/`). Data: `~/.local/share/ai-governance/` (`zsh/` completions). Config: `~/.config/ai-governance/` (`frugal.json` with `threshold_chars`
 and `budget_chars`; `atlassian.json` with named Atlassian profiles).
 
 | Variable | Effect |
 |---|---|
-| `AI_GOVERNANCE_STATE_DIR` / `AI_GOVERNANCE_CONFIG_DIR` | Override the state / config locations |
-| `XDG_STATE_HOME` / `XDG_CONFIG_HOME` | Base of the default state / config locations (`~/.local/state`, `~/.config`) |
+| `AI_GOVERNANCE_STATE_DIR` / `AI_GOVERNANCE_CONFIG_DIR` / `AI_GOVERNANCE_DATA_DIR` | Override the state / config / data locations |
+| `XDG_STATE_HOME` / `XDG_CONFIG_HOME` / `XDG_DATA_HOME` | Base of the default locations (`~/.local/state`, `~/.config`, `~/.local/share`) |
+| `ZDOTDIR` | Where `.zshrc` is looked up for completions (default `~`) |
 | `AI_GOVERNANCE_AGENT` | Force agent (`1`) or human (`0`) output |
 | `CODEX_HOME` | Codex home (default `~/.codex`) |
 | `AI_GOVERNANCE_CORPORATE_DIR` | Where corporate packs are read from (default `packages/corporate-rules` of the checkout) |
