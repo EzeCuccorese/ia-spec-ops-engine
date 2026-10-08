@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -124,4 +125,39 @@ def test_install_writes_completions_and_uninstall_removes_them(
 def test_no_completions_without_a_zshrc(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     monkeypatch.setattr(completion, "walk", lambda prog: pytest.fail("must not walk"))
+    assert completion.artifacts() == []
+
+
+def _on_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, name: str, first_line: str) -> None:
+    binary = tmp_path / "bin" / name
+    binary.parent.mkdir(exist_ok=True)
+    binary.write_text(first_line + "\n")
+    binary.chmod(0o755)
+    monkeypatch.setenv("PATH", str(binary.parent))
+
+
+def test_walk_runs_the_walker_in_the_tools_own_interpreter(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _on_path(monkeypatch, tmp_path, "ai-governance", f"#!{sys.executable}")
+    tree = completion.walk("ai-governance")
+    assert tree is not None
+    telemetry = next(s for s in tree["subcommands"] if s["name"] == "telemetry")
+    assert "report" in {s["name"] for s in telemetry["subcommands"]}
+    assert completion.main(["zsh"]) == 0
+    assert capsys.readouterr().out.startswith("#compdef ai-governance")
+
+
+def test_walk_skips_missing_or_unusable_tools(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _on_path(monkeypatch, tmp_path, "ws", "echo not a shebang")
+    assert completion.walk("ws") is None
+    assert completion.walk("spec") is None
+    _on_path(monkeypatch, tmp_path, "ws", "#!/nonexistent/python")
+    assert completion.walk("ws") is None
+    assert completion.main(["zsh", "ws"]) == 1
+    assert "ws is not installed" in capsys.readouterr().err
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    (tmp_path / ".zshrc").write_text("")
     assert completion.artifacts() == []
