@@ -227,6 +227,7 @@ def test_statusline_uses_todays_hook_cache(
     assert telemetry_main(["statusline"]) == 0
     out = capsys.readouterr().out
     assert "today $5.00/" in out and "left $600" in out
+    assert "month $150/" in out
 
 
 def test_statusline_rescans_when_cache_is_stale_and_never_fails(

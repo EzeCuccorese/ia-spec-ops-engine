@@ -102,7 +102,8 @@ def _color(percent: float) -> str:
 
 
 def statusline_segment(base: Path, config: UsageConfig, *, today: date | None = None) -> str:
-    """Today's spend vs. its business-day allowance and what is left this month.
+    """Today's spend vs. its business-day allowance, what is left this month and
+    what should have been spent so far this month (business-day pace).
 
     Reads the costs the Stop hook (`thresholds`) caches in state.json; rescans the
     transcripts only when that cache is from another day, since the status line
@@ -126,7 +127,9 @@ def statusline_segment(base: Path, config: UsageConfig, *, today: date | None = 
     month_pct = month_cost / limit * 100 if limit else 0.0
     return (
         f"{_color(day_pct)}today ${day_cost:.2f}/{daily:.0f} {day_pct:.0f}%{RESET} "
-        f"{DIM}·{RESET} {_color(month_pct)}left ${left:.0f}{RESET}"
+        f"{DIM}·{RESET} {_color(month_pct)}left ${left:.0f}{RESET} "
+        f"{DIM}·{RESET} {GREEN if month_cost <= pace.expected_spend_usd else RED}"
+        f"month ${month_cost:.0f}/{pace.expected_spend_usd:.0f}{RESET}"
     )
 
 
