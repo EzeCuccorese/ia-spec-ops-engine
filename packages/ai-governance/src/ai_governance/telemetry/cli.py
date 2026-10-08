@@ -64,10 +64,7 @@ def show_usage_report(summary: dict) -> None:
             pairs.append((label, text))
     emit_kv(pairs, title="Claude usage estimate", full=True)
     if summary.get("fast_calls"):
-        emit_status(
-            "warn",
-            f"{summary['fast_calls']} fast-mode calls priced as standard (no fast rate in the feed).",
-        )
+        emit_status("info", f"{summary['fast_calls']} fast-mode calls (billed at the fast rate).")
 
 
 def format_effort(efforts: dict[str, dict[str, float]]) -> str:
