@@ -275,7 +275,7 @@ def test_capability_table_covers_every_agent() -> None:
 
 
 def test_antigravity_hooks_path_is_shown_in_full() -> None:
-    assert AGENTS["antigravity"].global_hooks.startswith("~/.gemini/antigravity-cli/hooks.json ")
+    assert AGENTS["antigravity"].global_hooks.startswith("~/.gemini/config/hooks.json ")
 
 
 def test_report_collapses_many_files_per_folder(project: Path) -> None:
