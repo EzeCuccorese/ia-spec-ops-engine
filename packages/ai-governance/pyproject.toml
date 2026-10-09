@@ -11,6 +11,7 @@ license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "marklas==0.8.6",
     "rich>=13.0.0",
 ]
 
