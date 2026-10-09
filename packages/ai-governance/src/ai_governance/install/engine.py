@@ -130,8 +130,10 @@ class Ledger:
 # -- hooks JSON ------------------------------------------------------------------
 
 
-def _merge_hooks(data: dict[str, Any], entries: tuple[HookEntry, ...]) -> None:
-    hooks = data.setdefault("hooks", {})
+def _merge_hooks(
+    data: dict[str, Any], entries: tuple[HookEntry, ...], name: str | None = None
+) -> None:
+    hooks = data.setdefault(name or "hooks", {})
     for entry in entries:
         groups = hooks.setdefault(entry.event, [])
         present = any(
@@ -147,20 +149,29 @@ def _merge_hooks(data: dict[str, Any], entries: tuple[HookEntry, ...]) -> None:
         groups.append(group)
 
 
-def _remove_hooks(data: dict[str, Any], commands: set[str]) -> None:
-    hooks = data.get("hooks", {})
+def _remove_hooks(data: dict[str, Any], commands: set[str], name: str | None = None) -> None:
+    key = name or "hooks"
+    hooks = data.get(key, {})
     for event in list(hooks):
-        groups = []
-        for group in hooks[event]:
-            kept = [h for h in group.get("hooks", []) if h.get("command") not in commands]
-            if kept:
-                groups.append({**group, "hooks": kept})
+        if not isinstance(hooks[event], list):  # e.g. a named group's "enabled" flag
+            continue
+        groups = _without_commands(hooks[event], commands)
         if groups:
             hooks[event] = groups
         else:
             del hooks[event]
-    if "hooks" in data and not data["hooks"]:
-        del data["hooks"]
+    if key in data and not data[key]:
+        del data[key]
+
+
+def _without_commands(groups: list[dict[str, Any]], commands: set[str]) -> list[dict[str, Any]]:
+    """Matcher groups minus the given hook commands; groups left empty are dropped."""
+    kept_groups = []
+    for group in groups:
+        kept = [h for h in group.get("hooks", []) if h.get("command") not in commands]
+        if kept:
+            kept_groups.append({**group, "hooks": kept})
+    return kept_groups
 
 
 def _dump_json(data: dict[str, Any]) -> str:
@@ -265,7 +276,12 @@ def _apply_link(
     path = artifact.path
     if path.is_symlink() and os.readlink(path) == artifact.target:
         report.add("unchanged", path)
-    elif (path.exists() or path.is_symlink()) and ledger.find("link", path) is None and not force:
+    elif (
+        (path.exists() or path.is_symlink())
+        and ledger.find("link", path) is None
+        and ledger.find("file", path) is None  # our own old copy: migrate it to a link
+        and not force
+    ):
         report.warnings.append(
             f"{path} exists and was not created by ai-governance; left untouched "
             "(use --force to replace it)."
@@ -279,6 +295,9 @@ def _apply_link(
                 path.unlink()
             path.symlink_to(artifact.target)
         report.add("updated" if existed else "linked", path)
+    ledger.entries = [
+        e for e in ledger.entries if (e["kind"], e["path"]) != ("file", ledger.key(path))
+    ]
     _record(
         ledger,
         {"agent": agent, "kind": "link", "path": ledger.key(path), "target": artifact.target},
@@ -325,8 +344,8 @@ def _apply_hooks(
     previous = ledger.find("hooks", artifact.path)
     wanted = {entry.command for entry in artifact.entries}
     if previous:
-        _remove_hooks(data, set(previous.get("commands", [])) - wanted)
-    _merge_hooks(data, artifact.entries)
+        _remove_hooks(data, set(previous.get("commands", [])) - wanted, artifact.group)
+    _merge_hooks(data, artifact.entries, artifact.group)
     text = _dump_json(data)
     if raw == text:
         report.add("unchanged", artifact.path)
@@ -341,6 +360,7 @@ def _apply_hooks(
             "kind": "hooks",
             "path": ledger.key(artifact.path),
             "commands": sorted(wanted),
+            **({"group": artifact.group} if artifact.group else {}),
             "created": bool(previous.get("created")) if previous else raw is None,
         },
     )
@@ -382,7 +402,7 @@ def _remove_entry(entry: dict[str, Any], ledger: Ledger, report: Report, dry_run
             report.add("removed block from", path)
     elif current is not None:
         data = json.loads(current) if current.strip() else {}
-        _remove_hooks(data, set(entry.get("commands", [])))
+        _remove_hooks(data, set(entry.get("commands", [])), entry.get("group"))
         if not dry_run:
             if not data and entry.get("created"):
                 path.unlink()

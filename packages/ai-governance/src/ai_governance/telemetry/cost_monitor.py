@@ -207,7 +207,7 @@ class CostMonitor:
             # day -> effort -> {cost, output, thinking}. Diagnostic only: thinking tokens
             # are already billed inside output_tokens.
             "by_effort": {},
-            # usage.speed == "fast": the price feed has no fast rate, billed as standard.
+            # usage.speed == "fast": billed at the fast-mode multiplier (see prices.Rates).
             "fast_calls": 0,
             "provenance": {
                 "kind": "local_transcript_estimate",
@@ -237,14 +237,16 @@ class CostMonitor:
         return _Event(str(day), model, _effort(entry), tokens, self._cost(model, tokens))
 
     def _cost(self, model: str, tokens: _Usage) -> float:
-        input_price, output_price = PriceCatalog.get_price(model, self.price_cache_path)
-        read, write_5m, write_1h = PriceCatalog.cache_multipliers(model, self.price_cache_path)
+        prompt = tokens.input + tokens.cache_read + tokens.cache_write_5m + tokens.cache_write_1h
+        rates = PriceCatalog.rates(
+            model, self.price_cache_path, prompt_tokens=prompt, fast=tokens.fast
+        )
         per_million = (
-            tokens.input * input_price
-            + tokens.output * output_price
-            + tokens.cache_read * input_price * read
-            + tokens.cache_write_5m * input_price * write_5m
-            + tokens.cache_write_1h * input_price * write_1h
+            tokens.input * rates.input
+            + tokens.output * rates.output
+            + tokens.cache_read * rates.cache_read
+            + tokens.cache_write_5m * rates.cache_write_5m
+            + tokens.cache_write_1h * rates.cache_write_1h
         )
         server = tokens.searches * WEB_SEARCH_USD + tokens.fetches * WEB_FETCH_USD
         return (per_million / 1_000_000 + server) * self.calibration

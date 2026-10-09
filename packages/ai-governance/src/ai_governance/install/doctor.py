@@ -74,7 +74,7 @@ def _user_rows() -> list[Row]:
 
 def _claude_rows(root: Path) -> list[Row]:
     rows: list[Row] = [
-        ("project:claude", FAIL, f"{name} exists; Claude ignores AGENTS.md")
+        ("project:claude", FAIL, f"{name} exists; Claude Code skips AGENTS.md while it does")
         for name in ("CLAUDE.md", ".claude/CLAUDE.md", "CLAUDE.local.md")
         if (root / name).exists()
     ]

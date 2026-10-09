@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 import urllib.request
 from collections.abc import Callable
+from dataclasses import astuple, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -24,6 +26,7 @@ DEFAULT_PRICES: dict[str, tuple[float, float]] = {
     "claude-sonnet-5-5": (2.0, 10.0),
     "claude-sonnet-5": (2.0, 10.0),
     "claude-sonnet-4-6": (3.0, 15.0),
+    "claude-haiku-5-5": (0.1, 0.5),
     "claude-haiku-4-5": (1.0, 5.0),
 }
 FALLBACK_PRICE = (2.0, 10.0)
@@ -34,12 +37,37 @@ DEFAULT_CACHE_READ: dict[str, float] = {
     "claude-fable-5-1": 0.025,
     "claude-mythos-5-1": 0.025,
     "claude-opus-5-5": 0.05,
+    "claude-sonnet-5-5": 0.05,
 }
+# Long-prompt tier: above `threshold` prompt tokens every rate switches to the tier's.
+DEFAULT_TIERS: dict[str, tuple[int, tuple[float, float]]] = {
+    "claude-haiku-5-5": (100_000, (0.5, 2.5)),
+}
+# Fast mode (usage.speed == "fast") multiplies every rate; the feed carries it as
+# provider_specific_entry.fast.
+DEFAULT_FAST_MULTIPLIER = 2.0
 CACHE_FIELDS = (
     ("cache_read", "cache_read_input_token_cost"),
     ("cache_write_5m", "cache_creation_input_token_cost"),
     ("cache_write_1h", "cache_creation_input_token_cost_above_1hr"),
 )
+TIER_INPUT_FIELD = re.compile(r"^input_cost_per_token_above_(\d+)k_tokens$")
+
+
+@dataclass(frozen=True)
+class Rates:
+    """USD per million tokens for one request."""
+
+    input: float
+    output: float
+    cache_read: float
+    cache_write_5m: float
+    cache_write_1h: float
+
+    def scaled(self, factor: float) -> Rates:
+        return Rates(*(value * factor for value in astuple(self)))
+
+
 FEED_TIMEOUT = 10.0
 DEFAULT_FEED_URL = (
     "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
@@ -110,6 +138,40 @@ class PriceCatalog:
             return read, write_5m, write_1h
         return _feed_multipliers(entries[known], (read, write_5m, write_1h))
 
+    @classmethod
+    def rates(
+        cls,
+        model_name: str,
+        cache_path: Path | None = None,
+        *,
+        prompt_tokens: int = 0,
+        fast: bool = False,
+    ) -> Rates:
+        """Per-request rates: base or long-prompt tier, scaled by the fast-mode multiplier."""
+        clean_name = model_name.lower().strip()
+        input_price, output_price = cls.get_price(clean_name, cache_path)
+        multipliers = cls.cache_multipliers(clean_name, cache_path)
+        entries = cls._cache_entries(cache_path)
+        entry = entries.get(cls._match(clean_name, entries) or "", {})
+        tier = _tier(entry) or _default_tier(cls._match(clean_name, DEFAULT_TIERS))
+        if tier and prompt_tokens > tier[0]:
+            input_price, output_price = tier[1]
+            multipliers = _feed_multipliers(tier[2], multipliers) if tier[2] else multipliers
+        read, write_5m, write_1h = multipliers
+        rates = Rates(
+            input_price,
+            output_price,
+            input_price * read,
+            input_price * write_5m,
+            input_price * write_1h,
+        )
+        if not fast:
+            return rates
+        factor = entry.get("fast")
+        return rates.scaled(
+            factor if isinstance(factor, (int, float)) and factor > 0 else DEFAULT_FAST_MULTIPLIER
+        )
+
     @staticmethod
     def _cache_entries(cache_path: Path | None) -> dict[str, dict[str, Any]]:
         if cache_path is None or not cache_path.exists():
@@ -169,6 +231,28 @@ def _feed_multipliers(
     return values[0], values[1], values[2]
 
 
+def _tier(entry: dict[str, Any]) -> tuple[int, tuple[float, float], dict[str, Any]] | None:
+    """(threshold, (input, output), feed-style rates) of a cached long-prompt tier."""
+    tier = entry.get("tier")
+    if not isinstance(tier, dict):
+        return None
+    numbers = [tier.get(key) for key in ("threshold", "input", "output")]
+    values = [float(value) for value in numbers if isinstance(value, (int, float)) and value > 0]
+    if len(values) != len(numbers):
+        return None
+    threshold, input_price, output_price = values
+    return int(threshold), (input_price, output_price), tier
+
+
+def _default_tier(
+    known: str | None,
+) -> tuple[int, tuple[float, float], dict[str, Any]] | None:
+    if known is None:
+        return None
+    threshold, prices = DEFAULT_TIERS[known]
+    return threshold, prices, {}
+
+
 def _per_million(value: Any) -> float | None:
     """Per-token feed cost as USD per million tokens; None when missing or negative."""
     if not isinstance(value, (int, float)) or value < 0:
@@ -176,22 +260,59 @@ def _per_million(value: Any) -> float | None:
     return round(float(value) * 1_000_000, 8)
 
 
-def _feed_entry(metadata: Any) -> dict[str, float] | None:
+def _feed_entry(metadata: Any) -> dict[str, Any] | None:
     if not isinstance(metadata, dict) or metadata.get("litellm_provider") != "anthropic":
         return None
     input_cost = _per_million(metadata.get("input_cost_per_token"))
     output_cost = _per_million(metadata.get("output_cost_per_token"))
     if input_cost is None or output_cost is None:
         return None
-    entry = {"input": input_cost, "output": output_cost}
+    entry: dict[str, Any] = {"input": input_cost, "output": output_cost}
     for name, feed_field in CACHE_FIELDS:
         rate = _per_million(metadata.get(feed_field))
         if rate:
             entry[name] = rate
+    tier = _feed_tier(metadata)
+    if tier:
+        entry["tier"] = tier
+    fast = _feed_fast(metadata)
+    if fast:
+        entry["fast"] = fast
     return entry
 
 
-def _direct_anthropic_prices(feed: dict[str, Any]) -> dict[str, dict[str, float]]:
+def _feed_fast(metadata: dict[str, Any]) -> float | None:
+    """The feed's fast-mode multiplier (provider_specific_entry.fast), if any."""
+    specific = metadata.get("provider_specific_entry")
+    fast = specific.get("fast") if isinstance(specific, dict) else None
+    return float(fast) if isinstance(fast, (int, float)) and fast > 0 else None
+
+
+def _feed_tier(metadata: dict[str, Any]) -> dict[str, float] | None:
+    """The feed's `*_above_<N>k_tokens` rates as {threshold, input, output, cache_*}."""
+    sizes = [int(m.group(1)) for m in map(TIER_INPUT_FIELD.match, metadata) if m]
+    if not sizes:
+        return None
+    size = min(sizes)
+    suffix = f"_above_{size}k_tokens"
+    input_cost = _per_million(metadata.get(f"input_cost_per_token{suffix}"))
+    output_cost = _per_million(metadata.get(f"output_cost_per_token{suffix}"))
+    if not input_cost or output_cost is None:
+        return None
+    tier: dict[str, float] = {"threshold": size * 1000, "input": input_cost, "output": output_cost}
+    for name, feed_field in CACHE_FIELDS:
+        field = (
+            f"cache_creation_input_token_cost_above_1hr{suffix}"
+            if name == "cache_write_1h"
+            else f"{feed_field}{suffix}"
+        )
+        rate = _per_million(metadata.get(field))
+        if rate:
+            tier[name] = rate
+    return tier
+
+
+def _direct_anthropic_prices(feed: dict[str, Any]) -> dict[str, dict[str, Any]]:
     entries = {str(model).lower(): _feed_entry(metadata) for model, metadata in feed.items()}
     return {model: entry for model, entry in entries.items() if entry is not None}
 

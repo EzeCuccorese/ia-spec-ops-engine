@@ -38,25 +38,27 @@ Personal, project-agnostic harness. Nothing about engineering policy.
 | | Claude Code | OpenAI Codex | Google Antigravity 2 |
 |---|---|---|---|
 | Global instructions | ~/.claude/rules/ai-governance.md | $CODEX_HOME/AGENTS.md (marker block) | ~/.gemini/config/rules/ai-governance.md (`trigger: always_on`) |
-| Global hooks | ~/.claude/settings.json (Pre/PostToolUse Bash, Stop, SessionStart/End) | $CODEX_HOME/hooks.json PostToolUse condensing (after `probe` verifies) | ~/.gemini/antigravity-cli/hooks.json PreToolUse: raw noisy commands -> `ws run` (after `probe`) |
-| Scout subagent | ~/.claude/agents/scout.md (sonnet, effort medium) | $CODEX_HOME/agents/scout.toml (terra, effort medium, read-only) + config.toml default subagent model terra | ~/.gemini/config/agents/scout.md (model flash, read-only tools, no commands) |
+| Global hooks | ~/.claude/settings.json (Pre/PostToolUse Bash, Stop, SessionStart/End) | $CODEX_HOME/hooks.json PostToolUse condensing (after `probe` verifies) | ~/.gemini/config/hooks.json PreToolUse: raw noisy commands -> `ws run` (after `probe`) |
+| Scout subagent | ~/.claude/agents/scout.md (haiku, no web) + researcher.md (sonnet, web research), effort medium | $CODEX_HOME/agents/scout.toml (terra, effort medium, read-only) + config.toml default subagent model terra | ~/.gemini/config/agents/scout.md (model flash, read-only tools, no commands) |
 | Skills | ~/.claude/skills/{progress,test-audit}/SKILL.md | ~/.agents/skills/{progress,test-audit}/SKILL.md | ~/.gemini/config/skills/{progress,test-audit}/SKILL.md |
 | Project rules | .claude/rules/ai-governance-<id>.md -> symlink to .agents/rules | .agents/rules/ai-governance-<id>.md (shared) | .agents/rules/ai-governance-<id>.md (single source) |
 | Rule loading | native `paths:` frontmatter (loaded per file) | injected on edit by a PreToolUse hook (planned) | `trigger: glob` activation (loaded per file; 20k-token rules budget) |
 <!-- agents-table:end -->
 
 The read-only `scout` subagent is cross-agent: each agent gets it with a cheap model of its
-own provider (Claude `sonnet`, Codex `terra`, Antigravity `flash`). For Codex, a marked block
+own provider (Claude `haiku`, Codex `terra`, Antigravity `flash`). Claude splits it in two:
+`scout` (`haiku`, no web tools) reads code, and `researcher` (`sonnet`, `WebSearch`/`WebFetch`)
+does web research, where comparing and checking sources needs a stronger model. For Codex, a marked block
 at the top of `$CODEX_HOME/config.toml` also sets `agents.default_subagent_model = "terra"`
 and `agents.default_subagent_reasoning_effort = "medium"`; if the file already defines an
 `[agents]` table or those keys, the block is left out with a warning. `ai-governance probe`
-verifies that each agent really delegates to the scout. The Claude scout sets
+verifies that each agent really delegates to the scout. The Claude scout and researcher set
 `omitClaudeMd: true` (it runs without CLAUDE.md/AGENTS.md instructions, saving tokens); the
 Antigravity scout is limited to `view_file`, `grep_search`, `find_by_name`, `list_dir` with
 `commandExecutionPolicy: off`. A misspelled tool name can hang an Antigravity subagent, so run
 `ai-governance probe --agent antigravity` to verify it after installing.
 
-Codex and Antigravity hooks (`$CODEX_HOME/hooks.json`, `~/.gemini/antigravity-cli/hooks.json`)
+Codex and Antigravity hooks (`$CODEX_HOME/hooks.json`, `~/.gemini/config/hooks.json`)
 are written only after `ai-governance probe --agent <a> --verify` proved that their shell
 hooks fire on this machine.
 
@@ -70,6 +72,25 @@ Claude Code user hooks (all through `ai-governance hook claude <event>`, fail-op
 | SessionEnd | Logs branch, HEAD and the number of uncommitted files to the active task |
 | Stop | Evaluates spend thresholds; a macOS notification is sent only with `"notify_macos": true` in the telemetry config. Never reaches the model |
 
+### Shell completion (zsh)
+
+Any user install also writes `<TAB>` completion for `ai-governance`, `ws` and `spec` (the
+ones on `PATH`) to `~/.local/share/ai-governance/zsh/_<tool>`, and prepends one marked
+`fpath=(...)` line to `~/.zshrc` so it is found before `compinit` (oh-my-zsh included).
+Subcommands, options and their choices complete with their help text:
+
+```text
+$ ai-governance telemetry <TAB>
+calibrate     -- Store the ratio between the real spend and the estimate for a period
+claude-usage  -- Month-to-date Claude spend vs. business-day budget pace
+...
+```
+
+The scripts are static (nothing runs on `<TAB>`); `ai-governance update` regenerates them
+from each tool's argparse tree, so new commands show up after an update. Open a new shell
+to load them. `ai-governance completion zsh [tool]` prints one; skipped without a
+`~/.zshrc`; removed with the last uninstalled agent.
+
 ### Corporate packs
 
 Company-specific, always-on rules and scripts live in `packages/corporate-rules/<company>/` of
@@ -80,8 +101,8 @@ installing again removes or swaps its files.
 
 | Pack content | Installed as |
 |---|---|
-| `rules/<name>.md` | Claude Code: `~/.claude/rules/ai-governance-<company>-<name>.md` (copied as is) |
-| | Antigravity: `~/.gemini/config/rules/ai-governance-<company>-<name>.md` (with `trigger: always_on` front matter) |
+| `rules/<name>.md` | Claude Code: `~/.claude/rules/ai-governance-<company>-<name>.md` (symlink to the source file) |
+| | Antigravity: `~/.gemini/config/rules/ai-governance-<company>-<name>.md` (symlink to the same file; its `trigger: always_on` front matter is what Antigravity reads) |
 | | Codex: skipped (no per-file global rules), with one warning naming the skipped packs |
 | `scripts/*` | Symlinks in `~/.local/bin` (`AI_GOVERNANCE_BIN_DIR`), removed when the last installed agent is uninstalled |
 
@@ -196,13 +217,14 @@ A plain pipe keeps full human output.
 ## Configuration and environment
 
 State: `~/.local/state/ai-governance/` (ledger `installed.json`, `progress/`, `telemetry/`,
-`probe/`, `frugal/`). Config: `~/.config/ai-governance/` (`frugal.json` with `threshold_chars`
+`probe/`, `frugal/`). Data: `~/.local/share/ai-governance/` (`zsh/` completions). Config: `~/.config/ai-governance/` (`frugal.json` with `threshold_chars`
 and `budget_chars`; `atlassian.json` with named Atlassian profiles).
 
 | Variable | Effect |
 |---|---|
-| `AI_GOVERNANCE_STATE_DIR` / `AI_GOVERNANCE_CONFIG_DIR` | Override the state / config locations |
-| `XDG_STATE_HOME` / `XDG_CONFIG_HOME` | Base of the default state / config locations (`~/.local/state`, `~/.config`) |
+| `AI_GOVERNANCE_STATE_DIR` / `AI_GOVERNANCE_CONFIG_DIR` / `AI_GOVERNANCE_DATA_DIR` | Override the state / config / data locations |
+| `XDG_STATE_HOME` / `XDG_CONFIG_HOME` / `XDG_DATA_HOME` | Base of the default locations (`~/.local/state`, `~/.config`, `~/.local/share`) |
+| `ZDOTDIR` | Where `.zshrc` is looked up for completions (default `~`) |
 | `AI_GOVERNANCE_AGENT` | Force agent (`1`) or human (`0`) output |
 | `CODEX_HOME` | Codex home (default `~/.codex`) |
 | `AI_GOVERNANCE_CORPORATE_DIR` | Where corporate packs are read from (default `packages/corporate-rules` of the checkout) |

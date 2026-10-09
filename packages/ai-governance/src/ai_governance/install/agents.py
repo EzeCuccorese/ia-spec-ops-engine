@@ -59,10 +59,16 @@ class HookEntry:
 
 @dataclass(frozen=True)
 class HooksArtifact:
-    """Hook entries merged into an agent's JSON settings file."""
+    """Hook entries merged into an agent's JSON settings file.
+
+    ``group`` names the top-level hook group for agents whose hooks.json is keyed by hook
+    name (Antigravity: ``{"<name>": {"PreToolUse": [...]}}``); ``None`` = Claude/Codex
+    ``{"hooks": {"PreToolUse": [...]}}``.
+    """
 
     path: Path
     entries: tuple[HookEntry, ...]
+    group: str | None = None
 
 
 @dataclass(frozen=True)
@@ -134,11 +140,13 @@ class AgentSpec:
         """Agent-specific extras; the rules themselves live once in `.agents/rules`."""
         return []
 
-    def _verified_hooks(self, path: Path, *entries: HookEntry) -> list[Artifact]:
+    def _verified_hooks(
+        self, path: Path, *entries: HookEntry, group: str | None = None
+    ) -> list[Artifact]:
         """Hooks whose wire format is only trusted after `ai-governance probe` verified it."""
         from .probe import shell_hooks_verified
 
-        return [HooksArtifact(path, entries)] if shell_hooks_verified(self.id) else []
+        return [HooksArtifact(path, entries, group)] if shell_hooks_verified(self.id) else []
 
 
 class ClaudeSpec(AgentSpec):
@@ -151,12 +159,23 @@ class ClaudeSpec(AgentSpec):
                 home / "agents" / "scout.md",
                 "---\n"
                 "name: scout\n"
-                f"description: {content.SCOUT_DESCRIPTION}\n"
-                "tools: Read, Grep, Glob, WebSearch, WebFetch\n"
-                "model: sonnet\n"
+                f"description: {content.CLAUDE_SCOUT_DESCRIPTION}\n"
+                "tools: Read, Grep, Glob\n"
+                "model: haiku\n"
                 "effort: medium\n"
                 "omitClaudeMd: true\n"
                 "---\n" + content.SCOUT_INSTRUCTIONS,
+            ),
+            FileArtifact(
+                home / "agents" / "researcher.md",
+                "---\n"
+                "name: researcher\n"
+                f"description: {content.RESEARCHER_DESCRIPTION}\n"
+                "tools: Read, WebSearch, WebFetch\n"
+                "model: sonnet\n"
+                "effort: medium\n"
+                "omitClaudeMd: true\n"
+                "---\n" + content.RESEARCHER_INSTRUCTIONS,
             ),
             *skill_artifacts(home / "skills"),
             HooksArtifact(
@@ -174,7 +193,7 @@ class ClaudeSpec(AgentSpec):
     def corporate_artifacts(self, rules: list[CorporateRule]) -> list[Artifact]:
         home = Path.home() / ".claude" / "rules"
         return [
-            FileArtifact(home / f"ai-governance-{r.pack}-{r.name}.md", r.content) for r in rules
+            LinkArtifact(home / f"ai-governance-{r.pack}-{r.name}.md", str(r.path)) for r in rules
         ]
 
     def project_artifacts(
@@ -231,11 +250,7 @@ class AntigravitySpec(AgentSpec):
     def corporate_artifacts(self, rules: list[CorporateRule]) -> list[Artifact]:
         home = Path.home() / ".gemini" / "config" / "rules"
         return [
-            FileArtifact(
-                home / f"ai-governance-{r.pack}-{r.name}.md",
-                "---\ntrigger: always_on\n---\n" + r.content,
-            )
-            for r in rules
+            LinkArtifact(home / f"ai-governance-{r.pack}-{r.name}.md", str(r.path)) for r in rules
         ]
 
     def global_artifacts(self) -> list[Artifact]:
@@ -256,8 +271,11 @@ class AntigravitySpec(AgentSpec):
             ),
             *skill_artifacts(home / "config" / "skills"),
             *self._verified_hooks(
-                home / "antigravity-cli" / "hooks.json",
-                HookEntry("PreToolUse", None, f"{HOOK_COMMAND_PREFIX} antigravity pre-tool-use"),
+                home / "config" / "hooks.json",
+                HookEntry(
+                    "PreToolUse", "run_command", f"{HOOK_COMMAND_PREFIX} antigravity pre-tool-use"
+                ),
+                group=MARKER,
             ),
         ]
 
@@ -277,7 +295,7 @@ AGENTS: dict[str, AgentSpec] = {
         global_hooks="~/.claude/settings.json (Pre/PostToolUse Bash, Stop, SessionStart/End)",
         project_rules=".claude/rules/ai-governance-<id>.md -> symlink to .agents/rules",
         project_rules_mechanism="native `paths:` frontmatter (loaded per file)",
-        scout="~/.claude/agents/scout.md (sonnet, effort medium)",
+        scout="~/.claude/agents/scout.md (haiku, no web) + researcher.md (sonnet, web research), effort medium",
         skills="~/.claude/skills/{progress,test-audit}/SKILL.md",
     ),
     "codex": CodexSpec(
@@ -294,7 +312,7 @@ AGENTS: dict[str, AgentSpec] = {
         id="antigravity",
         name="Google Antigravity 2",
         global_instructions="~/.gemini/config/rules/ai-governance.md (`trigger: always_on`)",
-        global_hooks="~/.gemini/antigravity-cli/hooks.json PreToolUse: raw noisy commands -> `ws run` (after `probe`)",
+        global_hooks="~/.gemini/config/hooks.json PreToolUse: raw noisy commands -> `ws run` (after `probe`)",
         project_rules=".agents/rules/ai-governance-<id>.md (single source)",
         project_rules_mechanism="`trigger: glob` activation (loaded per file; 20k-token rules budget)",
         scout="~/.gemini/config/agents/scout.md (model flash, read-only tools, no commands)",

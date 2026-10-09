@@ -25,6 +25,7 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import html
 import json
 import re
@@ -436,83 +437,111 @@ def cmd_help() -> None:
     )
 
 
+PAGE = ("page_id", {"help": "Page id"})
+# name -> (help, positionals). Every subcommand also takes the common flags below.
+COMMANDS: dict[str, tuple[str, tuple[tuple[str, dict[str, Any]], ...]]] = {
+    "read": ("Display a page in Markdown or JSON", (PAGE,)),
+    "search": ("Search pages across all spaces", (("query", {"help": "Search text"}),)),
+    "spaces": ("List the available spaces", ()),
+    "create": (
+        "Create a page (body: Markdown text, @file or -)",
+        (
+            ("space", {"help": "Space key"}),
+            ("title", {"help": "Page title"}),
+            ("body", {"nargs": "?", "help": "Page body"}),
+        ),
+    ),
+    "update": (
+        "Replace the whole page body",
+        (PAGE, ("body", {"nargs": "?", "help": "New page body"})),
+    ),
+    "append": (
+        "Append text to the bottom of a page",
+        (PAGE, ("body", {"nargs": "?", "help": "Text to append"})),
+    ),
+    "comment": ("Add a comment to a page", (PAGE, ("body", {"nargs": "?", "help": "Comment"}))),
+}
+
+
+def _common_flags(parser: argparse.ArgumentParser, *, root: bool) -> None:
+    """Flags accepted before and after the subcommand (`confluence --json read 1` and
+    `confluence read 1 --json`). Subcommands leave them unset so the root value survives."""
+    unset: dict[str, Any] = {} if root else {"default": argparse.SUPPRESS}
+    parser.add_argument("--profile", help="Use a named configuration profile", **unset)
+    parser.add_argument("--json", action="store_true", help="Print the raw JSON", **unset)
+    parser.add_argument("--file", help="Read the body from this file", **unset)
+
+
+def _paging_flags(parser: argparse.ArgumentParser, *, root: bool) -> None:
+    start: Any = 0 if root else argparse.SUPPRESS
+    limit: Any = 15 if root else argparse.SUPPRESS
+    parser.add_argument("--start", type=int, default=start, help="First result (paging)")
+    parser.add_argument("--limit", type=int, default=limit, help="Page size")
+
+
+def _version_flag(parser: argparse.ArgumentParser, *, root: bool) -> None:
+    parser.add_argument(
+        "--version",
+        "--ver",
+        dest="version",
+        type=int,
+        default=None if root else argparse.SUPPRESS,
+        help="Expected current version (guards against conflicts)",
+    )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="confluence", add_help=False)
+    parser.add_argument(
+        "-h", "--help", action="store_true", dest="show_help", help="Show the command overview"
+    )
+    _common_flags(parser, root=True)
+    _paging_flags(parser, root=True)
+    _version_flag(parser, root=True)
+    sub = parser.add_subparsers(dest="command")
+    sub.add_parser("help", help="Show the command overview")
+    for name, (help_text, positionals) in COMMANDS.items():
+        command = sub.add_parser(name, help=help_text)
+        for dest, options in positionals:
+            command.add_argument(dest, **options)
+        _common_flags(command, root=False)
+    _paging_flags(sub.choices["search"], root=False)
+    sub.choices["search"].add_argument("--space", help="Limit the search to one space key")
+    sub.choices["create"].add_argument("--parent", help="Parent page id")
+    for name in ("update", "append"):
+        _version_flag(sub.choices[name], root=False)
+    return parser
+
+
+def _body(args: argparse.Namespace, parser: argparse.ArgumentParser) -> str:
+    body = args.file or args.body
+    if not body:
+        parser.error(f"{args.command} needs a body or --file")
+    return str(body)
+
+
+HANDLERS: dict[str, Any] = {
+    "read": lambda a, _p: cmd_read(a.page_id, as_json=a.json),
+    "search": lambda a, _p: cmd_search(
+        a.query, space_key=a.space, start=a.start, limit=a.limit, as_json=a.json
+    ),
+    "spaces": lambda a, _p: cmd_spaces(as_json=a.json),
+    "create": lambda a, p: cmd_create(a.space, a.title, _body(a, p), parent_id=a.parent),
+    "update": lambda a, p: cmd_update(a.page_id, _body(a, p), expected_version=a.version),
+    "append": lambda a, p: cmd_append(a.page_id, _body(a, p), expected_version=a.version),
+    "comment": lambda a, p: cmd_comment(a.page_id, _body(a, p)),
+}
+
+
 def main(argv: list[str] | None = None) -> None:
-    raw_args = sys.argv[1:] if argv is None else list(argv)
-    if not raw_args or raw_args[0] in ("-h", "--help", "help"):
+    parser = build_parser()
+    args = parser.parse_args(sys.argv[1:] if argv is None else list(argv))
+    if args.show_help or args.command in (None, "help"):
         cmd_help()
         return
-
-    # Extract global flags
-    args = []
-    i = 0
-    as_json = False
-    start = 0
-    limit = 15
-    version_arg = None
-    file_input = None
-
-    while i < len(raw_args):
-        if raw_args[i] == "--profile" and i + 1 < len(raw_args):
-            set_profile(raw_args[i + 1])
-            i += 2
-        elif raw_args[i] == "--json":
-            as_json = True
-            i += 1
-        elif raw_args[i] == "--start" and i + 1 < len(raw_args):
-            start = int(raw_args[i + 1])
-            i += 2
-        elif raw_args[i] == "--limit" and i + 1 < len(raw_args):
-            limit = int(raw_args[i + 1])
-            i += 2
-        elif raw_args[i] in ("--version", "--ver") and i + 1 < len(raw_args):
-            version_arg = int(raw_args[i + 1])
-            i += 2
-        elif raw_args[i] == "--file" and i + 1 < len(raw_args):
-            file_input = raw_args[i + 1]
-            i += 2
-        else:
-            args.append(raw_args[i])
-            i += 1
-
-    if not args:
-        cmd_help()
-        return
-
-    cmd = args[0]
-    if cmd == "read" and len(args) >= 2:
-        cmd_read(args[1], as_json=as_json)
-    elif cmd == "search" and len(args) >= 2:
-        space = None
-        if "--space" in args:
-            idx = args.index("--space")
-            if idx + 1 < len(args):
-                space = args[idx + 1]
-        cmd_search(args[1], space_key=space, start=start, limit=limit, as_json=as_json)
-    elif cmd == "spaces":
-        cmd_spaces(as_json=as_json)
-    elif cmd == "create" and (len(args) >= 4 or (len(args) >= 3 and file_input)):
-        parent = None
-        if "--parent" in args:
-            idx = args.index("--parent")
-            if idx + 1 < len(args):
-                parent = args[idx + 1]
-        body = file_input if file_input else args[3]
-        cmd_create(args[1], args[2], body, parent_id=parent)
-    elif cmd == "update" and (len(args) >= 3 or (len(args) >= 2 and file_input)):
-        body = file_input if file_input else args[2]
-        cmd_update(args[1], body, expected_version=version_arg)
-    elif cmd == "append" and (len(args) >= 3 or (len(args) >= 2 and file_input)):
-        body = file_input if file_input else args[2]
-        cmd_append(args[1], body, expected_version=version_arg)
-    elif cmd == "comment" and (len(args) >= 3 or (len(args) >= 2 and file_input)):
-        body = file_input if file_input else args[2]
-        cmd_comment(args[1], body)
-    else:
-        print(
-            f"Unknown command or invalid arguments: {' '.join(args)}\nRun 'confluence help'.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    if args.profile:
+        set_profile(args.profile)
+    HANDLERS[args.command](args, parser)
 
 
 if __name__ == "__main__":
