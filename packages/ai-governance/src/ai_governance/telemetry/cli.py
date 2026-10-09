@@ -64,10 +64,7 @@ def show_usage_report(summary: dict) -> None:
             pairs.append((label, text))
     emit_kv(pairs, title="Claude usage estimate", full=True)
     if summary.get("fast_calls"):
-        emit_status(
-            "warn",
-            f"{summary['fast_calls']} fast-mode calls priced as standard (no fast rate in the feed).",
-        )
+        emit_status("info", f"{summary['fast_calls']} fast-mode calls (billed at the fast rate).")
 
 
 def format_effort(efforts: dict[str, dict[str, float]]) -> str:
@@ -102,7 +99,12 @@ def _color(percent: float) -> str:
 
 
 def statusline_segment(base: Path, config: UsageConfig, *, today: date | None = None) -> str:
-    """Today's spend vs. its business-day allowance and what is left this month.
+    """Today's spend vs. today's cap, the month's spend vs. the business-day pace,
+    the month's spend vs. the monthly limit, and what is left of that limit.
+
+    Today's cap is what the pace allows by the end of today minus what was spent
+    before today, so savings from earlier days carry over and spending today does
+    not move the cap.
 
     Reads the costs the Stop hook (`thresholds`) caches in state.json; rescans the
     transcripts only when that cache is from another day, since the status line
@@ -118,16 +120,26 @@ def statusline_segment(base: Path, config: UsageConfig, *, today: date | None = 
         day_cost, month_cost = summary["today_cost_usd"], summary["month_cost_usd"]
     limit = config.effective_monthly_limit
     pace = ClaudeUsageCalculator.calculate_pace(
-        limit, actual_spend_usd=month_cost, holidays=config.holidays
+        limit, actual_spend_usd=month_cost, target_date=current, holidays=config.holidays
     )
-    left = limit - month_cost
-    daily = left / max(1, pace.days_remaining + 1)
-    day_pct = day_cost / daily * 100 if daily > 0 else 100.0
-    month_pct = month_cost / limit * 100 if limit else 0.0
-    return (
-        f"{_color(day_pct)}today ${day_cost:.2f}/{daily:.0f} {day_pct:.0f}%{RESET} "
-        f"{DIM}·{RESET} {_color(month_pct)}left ${left:.0f}{RESET}"
+    expected = pace.expected_spend_usd
+    day_cap = expected - (month_cost - day_cost)
+    day_pct = _pct(day_cost, day_cap)
+    pace_pct = _pct(month_cost, expected)
+    limit_pct = _pct(month_cost, limit)
+    sep = f" {DIM}·{RESET} "
+    return sep.join(
+        (
+            f"{_color(day_pct)}today ${day_cost:.2f}/{day_cap:.0f} {day_pct:.0f}%{RESET}",
+            f"{_color(pace_pct)}month ${month_cost:.0f}/{expected:.0f} {pace_pct:.0f}%{RESET}",
+            f"{_color(limit_pct)}budget ${month_cost:.0f}/{limit:.0f} {limit_pct:.0f}%{RESET}",
+            f"{_color(limit_pct)}left ${limit - month_cost:.0f}{RESET}",
+        )
     )
+
+
+def _pct(spent: float, cap: float) -> float:
+    return spent / cap * 100 if cap > 0 else 100.0
 
 
 def _monitor(base: Path, config: UsageConfig) -> CostMonitor:
