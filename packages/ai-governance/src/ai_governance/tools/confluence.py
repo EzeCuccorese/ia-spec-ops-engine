@@ -54,6 +54,7 @@ from ai_governance.tools.atlassian_common import (
 from ai_governance.tools.atlassian_common import (
     sanitize_secrets as sanitize_secrets,
 )
+from ai_governance.tools.md_adf import md_to_adf
 
 _auth_header = auth_header
 _get_base_url = get_base_url
@@ -160,79 +161,60 @@ def html_to_md(html_str: str) -> str:
     return text.strip()
 
 
-def _md_inline(text: str) -> str:
-    escaped = html.escape(text)
-    escaped = re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped)
-    escaped = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", escaped)
-    escaped = re.sub(r"\*([^*]+)\*", r"<em>\1</em>", escaped)
-    escaped = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', escaped)
-    return escaped
+# Lines that start like this are raw Confluence storage XML/HTML and go through untouched.
+_RAW_STORAGE_PREFIXES = (
+    "<ac:",
+    "</ac:",
+    "<table",
+    "</table",
+    "<tr",
+    "</tr",
+    "<td",
+    "</td",
+    "<th",
+    "</th",
+    "<p>",
+    "</p>",
+)
+
+
+def _adf_to_storage(adf: dict[str, Any]) -> str:
+    """Asks Confluence itself to turn an ADF doc into storage format (synchronous, no write)."""
+    data = post(
+        "/contentbody/convert/storage",
+        {"value": json.dumps(adf), "representation": "atlas_doc_format"},
+    )
+    return str(data.get("value", ""))
 
 
 def md_to_storage(md: str) -> str:
-    """Converts basic Markdown to Confluence storage format (XHTML), preserving raw XML macros/tables."""
-    blocks = []
-    lines = md.split("\n")
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        stripped = line.strip()
+    """Converts Markdown to Confluence storage format, keeping raw storage XML lines as they are."""
+    parts: list[str] = []
+    chunk: list[str] = []
 
-        if (
-            stripped.startswith("<ac:")
-            or stripped.startswith("</ac:")
-            or stripped.startswith("<table")
-            or stripped.startswith("</table")
-            or stripped.startswith("<tr")
-            or stripped.startswith("</tr")
-            or stripped.startswith("<td")
-            or stripped.startswith("</td")
-            or stripped.startswith("<th")
-            or stripped.startswith("</th")
-            or stripped.startswith("<p>")
-            or stripped.startswith("</p>")
-        ):
-            blocks.append(line)
-            i += 1
-            continue
+    def flush() -> None:
+        text = "\n".join(chunk).strip()
+        if text:
+            parts.append(_adf_to_storage(md_to_adf(text)))
+        chunk.clear()
 
-        if line.startswith("```"):
-            code_lines = []
-            i += 1
-            while i < len(lines) and not lines[i].startswith("```"):
-                code_lines.append(lines[i])
-                i += 1
-            code_text = html.escape("\n".join(code_lines))
-            blocks.append(f"<pre><code>{code_text}</code></pre>")
-            i += 1
-            continue
+    for line in md.split("\n"):
+        if line.strip().startswith(_RAW_STORAGE_PREFIXES):
+            flush()
+            parts.append(line)
+        else:
+            chunk.append(line)
+    flush()
+    return "".join(parts)
 
-        m = re.match(r"^(#{1,6})\s+(.*)", line)
-        if m:
-            lvl = len(m.group(1))
-            blocks.append(f"<h{lvl}>{_md_inline(m.group(2))}</h{lvl}>")
-            i += 1
-            continue
 
-        if line.startswith("- ") or line.startswith("* "):
-            items = []
-            while i < len(lines) and (lines[i].startswith("- ") or lines[i].startswith("* ")):
-                items.append(f"<li>{_md_inline(lines[i][2:].strip())}</li>")
-                i += 1
-            blocks.append(f"<ul>{''.join(items)}</ul>")
-            continue
-
-        if line.strip() == "---":
-            blocks.append("<hr/>")
-            i += 1
-            continue
-
-        if line.strip():
-            blocks.append(f"<p>{_md_inline(line.strip())}</p>")
-
-        i += 1
-
-    return "".join(blocks)
+def _shift_task_ids(new_body: str, existing_body: str) -> str:
+    """Numbers the appended tasks after the ones already on the page so ids stay unique."""
+    pattern = re.compile(r"<ac:task-id>(\d+)</ac:task-id>")
+    offset = max((int(i) for i in pattern.findall(existing_body)), default=0)
+    if not offset:
+        return new_body
+    return pattern.sub(lambda m: f"<ac:task-id>{int(m.group(1)) + offset}</ac:task-id>", new_body)
 
 
 # ── Commands ──────────────────────────────────────────────────────────────────
@@ -384,7 +366,7 @@ def cmd_append(page_id: str, text: str, expected_version: int | None = None) -> 
 
     old_body = current.get("body", {}).get("storage", {}).get("value", "")
     append_text = read_input_text(text)
-    new_content = md_to_storage(append_text)
+    new_content = _shift_task_ids(md_to_storage(append_text), old_body)
     combined = old_body + new_content
 
     payload = {

@@ -18,6 +18,7 @@ Usage:
     jira create <PROJECT-KEY> "<Title>" [--desc "<text>"] [--type Bug|Task|Story|Sub-task] [--parent <KEY>]
     jira comment <ISSUE-KEY> "<text>"               Add comment (supports Markdown, see 'jira help')
     jira comment-edit <ISSUE-KEY> <ID> "<text>"     Replace body of an existing comment
+    jira edit <ISSUE-KEY> [--desc ...] [--title ...]  Replace description and/or title
     jira transition <ISSUE-KEY> "<Status>"           Move issue to target status
     jira assign <ISSUE-KEY> [me|<email>]             Assign issue to user
     jira sprint <ISSUE-KEY> <name|active>            Move issue to a sprint (Agile API)
@@ -28,13 +29,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 import textwrap
 from datetime import datetime
 from typing import Any
 
-# ── Configuration & Profiles (Shared with Atlassian Common) ─────────────────
 from ai_governance.tools.atlassian_common import (
     ATLASSIAN_TIMEOUT,
     auth_header,
@@ -52,6 +51,9 @@ from ai_governance.tools.atlassian_common import (
 from ai_governance.tools.atlassian_common import (
     sanitize_secrets as sanitize_secrets,
 )
+
+# ── Configuration & Profiles (Shared with Atlassian Common) ─────────────────
+from ai_governance.tools.md_adf import md_to_adf
 
 _auth_header = auth_header
 _get_base_url = get_base_url
@@ -132,6 +134,11 @@ def _adf_to_md(node: Any) -> str:
         )
     elif ntype == "listItem":
         return inner.strip()
+    elif ntype == "taskList":
+        return "".join(f"- {_adf_to_md(item).strip()}\n" for item in content) + "\n"
+    elif ntype == "taskItem":
+        done = node.get("attrs", {}).get("state") == "DONE"
+        return f"[{'x' if done else ' '}] {inner.strip()}"
     elif ntype == "codeBlock":
         lang = node.get("attrs", {}).get("language", "")
         return f"```{lang}\n{inner.rstrip()}\n```\n\n"
@@ -161,105 +168,6 @@ def _fmt_date(iso: str | None) -> str:
         return datetime.fromisoformat(iso.replace("Z", "+00:00")).strftime("%Y-%m-%d %H:%M")
     except ValueError:
         return iso[:16]
-
-
-def _inline_to_adf(text: str) -> list[dict[str, Any]]:
-    nodes = []
-    tokens = re.split(r"(\*\*.*?\*\*|`.*?`)", text)
-    for token in tokens:
-        if not token:
-            continue
-        if token.startswith("**") and token.endswith("**") and len(token) >= 4:
-            nodes.append({"type": "text", "text": token[2:-2], "marks": [{"type": "strong"}]})
-        elif token.startswith("`") and token.endswith("`") and len(token) >= 2:
-            nodes.append({"type": "text", "text": token[1:-1], "marks": [{"type": "code"}]})
-        else:
-            nodes.append({"type": "text", "text": token})
-    return nodes
-
-
-def _is_table_separator(line: str) -> bool:
-    line = line.strip()
-    return bool(
-        line.startswith("|") and line.endswith("|") and re.match(r"^\|(\s*:?-+:?\s*\|)+$", line)
-    )
-
-
-def _parse_table_row(line: str) -> list[str]:
-    line = line.strip()
-    if line.startswith("|"):
-        line = line[1:]
-    if line.endswith("|"):
-        line = line[:-1]
-    return [cell.strip() for cell in line.split("|")]
-
-
-def _table_to_adf(lines: list[str]) -> dict[str, Any]:
-    rows = []
-    for i, line in enumerate(lines):
-        cell_type = "tableHeader" if i == 0 else "tableCell"
-        row_content = []
-        for cell_text in _parse_table_row(line):
-            row_content.append(
-                {
-                    "type": cell_type,
-                    "content": [{"type": "paragraph", "content": _inline_to_adf(cell_text)}],
-                }
-            )
-        rows.append({"type": "tableRow", "content": row_content})
-    return {"type": "table", "content": rows}
-
-
-def _md_to_adf(text: str) -> dict[str, Any]:
-    content: list[dict[str, Any]] = []
-    bullet_accum: list[str] = []
-    table_accum: list[str] = []
-
-    def flush_bullets() -> None:
-        if bullet_accum:
-            content.append(
-                {
-                    "type": "bulletList",
-                    "content": [
-                        {
-                            "type": "listItem",
-                            "content": [{"type": "paragraph", "content": _inline_to_adf(item)}],
-                        }
-                        for item in bullet_accum
-                    ],
-                }
-            )
-            bullet_accum.clear()
-
-    def flush_table() -> None:
-        if table_accum:
-            data_rows = [r for r in table_accum if not _is_table_separator(r)]
-            if len(data_rows) >= 2:
-                content.append(_table_to_adf(data_rows))
-            else:
-                for r in table_accum:
-                    content.append({"type": "paragraph", "content": _inline_to_adf(r)})
-            table_accum.clear()
-
-    for line in text.split("\n"):
-        if line.strip().startswith("|") and line.strip().endswith("|"):
-            flush_bullets()
-            table_accum.append(line)
-            continue
-        else:
-            flush_table()
-
-        if line.startswith("- "):
-            bullet_accum.append(line[2:].strip())
-        elif line.strip() == "":
-            flush_bullets()
-        else:
-            flush_bullets()
-            content.append({"type": "paragraph", "content": _inline_to_adf(line)})
-
-    flush_bullets()
-    flush_table()
-    return {"version": 1, "type": "doc", "content": content}
 
 
 # ── Commands ──────────────────────────────────────────────────────────────────
@@ -303,29 +211,28 @@ def cmd_issue(key: str, as_json: bool = False) -> None:
             print(f"**{author}** — {date}\n{body}\n")
 
 
-def cmd_search(jql: str, start_at: int = 0, max_results: int = 30, as_json: bool = False) -> None:
-    """Searches issues using JQL with pagination support."""
-    data = post(
-        "/search/jql",
-        {
-            "jql": jql,
-            "startAt": start_at,
-            "maxResults": max_results,
-            "fields": ["key", "summary", "status", "assignee", "priority", "issuetype"],
-        },
-    )
+def cmd_search(
+    jql: str, page_token: str | None = None, max_results: int = 30, as_json: bool = False
+) -> None:
+    """Searches issues using JQL. Jira pages with an opaque token, not with offsets."""
+    payload: dict[str, Any] = {
+        "jql": jql,
+        "maxResults": max_results,
+        "fields": ["key", "summary", "status", "assignee", "priority", "issuetype"],
+    }
+    if page_token:
+        payload["nextPageToken"] = page_token
+    data = post("/search/jql", payload)
     if as_json:
         print(json.dumps(data, indent=2))
         return
 
     issues = data.get("issues", [])
-    total = data.get("total", len(issues))
-    start = data.get("startAt", start_at)
     if not issues:
         print("_No results found._")
         return
 
-    print(f"## Results ({start + 1}-{start + len(issues)} of {total})\n")
+    print(f"## Results ({len(issues)} shown)\n")
     print("| Key | Type | Status | Assignee | Title |")
     print("|---|---|---|---|---|")
     for i in issues:
@@ -335,10 +242,9 @@ def cmd_search(jql: str, start_at: int = 0, max_results: int = 30, as_json: bool
         itype = f.get("issuetype", {}).get("name", "—")
         print(f"| {i['key']} | {itype} | {status} | {assignee} | {f.get('summary', '')} |")
 
-    if total > start + len(issues):
-        print(
-            f"\n_More results exist ({start + len(issues)} of {total} shown). Use --start-at {start + len(issues)} to view next page._"
-        )
+    next_token = data.get("nextPageToken")
+    if next_token:
+        print(f"\n_More results exist. Use --page-token {next_token} to view the next page._")
 
 
 def cmd_comments(key: str, as_json: bool = False) -> None:
@@ -379,7 +285,7 @@ def cmd_create(
         fields["parent"] = {"key": parent}
     if desc:
         desc_text = read_input_text(desc)
-        fields["description"] = _md_to_adf(desc_text)
+        fields["description"] = md_to_adf(desc_text)
     data = post("/issue", {"fields": fields})
     key = data.get("key", "")
     print(f"✅ Issue created: **{key}** — {summary}")
@@ -389,7 +295,7 @@ def cmd_create(
 def cmd_comment(key: str, text: str) -> None:
     """Adds a comment to an issue."""
     comment_text = read_input_text(text)
-    data = post(f"/issue/{key}/comment", {"body": _md_to_adf(comment_text)})
+    data = post(f"/issue/{key}/comment", {"body": md_to_adf(comment_text)})
     print(f"✅ Comment added to {key}")
     print(f"   id: {data.get('id', '')}")
 
@@ -397,8 +303,22 @@ def cmd_comment(key: str, text: str) -> None:
 def cmd_comment_edit(key: str, comment_id: str, text: str) -> None:
     """Replaces the body of an existing comment."""
     comment_text = read_input_text(text)
-    put(f"/issue/{key}/comment/{comment_id}", {"body": _md_to_adf(comment_text)})
+    put(f"/issue/{key}/comment/{comment_id}", {"body": md_to_adf(comment_text)})
     print(f"✅ Comment {comment_id} edited on {key}")
+
+
+def cmd_edit(key: str, desc: str | None = None, title: str | None = None) -> None:
+    """Replaces the description and/or the title of an existing issue."""
+    fields: dict[str, Any] = {}
+    if desc is not None:
+        fields["description"] = md_to_adf(read_input_text(desc))
+    if title:
+        fields["summary"] = title
+    if not fields:
+        print("❌ Nothing to edit: pass --desc and/or --title.", file=sys.stderr)
+        sys.exit(1)
+    put(f"/issue/{key}", {"fields": fields})
+    print(f"✅ Issue {key} updated ({', '.join(sorted(fields))})")
 
 
 def cmd_transition(key: str, state_name: str) -> None:
@@ -522,7 +442,7 @@ def cmd_help() -> None:
 
         READ:
           jira issue  <KEY> [--json]              Display issue in clean Markdown or JSON
-          jira search "<JQL>" [--start-at <N>]    Search issues using JQL with pagination
+          jira search "<JQL>" [--page-token <T>]   Search issues using JQL with pagination
             [--limit <N>] [--json]
           jira comments <KEY> [--json]            Display issue comments
 
@@ -533,6 +453,8 @@ def cmd_help() -> None:
             [--parent <KEY>]                      Parent issue for Sub-task
           jira comment <KEY> "<text>|@file|-"     Add comment (supports Markdown)
           jira comment-edit <KEY> <ID> "<text>"   Replace body of an existing comment
+          jira edit <KEY> [--desc "<text>|@file|-"]  Replace the description (Markdown)
+            [--title "<Title>"]                   and/or the title
           jira transition <KEY> "<Status>"        Move issue to status (strictly checked)
           jira assign <KEY> me|<email>            Assign issue (strictly checked)
           jira sprint <KEY> active|<name>         Move issue to sprint
@@ -564,6 +486,10 @@ COMMANDS: dict[str, tuple[str, tuple[tuple[str, dict[str, Any]], ...]]] = {
             ("text", {"nargs": "?", "help": "New comment text"}),
         ),
     ),
+    "edit": (
+        "Replace the description and/or title of an issue",
+        (("key", {"help": "Issue key"}),),
+    ),
     "transition": (
         "Move an issue to a status (strictly checked)",
         (("key", {"help": "Issue key"}), ("status", {"help": "Target status name"})),
@@ -589,9 +515,9 @@ def _common_flags(parser: argparse.ArgumentParser, *, root: bool) -> None:
 
 
 def _paging_flags(parser: argparse.ArgumentParser, *, root: bool) -> None:
-    start: Any = 0 if root else argparse.SUPPRESS
+    token: Any = None if root else argparse.SUPPRESS
     limit: Any = 30 if root else argparse.SUPPRESS
-    parser.add_argument("--start-at", type=int, default=start, help="First result (paging)")
+    parser.add_argument("--page-token", default=token, help="Token of the next page (from search)")
     parser.add_argument(
         "--limit", "--max-results", dest="max_results", type=int, default=limit, help="Page size"
     )
@@ -612,6 +538,9 @@ def build_parser() -> argparse.ArgumentParser:
             command.add_argument(dest, **options)
         _common_flags(command, root=False)
     _paging_flags(sub.choices["search"], root=False)
+    edit = sub.choices["edit"]
+    edit.add_argument("--desc", help="New description: Markdown text, @file or -")
+    edit.add_argument("--title", help="New title")
     create = sub.choices["create"]
     create.add_argument("--desc", help="Description: Markdown text, @file or -")
     create.add_argument("--type", default="Task", help="Bug, Task, Story or Sub-task")
@@ -629,7 +558,7 @@ def _text(args: argparse.Namespace, parser: argparse.ArgumentParser) -> str:
 HANDLERS: dict[str, Any] = {
     "issue": lambda a, _p: cmd_issue(a.key, as_json=a.json),
     "search": lambda a, _p: cmd_search(
-        a.jql, start_at=a.start_at, max_results=a.max_results, as_json=a.json
+        a.jql, page_token=a.page_token, max_results=a.max_results, as_json=a.json
     ),
     "comments": lambda a, _p: cmd_comments(a.key, as_json=a.json),
     "create": lambda a, _p: cmd_create(
@@ -641,6 +570,9 @@ HANDLERS: dict[str, Any] = {
     ),
     "comment": lambda a, p: cmd_comment(a.key, _text(a, p)),
     "comment-edit": lambda a, p: cmd_comment_edit(a.key, a.comment_id, _text(a, p)),
+    "edit": lambda a, _p: cmd_edit(
+        a.key, desc=a.desc if a.desc is not None else a.file, title=a.title
+    ),
     "transition": lambda a, _p: cmd_transition(a.key, a.status),
     "assign": lambda a, _p: cmd_assign(a.key, a.assignee),
     "sprint": lambda a, _p: cmd_sprint(a.key, a.sprint),
