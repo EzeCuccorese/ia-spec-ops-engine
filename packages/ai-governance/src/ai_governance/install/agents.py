@@ -159,12 +159,23 @@ class ClaudeSpec(AgentSpec):
                 home / "agents" / "scout.md",
                 "---\n"
                 "name: scout\n"
-                f"description: {content.SCOUT_DESCRIPTION}\n"
-                "tools: Read, Grep, Glob, WebSearch, WebFetch\n"
-                "model: sonnet\n"
+                f"description: {content.CLAUDE_SCOUT_DESCRIPTION}\n"
+                "tools: Read, Grep, Glob\n"
+                "model: haiku\n"
                 "effort: medium\n"
                 "omitClaudeMd: true\n"
                 "---\n" + content.SCOUT_INSTRUCTIONS,
+            ),
+            FileArtifact(
+                home / "agents" / "researcher.md",
+                "---\n"
+                "name: researcher\n"
+                f"description: {content.RESEARCHER_DESCRIPTION}\n"
+                "tools: Read, WebSearch, WebFetch\n"
+                "model: sonnet\n"
+                "effort: medium\n"
+                "omitClaudeMd: true\n"
+                "---\n" + content.RESEARCHER_INSTRUCTIONS,
             ),
             *skill_artifacts(home / "skills"),
             HooksArtifact(
@@ -284,7 +295,7 @@ AGENTS: dict[str, AgentSpec] = {
         global_hooks="~/.claude/settings.json (Pre/PostToolUse Bash, Stop, SessionStart/End)",
         project_rules=".claude/rules/ai-governance-<id>.md -> symlink to .agents/rules",
         project_rules_mechanism="native `paths:` frontmatter (loaded per file)",
-        scout="~/.claude/agents/scout.md (sonnet, effort medium)",
+        scout="~/.claude/agents/scout.md (haiku, no web) + researcher.md (sonnet, web research), effort medium",
         skills="~/.claude/skills/{progress,test-audit}/SKILL.md",
     ),
     "codex": CodexSpec(

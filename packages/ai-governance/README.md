@@ -39,18 +39,20 @@ Personal, project-agnostic harness. Nothing about engineering policy.
 |---|---|---|---|
 | Global instructions | ~/.claude/rules/ai-governance.md | $CODEX_HOME/AGENTS.md (marker block) | ~/.gemini/config/rules/ai-governance.md (`trigger: always_on`) |
 | Global hooks | ~/.claude/settings.json (Pre/PostToolUse Bash, Stop, SessionStart/End) | $CODEX_HOME/hooks.json PostToolUse condensing (after `probe` verifies) | ~/.gemini/config/hooks.json PreToolUse: raw noisy commands -> `ws run` (after `probe`) |
-| Scout subagent | ~/.claude/agents/scout.md (sonnet, effort medium) | $CODEX_HOME/agents/scout.toml (terra, effort medium, read-only) + config.toml default subagent model terra | ~/.gemini/config/agents/scout.md (model flash, read-only tools, no commands) |
+| Scout subagent | ~/.claude/agents/scout.md (haiku, no web) + researcher.md (sonnet, web research), effort medium | $CODEX_HOME/agents/scout.toml (terra, effort medium, read-only) + config.toml default subagent model terra | ~/.gemini/config/agents/scout.md (model flash, read-only tools, no commands) |
 | Skills | ~/.claude/skills/{progress,test-audit}/SKILL.md | ~/.agents/skills/{progress,test-audit}/SKILL.md | ~/.gemini/config/skills/{progress,test-audit}/SKILL.md |
 | Project rules | .claude/rules/ai-governance-<id>.md -> symlink to .agents/rules | .agents/rules/ai-governance-<id>.md (shared) | .agents/rules/ai-governance-<id>.md (single source) |
 | Rule loading | native `paths:` frontmatter (loaded per file) | injected on edit by a PreToolUse hook (planned) | `trigger: glob` activation (loaded per file; 20k-token rules budget) |
 <!-- agents-table:end -->
 
 The read-only `scout` subagent is cross-agent: each agent gets it with a cheap model of its
-own provider (Claude `sonnet`, Codex `terra`, Antigravity `flash`). For Codex, a marked block
+own provider (Claude `haiku`, Codex `terra`, Antigravity `flash`). Claude splits it in two:
+`scout` (`haiku`, no web tools) reads code, and `researcher` (`sonnet`, `WebSearch`/`WebFetch`)
+does web research, where comparing and checking sources needs a stronger model. For Codex, a marked block
 at the top of `$CODEX_HOME/config.toml` also sets `agents.default_subagent_model = "terra"`
 and `agents.default_subagent_reasoning_effort = "medium"`; if the file already defines an
 `[agents]` table or those keys, the block is left out with a warning. `ai-governance probe`
-verifies that each agent really delegates to the scout. The Claude scout sets
+verifies that each agent really delegates to the scout. The Claude scout and researcher set
 `omitClaudeMd: true` (it runs without CLAUDE.md/AGENTS.md instructions, saving tokens); the
 Antigravity scout is limited to `view_file`, `grep_search`, `find_by_name`, `list_dir` with
 `commandExecutionPolicy: off`. A misspelled tool name can hang an Antigravity subagent, so run
