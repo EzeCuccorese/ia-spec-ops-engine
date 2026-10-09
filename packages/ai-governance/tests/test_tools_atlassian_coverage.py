@@ -15,6 +15,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from ai_governance.tools import atlassian_common, confluence, jira
 
+_REAL_ADF_TO_STORAGE = confluence._adf_to_storage  # captured before conftest swaps it out
+
 
 @pytest.fixture(autouse=True)
 def _atlassian_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -50,14 +52,14 @@ def test_jira_cmd_search_table(capsys: pytest.CaptureFixture[str]) -> None:
                 },
             }
         ],
-        "total": 5,
-        "startAt": 0,
+        "nextPageToken": "tok123",
     }
     with patch("urllib.request.urlopen", _mock_sequence(body)):
         jira.cmd_search("project = PROJ")
     out = capsys.readouterr().out
     assert "PROJ-1" in out
     assert "More results exist" in out
+    assert "--page-token tok123" in out
 
 
 def test_jira_cmd_search_no_results(capsys: pytest.CaptureFixture[str]) -> None:
@@ -202,18 +204,9 @@ def test_jira_cmd_sprint_no_active() -> None:
         jira.cmd_sprint("PROJ-1", "active")
 
 
-def test_jira_table_helpers() -> None:
-    assert jira._is_table_separator("| --- | --- |")
-    assert not jira._is_table_separator("| a | b |")
-    assert jira._parse_table_row("| a | b |") == ["a", "b"]
-    adf = jira._table_to_adf(["| a | b |", "| c | d |"])
-    assert adf["type"] == "table"
-    assert len(adf["content"]) == 2
-
-
 def test_jira_md_to_adf_table() -> None:
     md = "| A | B |\n| --- | --- |\n| 1 | 2 |"
-    adf = jira._md_to_adf(md)
+    adf = jira.md_to_adf(md)
     assert adf["content"][0]["type"] == "table"
 
 
@@ -374,12 +367,6 @@ def test_confluence_cmd_comment(capsys: pytest.CaptureFixture[str]) -> None:
 def test_confluence_cmd_help(capsys: pytest.CaptureFixture[str]) -> None:
     confluence.cmd_help()
     assert "confluence — Lightweight CLI" in capsys.readouterr().out
-
-
-def test_confluence_md_to_storage_lists_and_rules() -> None:
-    storage = confluence.md_to_storage("- one\n- two\n\n---\n")
-    assert "<ul><li>one</li><li>two</li></ul>" in storage
-    assert "<hr/>" in storage
 
 
 def test_confluence_html_to_md_table() -> None:
@@ -554,27 +541,6 @@ def test_jira_fmt_date_invalid_and_missing() -> None:
     assert jira._fmt_date("not-a-date-at-all") == "not-a-date-at-all"[:16]
 
 
-def test_jira_inline_to_adf_code() -> None:
-    nodes = jira._inline_to_adf("plain `code` end")
-    marks = [n.get("marks", [{}])[0].get("type") for n in nodes if n.get("marks")]
-    assert "code" in marks
-
-
-def test_jira_parse_table_row_no_pipes() -> None:
-    assert jira._parse_table_row("a | b") == ["a", "b"]
-
-
-def test_jira_md_to_adf_single_row_table_fallback() -> None:
-    adf = jira._md_to_adf("| just one row |")
-    assert adf["content"][0]["type"] == "paragraph"
-
-
-def test_jira_md_to_adf_bullets_then_blank_line() -> None:
-    adf = jira._md_to_adf("- one\n- two\n\nmore text")
-    types = [c["type"] for c in adf["content"]]
-    assert types == ["bulletList", "paragraph"]
-
-
 # ── jira: command formatting (additional branches) ──────────────────────────
 
 
@@ -694,10 +660,10 @@ def test_jira_main_json_flag(capsys: pytest.CaptureFixture[str]) -> None:
     assert json.loads(capsys.readouterr().out) == body
 
 
-def test_jira_main_search_start_at_flag(capsys: pytest.CaptureFixture[str]) -> None:
+def test_jira_main_search_page_token_flag(capsys: pytest.CaptureFixture[str]) -> None:
     body = {"issues": [], "total": 0}
     with patch("urllib.request.urlopen", _mock_sequence(body)):
-        jira.main(["search", "q", "--start-at", "5"])
+        jira.main(["search", "q", "--page-token", "abc"])
     assert "No results found" in capsys.readouterr().out
 
 
@@ -1034,3 +1000,78 @@ def test_load_profile_config_from_file_target_missing(
 
 def test_read_input_text_at_missing_file_falls_back_to_literal() -> None:
     assert atlassian_common.read_input_text("@no-such-file.txt") == "@no-such-file.txt"
+
+
+# ── markdown → ADF / storage ────────────────────────────────────────────────
+
+
+def _types(adf: dict) -> list[str]:
+    return [block["type"] for block in adf["content"]]
+
+
+def test_md_to_adf_headings_and_checkboxes() -> None:
+    adf = jira.md_to_adf("## Title\n\n- [ ] open\n- [x] done\n\n- plain")
+    assert _types(adf) == ["heading", "taskList", "bulletList"]
+    assert adf["content"][0]["attrs"]["level"] == 2
+    items = adf["content"][1]["content"]
+    assert [i["attrs"]["state"] for i in items] == ["TODO", "DONE"]
+    assert len({i["attrs"]["localId"] for i in items}) == 2
+
+
+def test_md_to_adf_code_numbered_quote_and_rule() -> None:
+    adf = jira.md_to_adf("1. one\n2. two\n\n> quote\n\n```python\nx = 1\n```\n\n---\n")
+    assert _types(adf) == ["orderedList", "blockquote", "codeBlock", "rule"]
+    assert adf["content"][2]["attrs"]["language"] == "python"
+
+
+def test_adf_task_list_round_trips_to_markdown() -> None:
+    md = "- [ ] open\n- [x] done"
+    assert jira._adf_to_md(jira.md_to_adf(md)).strip() == md
+
+
+def test_confluence_adf_to_storage_posts_to_convert_endpoint() -> None:
+    adf = {"version": 1, "type": "doc", "content": []}
+    with patch.object(confluence, "post", return_value={"value": "<p>x</p>"}) as post:
+        result = _REAL_ADF_TO_STORAGE(adf)
+    assert result == "<p>x</p>"
+    path, payload = post.call_args.args
+    assert path == "/contentbody/convert/storage"
+    assert payload["representation"] == "atlas_doc_format"
+    assert json.loads(payload["value"]) == adf
+
+
+def test_confluence_md_to_storage_converts_markdown_around_raw_storage() -> None:
+    raw = '<ac:structured-macro ac:name="info"></ac:structured-macro>'
+    storage = confluence.md_to_storage(f"# Before\n{raw}\n# After")
+    assert storage == f"<h1>Before</h1>{raw}<h1>After</h1>"
+
+
+def test_confluence_append_numbers_new_tasks_after_existing_ones() -> None:
+    existing = "<ac:task-id>1</ac:task-id><ac:task-id>4</ac:task-id>"
+    new = "<ac:task-id>1</ac:task-id><ac:task-id>2</ac:task-id>"
+    shifted = confluence._shift_task_ids(new, existing)
+    assert shifted == "<ac:task-id>5</ac:task-id><ac:task-id>6</ac:task-id>"
+    assert confluence._shift_task_ids(new, "<p>no tasks</p>") == new
+
+
+def test_jira_cmd_edit_sends_adf_description_and_title(capsys: pytest.CaptureFixture[str]) -> None:
+    with patch("urllib.request.urlopen", _mock_sequence({})) as urlopen:
+        jira.cmd_edit("PROJ-1", desc="## New\n\n- [ ] open", title="Better title")
+    request = urlopen.call_args.args[0]
+    assert request.get_method() == "PUT"
+    assert request.full_url.endswith("/issue/PROJ-1")
+    fields = json.loads(request.data)["fields"]
+    assert fields["summary"] == "Better title"
+    assert [b["type"] for b in fields["description"]["content"]] == ["heading", "taskList"]
+    assert "PROJ-1 updated" in capsys.readouterr().out
+
+
+def test_jira_cmd_edit_needs_something_to_change() -> None:
+    with pytest.raises(SystemExit):
+        jira.cmd_edit("PROJ-1")
+
+
+def test_jira_main_edit_dispatch(capsys: pytest.CaptureFixture[str]) -> None:
+    with patch("urllib.request.urlopen", _mock_sequence({})):
+        jira.main(["edit", "PROJ-1", "--desc", "text"])
+    assert "PROJ-1 updated" in capsys.readouterr().out

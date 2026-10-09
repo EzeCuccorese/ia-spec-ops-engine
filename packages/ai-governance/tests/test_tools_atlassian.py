@@ -51,7 +51,7 @@ def test_jira_adf_to_md():
 
 def test_jira_md_to_adf():
     text = "- Item 1\n- Item 2"
-    adf = jira._md_to_adf(text)
+    adf = jira.md_to_adf(text)
     assert adf["type"] == "doc"
     assert len(adf["content"]) == 1
     assert adf["content"][0]["type"] == "bulletList"
@@ -86,7 +86,6 @@ def test_confluence_md_to_storage():
     storage = confluence.md_to_storage(md)
     assert "<h1>Heading 1</h1>" in storage
     assert "<p>Some paragraph</p>" in storage
-    assert "<pre><code>" in storage
 
 
 @patch("urllib.request.urlopen")
