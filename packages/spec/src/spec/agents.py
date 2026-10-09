@@ -118,8 +118,6 @@ class AgentsAdapter:
         dests = [".agents/skills"]
         if self.agent == "claude":
             dests.append(".claude/skills")
-        elif self.agent == "antigravity":
-            dests.append(".gemini/skills")
         elif self.agent == "codex":
             dests.append(".codex/skills")
         return dests
@@ -265,13 +263,13 @@ class AgentsAdapter:
 
 RECOGNIZED_AGENTS = {
     "agents": "Any AGENTS.md agent (AGENTS.md, .agents/skills)",
-    "antigravity": "Antigravity (AGENTS.md, .agents/skills, .gemini/skills)",
+    "antigravity": "Antigravity (AGENTS.md, .agents/skills)",
     "claude": "Claude Code (AGENTS.md, .agents/skills, .claude/skills)",
     "cursor": "Cursor (AGENTS.md, .agents/skills)",
     "windsurf": "Windsurf (AGENTS.md, .agents/skills)",
     "aider": "Aider (AGENTS.md, .agents/skills)",
     "copilot": "GitHub Copilot (AGENTS.md, .agents/skills)",
-    "gemini": "Gemini CLI (AGENTS.md, .agents/skills)",
+    "gemini": "Gemini CLI (AGENTS.md via context.fileName, .agents/skills)",
     "codex": "Codex (AGENTS.md, .agents/skills, .codex/skills)",
     "custom": "Custom instructions file (--file, default AGENTS.md)",
 }

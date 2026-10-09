@@ -68,9 +68,35 @@ def test_user_install_picks_up_every_pack_without_flags(home: Path) -> None:
         "ai-governance-acme-principles.md",
     ]
     gemini = home / ".gemini" / "config" / "rules" / "ai-governance-acme-glossary.md"
-    assert gemini.read_text().startswith("---\ntrigger: always_on\n---\n")
+    assert gemini.is_symlink() and Path(os.readlink(gemini)).is_file()
     assert any("OpenAI Codex" in warning for warning in report.warnings)
     assert _script(home).is_symlink() and Path(os.readlink(_script(home))).is_file()
+
+
+def test_claude_rules_are_symlinks_and_old_copies_migrate(home: Path, pack_root: Path) -> None:
+    install_user(["claude"])
+    link = home / ".claude" / "rules" / "ai-governance-acme-glossary.md"
+    source = (pack_root / "acme" / "rules" / "glossary.md").resolve()
+    assert link.is_symlink() and Path(os.readlink(link)) == source
+
+    # Turn it back into what the copy-based installer left: a plain file with a "file" entry.
+    ledger = global_ledger()
+    ledger.entries = [e for e in ledger.entries if e["path"] != ledger.key(link)]
+    ledger.entries.append(
+        {"agent": "claude", "kind": "file", "path": ledger.key(link), "sha256": "x"}
+    )
+    ledger.save(cli.Report(), False)
+    link.unlink()
+    link.write_text("# Glossary\n")
+
+    install_user(["claude"])
+
+    assert link.is_symlink() and Path(os.readlink(link)) == source
+    assert not [
+        e
+        for e in global_ledger().entries
+        if e["kind"] == "file" and e["path"] == global_ledger().key(link)
+    ]
 
 
 def test_no_packs_installs_nothing_corporate(home: Path, pack_root: Path) -> None:
