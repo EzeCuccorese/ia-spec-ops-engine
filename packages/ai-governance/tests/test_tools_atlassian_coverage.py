@@ -755,10 +755,10 @@ def test_jira_main_sprint_dispatch(capsys: pytest.CaptureFixture[str]) -> None:
     assert "Sprint X" in capsys.readouterr().out
 
 
-def test_jira_main_create_ignores_unknown_flag(capsys: pytest.CaptureFixture[str]) -> None:
-    with patch("urllib.request.urlopen", _mock_sequence({"key": "PROJ-1"})):
+def test_jira_main_create_rejects_extra_tokens(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
         jira.main(["create", "PROJ", "Title", "extra-token", "--type", "Bug"])
-    assert "PROJ-1" in capsys.readouterr().out
+    assert exc.value.code == 2 and "unrecognized arguments: extra-token" in capsys.readouterr().err
 
 
 # ── confluence: HTML/Markdown rendering branches ────────────────────────────
@@ -846,17 +846,15 @@ def test_confluence_main_comment_dispatch(capsys: pytest.CaptureFixture[str]) ->
     assert "Comment added to page 42" in capsys.readouterr().out
 
 
-def test_confluence_main_space_flag_missing_value(capsys: pytest.CaptureFixture[str]) -> None:
-    body = {"results": [], "totalSize": 0}
-    with patch("urllib.request.urlopen", _mock_sequence(body)):
-        confluence.main(["search", "term", "--space"])
-    assert "No results found" in capsys.readouterr().out
-
-
-def test_confluence_main_parent_flag_missing_value(capsys: pytest.CaptureFixture[str]) -> None:
-    with patch("urllib.request.urlopen", _mock_sequence({"id": "9"})):
-        confluence.main(["create", "ENG", "Title", "Body", "--parent"])
-    assert "9" in capsys.readouterr().out
+@pytest.mark.parametrize(
+    "argv", [["search", "term", "--space"], ["create", "ENG", "Title", "Body", "--parent"]]
+)
+def test_confluence_main_flag_without_value_is_an_error(
+    argv: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exc:
+        confluence.main(argv)
+    assert exc.value.code == 2 and "expected one argument" in capsys.readouterr().err
 
 
 # ── atlassian_common: profile resolution branches ───────────────────────────
