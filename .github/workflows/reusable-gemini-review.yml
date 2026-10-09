@@ -49,19 +49,19 @@ jobs:
     steps:
       - name: Checkout caller repository
         if: ${{ env.GEMINI_API_KEY != '' }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Set up Python
         if: ${{ env.GEMINI_API_KEY != '' }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
       - name: Checkout review engine script
         if: ${{ env.GEMINI_API_KEY != '' }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ inputs.engine-repo }}
           ref: ${{ inputs.engine-ref }}
