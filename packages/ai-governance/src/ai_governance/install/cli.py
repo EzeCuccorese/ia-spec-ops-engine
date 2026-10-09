@@ -20,6 +20,7 @@ from .installer import (
     global_ledger,
     install_user,
     registered_projects,
+    sync_completions,
     sync_project,
     uninstall_user,
 )
@@ -164,6 +165,9 @@ def _update_root(root: Path, *, forget: bool, dry_run: bool, heading: bool) -> b
 def _update(args: argparse.Namespace) -> int:
     roots = registered_projects() if args.all else [args.root]
     dry_run = args.dry_run or args.check
+    completions = sync_completions(dry_run=dry_run)
+    if completions is not None and completions.changed:
+        _emit(completions, dry_run=dry_run)
     changed = [
         _update_root(root, forget=args.all, dry_run=dry_run, heading=len(roots) > 1)
         for root in roots

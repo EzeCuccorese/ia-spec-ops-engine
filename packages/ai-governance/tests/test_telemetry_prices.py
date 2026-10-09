@@ -263,3 +263,41 @@ def test_refresh_cache_keeps_cache_rates(tmp_path: Path) -> None:
         "cache_read": 0.2,
         "cache_write_5m": 5.0,
     }
+
+
+def test_rates_switch_to_the_long_prompt_tier_and_scale_for_fast_mode(tmp_path: Path) -> None:
+    base = PriceCatalog.rates("claude-haiku-5-5", prompt_tokens=100_000)
+    assert (base.input, base.output) == pytest.approx((0.1, 0.5))
+    long = PriceCatalog.rates("claude-haiku-5-5", prompt_tokens=100_001)
+    assert (long.input, long.output, long.cache_read) == pytest.approx((0.5, 2.5, 0.05))
+    fast = PriceCatalog.rates("claude-opus-5-5", tmp_path / "missing.json", fast=True)
+    assert (fast.input, fast.output, fast.cache_read) == pytest.approx((8.0, 40.0, 0.4))
+
+
+def test_refresh_cache_keeps_the_tier_and_fast_multiplier(tmp_path: Path) -> None:
+    feed = {
+        "claude-x": {
+            "litellm_provider": "anthropic",
+            "input_cost_per_token": 1e-7,
+            "output_cost_per_token": 5e-7,
+            "input_cost_per_token_above_100k_tokens": 5e-7,
+            "output_cost_per_token_above_100k_tokens": 2.5e-6,
+            "cache_read_input_token_cost_above_100k_tokens": 5e-8,
+            "cache_creation_input_token_cost_above_1hr_above_100k_tokens": 1e-6,
+            "input_cost_per_token_above_100k_tokens_batches": 2.5e-7,
+            "provider_specific_entry": {"us": 1.1, "fast": 3},
+        }
+    }
+    cache = tmp_path / "c.json"
+    document = PriceCatalog.refresh_cache(cache, fetcher=lambda url, timeout: feed)
+    entry = document["prices"]["claude-x"]
+    assert entry["tier"] == {
+        "threshold": 100_000,
+        "input": 0.5,
+        "output": 2.5,
+        "cache_read": 0.05,
+        "cache_write_1h": 1.0,
+    }
+    assert entry["fast"] == 3.0
+    rates = PriceCatalog.rates("claude-x", cache, prompt_tokens=200_000, fast=True)
+    assert (rates.input, rates.cache_read, rates.cache_write_1h) == pytest.approx((1.5, 0.15, 3.0))

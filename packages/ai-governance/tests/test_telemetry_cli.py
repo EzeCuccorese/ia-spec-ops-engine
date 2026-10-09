@@ -227,6 +227,28 @@ def test_statusline_uses_todays_hook_cache(
     assert telemetry_main(["statusline"]) == 0
     out = capsys.readouterr().out
     assert "today $5.00/" in out and "left $600" in out
+    assert "month $150/" in out and "budget $150/750 20%" in out
+
+
+def test_statusline_today_cap_carries_over_savings(tmp_path: Path) -> None:
+    from datetime import date
+
+    from ai_governance.telemetry.state import UsageConfig
+
+    # 2026-10-08 is the 6th of 21 business days (10-12 is a holiday): pace $214.
+    (tmp_path / "config.json").write_text(
+        json.dumps({"monthly_budget_usd": 750, "holiday_dates": ["2026-10-12"]})
+    )
+    (tmp_path / "state.json").write_text(
+        json.dumps({"day": "2026-10-08", "last_day_cost": 23.18, "last_month_cost": 82.70})
+    )
+    config = UsageConfig.load(tmp_path / "config.json")
+    out = telemetry_cli.statusline_segment(tmp_path, config, today=date(2026, 10, 8))
+    # Cap = 214.29 pace - 59.52 spent before today.
+    assert "today $23.18/155 15%" in out
+    assert "month $83/214 39%" in out
+    assert "budget $83/750 11%" in out
+    assert "left $667" in out
 
 
 def test_statusline_rescans_when_cache_is_stale_and_never_fails(

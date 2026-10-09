@@ -137,13 +137,19 @@ DELEGATED_COMMANDS = {
         "workspace_engine.run_local.main",
         "Orchestrate and launch local microservices with live TUI",
     ),
+    "hooks": (
+        "workspace_engine.cli.manage_hooks",
+        "Multi-stack Git Hooks & Quality Gates manager",
+    ),
 }
 
 
 def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] in DELEGATED_COMMANDS:
         module_name, _ = DELEGATED_COMMANDS[sys.argv[1]]
-        importlib.import_module(module_name).main(sys.argv[2:])
+        result = importlib.import_module(module_name).main(sys.argv[2:])
+        if isinstance(result, int):  # e.g. `ws hooks` returns its exit code
+            sys.exit(result)
         return
 
     if len(sys.argv) > 1 and sys.argv[1] in CONDENSE_COMMANDS:
@@ -183,12 +189,6 @@ def main() -> None:
     )
     p_kube.add_argument(
         "action", nargs="?", choices=["env", "logs", "shell"], help="Action to execute"
-    )
-
-    # ws hooks
-    p_hooks = subparsers.add_parser("hooks", help="Multi-stack Git Hooks & Quality Gates manager")
-    p_hooks.add_argument(
-        "hook_args", nargs=argparse.REMAINDER, help="Subcommand and options for ws hooks"
     )
 
     # ws hook (host integration hooks)
@@ -247,10 +247,6 @@ def main() -> None:
         sys.exit(run_config(args))
     elif args.command == "doctor":
         doctor_check()
-    elif args.command == "hooks":
-        from workspace_engine.cli.manage_hooks import main as hooks_main
-
-        sys.exit(hooks_main(args.hook_args))
     elif args.command == "hook":
         if args.hook_name == "claude-worktree-create":
             from workspace_engine.integrations.claude.worktree_hook import main as hook_main

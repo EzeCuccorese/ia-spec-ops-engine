@@ -33,6 +33,7 @@ class CorporateRule:
     pack: str
     name: str
     content: str
+    path: Path
 
 
 @dataclass(frozen=True)
@@ -42,7 +43,7 @@ class CorporatePack:
 
     def rules(self) -> list[CorporateRule]:
         return [
-            CorporateRule(self.name, path.stem, path.read_text(encoding="utf-8"))
+            CorporateRule(self.name, path.stem, path.read_text(encoding="utf-8"), path.resolve())
             for path in sorted((self.root / "rules").glob("*.md"))
         ]
 

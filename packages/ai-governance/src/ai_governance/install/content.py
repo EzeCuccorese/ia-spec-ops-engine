@@ -16,8 +16,8 @@ GLOBAL_INSTRUCTIONS = """\
 - Frugal reads: `git diff --stat` before `git diff`; `git log --oneline -n 10`; pipe JSON
   through `jq` with a minimal projection; read large files with offset/limit; never print
   lockfiles, bundles or generated files.
-- Delegate broad exploration, file reading, summaries and web research to the `scout`
-  subagent (cheaper model); verify critical claims yourself before acting on them.
+- Delegate exploration, file reading and summaries to the `scout` subagent and web
+  research to `researcher` (else `scout`); verify critical claims yourself before acting.
 - Executing an approved plan: heavy implementation -> mid-tier subagent, tests/docs/
   mechanical edits -> cheapest tier; you review each delivery and run the gates per phase.
 - Never write "honest"/"honestly" (es: "honesto"/"honestamente"); state caveats directly.
@@ -36,6 +36,27 @@ SCOUT_DESCRIPTION = (
     "Read-only scout for broad exploration, file reading, summaries and web research. "
     "Use it instead of reading many files or searching the web in the main session."
 )
+
+# Claude splits the scout: code reading on the cheapest model, web research on a mid tier
+# (synthesizing and checking sources is where a cheap model mixes up facts).
+CLAUDE_SCOUT_DESCRIPTION = (
+    "Read-only scout for broad codebase exploration, file reading and summaries. "
+    "Use it instead of reading many files in the main session; for web research use `researcher`."
+)
+
+RESEARCHER_DESCRIPTION = (
+    "Read-only web researcher: searches and reads sources, compares options and separates "
+    "verified facts from guesses. Use it instead of searching the web in the main session."
+)
+
+RESEARCHER_INSTRUCTIONS = """\
+You are a read-only web researcher. Research exactly what was asked.
+- Never modify files or run commands with side effects.
+- Prefer primary sources (official docs, repos, release pages); note dates and versions.
+- Report compactly: findings first, each backed by a URL.
+- Mark clearly what you could not verify; never guess.
+- Stay under ~400 words unless asked for more.
+"""
 
 SCOUT_INSTRUCTIONS = """\
 You are a read-only scout. Explore, read, summarize or research exactly what was asked.

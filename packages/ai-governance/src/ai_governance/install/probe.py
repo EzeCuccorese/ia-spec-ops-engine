@@ -18,6 +18,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from ..hooks import antigravity_command
 from ..paths import state_dir
 from . import content
 
@@ -95,6 +96,28 @@ def hooks_file(agent: str, root: Path) -> Path | None:
     }.get(agent)
 
 
+def _hooks_json(agent: str, prefix: str) -> str:
+    """Recording hooks for every probed event, in the agent's hooks.json format.
+
+    Antigravity keys hooks by name and only tool events take a matcher group; Codex uses
+    Claude's ``{"hooks": {event: [{"hooks": [...]}]}}``.
+    """
+    hooks: dict[str, Any] = {}
+    for event in EVENTS:
+        handler = {
+            "type": "command",
+            "command": f"ai-governance probe-record {agent} {prefix}{event}",
+        }
+        if agent != "antigravity":
+            hooks[event] = [{"hooks": [handler]}]
+        elif event.endswith("ToolUse"):
+            hooks[event] = [{"matcher": "*", "hooks": [handler]}]
+        else:
+            hooks[event] = [handler]
+    document = {"ai-governance-probe": hooks} if agent == "antigravity" else {"hooks": hooks}
+    return json.dumps(document, indent=2) + "\n"
+
+
 def records_dir(agent: str) -> Path:
     return state_dir() / "probe" / agent
 
@@ -117,38 +140,12 @@ def build(agent: str, root: Path | None = None) -> Path:
             link.symlink_to("../../" + DUAL_RULE_PATH)
     target = hooks_file(agent, root)
     if target is not None:
-        hooks = {
-            event: [
-                {
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": f"ai-governance probe-record {agent} {event}",
-                        }
-                    ]
-                }
-            ]
-            for event in EVENTS
-        }
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps({"hooks": hooks}, indent=2) + "\n", encoding="utf-8")
+        target.write_text(_hooks_json(agent, ""), encoding="utf-8")
     if agent == "antigravity":
         # Alternative channel: hooks declared in a custom agent's front matter (2.17.0).
-        agent_hooks = {
-            event: [
-                {
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": f"ai-governance probe-record {agent} agent-{event}",
-                        }
-                    ]
-                }
-            ]
-            for event in EVENTS
-        }
         (root / ".agents" / "agents" / "probe-scout-hooks.json").write_text(
-            json.dumps({"hooks": agent_hooks}, indent=2) + "\n", encoding="utf-8"
+            _hooks_json(agent, "agent-"), encoding="utf-8"
         )
     records = records_dir(agent)
     if records.exists():
@@ -165,7 +162,9 @@ def record(agent: str, event: str) -> int:
         payload = {}
     shape: dict[str, Any] = {"keys": sorted(payload) if isinstance(payload, dict) else []}
     if isinstance(payload, dict):
-        shape["has_command"] = bool((payload.get("tool_input") or {}).get("command"))
+        shape["has_command"] = bool(
+            (payload.get("tool_input") or {}).get("command") or antigravity_command(payload)
+        )
         response = payload.get("tool_response")
         shape["tool_response"] = type(response).__name__
         if isinstance(response, dict):
@@ -186,10 +185,7 @@ def verify(agent: str, seen: list[str]) -> dict[str, Any]:
         "canaries_seen": sorted(set(seen) & expected),
         "canaries_missing": sorted(expected - set(seen)),
         "hooks_fired": fired,
-        "shell_hooks_verified": bool(
-            fired.get("PreToolUse", {}).get("has_command")
-            and fired.get("PostToolUse", {}).get("has_command")
-        ),
+        "shell_hooks_verified": _shell_hooks_fired(agent, fired),
         "scout_verified": SCOUT_CANARY in seen,
         "agent_frontmatter_hooks_fired": sorted(
             name.removeprefix("agent-") for name in fired if name.startswith("agent-")
@@ -201,6 +197,15 @@ def verify(agent: str, seen: list[str]) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return result
+
+
+def _shell_hooks_fired(agent: str, fired: dict[str, Any]) -> bool:
+    """Antigravity's PostToolUse payload carries no tool call, and only its PreToolUse
+    hook is installed, so the PreToolUse shell command is the proof there."""
+    pre = bool(fired.get("PreToolUse", {}).get("has_command"))
+    if agent == "antigravity":
+        return pre
+    return pre and bool(fired.get("PostToolUse", {}).get("has_command"))
 
 
 def shell_hooks_verified(agent: str) -> bool:

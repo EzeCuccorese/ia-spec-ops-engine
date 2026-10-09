@@ -26,6 +26,7 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import sys
@@ -542,86 +543,119 @@ def cmd_help() -> None:
     )
 
 
+# name -> (help, positionals). Every subcommand also takes the common flags below.
+COMMANDS: dict[str, tuple[str, tuple[tuple[str, dict[str, Any]], ...]]] = {
+    "issue": ("Display an issue in Markdown or JSON", (("key", {"help": "Issue key"}),)),
+    "search": ("Search issues with JQL", (("jql", {"help": "JQL query"}),)),
+    "comments": ("Display the comments of an issue", (("key", {"help": "Issue key"}),)),
+    "create": (
+        "Create an issue (default type: Task)",
+        (("project", {"help": "Project key"}), ("title", {"help": "Issue title"})),
+    ),
+    "comment": (
+        "Add a comment (Markdown; text, @file or -)",
+        (("key", {"help": "Issue key"}), ("text", {"nargs": "?", "help": "Comment text"})),
+    ),
+    "comment-edit": (
+        "Replace the body of an existing comment",
+        (
+            ("key", {"help": "Issue key"}),
+            ("comment_id", {"help": "Comment id"}),
+            ("text", {"nargs": "?", "help": "New comment text"}),
+        ),
+    ),
+    "transition": (
+        "Move an issue to a status (strictly checked)",
+        (("key", {"help": "Issue key"}), ("status", {"help": "Target status name"})),
+    ),
+    "assign": (
+        "Assign an issue to me or an email",
+        (("key", {"help": "Issue key"}), ("assignee", {"help": "me or an email"})),
+    ),
+    "sprint": (
+        "Move an issue to the active sprint or a named one",
+        (("key", {"help": "Issue key"}), ("sprint", {"help": "active or a sprint name"})),
+    ),
+}
+
+
+def _common_flags(parser: argparse.ArgumentParser, *, root: bool) -> None:
+    """Flags accepted before and after the subcommand (`jira --json issue X` and
+    `jira issue X --json`). Subcommands leave them unset so the root value survives."""
+    unset: dict[str, Any] = {} if root else {"default": argparse.SUPPRESS}
+    parser.add_argument("--profile", help="Use a named configuration profile", **unset)
+    parser.add_argument("--json", action="store_true", help="Print the raw JSON", **unset)
+    parser.add_argument("--file", help="Read the text from this file", **unset)
+
+
+def _paging_flags(parser: argparse.ArgumentParser, *, root: bool) -> None:
+    start: Any = 0 if root else argparse.SUPPRESS
+    limit: Any = 30 if root else argparse.SUPPRESS
+    parser.add_argument("--start-at", type=int, default=start, help="First result (paging)")
+    parser.add_argument(
+        "--limit", "--max-results", dest="max_results", type=int, default=limit, help="Page size"
+    )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="jira", add_help=False)
+    parser.add_argument(
+        "-h", "--help", action="store_true", dest="show_help", help="Show the command overview"
+    )
+    _common_flags(parser, root=True)
+    _paging_flags(parser, root=True)
+    sub = parser.add_subparsers(dest="command")
+    sub.add_parser("help", help="Show the command overview")
+    for name, (help_text, positionals) in COMMANDS.items():
+        command = sub.add_parser(name, help=help_text)
+        for dest, options in positionals:
+            command.add_argument(dest, **options)
+        _common_flags(command, root=False)
+    _paging_flags(sub.choices["search"], root=False)
+    create = sub.choices["create"]
+    create.add_argument("--desc", help="Description: Markdown text, @file or -")
+    create.add_argument("--type", default="Task", help="Bug, Task, Story or Sub-task")
+    create.add_argument("--parent", help="Parent issue (for a Sub-task)")
+    return parser
+
+
+def _text(args: argparse.Namespace, parser: argparse.ArgumentParser) -> str:
+    text = args.file or args.text
+    if not text:
+        parser.error(f"{args.command} needs a text or --file")
+    return str(text)
+
+
+HANDLERS: dict[str, Any] = {
+    "issue": lambda a, _p: cmd_issue(a.key, as_json=a.json),
+    "search": lambda a, _p: cmd_search(
+        a.jql, start_at=a.start_at, max_results=a.max_results, as_json=a.json
+    ),
+    "comments": lambda a, _p: cmd_comments(a.key, as_json=a.json),
+    "create": lambda a, _p: cmd_create(
+        a.project,
+        a.title,
+        desc=a.desc if a.desc is not None else (a.file or ""),
+        issue_type=a.type,
+        parent=a.parent,
+    ),
+    "comment": lambda a, p: cmd_comment(a.key, _text(a, p)),
+    "comment-edit": lambda a, p: cmd_comment_edit(a.key, a.comment_id, _text(a, p)),
+    "transition": lambda a, _p: cmd_transition(a.key, a.status),
+    "assign": lambda a, _p: cmd_assign(a.key, a.assignee),
+    "sprint": lambda a, _p: cmd_sprint(a.key, a.sprint),
+}
+
+
 def main(argv: list[str] | None = None) -> None:
-    raw_args = sys.argv[1:] if argv is None else list(argv)
-    if not raw_args or raw_args[0] in ("-h", "--help", "help"):
+    parser = build_parser()
+    args = parser.parse_args(sys.argv[1:] if argv is None else list(argv))
+    if args.show_help or args.command in (None, "help"):
         cmd_help()
         return
-
-    # Extract global flags
-    args = []
-    i = 0
-    as_json = False
-    start_at = 0
-    max_results = 30
-    file_input = None
-
-    while i < len(raw_args):
-        if raw_args[i] == "--profile" and i + 1 < len(raw_args):
-            set_profile(raw_args[i + 1])
-            i += 2
-        elif raw_args[i] == "--json":
-            as_json = True
-            i += 1
-        elif raw_args[i] == "--start-at" and i + 1 < len(raw_args):
-            start_at = int(raw_args[i + 1])
-            i += 2
-        elif raw_args[i] in ("--limit", "--max-results") and i + 1 < len(raw_args):
-            max_results = int(raw_args[i + 1])
-            i += 2
-        elif raw_args[i] == "--file" and i + 1 < len(raw_args):
-            file_input = raw_args[i + 1]
-            i += 2
-        else:
-            args.append(raw_args[i])
-            i += 1
-
-    if not args:
-        cmd_help()
-        return
-
-    cmd = args[0]
-    if cmd == "issue" and len(args) >= 2:
-        cmd_issue(args[1], as_json=as_json)
-    elif cmd == "search" and len(args) >= 2:
-        cmd_search(args[1], start_at=start_at, max_results=max_results, as_json=as_json)
-    elif cmd == "comments" and len(args) >= 2:
-        cmd_comments(args[1], as_json=as_json)
-    elif cmd == "create" and len(args) >= 3:
-        desc = file_input or ""
-        itype, parent = "Task", None
-        j = 3
-        while j < len(args):
-            if args[j] == "--desc" and j + 1 < len(args):
-                desc = args[j + 1]
-                j += 2
-            elif args[j] == "--type" and j + 1 < len(args):
-                itype = args[j + 1]
-                j += 2
-            elif args[j] == "--parent" and j + 1 < len(args):
-                parent = args[j + 1]
-                j += 2
-            else:
-                j += 1
-        cmd_create(args[1], args[2], desc=desc, issue_type=itype, parent=parent)
-    elif cmd == "comment" and (len(args) >= 3 or file_input):
-        text = file_input if file_input else args[2]
-        cmd_comment(args[1], text)
-    elif cmd == "comment-edit" and (len(args) >= 4 or file_input):
-        text = file_input if file_input else args[3]
-        cmd_comment_edit(args[1], args[2], text)
-    elif cmd == "transition" and len(args) >= 3:
-        cmd_transition(args[1], args[2])
-    elif cmd == "assign" and len(args) >= 3:
-        cmd_assign(args[1], args[2])
-    elif cmd == "sprint" and len(args) >= 3:
-        cmd_sprint(args[1], args[2])
-    else:
-        print(
-            f"Unknown command or invalid arguments: {' '.join(args)}\nRun 'jira help'.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    if args.profile:
+        set_profile(args.profile)
+    HANDLERS[args.command](args, parser)
 
 
 if __name__ == "__main__":

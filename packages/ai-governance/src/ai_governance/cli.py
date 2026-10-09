@@ -19,6 +19,7 @@ COMMANDS: dict[str, str] = {
     "telemetry": "Claude spend estimates (claude-usage), prices and threshold alerts",
     "jira": "Jira issues and transitions in Markdown",
     "confluence": "Confluence pages in Markdown",
+    "completion": "Print the zsh <TAB> completion of ai-governance, ws or spec",
     "hook": "Agent hook entry point (used by installed hooks)",
 }
 INSTALL_COMMANDS = (
@@ -83,6 +84,10 @@ def main(argv: list[str] | None = None) -> int:
 
         confluence_main(rest)
         return 0
+    if cmd == "completion":
+        from .completion import main as completion_main
+
+        return completion_main(rest)
     from .hooks import main as hook_main
 
     return hook_main(rest)
