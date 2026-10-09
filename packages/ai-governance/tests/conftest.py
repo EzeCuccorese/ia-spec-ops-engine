@@ -25,3 +25,23 @@ def _no_real_shell(
     """Completions go to a temp data dir and never follow the developer's ZDOTDIR."""
     monkeypatch.delenv("ZDOTDIR", raising=False)
     monkeypatch.setenv("AI_GOVERNANCE_DATA_DIR", str(tmp_path_factory.mktemp("data")))
+
+
+@pytest.fixture(autouse=True)
+def _fake_storage_converter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Confluence converts ADF to storage on its server; tests use a tiny local stand-in."""
+    from ai_governance.tools import confluence
+
+    def text_of(node: dict) -> str:
+        if node.get("type") == "text":
+            return str(node.get("text", ""))
+        return "".join(text_of(child) for child in node.get("content", []))
+
+    def fake(adf: dict) -> str:
+        blocks = []
+        for node in adf.get("content", []):
+            tag = f"h{node['attrs']['level']}" if node["type"] == "heading" else "p"
+            blocks.append(f"<{tag}>{text_of(node)}</{tag}>")
+        return "".join(blocks)
+
+    monkeypatch.setattr(confluence, "_adf_to_storage", fake)
