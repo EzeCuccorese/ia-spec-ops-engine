@@ -16,10 +16,24 @@ keep the previous pack's rules until their next install.
 
 Layout of `<company>/`:
 
-- `rules/*.md` — always-on instructions, installed as
-  `~/.claude/rules/ai-governance-<company>-<name>.md` (Claude Code, copied as is) and
-  `~/.gemini/config/rules/ai-governance-<company>-<name>.md` (Antigravity, with
-  `trigger: always_on` front matter added). Codex has no per-file global rules, so packs are
+- `rules/*.md` — always-on instructions, installed as **symlinks** to the source file, so you
+  edit them in one place only:
+  `~/.claude/rules/ai-governance-<company>-<name>.md` (Claude Code) and
+  `~/.gemini/config/rules/ai-governance-<company>-<name>.md` (Antigravity). Because a link
+  cannot add anything, each file carries the front matter itself (Antigravity needs it,
+  Claude Code ignores the unknown key):
+
+  ```markdown
+  ---
+  trigger: always_on
+  ---
+  # Title of the rule
+
+  Body...
+  ```
+
+  Old copies made by earlier versions are replaced by links on the next install. If you move
+  or delete the checkout, the links break. Codex has no per-file global rules, so packs are
   not rendered for it; the install prints one warning naming the skipped packs.
 - `scripts/*` — files linked into `~/.local/bin` (override with `AI_GOVERNANCE_BIN_DIR`);
   they are removed when the last installed agent is uninstalled. If two packs ship a script

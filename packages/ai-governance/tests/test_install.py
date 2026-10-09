@@ -102,9 +102,13 @@ def test_codex_and_antigravity_use_marker_blocks(home: Path) -> None:
     assert (home / ".gemini" / "config" / "rules" / "ai-governance.md").exists()
 
 
-def test_claude_scout_omits_claude_md(home: Path) -> None:
+def test_claude_splits_scout_and_researcher(home: Path) -> None:
     install_user(["claude"])
-    assert "omitClaudeMd: true\n" in (home / ".claude" / "agents" / "scout.md").read_text()
+    agents = home / ".claude" / "agents"
+    scout, researcher = (agents / "scout.md").read_text(), (agents / "researcher.md").read_text()
+    assert "model: haiku\n" in scout and "tools: Read, Grep, Glob\n" in scout
+    assert "model: sonnet\n" in researcher and "WebSearch, WebFetch" in researcher
+    assert all("omitClaudeMd: true\n" in text for text in (scout, researcher))
 
 
 def test_every_agent_gets_the_bundled_skills(home: Path) -> None:
@@ -275,7 +279,7 @@ def test_capability_table_covers_every_agent() -> None:
 
 
 def test_antigravity_hooks_path_is_shown_in_full() -> None:
-    assert AGENTS["antigravity"].global_hooks.startswith("~/.gemini/antigravity-cli/hooks.json ")
+    assert AGENTS["antigravity"].global_hooks.startswith("~/.gemini/config/hooks.json ")
 
 
 def test_report_collapses_many_files_per_folder(project: Path) -> None:

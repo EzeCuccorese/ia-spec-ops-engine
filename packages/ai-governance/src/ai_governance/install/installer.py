@@ -141,6 +141,8 @@ def registered_projects() -> list[Path]:
 
 
 SCRIPTS_OWNER = "corporate"
+# Shell completions of the engine's CLIs: kept while any agent is installed, like scripts.
+COMPLETIONS_OWNER = "completions"
 
 
 def _corporate_rules(
@@ -182,7 +184,24 @@ def _corporate_scripts(packs: list[corporate.CorporatePack], report: Report) -> 
 
 def installed_agents(ledger: Ledger) -> set[str]:
     """Agents with entries in the ledger; the scripts and shared project owners are not."""
-    return {entry["agent"] for entry in ledger.entries} - {SCRIPTS_OWNER, PROJECT_OWNER}
+    owners = {SCRIPTS_OWNER, COMPLETIONS_OWNER, PROJECT_OWNER}
+    return {entry["agent"] for entry in ledger.entries} - owners
+
+
+def _completions() -> list[Owned]:
+    from .. import completion
+
+    return [Owned(COMPLETIONS_OWNER, artifact) for artifact in completion.artifacts()]
+
+
+def sync_completions(*, dry_run: bool = False) -> Report | None:
+    """Regenerates the shell completions; None when nothing is installed for the user."""
+    ledger = global_ledger()
+    if not installed_agents(ledger):
+        return None
+    report = sync(_completions(), ledger, agents_in_scope={COMPLETIONS_OWNER}, dry_run=dry_run)
+    ledger.save(report, dry_run)
+    return report
 
 
 def install_user(agents: list[str], *, dry_run: bool = False, force: bool = False) -> Report:
@@ -199,7 +218,8 @@ def install_user(agents: list[str], *, dry_run: bool = False, force: bool = Fals
     for spec in specs:
         desired.extend(_corporate_rules(spec, packs, report))
     desired.extend(_corporate_scripts(packs, report))
-    scope = {spec.id for spec in specs} | {SCRIPTS_OWNER}
+    desired.extend(_completions())
+    scope = {spec.id for spec in specs} | {SCRIPTS_OWNER, COMPLETIONS_OWNER}
     sync(desired, ledger, agents_in_scope=scope, dry_run=dry_run, force=force, report=report)
     ledger.extra["package_version"] = __version__
     ledger.save(report, dry_run)
@@ -207,13 +227,16 @@ def install_user(agents: list[str], *, dry_run: bool = False, force: bool = Fals
 
 
 def uninstall_user(agents: list[str], *, dry_run: bool = False) -> Report:
-    """Removes the agents' artifacts; pack scripts go with the last installed agent."""
+    """Removes the agents' artifacts; pack scripts and completions go with the last agent."""
     scope = {spec.id for spec in resolve_agents(agents)}
     ledger = global_ledger()
     report = Report()
-    keep_scripts = bool(installed_agents(ledger) - scope)
-    desired = _corporate_scripts(corporate.packs(), report) if keep_scripts else []
-    sync(desired, ledger, agents_in_scope=scope | {SCRIPTS_OWNER}, dry_run=dry_run, report=report)
+    keep_shared = bool(installed_agents(ledger) - scope)
+    desired = (
+        [*_corporate_scripts(corporate.packs(), report), *_completions()] if keep_shared else []
+    )
+    shared = {SCRIPTS_OWNER, COMPLETIONS_OWNER}
+    sync(desired, ledger, agents_in_scope=scope | shared, dry_run=dry_run, report=report)
     ledger.save(report, dry_run)
     return report
 
