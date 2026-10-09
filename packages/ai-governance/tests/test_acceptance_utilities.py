@@ -178,9 +178,7 @@ def test_atlassian_profiles_and_pagination(
     mock_resp_jira = MagicMock()
     mock_resp_jira.read.return_value = json.dumps(
         {
-            "startAt": 10,
-            "maxResults": 10,
-            "total": 45,
+            "nextPageToken": "page-2",
             "issues": [
                 {
                     "key": f"STG-{i}",
@@ -196,10 +194,10 @@ def test_atlassian_profiles_and_pagination(
     ).encode()
     mock_urlopen.return_value.__enter__.return_value = mock_resp_jira
 
-    jira.cmd_search("project=STG", start_at=10, max_results=10)
+    jira.cmd_search("project=STG", page_token="page-1", max_results=10)
     out_jira = capsys.readouterr().out
     assert "STG-11" in out_jira
-    assert "45" in out_jira
+    assert "page-2" in out_jira
     assert "More results exist" in out_jira
 
     # 3. Confluence search pagination
@@ -426,7 +424,7 @@ def test_file_input_and_json_match_markdown(
     assert body_from_stdin == "Body from stdin with <brackets> & symbols"
 
     # 3. ADF Markdown bidirectional parsing does NOT double escape ampersands or quotes
-    adf = jira._md_to_adf("Check `foo & bar` and **bold**")
+    adf = jira.md_to_adf("Check `foo & bar` and **bold**")
     md = jira._adf_to_md(adf)
     assert "`foo & bar`" in md
     assert "**bold**" in md
