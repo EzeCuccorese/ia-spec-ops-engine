@@ -1075,3 +1075,12 @@ def test_jira_main_edit_dispatch(capsys: pytest.CaptureFixture[str]) -> None:
     with patch("urllib.request.urlopen", _mock_sequence({})):
         jira.main(["edit", "PROJ-1", "--desc", "text"])
     assert "PROJ-1 updated" in capsys.readouterr().out
+
+
+def test_jira_cmd_sprint_paginates(capsys: pytest.CaptureFixture[str]) -> None:
+    boards = {"values": [{"id": 7}]}
+    page1 = {"isLast": False, "values": [{"id": 1, "name": "26-Q3-SP4", "state": "closed"}]}
+    page2 = {"isLast": True, "values": [{"id": 2, "name": "26-Q4-SP1", "state": "active"}]}
+    with patch("urllib.request.urlopen", _mock_sequence(boards, page1, page2, {})):
+        jira.cmd_sprint("PROJ-1", "26-Q4-SP1")
+    assert "26-Q4-SP1" in capsys.readouterr().out

@@ -396,6 +396,19 @@ def cmd_assign(key: str, who: str) -> None:
     print(f"✅ {key} assigned to {'you' if who == 'me' else who}")
 
 
+def _all_sprints(board_id: int) -> list[dict]:
+    """Fetches every sprint of a board (the Agile API pages at ~50)."""
+    sprints: list[dict] = []
+    start = 0
+    while True:
+        page = agile_get(f"/board/{board_id}/sprint?startAt={start}&maxResults=50")
+        values = page.get("values", [])
+        sprints.extend(values)
+        if page.get("isLast", True) or not values:
+            return sprints
+        start += len(values)
+
+
 def cmd_sprint(key: str, name: str) -> None:
     """Moves an issue to a sprint."""
     project = key.split("-")[0]
@@ -405,7 +418,7 @@ def cmd_sprint(key: str, name: str) -> None:
         sys.exit(1)
     board_id = boards[0]["id"]
 
-    sprints = agile_get(f"/board/{board_id}/sprint").get("values", [])
+    sprints = _all_sprints(board_id)
 
     if name.lower() == "active":
         match = next((s for s in sprints if s.get("state") == "active"), None)
