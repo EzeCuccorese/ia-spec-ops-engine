@@ -396,9 +396,9 @@ def cmd_assign(key: str, who: str) -> None:
     print(f"✅ {key} assigned to {'you' if who == 'me' else who}")
 
 
-def _all_sprints(board_id: int) -> list[dict]:
+def _all_sprints(board_id: int) -> list[dict[str, Any]]:
     """Fetches every sprint of a board (the Agile API pages at ~50)."""
-    sprints: list[dict] = []
+    sprints: list[dict[str, Any]] = []
     start = 0
     while True:
         page = agile_get(f"/board/{board_id}/sprint?startAt={start}&maxResults=50")
