@@ -81,6 +81,33 @@ def test_confluence_html_to_md():
     assert "`code`" in md
 
 
+_CODE_MACRO_HTML = (
+    '<p>Diagram:</p><ac:structured-macro ac:name="code" ac:schema-version="1">'
+    '<ac:parameter ac:name="language">bash</ac:parameter>'
+    "<ac:plain-text-body><![CDATA[a <b> & c\n  └─ d]]></ac:plain-text-body>"
+    "</ac:structured-macro><p>after</p>"
+)
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        (_CODE_MACRO_HTML, ["```bash\na <b> & c\n  └─ d\n```", "Diagram:", "after"]),
+        (
+            "<ol><li><p>first</p></li><li><p>second <code>x</code></p></li></ol>"
+            "<ul><li><p>dot</p></li></ul>",
+            ["1. first\n2. second `x`", "- dot"],
+        ),
+        ("<blockquote><p>Draft note</p></blockquote>", ["> Draft note"]),
+    ],
+    ids=["code-macro", "ordered-list", "quote"],
+)
+def test_confluence_html_to_md_keeps_structure(html, expected):
+    md = confluence.html_to_md(html)
+    for fragment in expected:
+        assert fragment in md
+
+
 def test_confluence_md_to_storage():
     md = "# Heading 1\n\nSome paragraph\n\n```python\nprint('hi')\n```"
     storage = confluence.md_to_storage(md)

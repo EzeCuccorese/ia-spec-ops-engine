@@ -80,11 +80,39 @@ def put(path: str, payload: dict[str, Any]) -> Any:
     return _request("PUT", f"{_get_api_url()}{path}", payload)
 
 
+_CODE_MACRO = re.compile(
+    r'<ac:structured-macro[^>]*ac:name="code"[^>]*>.*?</ac:structured-macro>',
+    flags=re.DOTALL | re.IGNORECASE,
+)
+_CODE_LANG = re.compile(r'<ac:parameter ac:name="language">([^<]*)</ac:parameter>', re.IGNORECASE)
+_CODE_BODY = re.compile(
+    r"<ac:plain-text-body><!\[CDATA\[(.*?)\]\]></ac:plain-text-body>", flags=re.DOTALL
+)
+
+
+def _flatten_item(fragment: str) -> str:
+    """Drops the <p> wrappers Confluence puts inside list items and quotes (one line out)."""
+    fragment = re.sub(r"</?p[^>]*>", " ", fragment, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", fragment).strip()
+
+
 def html_to_md(html_str: str) -> str:
     """Converts Confluence storage format (XHTML) to clean Markdown."""
     if not html_str:
         return ""
     text = html_str
+
+    # Code macros hold raw text in CDATA: park them so the tag/entity passes below leave them alone.
+    code_blocks: list[str] = []
+
+    def park_code_macro(match: re.Match[str]) -> str:
+        lang = _CODE_LANG.search(match.group(0))
+        body = _CODE_BODY.search(match.group(0))
+        fence = f"```{lang.group(1) if lang else ''}\n{body.group(1) if body else ''}\n```"
+        code_blocks.append(fence)
+        return f"\n\x00CODE{len(code_blocks) - 1}\x00\n"
+
+    text = _CODE_MACRO.sub(park_code_macro, text)
 
     for level in range(6, 0, -1):
         text = re.sub(
@@ -118,7 +146,17 @@ def html_to_md(html_str: str) -> str:
         flags=re.DOTALL | re.IGNORECASE,
     )
 
-    text = re.sub(r"<li[^>]*>(.*?)</li>", r"- \1\n", text, flags=re.DOTALL | re.IGNORECASE)
+    def convert_ordered_list(match: re.Match[str]) -> str:
+        items = re.findall(r"<li[^>]*>(.*?)</li>", match.group(0), flags=re.DOTALL | re.IGNORECASE)
+        return "\n" + "\n".join(f"{n}. {_flatten_item(i)}" for n, i in enumerate(items, 1)) + "\n"
+
+    text = re.sub(r"<ol[^>]*>.*?</ol>", convert_ordered_list, text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(
+        r"<li[^>]*>(.*?)</li>",
+        lambda m: f"- {_flatten_item(m.group(1))}\n",
+        text,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
     text = re.sub(r"</?[uo]l[^>]*>", "\n", text, flags=re.IGNORECASE)
 
     def convert_table(match: re.Match[str]) -> str:
@@ -142,7 +180,10 @@ def html_to_md(html_str: str) -> str:
     text = re.sub(r"<table[^>]*>.*?</table>", convert_table, text, flags=re.DOTALL | re.IGNORECASE)
 
     text = re.sub(
-        r"<blockquote[^>]*>(.*?)</blockquote>", r"\n> \1\n", text, flags=re.DOTALL | re.IGNORECASE
+        r"<blockquote[^>]*>(.*?)</blockquote>",
+        lambda m: f"\n> {_flatten_item(m.group(1))}\n",
+        text,
+        flags=re.DOTALL | re.IGNORECASE,
     )
     text = re.sub(r"<p[^>]*>(.*?)</p>", r"\n\1\n", text, flags=re.DOTALL | re.IGNORECASE)
     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
@@ -157,6 +198,7 @@ def html_to_md(html_str: str) -> str:
     text = re.sub(r"<ac:[^>]*>.*?</ac:[^>]*>", "", text, flags=re.DOTALL)
     text = re.sub(r"<[^>]+>", "", text)
     text = html.unescape(text)
+    text = re.sub(r"\x00CODE(\d+)\x00", lambda m: code_blocks[int(m.group(1))], text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
