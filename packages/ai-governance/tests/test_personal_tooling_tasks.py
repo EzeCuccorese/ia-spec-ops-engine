@@ -34,13 +34,14 @@ def test_structured_task_operations_and_bounded_state(tmp_path: Path) -> None:
     assert task is not None
     assert task.status == "active"
     assert task.summary == "Ready for validation"
-    assert [s["text"] for s in task.steps] == ["two", "three"]
-    assert task.steps[-1]["done"] is True
+    # Over the limit, the completed step goes to the log and the open ones stay.
+    assert [s["text"] for s in task.steps] == ["one", "two"]
+    assert not any(s["done"] for s in task.steps)
     assert [f["text"] for f in task.facts] == ["fact two", "fact three"]
     assert task.links[0]["url"] == "https://example.test/pr/1"
     assert task.references[0]["value"] == "ONB-42"
     assert task.repos[0]["branch"] == "feat/onb-42"
-    assert "Archived steps: one" in tracker.read_log("ONB-42")
+    assert "Archived steps: three" in tracker.read_log("ONB-42")
     assert "Archived facts: fact one" in tracker.read_log("ONB-42")
 
 
