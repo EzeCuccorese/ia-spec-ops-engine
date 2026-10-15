@@ -306,6 +306,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         emit_status("ok", f"Updated task '{task.id}' ({task.status})")
+        for entry in tracker.last_archived:
+            emit_status("warn", f"{entry} (moved to the log; see 'show {task.id} --full')")
         return 0
     except (ValueError, OSError) as exc:
         prefix = "Error creating task" if getattr(args, "cmd", None) == "new" else "Error"

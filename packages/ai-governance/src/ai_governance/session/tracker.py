@@ -145,6 +145,7 @@ class SessionTracker:
         "references": 10,
         "repos": 10,
     }
+    SUMMARY_MAX_CHARS = 500
 
     def __init__(
         self, root_dir: Path | None = None, compact_limits: dict[str, int] | None = None
@@ -161,6 +162,7 @@ class SessionTracker:
         self.compact_limits = dict(self.DEFAULT_COMPACT_LIMITS)
         if compact_limits:
             self.compact_limits.update(compact_limits)
+        self.last_archived: list[str] = []
 
     def _json_path(self, task_id: str) -> Path:
         safe_id = self._validate_task_id(task_id)
@@ -261,6 +263,7 @@ class SessionTracker:
         log_entry: str | None = None,
     ) -> TaskState:
         archived: list[str] = []
+        self.last_archived = []
         try:
             with self._task_lock(task_id) as p:
                 task = self._read_task_path(p, task_id)
@@ -268,7 +271,10 @@ class SessionTracker:
                 for field_name, limit in self.compact_limits.items():
                     values = getattr(task, field_name)
                     while limit >= 0 and len(values) > limit:
-                        old = values.pop(0)
+                        index = self._overflow_index(field_name, values)
+                        if index is None:
+                            break
+                        old = values.pop(index)
                         text = (
                             old.get("text")
                             or old.get("title")
@@ -283,10 +289,28 @@ class SessionTracker:
             self.append_log(task_id, entry)
         if log_entry:
             self.append_log(task_id, log_entry)
+        self.last_archived = archived
         return task
 
+    @staticmethod
+    def _overflow_index(field_name: str, values: list[dict[str, Any]]) -> int | None:
+        """Index of the entry to move to the log when ``field_name`` is over its limit.
+
+        Steps archive the oldest completed one; pending steps are never archived, so the
+        list may stay over the limit while every step is still open. Other fields archive
+        their oldest entry.
+        """
+        if field_name != "steps":
+            return 0
+        return next((i for i, step in enumerate(values) if step.get("done")), None)
+
     def update_summary(self, task_id: str, summary: str) -> TaskState:
-        return self._mutate_task(task_id, lambda task: setattr(task, "summary", summary[:500]))
+        if len(summary) > self.SUMMARY_MAX_CHARS:
+            raise ValueError(
+                f"Summary has {len(summary)} characters; the limit is "
+                f"{self.SUMMARY_MAX_CHARS}. Shorten it or move details to facts or notes."
+            )
+        return self._mutate_task(task_id, lambda task: setattr(task, "summary", summary))
 
     def add_step(self, task_id: str, text: str) -> TaskState:
         if not text.strip():
