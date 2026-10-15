@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from ai_governance.session.tracker import SessionTracker, TaskState
 
 
@@ -916,6 +917,7 @@ def test_session_tracker_custom_compact_limits_archives_overflow(tmp_path: Path)
     assert tracker.compact_limits["steps"] == 1
     tracker.create_task(TaskState(id="CL1", title="X"))
     tracker.add_step("CL1", "one")
+    tracker.complete_step("CL1", "one")
     tracker.add_step("CL1", "two")
     task = tracker.get_task("CL1")
     assert task is not None
@@ -923,6 +925,49 @@ def test_session_tracker_custom_compact_limits_archives_overflow(tmp_path: Path)
     assert task.steps[0]["text"] == "two"
     log = tracker.read_log("CL1")
     assert "Archived steps: one" in log
+    assert tracker.last_archived == ["Archived steps: one"]
+
+
+def test_session_tracker_archives_oldest_done_step_and_keeps_pending(tmp_path: Path) -> None:
+    tracker = SessionTracker(root_dir=tmp_path, compact_limits={"steps": 2})
+    tracker.create_task(TaskState(id="CL2", title="X"))
+    for text in ("pending a", "done b", "pending c"):
+        tracker.add_step("CL2", text)
+    # Three steps over a limit of two, none done yet: nothing open is archived.
+    assert tracker.last_archived == []
+    tracker.complete_step("CL2", "done b")
+    task = tracker.get_task("CL2")
+    assert task is not None
+    assert [s["text"] for s in task.steps] == ["pending a", "pending c"]
+    assert tracker.last_archived == ["Archived steps: done b"]
+    assert "Archived steps: done b" in tracker.read_log("CL2")
+
+
+def test_session_tracker_rejects_summary_over_limit(tmp_path: Path) -> None:
+    tracker = SessionTracker(root_dir=tmp_path)
+    tracker.create_task(TaskState(id="SUM1", title="X", summary="kept"))
+    with pytest.raises(ValueError, match="limit is 500"):
+        tracker.update_summary("SUM1", "x" * 501)
+    task = tracker.get_task("SUM1")
+    assert task is not None
+    assert task.summary == "kept"
+    tracker.update_summary("SUM1", "y" * 500)
+    assert tracker.get_task("SUM1").summary == "y" * 500  # type: ignore[union-attr]
+
+
+def test_progress_cli_warns_when_entries_move_to_log(tmp_path: Path, monkeypatch, capsys) -> None:
+    from ai_governance.session.cli import main as cli_main
+
+    tracker = SessionTracker(root_dir=tmp_path / "progress")
+    done = [{"text": f"done {i}", "done": True} for i in range(8)]
+    tracker.create_task(TaskState(id="WARN1", title="X", steps=done))
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
+    monkeypatch.setattr("sys.argv", ["progress", "step", "WARN1", "add", "next"])
+    assert cli_main() == 0
+    out = capsys.readouterr().out
+    assert "WARN: Archived steps: done 0" in out
+    assert "show WARN1 --full" in out
 
 
 def test_json_and_md_path_allow_symlink_pointing_inside_tasks_dir(tmp_path: Path) -> None:
