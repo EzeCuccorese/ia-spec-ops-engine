@@ -23,6 +23,7 @@ from pathlib import Path
 SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 SUBJECT = re.compile(r"^(?P<type>[a-z]+)(\([^)]*\))?(?P<bang>!)?: (?P<desc>.+)$")
 RELEASE_SUBJECT = re.compile(r"^chore\(release\): ")
+BREAKING_FOOTER = re.compile(r"^BREAKING[- ]CHANGE:", re.MULTILINE)
 
 SECTIONS: dict[str, str] = {
     "breaking": "Breaking changes",
@@ -64,7 +65,7 @@ def parse_commit(commit: Commit) -> ParsedCommit | None:
     match = SUBJECT.match(commit.subject.strip())
     if match is None:
         return None
-    breaking = bool(match.group("bang")) or "BREAKING CHANGE" in commit.body
+    breaking = bool(match.group("bang")) or bool(BREAKING_FOOTER.search(commit.body))
     return ParsedCommit(match.group("type"), match.group("desc"), breaking)
 
 

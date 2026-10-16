@@ -92,12 +92,13 @@ def test_read_commits_splits_records_on_nul() -> None:
     assert commits[0].body == "body one"
 
 
-def test_main_prints_next_version(tmp_path: Path) -> None:
+def test_main_prints_next_version(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     version = tmp_path / "VERSION"
     version.write_text("1.0.0\n", encoding="utf-8")
     log = tmp_path / "log.txt"
     log.write_text("feat: new thing\x00", encoding="utf-8")
     assert release.main(["next", "--version-file", str(version), "--log", str(log)]) == 0
+    assert capsys.readouterr().out.strip() == "1.1.0"
 
 
 def test_main_reports_no_release(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -215,3 +216,13 @@ def test_notes_subcommand_prints_one_section(
     )
     assert release.main(["notes", "1.0.0", "--changelog", str(changelog)]) == 0
     assert capsys.readouterr().out == "- first\n"
+
+
+def test_breaking_mentioned_in_prose_is_not_a_breaking_change() -> None:
+    commit = c("fix: keep old flag", body="This does not introduce a BREAKING CHANGE.")
+    assert release.next_version("1.0.0", [commit]) == "1.0.1"
+
+
+@pytest.mark.parametrize("footer", ["BREAKING CHANGE: config moved", "BREAKING-CHANGE: x"])
+def test_breaking_footer_at_line_start_is_breaking(footer: str) -> None:
+    assert release.next_version("1.0.0", [c("fix: x", body=footer)]) == "2.0.0"
