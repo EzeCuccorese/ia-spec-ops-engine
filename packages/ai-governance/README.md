@@ -205,7 +205,7 @@ in `~/.local/state/ai-governance/telemetry/` (`config.json`: `monthly_budget_usd
 | `report [--budget USD] [--json]` | Today/month estimate by model, token type and effort; fast-mode calls flagged |
 | `thresholds [--notify] [--json]` | Evaluate the daily/monthly alert thresholds (what the Stop hook runs) |
 | `calibrate --from DATE --to DATE --actual USD` | Store the ratio between the real spend and the estimate for that period |
-| `prices update [--url URL]` | Refresh the cached price table |
+| `prices update [--url URL]` | Refresh the cached price table (on macOS `install --scope user` schedules it daily at 6:00 via a LaunchAgent, `com.ai-governance.prices-update`) |
 | `statusline` | Compact `today $x/allowance · left $y` segment for the Claude Code status line |
 
 ## Agent output mode
@@ -223,6 +223,7 @@ and `budget_chars`; `atlassian.json` with named Atlassian profiles).
 | Variable | Effect |
 |---|---|
 | `AI_GOVERNANCE_STATE_DIR` / `AI_GOVERNANCE_CONFIG_DIR` / `AI_GOVERNANCE_DATA_DIR` | Override the state / config / data locations |
+| `AI_GOVERNANCE_LAUNCH_AGENTS_DIR` | Override the LaunchAgents folder (launchctl is then not called) |
 | `XDG_STATE_HOME` / `XDG_CONFIG_HOME` / `XDG_DATA_HOME` | Base of the default locations (`~/.local/state`, `~/.config`, `~/.local/share`) |
 | `ZDOTDIR` | Where `.zshrc` is looked up for completions (default `~`) |
 | `AI_GOVERNANCE_AGENT` | Force agent (`1`) or human (`0`) output |

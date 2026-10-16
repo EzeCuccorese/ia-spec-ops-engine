@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .engine import END, START, Ledger
-from .installer import SCRIPTS_OWNER
+from .installer import SCHEDULE_OWNER, SCRIPTS_OWNER
 
 BYTES_PER_TOKEN = 4
 
@@ -29,7 +29,9 @@ def fixed_cost(ledger: Ledger) -> dict[str, int]:
     totals: dict[str, int] = {}
     for entry in ledger.entries:
         path = ledger.resolve(entry["path"])
-        if entry["agent"] == SCRIPTS_OWNER or not path.is_file() or entry["kind"] == "hooks":
+        if entry["agent"] in {SCRIPTS_OWNER, SCHEDULE_OWNER} or not path.is_file():
+            continue
+        if entry["kind"] == "hooks":
             continue
         text = path.read_text(encoding="utf-8")
         size = 0

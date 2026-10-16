@@ -45,3 +45,13 @@ def _fake_storage_converter(monkeypatch: pytest.MonkeyPatch) -> None:
         return "".join(blocks)
 
     monkeypatch.setattr(confluence, "_adf_to_storage", fake)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_launchd(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """LaunchAgents go to a temp folder, which also keeps launchctl from being called."""
+    monkeypatch.setenv(
+        "AI_GOVERNANCE_LAUNCH_AGENTS_DIR", str(tmp_path_factory.mktemp("launch-agents"))
+    )
