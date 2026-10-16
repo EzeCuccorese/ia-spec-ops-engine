@@ -36,3 +36,6 @@ GEMINI.md
 
 # Company packs stay local: only the README is versioned
 packages/corporate-rules/*/
+
+# GitHub App private keys and other credentials
+*.pem
