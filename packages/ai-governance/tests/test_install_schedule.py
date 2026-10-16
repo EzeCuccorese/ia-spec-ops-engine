@@ -9,11 +9,11 @@ import pytest
 from ai_governance.install import installer, schedule
 from ai_governance.install.engine import Ledger
 
-pytestmark = pytest.mark.skipif(not schedule.supported(), reason="LaunchAgents are macOS only")
-
 
 @pytest.fixture(autouse=True)
 def _isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Pretend to be macOS so the LaunchAgent code runs on every CI runner.
+    monkeypatch.setattr(schedule, "supported", lambda: True)
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
     monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
 
