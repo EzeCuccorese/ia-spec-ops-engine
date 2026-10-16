@@ -19,7 +19,7 @@ from pathlib import Path
 from .. import __version__, corporate
 from ..paths import state_dir
 from ..rules.catalog import RuleCatalog
-from . import content
+from . import content, schedule
 from .agents import (
     AGENTS,
     RULES_DIR,
@@ -143,6 +143,8 @@ def registered_projects() -> list[Path]:
 SCRIPTS_OWNER = "corporate"
 # Shell completions of the engine's CLIs: kept while any agent is installed, like scripts.
 COMPLETIONS_OWNER = "completions"
+# Daily price-table refresh (macOS LaunchAgent): kept while any agent is installed.
+SCHEDULE_OWNER = "schedule"
 
 
 def _corporate_rules(
@@ -184,7 +186,7 @@ def _corporate_scripts(packs: list[corporate.CorporatePack], report: Report) -> 
 
 def installed_agents(ledger: Ledger) -> set[str]:
     """Agents with entries in the ledger; the scripts and shared project owners are not."""
-    owners = {SCRIPTS_OWNER, COMPLETIONS_OWNER, PROJECT_OWNER}
+    owners = {SCRIPTS_OWNER, COMPLETIONS_OWNER, SCHEDULE_OWNER, PROJECT_OWNER}
     return {entry["agent"] for entry in ledger.entries} - owners
 
 
@@ -219,8 +221,11 @@ def install_user(agents: list[str], *, dry_run: bool = False, force: bool = Fals
         desired.extend(_corporate_rules(spec, packs, report))
     desired.extend(_corporate_scripts(packs, report))
     desired.extend(_completions())
-    scope = {spec.id for spec in specs} | {SCRIPTS_OWNER, COMPLETIONS_OWNER}
+    desired.extend(Owned(SCHEDULE_OWNER, artifact) for artifact in schedule.artifacts())
+    scope = {spec.id for spec in specs} | {SCRIPTS_OWNER, COMPLETIONS_OWNER, SCHEDULE_OWNER}
     sync(desired, ledger, agents_in_scope=scope, dry_run=dry_run, force=force, report=report)
+    if not dry_run:
+        schedule.load()
     ledger.extra["package_version"] = __version__
     ledger.save(report, dry_run)
     return report
@@ -233,10 +238,18 @@ def uninstall_user(agents: list[str], *, dry_run: bool = False) -> Report:
     report = Report()
     keep_shared = bool(installed_agents(ledger) - scope)
     desired = (
-        [*_corporate_scripts(corporate.packs(), report), *_completions()] if keep_shared else []
+        [
+            *_corporate_scripts(corporate.packs(), report),
+            *_completions(),
+            *(Owned(SCHEDULE_OWNER, artifact) for artifact in schedule.artifacts()),
+        ]
+        if keep_shared
+        else []
     )
-    shared = {SCRIPTS_OWNER, COMPLETIONS_OWNER}
+    shared = {SCRIPTS_OWNER, COMPLETIONS_OWNER, SCHEDULE_OWNER}
     sync(desired, ledger, agents_in_scope=scope | shared, dry_run=dry_run, report=report)
+    if not keep_shared and not dry_run:
+        schedule.unload()
     ledger.save(report, dry_run)
     return report
 
