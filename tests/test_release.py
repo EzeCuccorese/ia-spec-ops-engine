@@ -92,22 +92,19 @@ def test_read_commits_splits_records_on_nul() -> None:
     assert commits[0].body == "body one"
 
 
-def test_main_prints_next_version(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+@pytest.mark.parametrize(
+    ("log", "expected"),
+    [("feat: new thing\x00", "1.1.0"), ("docs: only docs\x00", "no release needed")],
+)
+def test_main_next_prints_version_or_no_release(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], log: str, expected: str
+) -> None:
     version = tmp_path / "VERSION"
     version.write_text("1.0.0\n", encoding="utf-8")
-    log = tmp_path / "log.txt"
-    log.write_text("feat: new thing\x00", encoding="utf-8")
-    assert release.main(["next", "--version-file", str(version), "--log", str(log)]) == 0
-    assert capsys.readouterr().out.strip() == "1.1.0"
-
-
-def test_main_reports_no_release(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    version = tmp_path / "VERSION"
-    version.write_text("1.0.0\n", encoding="utf-8")
-    log = tmp_path / "log.txt"
-    log.write_text("docs: only docs\x00", encoding="utf-8")
-    assert release.main(["next", "--version-file", str(version), "--log", str(log)]) == 0
-    assert capsys.readouterr().out.strip() == "no release needed"
+    log_file = tmp_path / "log.txt"
+    log_file.write_text(log, encoding="utf-8")
+    assert release.main(["next", "--version-file", str(version), "--log", str(log_file)]) == 0
+    assert capsys.readouterr().out.strip() == expected
 
 
 def _seed_repo(root: Path) -> None:
