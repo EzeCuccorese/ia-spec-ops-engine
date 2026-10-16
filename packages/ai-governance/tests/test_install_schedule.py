@@ -35,6 +35,18 @@ def test_install_writes_the_plist_and_uninstall_removes_it() -> None:
     assert not schedule.plist_path().exists()
 
 
+def test_plist_uses_the_executable_next_to_the_interpreter(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    venv_bin = tmp_path / "venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    (venv_bin / "ai-governance").write_text("#!/bin/sh\n")
+    monkeypatch.setattr(schedule.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(schedule.sys, "executable", str(venv_bin / "python"))
+    document = plistlib.loads(schedule.render().encode("utf-8"))
+    assert document["ProgramArguments"][0] == str(venv_bin / "ai-governance")
+
+
 def test_dry_run_leaves_nothing_behind() -> None:
     installer.install_user(["claude"], dry_run=True)
     assert not schedule.plist_path().exists()

@@ -247,9 +247,9 @@ def uninstall_user(agents: list[str], *, dry_run: bool = False) -> Report:
         else []
     )
     shared = {SCRIPTS_OWNER, COMPLETIONS_OWNER, SCHEDULE_OWNER}
-    sync(desired, ledger, agents_in_scope=scope | shared, dry_run=dry_run, report=report)
     if not keep_shared and not dry_run:
-        schedule.unload()
+        schedule.unload()  # stop the agent before its plist is removed
+    sync(desired, ledger, agents_in_scope=scope | shared, dry_run=dry_run, report=report)
     ledger.save(report, dry_run)
     return report
 

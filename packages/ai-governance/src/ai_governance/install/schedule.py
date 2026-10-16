@@ -43,8 +43,11 @@ def plist_path(label: str = LABEL) -> Path:
 
 
 def render() -> str:
-    executable = shutil.which("ai-governance") or str(
-        Path.home() / ".local" / "bin" / "ai-governance"
+    candidate = Path(sys.executable).parent / "ai-governance"
+    executable = (
+        shutil.which("ai-governance")
+        or (str(candidate) if candidate.is_file() else None)
+        or str(Path.home() / ".local" / "bin" / "ai-governance")
     )
     log = str(state_dir() / "telemetry" / "prices-update.log")
     document = {
@@ -81,6 +84,8 @@ def load() -> None:
     _unload(LEGACY_LABEL)
     plist_path(LEGACY_LABEL).unlink(missing_ok=True)
     if plist_path().is_file():
+        # launchd cannot open the log files when their folder is missing.
+        (state_dir() / "telemetry").mkdir(parents=True, exist_ok=True)
         _unload(LABEL)
         _launchctl("bootstrap", _domain(), str(plist_path()))
 
