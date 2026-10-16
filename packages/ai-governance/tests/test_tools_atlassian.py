@@ -94,13 +94,17 @@ _CODE_MACRO_HTML = (
     [
         (_CODE_MACRO_HTML, ["```bash\na <b> & c\n  └─ d\n```", "Diagram:", "after"]),
         (
+            _CODE_MACRO_HTML.replace('"', "'"),
+            ["```bash\na <b> & c\n  └─ d\n```", "Diagram:", "after"],
+        ),
+        (
             "<ol><li><p>first</p></li><li><p>second <code>x</code></p></li></ol>"
             "<ul><li><p>dot</p></li></ul>",
             ["1. first\n2. second `x`", "- dot"],
         ),
         ("<blockquote><p>Draft note</p></blockquote>", ["> Draft note"]),
     ],
-    ids=["code-macro", "ordered-list", "quote"],
+    ids=["code-macro", "code-macro-single-quotes", "ordered-list", "quote"],
 )
 def test_confluence_html_to_md_keeps_structure(html, expected):
     md = confluence.html_to_md(html)

@@ -81,10 +81,12 @@ def put(path: str, payload: dict[str, Any]) -> Any:
 
 
 _CODE_MACRO = re.compile(
-    r'<ac:structured-macro[^>]*ac:name="code"[^>]*>.*?</ac:structured-macro>',
+    r'<ac:structured-macro[^>]*ac:name=["\']code["\'][^>]*>.*?</ac:structured-macro>',
     flags=re.DOTALL | re.IGNORECASE,
 )
-_CODE_LANG = re.compile(r'<ac:parameter ac:name="language">([^<]*)</ac:parameter>', re.IGNORECASE)
+_CODE_LANG = re.compile(
+    r'<ac:parameter ac:name=["\']language["\']>([^<]*)</ac:parameter>', re.IGNORECASE
+)
 _CODE_BODY = re.compile(
     r"<ac:plain-text-body><!\[CDATA\[(.*?)\]\]></ac:plain-text-body>", flags=re.DOTALL
 )
