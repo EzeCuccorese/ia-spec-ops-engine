@@ -1,0 +1,120 @@
+name: Release PR
+
+# Runs on every push to main. Opens or refreshes the PR that bumps the project
+# version and writes the changelog. Nothing is tagged here: the tag is created
+# when that PR is merged (see publish-release.yml).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Force this version (use 1.0.0 for the first release)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-pr
+  cancel-in-progress: false
+
+jobs:
+  release-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Checkout full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Work out the next version
+        id: version
+        env:
+          FORCED: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          last_tag="$(git describe --tags --match 'v*' --abbrev=0 2>/dev/null || true)"
+          range="HEAD"
+          if [ -n "$last_tag" ]; then range="$last_tag..HEAD"; fi
+          git log --format='%s%n%b%x00' "$range" > commits.txt
+          tr '\0' '\n' < commits.txt > subjects.txt
+
+          if [ -n "$FORCED" ]; then
+            next="$FORCED"
+          elif [ -z "$last_tag" ]; then
+            echo "No v* tag yet: run this workflow with version 1.0.0 to start." >> "$GITHUB_STEP_SUMMARY"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          else
+            next="$(python3 scripts/release.py next --log commits.txt)"
+          fi
+
+          if [ "$next" = "no release needed" ]; then
+            echo "No releasable commits since $last_tag." >> "$GITHUB_STEP_SUMMARY"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Draft release notes with AI
+        if: steps.version.outputs.skip != 'true'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          RELEASE_NOTES_LANGUAGE: ${{ vars.RELEASE_NOTES_LANGUAGE || 'English' }}
+        run: |
+          python3 scripts/release_notes.py --commits subjects.txt --out notes.md \
+            --language "$RELEASE_NOTES_LANGUAGE"
+
+      - name: Update version files and changelog
+        if: steps.version.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          args=(apply "$VERSION" --date "$(date -u +%F)" --log commits.txt)
+          if [ -s notes.md ]; then args+=(--notes notes.md); fi
+          python3 scripts/release.py "${args[@]}"
+          git status --short
+
+      - name: Commit and open the release PR
+        if: steps.version.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          APP_ID: ${{ vars.APP_ID }}
+        run: |
+          set -euo pipefail
+          branch="release/v$VERSION"
+          git config user.name "ia-spec-ops-release[bot]"
+          git config user.email "${APP_ID}+ia-spec-ops-release[bot]@users.noreply.github.com"
+          git switch -C "$branch"
+          git add -A
+          git commit -m "chore(release): v$VERSION"
+          git push --force-with-lease origin "$branch"
+
+          # Close older open release PRs: they are superseded by this one.
+          gh pr list --state open --json number,headRefName \
+            --jq ".[] | select(.headRefName | startswith(\"release/\")) | select(.headRefName != \"$branch\") | .number" |
+            while read -r old; do
+              gh pr close "$old" --comment "Superseded by v$VERSION."
+            done
+
+          existing="$(gh pr list --state open --head "$branch" --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --title "chore(release): v$VERSION" --body-file notes.md
+          else
+            gh pr create --base main --head "$branch" --title "chore(release): v$VERSION" \
+              --body-file notes.md
+          fi

@@ -97,7 +97,7 @@ def test_main_prints_next_version(tmp_path: Path) -> None:
     version.write_text("1.0.0\n", encoding="utf-8")
     log = tmp_path / "log.txt"
     log.write_text("feat: new thing\x00", encoding="utf-8")
-    assert release.main(["--version-file", str(version), "--log", str(log)]) == 0
+    assert release.main(["next", "--version-file", str(version), "--log", str(log)]) == 0
 
 
 def test_main_reports_no_release(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -105,5 +105,113 @@ def test_main_reports_no_release(tmp_path: Path, capsys: pytest.CaptureFixture[s
     version.write_text("1.0.0\n", encoding="utf-8")
     log = tmp_path / "log.txt"
     log.write_text("docs: only docs\x00", encoding="utf-8")
-    assert release.main(["--version-file", str(version), "--log", str(log)]) == 0
+    assert release.main(["next", "--version-file", str(version), "--log", str(log)]) == 0
     assert capsys.readouterr().out.strip() == "no release needed"
+
+
+def _seed_repo(root: Path) -> None:
+    """Create the minimal files the version writer touches."""
+    (root / "packages/ai-governance/src/ai_governance").mkdir(parents=True)
+    (root / "packages/workspace/src/workspace_engine").mkdir(parents=True)
+    for package in ("ai-governance", "spec", "workspace"):
+        (root / "packages" / package).mkdir(parents=True, exist_ok=True)
+        (root / "packages" / package / "pyproject.toml").write_text(
+            '[project]\nname = "x"\nversion = "0.1.0"\n', encoding="utf-8"
+        )
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "root"\nversion = "0.0.0"\n', encoding="utf-8"
+    )
+    (root / "packages/ai-governance/src/ai_governance/__init__.py").write_text(
+        '__version__ = "0.1.0"\n', encoding="utf-8"
+    )
+    (root / "packages/workspace/src/workspace_engine/__init__.py").write_text(
+        '__version__ = "0.2.0"\n', encoding="utf-8"
+    )
+
+
+def test_write_version_files_updates_every_target(tmp_path: Path) -> None:
+    _seed_repo(tmp_path)
+    changed = release.write_version_files(tmp_path, "1.0.0")
+    assert len(changed) == 6
+    assert 'version = "1.0.0"' in (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
+    init = tmp_path / "packages/workspace/src/workspace_engine/__init__.py"
+    assert '__version__ = "1.0.0"' in init.read_text(encoding="utf-8")
+
+
+def test_write_version_files_is_idempotent(tmp_path: Path) -> None:
+    _seed_repo(tmp_path)
+    release.write_version_files(tmp_path, "1.0.0")
+    assert release.write_version_files(tmp_path, "1.0.0") == []
+
+
+def test_write_version_files_rejects_missing_version_line(tmp_path: Path) -> None:
+    _seed_repo(tmp_path)
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "root"\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="no version line"):
+        release.write_version_files(tmp_path, "1.0.0")
+
+
+def test_write_version_files_rejects_bad_version(tmp_path: Path) -> None:
+    with pytest.raises(ValueError):
+        release.write_version_files(tmp_path, "1.0")
+
+
+def test_prepend_changelog_keeps_newest_first(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    release.prepend_changelog(changelog, "## 1.0.0 - 2026-10-16\n\n- first\n")
+    release.prepend_changelog(changelog, "## 1.0.1 - 2026-10-20\n\n- fix\n")
+    text = changelog.read_text(encoding="utf-8")
+    assert text.startswith("# Changelog\n\n## 1.0.1")
+    assert text.index("## 1.0.1") < text.index("## 1.0.0")
+
+
+def test_extract_section_returns_one_release_body(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "# Changelog\n\n## 1.0.1 - 2026-10-20\n\n- fix\n\n## 1.0.0 - 2026-10-16\n\n- first\n",
+        encoding="utf-8",
+    )
+    assert release.extract_section(changelog, "1.0.1") == "- fix\n"
+
+
+def test_apply_with_notes_writes_everything(tmp_path: Path) -> None:
+    _seed_repo(tmp_path)
+    (tmp_path / "VERSION").write_text("0.0.0\n", encoding="utf-8")
+    notes = tmp_path / "notes.md"
+    notes.write_text("### Features\n- New thing\n", encoding="utf-8")
+    code = release.main(
+        ["apply", "1.0.0", "--root", str(tmp_path), "--date", "2026-10-16", "--notes", str(notes)]
+    )
+    assert code == 0
+    assert (tmp_path / "VERSION").read_text(encoding="utf-8") == "1.0.0\n"
+    changelog = (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert "## 1.0.0 - 2026-10-16" in changelog
+    assert "- New thing" in changelog
+
+
+def test_apply_without_notes_falls_back_to_commits(tmp_path: Path) -> None:
+    _seed_repo(tmp_path)
+    log = tmp_path / "log.txt"
+    log.write_text("fix: typo\x00", encoding="utf-8")
+    release.main(
+        ["apply", "1.0.1", "--root", str(tmp_path), "--date", "2026-10-20", "--log", str(log)]
+    )
+    assert "### Fixes\n- typo" in (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8")
+
+
+def test_apply_needs_notes_or_log(tmp_path: Path) -> None:
+    _seed_repo(tmp_path)
+    with pytest.raises(ValueError, match="needs --notes or --log"):
+        release.main(["apply", "1.0.0", "--root", str(tmp_path), "--date", "2026-10-16"])
+
+
+def test_notes_subcommand_prints_one_section(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "# Changelog\n\n## 1.0.1 - 2026-10-20\n\n- fix\n\n## 1.0.0 - 2026-10-16\n\n- first\n",
+        encoding="utf-8",
+    )
+    assert release.main(["notes", "1.0.0", "--changelog", str(changelog)]) == 0
+    assert capsys.readouterr().out == "- first\n"
