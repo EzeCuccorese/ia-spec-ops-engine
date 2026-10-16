@@ -12,6 +12,7 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -47,14 +48,22 @@ def extract_text(payload: dict[str, Any]) -> str:
     return "".join(str(part.get("text", "")) for part in parts).strip()
 
 
-def draft(commits: str, language: str, model: str, api_key: str, timeout: float) -> str:
+@dataclass(frozen=True)
+class DraftOptions:
+    language: str
+    model: str
+    api_key: str
+    timeout: float
+
+
+def draft(commits: str, options: DraftOptions) -> str:
     request = urllib.request.Request(
-        API.format(model=model),
-        data=json.dumps(build_request(commits, language)).encode("utf-8"),
-        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+        API.format(model=options.model),
+        data=json.dumps(build_request(commits, options.language)).encode("utf-8"),
+        headers={"Content-Type": "application/json", "x-goog-api-key": options.api_key},
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with urllib.request.urlopen(request, timeout=options.timeout) as response:
         payload = json.loads(response.read().decode("utf-8"))
     return extract_text(payload)
 
@@ -73,13 +82,8 @@ def main(argv: list[str] | None = None) -> int:
         print("GEMINI_API_KEY not set: using the commit list instead")
         return 0
     try:
-        notes = draft(
-            args.commits.read_text(encoding="utf-8"),
-            args.language,
-            args.model,
-            api_key,
-            args.timeout,
-        )
+        options = DraftOptions(args.language, args.model, api_key, args.timeout)
+        notes = draft(args.commits.read_text(encoding="utf-8"), options)
     except (urllib.error.URLError, TimeoutError, ValueError, KeyError) as error:
         print(f"AI notes unavailable ({type(error).__name__}): using the commit list instead")
         return 0
