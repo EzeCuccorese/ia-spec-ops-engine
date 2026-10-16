@@ -1,0 +1,35 @@
+name: Release Dry Run
+
+# Read-only preview of the next version and changelog section for main.
+# Nothing is tagged or published here; that comes with the release PR workflow.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Compute next version
+        run: |
+          last_tag="$(git describe --tags --match 'v*' --abbrev=0 2>/dev/null || true)"
+          if [ -z "$last_tag" ]; then
+            echo "No v* tag yet: the first release (1.0.0) is set by hand in its release PR." \
+              >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          range="$last_tag..HEAD"
+          git log --format='%s%n%b%x00' "$range" > commits.txt
+          echo "Range: $range"
+          python3 scripts/release.py --log commits.txt | tee version.txt
+          echo "Next version: $(cat version.txt)" >> "$GITHUB_STEP_SUMMARY"
