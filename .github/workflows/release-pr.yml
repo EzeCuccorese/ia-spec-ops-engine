@@ -79,8 +79,9 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           RELEASE_NOTES_LANGUAGE: ${{ vars.RELEASE_NOTES_LANGUAGE || 'English' }}
         run: |
-          # Only the most recent subjects go to the model; the changelog fallback keeps all of them.
-          tail -n 300 "$W/subjects.txt" > "$W/recent-subjects.txt"
+          # git log lists the newest commit first, so the most recent subjects are at the top.
+          # Only those go to the model; the changelog fallback keeps all of them.
+          head -n 300 "$W/subjects.txt" > "$W/recent-subjects.txt"
           python3 scripts/release_notes.py --commits "$W/recent-subjects.txt" \
             --out "$W/notes.md" --language "$RELEASE_NOTES_LANGUAGE" --timeout 180
 
