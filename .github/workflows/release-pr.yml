@@ -108,7 +108,8 @@ jobs:
           git switch -C "$branch"
           git add -A
           git commit -m "chore(release): v$VERSION"
-          git push --force-with-lease origin "$branch"
+          # The bot owns release/* branches and rebuilds them from main on each run.
+          git push --force origin "$branch"
           python3 scripts/release.py notes "$VERSION" > "$W/body.md"
 
           # Close older open release PRs: they are superseded by this one.
