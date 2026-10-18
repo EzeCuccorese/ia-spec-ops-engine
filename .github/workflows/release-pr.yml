@@ -24,6 +24,10 @@ jobs:
   release-pr:
     runs-on: ubuntu-latest
     steps:
+      # Generated files live outside the checkout so `git add -A` never commits them.
+      - name: Set work directory
+        run: echo "W=$RUNNER_TEMP/release" >> "$GITHUB_ENV"
+
       - name: Create GitHub App token
         id: app-token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
@@ -44,11 +48,12 @@ jobs:
           FORCED: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          mkdir -p "$W"
           last_tag="$(git describe --tags --match 'v*' --abbrev=0 2>/dev/null || true)"
           range="HEAD"
           if [ -n "$last_tag" ]; then range="$last_tag..HEAD"; fi
-          git log --format='%s%n%b%x00' "$range" > commits.txt
-          tr '\0' '\n' < commits.txt > subjects.txt
+          git log --format='%s%n%b%x00' "$range" > "$W/commits.txt"
+          tr '\0' '\n' < "$W/commits.txt" > "$W/subjects.txt"
 
           if [ -n "$FORCED" ]; then
             next="$FORCED"
@@ -57,7 +62,7 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           else
-            next="$(python3 scripts/release.py next --log commits.txt)"
+            next="$(python3 scripts/release.py next --log "$W/commits.txt")"
           fi
 
           if [ "$next" = "no release needed" ]; then
@@ -74,8 +79,11 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           RELEASE_NOTES_LANGUAGE: ${{ vars.RELEASE_NOTES_LANGUAGE || 'English' }}
         run: |
-          python3 scripts/release_notes.py --commits subjects.txt --out notes.md \
-            --language "$RELEASE_NOTES_LANGUAGE"
+          # git log lists the newest commit first, so the most recent subjects are at the top.
+          # Only those go to the model; the changelog fallback keeps all of them.
+          head -n 300 "$W/subjects.txt" > "$W/recent-subjects.txt"
+          python3 scripts/release_notes.py --commits "$W/recent-subjects.txt" \
+            --out "$W/notes.md" --language "$RELEASE_NOTES_LANGUAGE" --timeout 180
 
       - name: Update version files and changelog
         if: steps.version.outputs.skip != 'true'
@@ -83,8 +91,8 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          args=(apply "$VERSION" --date "$(date -u +%F)" --log commits.txt)
-          if [ -s notes.md ]; then args+=(--notes notes.md); fi
+          args=(apply "$VERSION" --date "$(date -u +%F)" --log "$W/commits.txt")
+          if [ -s "$W/notes.md" ]; then args+=(--notes "$W/notes.md"); fi
           python3 scripts/release.py "${args[@]}"
           git status --short
 
@@ -102,7 +110,9 @@ jobs:
           git switch -C "$branch"
           git add -A
           git commit -m "chore(release): v$VERSION"
-          git push --force-with-lease origin "$branch"
+          # The bot owns release/* branches and rebuilds them from main on each run.
+          git push --force origin "$branch"
+          python3 scripts/release.py notes "$VERSION" > "$W/body.md"
 
           # Close older open release PRs: they are superseded by this one.
           gh pr list --state open --json number,headRefName \
@@ -113,8 +123,8 @@ jobs:
 
           existing="$(gh pr list --state open --head "$branch" --json number --jq '.[0].number // empty')"
           if [ -n "$existing" ]; then
-            gh pr edit "$existing" --title "chore(release): v$VERSION" --body-file notes.md
+            gh pr edit "$existing" --title "chore(release): v$VERSION" --body-file "$W/body.md"
           else
             gh pr create --base main --head "$branch" --title "chore(release): v$VERSION" \
-              --body-file notes.md
+              --body-file "$W/body.md"
           fi
