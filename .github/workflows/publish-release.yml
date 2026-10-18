@@ -5,6 +5,8 @@ name: Publish Release
 on:
   pull_request:
     types: [closed]
+  # Re-run by hand for an already merged release PR (for example after a failed run).
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -12,8 +14,9 @@ permissions:
 jobs:
   publish:
     if: >-
-      github.event.pull_request.merged == true &&
-      startsWith(github.event.pull_request.head.ref, 'release/v')
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.merged == true &&
+        startsWith(github.event.pull_request.head.ref, 'release/v'))
     runs-on: ubuntu-latest
     steps:
       - name: Create GitHub App token
@@ -26,13 +29,14 @@ jobs:
       - name: Checkout the merge commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Tag and publish
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_ID: ${{ vars.APP_ID }}
         run: |
           set -euo pipefail
           version="$(cat VERSION)"
@@ -42,6 +46,8 @@ jobs:
             exit 1
           fi
           python3 scripts/release.py notes "$version" > notes.md
+          git config user.name "ia-spec-ops-release[bot]"
+          git config user.email "${APP_ID}+ia-spec-ops-release[bot]@users.noreply.github.com"
           git tag -a "$tag" -m "Release $tag"
           git push origin "$tag"
           gh release create "$tag" --title "$tag" --notes-file notes.md --verify-tag
