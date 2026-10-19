@@ -1,5 +1,6 @@
 import os
 import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -59,7 +60,7 @@ def _run_generated_hook(
     *,
     output: str = "errors",
     skip: str = "gitleaks,commits,lint",
-    path_prefix: Path | None = None,
+    env_overrides: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     hook = project_dir / "quality-gate-pre-push"
     hook.write_text(generate_canonical_pre_push_script(), encoding="utf-8")
@@ -80,8 +81,7 @@ def _run_generated_hook(
             "QG_SKIP": skip,
         }
     )
-    if path_prefix is not None:
-        env["PATH"] = f"{path_prefix}{os.pathsep}{env['PATH']}"
+    env.update(env_overrides or {})
     return subprocess.run(
         [str(hook), "origin"],
         cwd=project_dir,
@@ -91,6 +91,10 @@ def _run_generated_hook(
         env=env,
         check=False,
     )
+
+
+def _prepended_path(bin_dir: Path) -> dict[str, str]:
+    return {"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}
 
 
 def _commit_fixture(project_dir: Path) -> None:
@@ -129,45 +133,38 @@ def test_generate_canonical_pre_push_script():
     assert "[5/5] Running test suites" in script
     assert "core.hooksPath ~/" not in script
     assert "ruff" in script
-    assert "npm test" in script
+    assert '"$JS_PM" test' in script
     assert "go test" in script
     assert "cargo test" in script
 
 
-def test_python_runner_prefers_repository_virtualenv():
-    script = generate_canonical_pre_push_script()
-    assert script.index('[ -x "$REPO_ROOT/.venv/bin/pytest" ]') < script.index("command -v pytest")
+def _write_exe(path: Path, body: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8")
+    path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
-def test_python_tools_prefer_the_project_environment_over_global_ones():
-    """venv first, then a uv project, then a Poetry env, and only then whatever is on PATH."""
-    script = generate_canonical_pre_push_script()
-    for tool in ("pytest", "ruff"):
-        venv = script.index(f'[ -x "$REPO_ROOT/.venv/bin/{tool}" ]')
-        uv_project = script.index(f'{tool.upper()}_EXE="uv run {tool}"')
-        poetry_env = script.index(f'{tool.upper()}_EXE="$(poetry_env_tool {tool})"')
-        on_path = script.index(f"command -v {tool} >/dev/null")
-        assert venv < uv_project < poetry_env < on_path
-
-
-def _write_fake_poetry_env(project_dir: Path, tools_dir: Path) -> None:
+def _write_fake_poetry_env(
+    project_dir: Path, tools_dir: Path, *, bin_dir: Path | None = None
+) -> None:
     """A Poetry project whose env lives outside the repo, as Poetry does by default."""
     env_dir = tools_dir / "poetry-env"
-    pytest_exe = env_dir / "bin" / "pytest"
-    pytest_exe.parent.mkdir(parents=True)
-    pytest_exe.write_text("#!/bin/sh\necho POETRY_PYTEST_SENTINEL\nexit 7\n", encoding="utf-8")
-    pytest_exe.chmod(pytest_exe.stat().st_mode | stat.S_IXUSR)
-    poetry_exe = tools_dir / "bin" / "poetry"
-    poetry_exe.parent.mkdir(parents=True)
+    _write_exe(env_dir / "bin" / "pytest", "echo POETRY_PYTEST_SENTINEL\nexit 7")
     # `env info -p` fails like it does when Poetry now picks another Python;
     # only `env list` knows the env.
-    poetry_exe.write_text(
-        f'#!/bin/sh\n[ "$2" = info ] && exit 1\necho "{env_dir} (Activated)"\n',
-        encoding="utf-8",
+    _write_exe(
+        (bin_dir or tools_dir / "bin") / "poetry",
+        f'[ "$2" = info ] && exit 1\necho "{env_dir} (Activated)"',
     )
-    poetry_exe.chmod(poetry_exe.stat().st_mode | stat.S_IXUSR)
     (project_dir / "poetry.lock").write_text("", encoding="utf-8")
     (project_dir / "test_fixture.py").write_text("def test_fixture(): pass\n", encoding="utf-8")
+
+
+def _hook_in_fixture_repo(tmp: str) -> Path:
+    project_dir = Path(tmp)
+    _init_test_git_repo(project_dir)
+    _commit_fixture(project_dir)
+    return project_dir
 
 
 def test_python_tests_run_with_the_poetry_env_when_there_is_no_venv():
@@ -177,10 +174,182 @@ def test_python_tests_run_with_the_poetry_env_when_there_is_no_venv():
         _commit_fixture(project_dir)
         _write_fake_poetry_env(project_dir, Path(tools))
 
-        proc = _run_generated_hook(project_dir, path_prefix=Path(tools) / "bin")
+        proc = _run_generated_hook(project_dir, env_overrides=_prepended_path(Path(tools) / "bin"))
 
         assert "POETRY_PYTEST_SENTINEL" in proc.stdout + proc.stderr
         assert proc.returncode == 1
+
+
+def test_poetry_project_without_env_asks_to_install_instead_of_running_global_pytest():
+    with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as tools:
+        project_dir = _hook_in_fixture_repo(tmp)
+        (project_dir / "poetry.lock").write_text("", encoding="utf-8")
+        (project_dir / "test_fixture.py").write_text("def test_fixture(): pass\n", encoding="utf-8")
+        bin_dir = Path(tools) / "bin"
+        _write_exe(bin_dir / "poetry", "exit 1")
+        _write_exe(bin_dir / "pytest", "echo GLOBAL_PYTEST_SENTINEL")
+
+        proc = _run_generated_hook(project_dir, env_overrides=_prepended_path(bin_dir))
+
+        out = proc.stdout + proc.stderr
+        assert "Run: poetry install" in out
+        assert "GLOBAL_PYTEST_SENTINEL" not in out
+        assert proc.returncode == 1
+
+
+def test_ruff_runs_the_lockfile_version_when_the_env_is_not_installed():
+    with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as tools:
+        project_dir = _hook_in_fixture_repo(tmp)
+        (project_dir / "poetry.lock").write_text(
+            '[[package]]\nname = "ruff"\nversion = "0.16.8"\n', encoding="utf-8"
+        )
+        (project_dir / "app.py").write_text("x = 1\n", encoding="utf-8")
+        bin_dir = Path(tools) / "bin"
+        _write_exe(bin_dir / "poetry", "exit 1")
+        _write_exe(bin_dir / "uv", 'echo "UV_SENTINEL $*"\nexit 1')
+
+        proc = _run_generated_hook(
+            project_dir, skip="gitleaks,commits,tests", env_overrides=_prepended_path(bin_dir)
+        )
+
+        assert "UV_SENTINEL tool run ruff@0.16.8 check ." in proc.stdout + proc.stderr
+
+
+def test_pipenv_env_is_used_for_python_tests():
+    with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as tools:
+        project_dir = _hook_in_fixture_repo(tmp)
+        (project_dir / "Pipfile.lock").write_text("{}", encoding="utf-8")
+        (project_dir / "test_fixture.py").write_text("def test_fixture(): pass\n", encoding="utf-8")
+        env_dir = Path(tools) / "pipenv-env"
+        _write_exe(env_dir / "bin" / "pytest", "echo PIPENV_PYTEST_SENTINEL\nexit 7")
+        _write_exe(Path(tools) / "bin" / "pipenv", f'echo "{env_dir}"')
+
+        proc = _run_generated_hook(project_dir, env_overrides=_prepended_path(Path(tools) / "bin"))
+
+        assert "PIPENV_PYTEST_SENTINEL" in proc.stdout + proc.stderr
+
+
+def test_missing_module_is_reported_as_an_environment_problem():
+    with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as tools:
+        project_dir = _hook_in_fixture_repo(tmp)
+        (project_dir / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+        (project_dir / "test_fixture.py").write_text("def test_fixture(): pass\n", encoding="utf-8")
+        bin_dir = Path(tools) / "bin"
+        _write_exe(
+            bin_dir / "pytest",
+            "echo \"E   ModuleNotFoundError: No module named 'fastapi'\"\nexit 4",
+        )
+
+        proc = _run_generated_hook(project_dir, env_overrides=_prepended_path(bin_dir))
+
+        out = proc.stdout + proc.stderr
+        assert "environment problem (No module named 'fastapi')" in out
+        assert "Install it: pip install -r requirements.txt" in out
+
+
+def test_hook_finds_user_tools_when_launched_without_the_login_path():
+    """An IDE runs the hook with a bare PATH; ~/.local/bin still has poetry."""
+    with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as home:
+        project_dir = _hook_in_fixture_repo(tmp)
+        _write_fake_poetry_env(project_dir, Path(home), bin_dir=Path(home) / ".local" / "bin")
+
+        proc = _run_generated_hook(
+            project_dir, env_overrides={"HOME": home, "PATH": "/usr/bin:/bin"}
+        )
+
+        assert "POETRY_PYTEST_SENTINEL" in proc.stdout + proc.stderr
+
+
+requires_node = pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+
+
+@requires_node
+def test_js_project_without_node_modules_asks_to_install():
+    with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as tools:
+        project_dir = _hook_in_fixture_repo(tmp)
+        (project_dir / "package.json").write_text(
+            '{"scripts": {"test": "jest"}, "devDependencies": {"jest": "1"}}', encoding="utf-8"
+        )
+        (project_dir / "package-lock.json").write_text("{}", encoding="utf-8")
+        bin_dir = Path(tools) / "bin"
+        _write_exe(bin_dir / "npm", "echo NPM_SENTINEL")
+
+        proc = _run_generated_hook(project_dir, env_overrides=_prepended_path(bin_dir))
+
+        out = proc.stdout + proc.stderr
+        assert "Run: npm ci" in out
+        assert "NPM_SENTINEL" not in out
+        assert proc.returncode == 1
+
+
+@requires_node
+def test_js_tests_run_with_the_lockfile_package_manager():
+    with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as tools:
+        project_dir = _hook_in_fixture_repo(tmp)
+        (project_dir / "package.json").write_text('{"scripts": {"test": "x"}}', encoding="utf-8")
+        (project_dir / "pnpm-lock.yaml").write_text("", encoding="utf-8")
+        (project_dir / "node_modules").mkdir()
+        bin_dir = Path(tools) / "bin"
+        _write_exe(bin_dir / "pnpm", 'echo "PNPM_SENTINEL $*"\nexit 1')
+
+        proc = _run_generated_hook(project_dir, env_overrides=_prepended_path(bin_dir))
+
+        assert "PNPM_SENTINEL test" in proc.stdout + proc.stderr
+
+
+@requires_node
+def test_pinned_node_version_is_taken_from_nvm():
+    with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as nvm:
+        project_dir = _hook_in_fixture_repo(tmp)
+        (project_dir / "package.json").write_text('{"scripts": {"test": "x"}}', encoding="utf-8")
+        (project_dir / ".nvmrc").write_text("7\n", encoding="utf-8")
+        _write_exe(Path(nvm) / "versions" / "node" / "v7.10.1" / "bin" / "node", "echo v7.10.1")
+
+        proc = _run_generated_hook(project_dir, env_overrides={"NVM_DIR": nvm})
+
+        assert "Using Node 7 from nvm (.nvmrc pins it)" in proc.stdout
+
+
+def test_php_project_without_vendor_asks_to_install():
+    with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as tools:
+        project_dir = _hook_in_fixture_repo(tmp)
+        (project_dir / "composer.json").write_text(
+            '{"require": {"php": ">=8"}, "scripts": {"test": "phpunit"}}', encoding="utf-8"
+        )
+        bin_dir = Path(tools) / "bin"
+        _write_exe(bin_dir / "composer", "echo COMPOSER_SENTINEL")
+
+        proc = _run_generated_hook(project_dir, env_overrides=_prepended_path(bin_dir))
+
+        out = proc.stdout + proc.stderr
+        assert "Run: composer install" in out
+        assert "COMPOSER_SENTINEL" not in out
+
+
+def test_maven_tests_prefer_the_repository_wrapper():
+    with tempfile.TemporaryDirectory() as tmp:
+        project_dir = _hook_in_fixture_repo(tmp)
+        (project_dir / "pom.xml").write_text("<project/>", encoding="utf-8")
+        _write_exe(project_dir / "mvnw", "echo MVNW_SENTINEL\nexit 1")
+
+        proc = _run_generated_hook(project_dir)
+
+        assert "MVNW_SENTINEL" in proc.stdout + proc.stderr
+
+
+def test_flutter_tests_use_the_fvm_pinned_sdk():
+    with tempfile.TemporaryDirectory() as tmp:
+        project_dir = _hook_in_fixture_repo(tmp)
+        (project_dir / "pubspec.yaml").write_text("name: fixture\n", encoding="utf-8")
+        (project_dir / ".fvmrc").write_text('{"flutter": "3.0.0"}', encoding="utf-8")
+        _write_exe(
+            project_dir / ".fvm" / "flutter_sdk" / "bin" / "flutter",
+            "echo FVM_FLUTTER_SENTINEL\nexit 1",
+        )
+
+        proc = _run_generated_hook(project_dir)
+
+        assert "FVM_FLUTTER_SENTINEL" in proc.stdout + proc.stderr
 
 
 def test_hook_clears_inherited_git_environment_after_finding_root():
