@@ -59,6 +59,7 @@ def _run_generated_hook(
     *,
     output: str = "errors",
     skip: str = "gitleaks,commits,lint",
+    path_prefix: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     hook = project_dir / "quality-gate-pre-push"
     hook.write_text(generate_canonical_pre_push_script(), encoding="utf-8")
@@ -79,6 +80,8 @@ def _run_generated_hook(
             "QG_SKIP": skip,
         }
     )
+    if path_prefix is not None:
+        env["PATH"] = f"{path_prefix}{os.pathsep}{env['PATH']}"
     return subprocess.run(
         [str(hook), "origin"],
         cwd=project_dir,
@@ -137,13 +140,42 @@ def test_python_runner_prefers_repository_virtualenv():
 
 
 def test_python_tools_prefer_the_project_environment_over_global_ones():
-    """venv first, then a uv project, and only then whatever is on PATH."""
+    """venv first, then a uv project, then a Poetry env, and only then whatever is on PATH."""
     script = generate_canonical_pre_push_script()
     for tool in ("pytest", "ruff"):
         venv = script.index(f'[ -x "$REPO_ROOT/.venv/bin/{tool}" ]')
         uv_project = script.index(f'{tool.upper()}_EXE="uv run {tool}"')
+        poetry_env = script.index(f'{tool.upper()}_EXE="$(poetry_env_tool {tool})"')
         on_path = script.index(f"command -v {tool} >/dev/null")
-        assert venv < uv_project < on_path
+        assert venv < uv_project < poetry_env < on_path
+
+
+def _write_fake_poetry_env(project_dir: Path, tools_dir: Path) -> None:
+    """A Poetry project whose env lives outside the repo, as Poetry does by default."""
+    env_dir = tools_dir / "poetry-env"
+    pytest_exe = env_dir / "bin" / "pytest"
+    pytest_exe.parent.mkdir(parents=True)
+    pytest_exe.write_text("#!/bin/sh\necho POETRY_PYTEST_SENTINEL\nexit 7\n", encoding="utf-8")
+    pytest_exe.chmod(pytest_exe.stat().st_mode | stat.S_IXUSR)
+    poetry_exe = tools_dir / "bin" / "poetry"
+    poetry_exe.parent.mkdir(parents=True)
+    poetry_exe.write_text(f'#!/bin/sh\necho "{env_dir}"\n', encoding="utf-8")
+    poetry_exe.chmod(poetry_exe.stat().st_mode | stat.S_IXUSR)
+    (project_dir / "poetry.lock").write_text("", encoding="utf-8")
+    (project_dir / "test_fixture.py").write_text("def test_fixture(): pass\n", encoding="utf-8")
+
+
+def test_python_tests_run_with_the_poetry_env_when_there_is_no_venv():
+    with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as tools:
+        project_dir = Path(tmp)
+        _init_test_git_repo(project_dir)
+        _commit_fixture(project_dir)
+        _write_fake_poetry_env(project_dir, Path(tools))
+
+        proc = _run_generated_hook(project_dir, path_prefix=Path(tools) / "bin")
+
+        assert "POETRY_PYTEST_SENTINEL" in proc.stdout + proc.stderr
+        assert proc.returncode == 1
 
 
 def test_hook_clears_inherited_git_environment_after_finding_root():
