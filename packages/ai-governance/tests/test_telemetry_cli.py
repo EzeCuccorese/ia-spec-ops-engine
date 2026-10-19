@@ -100,16 +100,45 @@ def test_calibrate_command_saves_factor(
     monkeypatch.setattr(
         telemetry_cli.CostMonitor,
         "scan_transcripts",
-        lambda self, since, until: {"total_cost_usd": 10.0},
+        lambda self, since=None, until=None, **kwargs: {"total_cost_usd": 10.0},
     )
-    result = telemetry_main(
-        ["calibrate", "--from", "2026-09-01", "--to", "2026-09-14", "--actual", "20"]
-    )
+    result = telemetry_main(["calibrate", "20", "--from", "1/9/2026", "--to", "14/9/2026"])
     out = capsys.readouterr().out
     assert result == 0
     assert "Calibration saved: 2.000" in out
     saved = json.loads((usage_dir / "config.json").read_text(encoding="utf-8"))
     assert saved["calibration"] == pytest.approx(2.0)
+
+
+def test_calibrate_without_dates_and_with_actual_alias(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    _set_usage_dir(monkeypatch, tmp_path)
+    seen: dict[str, object] = {}
+
+    def fake_scan(self, since=None, until=None, **kwargs):  # type: ignore[no-untyped-def]
+        seen.update(kwargs)
+        return {"total_cost_usd": 10.0}
+
+    monkeypatch.setattr(telemetry_cli.CostMonitor, "scan_transcripts", fake_scan)
+    assert telemetry_main(["calibrate", "--actual", "15"]) == 0
+    start, end = seen["instants"]  # type: ignore[misc]
+    assert start.astimezone().day == 1
+    assert start < end
+    assert "Calibration saved: 1.500" in capsys.readouterr().out
+
+
+def test_calibrate_reports_empty_range(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    _set_usage_dir(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        telemetry_cli.CostMonitor,
+        "scan_transcripts",
+        lambda self, since=None, until=None, **kwargs: {"total_cost_usd": 0.0},
+    )
+    assert telemetry_main(["calibrate", "10"]) != 0
+    assert "No local usage recorded" in capsys.readouterr().err
 
 
 def test_prices_update_command(

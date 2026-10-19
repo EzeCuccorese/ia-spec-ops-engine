@@ -7,13 +7,14 @@ import contextlib
 import json
 import sys
 from dataclasses import asdict, replace
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from ..output import emit_json, emit_kv, emit_status
 from ..paths import state_dir
 from .claude_usage import ClaudeUsageCalculator
 from .cost_monitor import CostMonitor
+from .dates import resolve_window
 from .prices import DEFAULT_FEED_URL, PriceCatalog
 from .state import ThresholdTracker, UsageConfig, notify_macos
 
@@ -173,9 +174,14 @@ def _build_parser() -> argparse.ArgumentParser:
     calibrate = sub.add_parser(
         "calibrate", help="Store the ratio between the real spend and the estimate for a period"
     )
-    calibrate.add_argument("--from", dest="from_date", required=True)
-    calibrate.add_argument("--to", dest="to_date", required=True)
-    calibrate.add_argument("--actual", type=float, required=True)
+    calibrate.add_argument("amount", nargs="?", type=float, help="Real spend in USD for the period")
+    calibrate.add_argument("--actual", type=float, help="Same as the positional amount")
+    calibrate.add_argument(
+        "--from",
+        dest="from_date",
+        help="Local date: 1, 15/10, 10/15, 15/10/2026, 2026-10-15 (default: day 1 of this month)",
+    )
+    calibrate.add_argument("--to", dest="to_date", help="Local date, same formats (default: now)")
     prices = sub.add_parser("prices", help="Manage the cached model price table")
     prices_sub = prices.add_subparsers(dest="prices_cmd")
     update = prices_sub.add_parser("update", help="Refresh the cached price table")
@@ -207,11 +213,19 @@ def _report(args: argparse.Namespace, base: Path, config: UsageConfig) -> None:
 
 
 def _calibrate(args: argparse.Namespace, base: Path, config: UsageConfig) -> None:
+    actual = args.amount if args.amount is not None else args.actual
+    if actual is None:
+        raise ValueError("Pass the real spend in USD, e.g. calibrate 172.77")
+    window = resolve_window(args.from_date, args.to_date, datetime.now().astimezone())
     raw_monitor = CostMonitor(price_cache_path=base / "prices-cache.json")
-    estimate = raw_monitor.scan_transcripts(args.from_date, args.to_date)["total_cost_usd"]
-    factor = CostMonitor.calibration_factor(estimated=estimate, actual=args.actual)
+    estimate = raw_monitor.scan_transcripts(instants=window.utc)["total_cost_usd"]
+    if estimate <= 0:
+        raise ValueError(f"No local usage recorded in {window.describe()}")
+    factor = CostMonitor.calibration_factor(estimated=estimate, actual=actual)
     replace(config, calibration=factor).save(base / "config.json")
     print(f"Calibration saved: {factor:.3f}")
+    print(f"Range: {window.describe()}")
+    print(f"Estimated {estimate:.2f} - real {actual:.2f}")
 
 
 def _prices(args: argparse.Namespace, base: Path, config: UsageConfig) -> None:

@@ -204,7 +204,7 @@ in `~/.local/state/ai-governance/telemetry/` (`config.json`: `monthly_budget_usd
 | `claude-usage [--budget USD] [--spent USD]` | Month-to-date spend vs. the business-day budget pace (for plans whose UI hides spend) |
 | `report [--budget USD] [--json]` | Today/month estimate by model, token type and effort; fast-mode calls flagged |
 | `thresholds [--notify] [--json]` | Evaluate the daily/monthly alert thresholds (what the Stop hook runs) |
-| `calibrate --from DATE --to DATE --actual USD` | Store the ratio between the real spend and the estimate for that period |
+| `calibrate USD [--from DATE] [--to DATE]` | Store the ratio between the real spend and the estimate. Dates are typed in local time (`1`, `15/10`, `10/15`, `15/10/2026`, `2026-10-15`) and compared in UTC; default is day 1 of this month until now |
 | `prices update [--url URL]` | Refresh the cached price table (on macOS `install --scope user` schedules it daily at 6:00 via a LaunchAgent, `com.ai-governance.prices-update`) |
 | `statusline` | Compact `today $x/allowance · left $y` segment for the Claude Code status line |
 
