@@ -58,11 +58,18 @@ note() { echo "   $1"; }
 
 # A Poetry project keeps its environment outside the repo (no .venv), so look
 # the tool up there. Prints nothing when there is no Poetry env with that tool.
+# `poetry env info -p` fails when the env was built with a Python other than the
+# one Poetry picks now, so the project's listed envs are tried too.
 poetry_env_tool() {
   [ -f "$REPO_ROOT/poetry.lock" ] && command -v poetry >/dev/null 2>&1 || return 0
   local env_dir
-  env_dir="$(poetry env info -p 2>/dev/null)" || return 0
-  [ -x "$env_dir/bin/$1" ] && echo "$env_dir/bin/$1"
+  while IFS= read -r env_dir; do
+    env_dir="${env_dir% (Activated)}"
+    if [ -n "$env_dir" ] && [ -x "$env_dir/bin/$1" ]; then
+      echo "$env_dir/bin/$1"
+      return 0
+    fi
+  done < <(poetry env info -p 2>/dev/null; echo; poetry env list --full-path 2>/dev/null)
   return 0
 }
 

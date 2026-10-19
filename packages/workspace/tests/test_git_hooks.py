@@ -159,7 +159,12 @@ def _write_fake_poetry_env(project_dir: Path, tools_dir: Path) -> None:
     pytest_exe.chmod(pytest_exe.stat().st_mode | stat.S_IXUSR)
     poetry_exe = tools_dir / "bin" / "poetry"
     poetry_exe.parent.mkdir(parents=True)
-    poetry_exe.write_text(f'#!/bin/sh\necho "{env_dir}"\n', encoding="utf-8")
+    # `env info -p` fails like it does when Poetry now picks another Python;
+    # only `env list` knows the env.
+    poetry_exe.write_text(
+        f'#!/bin/sh\n[ "$2" = info ] && exit 1\necho "{env_dir} (Activated)"\n',
+        encoding="utf-8",
+    )
     poetry_exe.chmod(poetry_exe.stat().st_mode | stat.S_IXUSR)
     (project_dir / "poetry.lock").write_text("", encoding="utf-8")
     (project_dir / "test_fixture.py").write_text("def test_fixture(): pass\n", encoding="utf-8")
