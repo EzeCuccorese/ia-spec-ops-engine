@@ -110,6 +110,40 @@ def test_calibrate_command_saves_factor(
     assert saved["calibration"] == pytest.approx(2.0)
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("204,08", 204.08),
+        ("204.08", 204.08),
+        ("$1.234,56", 1234.56),
+        ("1,234.56", 1234.56),
+        ("USD 1.234.567", 1234567.0),
+        ("20", 20.0),
+    ],
+)
+def test_parse_amount_accepts_comma_and_dot_decimals(text: str, expected: float) -> None:
+    assert telemetry_cli.parse_amount(text) == pytest.approx(expected)
+
+
+def test_calibrate_takes_a_comma_decimal_amount(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    _set_usage_dir(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        telemetry_cli.CostMonitor,
+        "scan_transcripts",
+        lambda self, since=None, until=None, **kwargs: {"total_cost_usd": 100.0},
+    )
+    assert telemetry_main(["calibrate", "204,08"]) == 0
+    assert "Calibration saved: 2.041" in capsys.readouterr().out
+
+
+def test_calibrate_rejects_a_non_numeric_amount(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        telemetry_main(["calibrate", "abc"])
+    assert "invalid amount 'abc'" in capsys.readouterr().err
+
+
 def test_calibrate_without_dates_and_with_actual_alias(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:

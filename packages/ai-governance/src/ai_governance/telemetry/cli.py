@@ -19,6 +19,29 @@ from .prices import DEFAULT_FEED_URL, PriceCatalog
 from .state import ThresholdTracker, UsageConfig, notify_macos
 
 
+def parse_amount(text: str) -> float:
+    """USD amount as typed or pasted: `204.08`, `204,08`, `$1.234,56`, `1,234.56`.
+
+    With both separators the last one is the decimal mark; a single `,` or `.` is
+    decimal; a separator repeated (`1.234.567`) only groups thousands.
+    """
+    clean = text.strip().upper().removeprefix("USD").replace("US$", "").replace("$", "")
+    clean = clean.replace(" ", "")
+    if "," in clean and "." in clean:
+        thousands = "." if clean.rfind(",") > clean.rfind(".") else ","
+        clean = clean.replace(thousands, "").replace(",", ".")
+    else:
+        for mark in ",.":
+            if clean.count(mark) > 1:
+                clean = clean.replace(mark, "")
+        clean = clean.replace(",", ".")
+    try:
+        return float(clean)
+    except ValueError:
+        message = f"invalid amount {text!r} (e.g. 204.08 or 204,08)"
+        raise argparse.ArgumentTypeError(message) from None
+
+
 def runtime_dir() -> Path:
     return state_dir() / "telemetry"
 
@@ -174,8 +197,10 @@ def _build_parser() -> argparse.ArgumentParser:
     calibrate = sub.add_parser(
         "calibrate", help="Store the ratio between the real spend and the estimate for a period"
     )
-    calibrate.add_argument("amount", nargs="?", type=float, help="Real spend in USD for the period")
-    calibrate.add_argument("--actual", type=float, help="Same as the positional amount")
+    calibrate.add_argument(
+        "amount", nargs="?", type=parse_amount, help="Real spend in USD (204.08 or 204,08)"
+    )
+    calibrate.add_argument("--actual", type=parse_amount, help="Same as the positional amount")
     calibrate.add_argument(
         "--from",
         dest="from_date",
