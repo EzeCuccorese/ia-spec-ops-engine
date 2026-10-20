@@ -87,6 +87,10 @@ jobs:
           python3 scripts/release_notes.py --commits "$W/recent-subjects.txt" \
             --out "$W/notes.md" --language "$RELEASE_NOTES_LANGUAGE" --timeout 180
 
+      - name: Set up uv
+        if: steps.version.outputs.skip != 'true' && hashFiles('**/uv.lock') != ''
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+
       - name: Update version files and changelog
         if: steps.version.outputs.skip != 'true'
         env:
@@ -96,6 +100,14 @@ jobs:
           args=(apply "$VERSION" --date "$(date -u +%F)" --log "$W/commits.txt")
           if [ -s "$W/notes.md" ]; then args+=(--notes "$W/notes.md"); fi
           python3 scripts/release.py "${args[@]}"
+          # The version bump changes the project's own entry in the lockfiles; refresh them
+          # so CI steps that sync with --locked / npm ci keep working on the release PR.
+          git ls-files '*uv.lock' | while read -r lock; do
+            (cd "$(dirname "$lock")" && uv lock)
+          done
+          git ls-files '*package-lock.json' | while read -r lock; do
+            (cd "$(dirname "$lock")" && npm install --package-lock-only --ignore-scripts --no-audit --no-fund)
+          done
           git status --short
 
       - name: Commit and open the release PR
