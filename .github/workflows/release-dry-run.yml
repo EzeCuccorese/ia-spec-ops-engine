@@ -22,13 +22,15 @@ jobs:
 
       - name: Compute next version
         run: |
-          last_tag="$(git describe --tags --match 'v*' --abbrev=0 2>/dev/null || true)"
-          if [ -z "$last_tag" ]; then
-            echo "No v* tag yet: the first release (1.0.0) is set by hand in its release PR." \
+          # Base = the last release merge on main, not the last tag: the tag is created by
+          # publish-release.yml in parallel with this run, so it may not exist yet.
+          last_release="$(git log -1 --format=%H -E --grep='^chore\(release\): v' HEAD || true)"
+          if [ -z "$last_release" ]; then
+            echo "No release commit yet: the first release (1.0.0) is set by hand in its release PR." \
               >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          range="$last_tag..HEAD"
+          range="$last_release..HEAD"
           git log --format='%s%n%b%x00' "$range" > commits.txt
           echo "Range: $range"
           python3 scripts/release.py --log commits.txt | tee version.txt
