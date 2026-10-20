@@ -111,6 +111,13 @@ def test_claude_splits_scout_and_researcher(home: Path) -> None:
     assert all("omitClaudeMd: true\n" in text for text in (scout, researcher))
 
 
+def test_claude_runner_runs_commands_without_edit_tools(home: Path) -> None:
+    install_user(["claude"])
+    runner = (home / ".claude" / "agents" / "runner.md").read_text()
+    assert "name: runner\n" in runner and "model: haiku\n" in runner
+    assert "tools: Bash, Read, Grep, Glob\n" in runner and "omitClaudeMd: true\n" in runner
+
+
 def test_every_agent_gets_the_bundled_skills(home: Path) -> None:
     install_user(["claude", "codex", "antigravity"])
     for skills_dir in (
