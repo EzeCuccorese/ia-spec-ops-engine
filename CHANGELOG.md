@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.0 - 2026-10-20
+
+### Features
+- Calibrate takes the amount first and flexible local dates.
+- Add a runner subagent for noisy commands.
+
+### Fixes
+- Run pytest and ruff from the Poetry env when there is no .venv.
+- Find the Poetry env when env info cannot.
+- Never fall back to a global tool that cannot work.
+- Calibrate accepts comma decimals and pasted amounts.
+
 ## 1.0.0 - 2026-10-17
 
 ### Features
