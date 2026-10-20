@@ -49,16 +49,18 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$W"
-          last_tag="$(git describe --tags --match 'v*' --abbrev=0 2>/dev/null || true)"
+          # Base = the last release merge on main, not the last tag: the tag is created by
+          # publish-release.yml in parallel with this run, so it may not exist yet.
+          last_release="$(git log -1 --format=%H -E --grep='^chore\(release\): v' HEAD || true)"
           range="HEAD"
-          if [ -n "$last_tag" ]; then range="$last_tag..HEAD"; fi
+          if [ -n "$last_release" ]; then range="$last_release..HEAD"; fi
           git log --format='%s%n%b%x00' "$range" > "$W/commits.txt"
           tr '\0' '\n' < "$W/commits.txt" > "$W/subjects.txt"
 
           if [ -n "$FORCED" ]; then
             next="$FORCED"
-          elif [ -z "$last_tag" ]; then
-            echo "No v* tag yet: run this workflow with version 1.0.0 to start." >> "$GITHUB_STEP_SUMMARY"
+          elif [ -z "$last_release" ]; then
+            echo "No release commit yet: run this workflow with version 1.0.0 to start." >> "$GITHUB_STEP_SUMMARY"
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           else
@@ -66,7 +68,7 @@ jobs:
           fi
 
           if [ "$next" = "no release needed" ]; then
-            echo "No releasable commits since $last_tag." >> "$GITHUB_STEP_SUMMARY"
+            echo "No releasable commits since $last_release." >> "$GITHUB_STEP_SUMMARY"
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
