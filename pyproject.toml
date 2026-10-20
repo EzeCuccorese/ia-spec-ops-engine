@@ -5,7 +5,7 @@
 #   uv pip install -e packages/<pkg>   # install a single package elsewhere
 [project]
 name = "ia-spec-ops-engine"
-version = "1.1.0"
+version = "1.2.0"
 description = "Workspace root for ai-governance, spec and workspace packages."
 license = "MIT"
 license-files = ["LICENSE"]
