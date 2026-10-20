@@ -56,6 +56,208 @@ pass() { echo "✔ $1: PASS"; }
 warn() { echo "⚠  $1"; }
 note() { echo "   $1"; }
 
+# Prints the bin dir of the newest nvm-installed Node for a version spec ("20",
+# "v20.1.0"); a non-numeric spec ("lts/*", "node") takes the newest installed.
+nvm_node_bin() {
+  local spec="${1#v}" root="${NVM_DIR:-$HOME/.nvm}/versions/node" major pattern dir
+  [ -d "$root" ] || return 0
+  major="${spec%%.*}"
+  case "$major" in
+    ''|*[!0-9]*) pattern="v*" ;;
+    *) pattern="v${major}.*" ;;
+  esac
+  dir="$(ls -d "$root"/$pattern 2>/dev/null | sort -V | tail -n 1)"
+  [ -n "$dir" ] && [ -x "$dir/bin/node" ] && echo "$dir/bin"
+  return 0
+}
+
+# Hooks launched from an IDE or a desktop Git client do not get the login shell's
+# PATH, so the per-user tool directories are appended (the push's own PATH wins).
+qg_extend_path() {
+  local d
+  for d in "$HOME/.local/bin" "/opt/homebrew/bin" "/usr/local/bin" "$HOME/.cargo/bin" \
+           "$HOME/go/bin" "$HOME/.sdkman/candidates/maven/current/bin" \
+           "$HOME/.sdkman/candidates/gradle/current/bin" "$HOME/.pub-cache/bin" \
+           "$HOME/fvm/default/bin"; do
+    [ -d "$d" ] || continue
+    case ":$PATH:" in
+      *":$d:"*) ;;
+      *) PATH="$PATH:$d" ;;
+    esac
+  done
+  if ! command -v node >/dev/null 2>&1; then
+    local nvm_bin
+    nvm_bin="$(nvm_node_bin "$(cat "${NVM_DIR:-$HOME/.nvm}/alias/default" 2>/dev/null)")"
+    [ -n "$nvm_bin" ] && PATH="$PATH:$nvm_bin"
+  fi
+  export PATH
+}
+
+# Says why a stack cannot be checked in this checkout and what to run.
+env_missing() {
+  warn "$1: the project's dependencies are not installed in this checkout (a new worktree?). Run: $2"
+}
+
+# Envs that Poetry, Pipenv and PDM keep outside the repo, one path per line.
+# `poetry env info -p` fails when the env was built with a Python other than the
+# one Poetry picks now, so the project's listed envs are tried too.
+python_manager_envs() {
+  if [ -f "$REPO_ROOT/poetry.lock" ] && command -v poetry >/dev/null 2>&1; then
+    { poetry env info -p 2>/dev/null; echo; poetry env list --full-path 2>/dev/null; } |
+      sed 's/ (Activated)$//'
+  fi
+  if [ -f "$REPO_ROOT/Pipfile.lock" ] && command -v pipenv >/dev/null 2>&1; then
+    pipenv --venv 2>/dev/null
+  fi
+  if [ -f "$REPO_ROOT/pdm.lock" ] && command -v pdm >/dev/null 2>&1; then
+    local py
+    py="$(pdm info --python 2>/dev/null)"
+    [ -n "$py" ] && dirname "$(dirname "$py")"
+  fi
+  return 0
+}
+
+# How to run a Python tool from the project's own environment: .venv/venv, a uv
+# project, then a Poetry/Pipenv/PDM env. Prints nothing when there is none here.
+python_project_tool() {
+  local tool="$1" dir
+  for dir in "$REPO_ROOT/.venv" "$REPO_ROOT/venv"; do
+    if [ -x "$dir/bin/$tool" ]; then
+      echo "$dir/bin/$tool"
+      return 0
+    fi
+  done
+  if [ -f "$REPO_ROOT/uv.lock" ] && command -v uv >/dev/null 2>&1; then
+    echo "uv run $tool"
+    return 0
+  fi
+  while IFS= read -r dir; do
+    if [ -n "$dir" ] && [ -x "$dir/bin/$tool" ]; then
+      echo "$dir/bin/$tool"
+      return 0
+    fi
+  done < <(python_manager_envs)
+  return 0
+}
+
+# The ruff version a Poetry/PDM/Pipenv lockfile pins, so a checkout without its
+# env still lints with that version instead of a global one.
+ruff_locked_version() {
+  local lock
+  for lock in poetry.lock pdm.lock; do
+    if [ -f "$REPO_ROOT/$lock" ]; then
+      awk '/^name = "ruff"$/ { found = 1; next } found && /^version = / { gsub(/"/, "", $3); print $3; exit }' \
+        "$REPO_ROOT/$lock"
+      return 0
+    fi
+  done
+  if [ -f "$REPO_ROOT/Pipfile.lock" ]; then
+    grep -A4 '"ruff": {' "$REPO_ROOT/Pipfile.lock" | grep -oE '"version": "==[^"]+"' | head -n 1 |
+      sed -E 's/.*==([^"]+)"/\1/'
+  fi
+  return 0
+}
+
+# The command that installs the project's Python environment, from its lockfile.
+python_install_cmd() {
+  if [ -f "$REPO_ROOT/uv.lock" ]; then echo "uv sync"
+  elif [ -f "$REPO_ROOT/poetry.lock" ]; then echo "poetry install"
+  elif [ -f "$REPO_ROOT/Pipfile.lock" ]; then echo "pipenv install --dev"
+  elif [ -f "$REPO_ROOT/pdm.lock" ]; then echo "pdm install"
+  elif [ -f "$REPO_ROOT/requirements.txt" ]; then echo "pip install -r requirements.txt"
+  fi
+  return 0
+}
+
+# A ModuleNotFoundError is an environment problem, not a failing test: say so
+# instead of letting it read like a broken suite. Reads the last command's log.
+explain_missing_module() {
+  local log="$TMPD/command-$RUN_SEQUENCE.log" missing
+  [ -f "$log" ] || return 0
+  missing="$(grep -oE "No module named '[^']+'" "$log" | head -n 1)"
+  [ -n "$missing" ] || return 0
+  warn "That is an environment problem ($missing), not a failing test."
+  if [ "$1" = "pytest" ]; then
+    note "A global pytest ran, and it lacks the project's dependencies."
+  else
+    note "The environment is missing a dependency (stale after a lockfile change?)."
+  fi
+  [ -n "$(python_install_cmd)" ] && note "Install it: $(python_install_cmd)"
+  return 0
+}
+
+# The package manager the lockfile asks for, when it is installed (else npm).
+js_pm() {
+  if [ -f "$REPO_ROOT/pnpm-lock.yaml" ] && command -v pnpm >/dev/null 2>&1; then echo "pnpm"
+  elif [ -f "$REPO_ROOT/yarn.lock" ] && command -v yarn >/dev/null 2>&1; then echo "yarn"
+  elif { [ -f "$REPO_ROOT/bun.lock" ] || [ -f "$REPO_ROOT/bun.lockb" ]; } && command -v bun >/dev/null 2>&1; then echo "bun"
+  else echo "npm"
+  fi
+}
+
+# Prints the install command when package.json declares dependencies that this
+# checkout has not installed (a new worktree has no node_modules).
+js_install_hint() {
+  { [ -d "$REPO_ROOT/node_modules" ] || [ -f "$REPO_ROOT/.pnp.cjs" ]; } && return 0
+  node -e "const p=require('$REPO_ROOT/package.json'); process.exit(Object.keys({...p.dependencies, ...p.devDependencies}).length ? 0 : 1)" 2>/dev/null || return 0
+  local pm
+  pm="$(js_pm)"
+  if [ "$pm" = "npm" ] && [ -f "$REPO_ROOT/package-lock.json" ]; then echo "npm ci"
+  else echo "$pm install"
+  fi
+}
+
+# Puts the Node the repo pins (.nvmrc / .node-version) first on PATH when nvm
+# has it; warns when only another major is reachable.
+use_pinned_node() {
+  local pin_file="" f pin want have bin
+  for f in .nvmrc .node-version; do
+    if [ -f "$REPO_ROOT/$f" ]; then pin_file="$f"; break; fi
+  done
+  [ -n "$pin_file" ] || return 0
+  pin="$(tr -d '[:space:]' < "$REPO_ROOT/$pin_file")"
+  want="${pin#v}"; want="${want%%.*}"
+  case "$want" in ''|*[!0-9]*) return 0 ;; esac
+  have="$(node -v 2>/dev/null)"; have="${have#v}"; have="${have%%.*}"
+  [ "$have" = "$want" ] && return 0
+  bin="$(nvm_node_bin "$want")"
+  if [ -n "$bin" ]; then
+    PATH="$bin:$PATH"; export PATH
+    note "Using Node $want from nvm ($pin_file pins it)"
+  else
+    warn "$pin_file pins Node $want but the reachable node is ${have:-missing}; results may differ from CI."
+  fi
+  return 0
+}
+
+# Prints the install command when composer.json declares dependencies and this
+# checkout has no vendor/ (a new worktree).
+php_install_hint() {
+  [ -d "$REPO_ROOT/vendor" ] && return 0
+  grep -qE '"require(-dev)?"[[:space:]]*:[[:space:]]*\{[[:space:]]*"' "$REPO_ROOT/composer.json" 2>/dev/null &&
+    echo "composer install"
+  return 0
+}
+
+# The Flutter SDK tool (flutter|dart) the repo pins with FVM, else the global one.
+flutter_tool() {
+  local tool="$1"
+  if [ -f "$REPO_ROOT/.fvmrc" ] || [ -f "$REPO_ROOT/.fvm/fvm_config.json" ]; then
+    if [ -x "$REPO_ROOT/.fvm/flutter_sdk/bin/$tool" ]; then
+      echo "$REPO_ROOT/.fvm/flutter_sdk/bin/$tool"
+      return 0
+    fi
+    if command -v fvm >/dev/null 2>&1; then
+      echo "fvm $tool"
+      return 0
+    fi
+  fi
+  command -v "$tool" >/dev/null 2>&1 && echo "$tool"
+  return 0
+}
+
+qg_extend_path
+
 case "$QG_OUTPUT" in
   errors|verbose) ;;
   *)
@@ -376,6 +578,9 @@ else
 
   # --- JS / TS ---
   if [ -f "$REPO_ROOT/package.json" ]; then
+    use_pinned_node
+    JS_PM="$(js_pm)"
+    JS_INSTALL_HINT="$(js_install_hint)"
     HAS_LINT_SCRIPT=0
     if command -v node >/dev/null 2>&1 && \
        node -e "const p=require('$REPO_ROOT/package.json'); process.exit(p.scripts && p.scripts.lint ? 0 : 1)" 2>/dev/null; then
@@ -389,7 +594,11 @@ else
       done < <(changed_files '*.js' '*.jsx' '*.mjs' '*.cjs' '*.ts' '*.tsx' '*.vue' '*.svelte')
     fi
 
-    if [ "$QG_SCOPE" = "changed" ] && [ -x "$REPO_ROOT/node_modules/.bin/eslint" ]; then
+    if [ "$HAS_LINT_SCRIPT" = "1" ] && [ -n "$JS_INSTALL_HINT" ]; then
+      LINT_RAN=1
+      LINT_OK=0
+      env_missing "JS/TS" "$JS_INSTALL_HINT"
+    elif [ "$QG_SCOPE" = "changed" ] && [ -x "$REPO_ROOT/node_modules/.bin/eslint" ]; then
       if [ "${#JS_FILES[@]}" -gt 0 ]; then
         LINT_RAN=1
         note "eslint on ${#JS_FILES[@]} file(s) from the push"
@@ -397,25 +606,28 @@ else
       else
         note "No JS/TS files in the push, skipping eslint."
       fi
-    elif [ "$HAS_LINT_SCRIPT" = "1" ] && command -v npm >/dev/null 2>&1; then
+    elif [ "$HAS_LINT_SCRIPT" = "1" ] && command -v "$JS_PM" >/dev/null 2>&1; then
       LINT_RAN=1
-      [ "$QG_SCOPE" = "changed" ] && note "No local eslint to scope down to; running the full 'npm run lint'."
-      run_to "$QG_TIMEOUT" npm run lint || LINT_OK=0
+      [ "$QG_SCOPE" = "changed" ] && note "No local eslint to scope down to; running the full '$JS_PM run lint'."
+      run_to "$QG_TIMEOUT" "$JS_PM" run lint || LINT_OK=0
     fi
   fi
 
   # --- Python ---
   if [ -f "$REPO_ROOT/pyproject.toml" ] || [ -f "$REPO_ROOT/requirements.txt" ] || ls "$REPO_ROOT"/*.py >/dev/null 2>&1; then
     # The project's own environment first: a global ruff may be another version.
-    RUFF_EXE=""
-    if [ -x "$REPO_ROOT/.venv/bin/ruff" ]; then
-      RUFF_EXE="$REPO_ROOT/.venv/bin/ruff"
-    elif [ -f "$REPO_ROOT/uv.lock" ] && command -v uv >/dev/null 2>&1; then
-      RUFF_EXE="uv run ruff"
-    elif command -v ruff >/dev/null 2>&1; then
-      RUFF_EXE="ruff"
-    elif command -v uv >/dev/null 2>&1; then
-      RUFF_EXE="uv run --with ruff ruff"
+    # ruff has no dependencies: without the project's env, run the version its
+    # lockfile pins, and only then a global one.
+    RUFF_EXE="$(python_project_tool ruff)"
+    RUFF_LOCKED="$(ruff_locked_version)"
+    if [ -z "$RUFF_EXE" ]; then
+      if [ -n "$RUFF_LOCKED" ] && command -v uv >/dev/null 2>&1; then
+        RUFF_EXE="uv tool run ruff@$RUFF_LOCKED"
+      elif command -v ruff >/dev/null 2>&1; then
+        RUFF_EXE="ruff"
+      elif command -v uv >/dev/null 2>&1; then
+        RUFF_EXE="uv run --with ruff ruff"
+      fi
     fi
 
     if [ -n "$RUFF_EXE" ]; then
@@ -457,14 +669,16 @@ else
 
   # --- Flutter / Dart ---
   if [ -f "$REPO_ROOT/pubspec.yaml" ]; then
-    if command -v flutter >/dev/null 2>&1; then
+    FLUTTER_EXE="$(flutter_tool flutter)"
+    DART_EXE="$(flutter_tool dart)"
+    if [ -n "$FLUTTER_EXE" ]; then
       LINT_RAN=1
-      note "flutter analyze"
-      run_to "$QG_TIMEOUT" flutter analyze || LINT_OK=0
-    elif command -v dart >/dev/null 2>&1; then
+      note "$FLUTTER_EXE analyze"
+      run_to "$QG_TIMEOUT" $FLUTTER_EXE analyze || LINT_OK=0
+    elif [ -n "$DART_EXE" ]; then
       LINT_RAN=1
-      note "dart analyze"
-      run_to "$QG_TIMEOUT" dart analyze || LINT_OK=0
+      note "$DART_EXE analyze"
+      run_to "$QG_TIMEOUT" $DART_EXE analyze || LINT_OK=0
     fi
   fi
 
@@ -541,8 +755,22 @@ else
   [ "$QG_SCOPE" = "changed" ] && [ "$NOTHING_NEW" = "0" ] && SCOPED_TESTS=1
 
   # --- JS / TS ---
-  if [ -f "$REPO_ROOT/package.json" ] && command -v npm >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
-    if node -e "const p=require('$REPO_ROOT/package.json'); process.exit(p.scripts && p.scripts.test ? 0 : 1)" 2>/dev/null; then
+  HAS_TEST_SCRIPT=0
+  if [ -f "$REPO_ROOT/package.json" ] && command -v node >/dev/null 2>&1; then
+    use_pinned_node
+    JS_PM="$(js_pm)"
+    JS_INSTALL_HINT="$(js_install_hint)"
+    if command -v "$JS_PM" >/dev/null 2>&1 && \
+       node -e "const p=require('$REPO_ROOT/package.json'); process.exit(p.scripts && p.scripts.test ? 0 : 1)" 2>/dev/null; then
+      HAS_TEST_SCRIPT=1
+    fi
+  fi
+  if [ "$HAS_TEST_SCRIPT" = "1" ]; then
+    if [ -n "$JS_INSTALL_HINT" ]; then
+      RAN_ANY=1
+      TESTS_OK=0
+      env_missing "JS/TS" "$JS_INSTALL_HINT"
+    else
       TEST_SCRIPT="$(node -e "const p=require('$REPO_ROOT/package.json'); process.stdout.write(String(p.scripts.test||''))" 2>/dev/null)"
 
       JS_FILES=()
@@ -573,45 +801,57 @@ else
       else
         RAN_ANY=1
         [ "$SCOPED_TESTS" = "1" ] && note "Could not scope down '$TEST_SCRIPT'; running the full suite."
-        run_to "$QG_TIMEOUT" npm test || TESTS_OK=0
+        run_to "$QG_TIMEOUT" "$JS_PM" test || TESTS_OK=0
       fi
     fi
   fi
 
   # --- Python ---
-  # The project's own environment first: a global pytest lacks the project's dependencies.
-  PYTEST_EXE=""
-  if [ -x "$REPO_ROOT/.venv/bin/pytest" ]; then
-    PYTEST_EXE="$REPO_ROOT/.venv/bin/pytest"
-  elif [ -f "$REPO_ROOT/uv.lock" ] && command -v uv >/dev/null 2>&1; then
-    PYTEST_EXE="uv run pytest"
-  elif command -v pytest >/dev/null 2>&1; then
-    PYTEST_EXE="pytest"
-  elif command -v uv >/dev/null 2>&1; then
-    PYTEST_EXE="uv run pytest"
+  # The project's own environment first: a global pytest lacks the project's
+  # dependencies. A project whose manager (Poetry, Pipenv, PDM) has no env in
+  # this checkout is reported as such instead of running a global pytest.
+  PYTEST_EXE="$(python_project_tool pytest)"
+  PY_ENV_HINT=""
+  if [ -z "$PYTEST_EXE" ]; then
+    if [ -f "$REPO_ROOT/poetry.lock" ] || [ -f "$REPO_ROOT/Pipfile.lock" ] || [ -f "$REPO_ROOT/pdm.lock" ]; then
+      PY_ENV_HINT="$(python_install_cmd)"
+    elif command -v pytest >/dev/null 2>&1; then
+      PYTEST_EXE="pytest"
+    elif command -v uv >/dev/null 2>&1; then
+      PYTEST_EXE="uv run pytest"
+    fi
   fi
 
-  if [ -n "$PYTEST_EXE" ]; then
+  if [ -n "$PYTEST_EXE" ] || [ -n "$PY_ENV_HINT" ]; then
     PY_TEST_FILES=()
+    PY_RUN=0
     if [ "$SCOPED_TESTS" = "1" ]; then
       while IFS= read -r f; do
         [ -n "$f" ] && [ -f "$f" ] && PY_TEST_FILES+=("$f")
       done < <(changed_files '*test_*.py' '*_test.py' '*/tests/*.py')
-    fi
-
-    if [ "$SCOPED_TESTS" = "1" ]; then
-      if [ "${#PY_TEST_FILES[@]}" -gt 0 ]; then
-        RAN_ANY=1
-        note "pytest scoped to ${#PY_TEST_FILES[@]} test file(s) from the push"
-        run_to "$QG_TIMEOUT" $PYTEST_EXE -q "${PY_TEST_FILES[@]}"; pt_rc=$?
-        if [ "$pt_rc" != "0" ] && [ "$pt_rc" != "5" ]; then TESTS_OK=0; fi
-      fi
+      [ "${#PY_TEST_FILES[@]}" -gt 0 ] && PY_RUN=1
     elif find "$REPO_ROOT" -maxdepth 6 -not -path "*/node_modules/*" -not -path "*/.venv/*" \
               -not -path "*/vendor/*" -not -path "*/.git/*" \
               \( -iname "test_*.py" -o -iname "*_test.py" \) 2>/dev/null | grep -q .; then
+      PY_RUN=1
+    fi
+
+    if [ "$PY_RUN" = "1" ] && [ -n "$PY_ENV_HINT" ]; then
       RAN_ANY=1
-      run_to "$QG_TIMEOUT" $PYTEST_EXE -q; pt_rc=$?
-      if [ "$pt_rc" != "0" ] && [ "$pt_rc" != "5" ]; then TESTS_OK=0; fi
+      TESTS_OK=0
+      env_missing "Python" "$PY_ENV_HINT"
+    elif [ "$PY_RUN" = "1" ]; then
+      RAN_ANY=1
+      if [ "$SCOPED_TESTS" = "1" ]; then
+        note "pytest scoped to ${#PY_TEST_FILES[@]} test file(s) from the push"
+        run_to "$QG_TIMEOUT" $PYTEST_EXE -q "${PY_TEST_FILES[@]}"; pt_rc=$?
+      else
+        run_to "$QG_TIMEOUT" $PYTEST_EXE -q; pt_rc=$?
+      fi
+      if [ "$pt_rc" != "0" ] && [ "$pt_rc" != "5" ]; then
+        TESTS_OK=0
+        explain_missing_module "$PYTEST_EXE"
+      fi
     fi
   fi
 
@@ -631,14 +871,16 @@ else
 
   # --- Flutter / Dart Tests ---
   if [ -f "$REPO_ROOT/pubspec.yaml" ]; then
-    if command -v flutter >/dev/null 2>&1; then
+    FLUTTER_EXE="$(flutter_tool flutter)"
+    DART_EXE="$(flutter_tool dart)"
+    if [ -n "$FLUTTER_EXE" ]; then
       RAN_ANY=1
-      note "flutter test"
-      run_to "$QG_TIMEOUT" flutter test || TESTS_OK=0
-    elif command -v dart >/dev/null 2>&1; then
+      note "$FLUTTER_EXE test"
+      run_to "$QG_TIMEOUT" $FLUTTER_EXE test || TESTS_OK=0
+    elif [ -n "$DART_EXE" ]; then
       RAN_ANY=1
-      note "dart test"
-      run_to "$QG_TIMEOUT" dart test || TESTS_OK=0
+      note "$DART_EXE test"
+      run_to "$QG_TIMEOUT" $DART_EXE test || TESTS_OK=0
     fi
   fi
 
@@ -662,6 +904,11 @@ else
         RAN_ANY=1
         run_to "$QG_TIMEOUT" "$REPO_ROOT/vendor/bin/phpunit" || TESTS_OK=0
       fi
+    elif [ -n "$(php_install_hint)" ] && { grep -q '"test"' "$REPO_ROOT/composer.json" 2>/dev/null ||
+           [ -f "$REPO_ROOT/phpunit.xml" ] || [ -f "$REPO_ROOT/phpunit.xml.dist" ]; }; then
+      RAN_ANY=1
+      TESTS_OK=0
+      env_missing "PHP" "$(php_install_hint)"
     elif command -v composer >/dev/null 2>&1 && grep -q '"test"' "$REPO_ROOT/composer.json" 2>/dev/null; then
       RAN_ANY=1
       run_to "$QG_TIMEOUT" composer test || TESTS_OK=0
@@ -670,12 +917,16 @@ else
 
   # --- JVM (not scoped: mvn/gradle don't expose a reliable "just these tests") ---
   if [ -f "$REPO_ROOT/pom.xml" ]; then
-    if command -v mvn >/dev/null 2>&1; then
+    if [ -x "$REPO_ROOT/mvnw" ]; then
+      RAN_ANY=1
+      [ "$SCOPED_TESTS" = "1" ] && note "Maven cannot be reliably scoped down; running the full suite."
+      run_to "$QG_TIMEOUT" "$REPO_ROOT/mvnw" -q -B test || TESTS_OK=0
+    elif command -v mvn >/dev/null 2>&1; then
       RAN_ANY=1
       [ "$SCOPED_TESTS" = "1" ] && note "Maven cannot be reliably scoped down; running the full suite."
       run_to "$QG_TIMEOUT" mvn -q -B test || TESTS_OK=0
     else
-      warn "pom.xml is present but 'mvn' is not installed; skipping Maven tests."
+      warn "pom.xml is present but neither ./mvnw nor 'mvn' is installed; skipping Maven tests."
     fi
   fi
 

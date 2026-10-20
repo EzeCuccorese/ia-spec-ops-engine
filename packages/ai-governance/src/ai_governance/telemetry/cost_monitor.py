@@ -124,6 +124,16 @@ def _in_window(day: str | None, since: str | None, until: str | None) -> bool:
     return not ((since and day < since) or (until and day > until))
 
 
+def _in_instants(timestamp: str, bounds: tuple[datetime, datetime]) -> bool:
+    try:
+        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except (ValueError, TypeError, AttributeError):
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return bounds[0] <= parsed <= bounds[1]
+
+
 def _accumulate(totals: dict[str, Any], event: _Event) -> None:
     usage = event.usage
     totals["total_cost_usd"] += event.cost
@@ -184,11 +194,13 @@ class CostMonitor:
         until_iso_date: str | None = None,
         *,
         local_time: bool = False,
+        instants: tuple[datetime, datetime] | None = None,
     ) -> dict[str, Any]:
+        """Sum local usage. `instants` is an exact [start, end] window that overrides the days."""
         totals = self._new_totals(local_time)
         if not self.projects_dir.exists():
             return totals
-        window = (since_iso_date, until_iso_date, local_time)
+        window = (since_iso_date, until_iso_date, local_time, instants)
         seen_events: set[str] = set()
         for line in _transcript_lines(self.projects_dir):
             event = self._event(line.strip(), seen_events, window)
@@ -218,7 +230,10 @@ class CostMonitor:
         }
 
     def _event(
-        self, line: str, seen_events: set[str], window: tuple[str | None, str | None, bool]
+        self,
+        line: str,
+        seen_events: set[str],
+        window: tuple[str | None, str | None, bool, tuple[datetime, datetime] | None],
     ) -> _Event | None:
         """One billable assistant event, or None (not usage, duplicate, outside the window)."""
         parsed = _parse_line(line)
@@ -231,7 +246,11 @@ class CostMonitor:
         seen_events.add(event_id)
         day = self._day(_timestamp(entry), window[2])
         tokens = _Usage.parse(usage)
-        if not _in_window(day, window[0], window[1]) or tokens.is_empty():
+        if window[3] is not None:
+            in_window = _in_instants(_timestamp(entry), window[3])
+        else:
+            in_window = _in_window(day, window[0], window[1])
+        if not in_window or tokens.is_empty():
             return None
         model = message.get("model") or "unknown"
         return _Event(str(day), model, _effort(entry), tokens, self._cost(model, tokens))

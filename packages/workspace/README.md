@@ -205,9 +205,24 @@ on projects with their own conventions: `git config workspace.commitStyle conven
 on both the commit-msg check and the pre-push commit policy (`QG_COMMIT_STYLE=conventional`
 does the same for one command).
 
-Python tools come from the project's own environment: `ruff` and `pytest` resolve to the
-repository's `.venv`, then `uv run` when there is a `uv.lock`, and only then to whatever is on
-`PATH` (a global pytest lacks the project's dependencies; a global ruff may be another version).
+Each stack runs with the project's own tools, never a global one that cannot work:
+
+- **Python:** `ruff` and `pytest` resolve to the repository's `.venv` (or `venv`), then
+  `uv run` when there is a `uv.lock`, then the env Poetry, Pipenv or PDM keeps outside the repo,
+  and only then to whatever is on `PATH`. A project with `poetry.lock`, `Pipfile.lock` or
+  `pdm.lock` but no env in this checkout (a new worktree) fails with the install command instead
+  of running a global pytest. A `No module named ...` failure is reported as an environment
+  problem, with the install command, not as a failing test.
+  Without the env, ruff runs the version the lockfile pins (`uv tool run ruff@<version>`).
+- **JS/TS:** scripts run with the package manager of the lockfile (`pnpm`, `yarn`, `bun`, else
+  `npm`). The Node pinned in `.nvmrc` / `.node-version` is taken from nvm when installed (a
+  warning otherwise). Dependencies declared but no `node_modules` fails with the install command.
+- **PHP:** dependencies declared but no `vendor/` fails with `composer install`.
+- **JVM / Flutter:** `./mvnw` wins over `mvn`; the SDK pinned with FVM wins over the global one.
+
+Hooks launched from an IDE or a desktop Git client lack the login shell's `PATH`, so the gate
+appends the usual per-user tool directories (`~/.local/bin`, Homebrew, nvm's default Node,
+sdkman, cargo, go, fvm); the push's own `PATH` still wins.
 
 The installed scripts are copies: after upgrading the package, run `ws hooks install [--global]`
 again to refresh them.

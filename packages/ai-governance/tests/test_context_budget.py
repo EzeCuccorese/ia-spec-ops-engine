@@ -23,6 +23,7 @@ def test_static_content_budgets() -> None:
     block = content.PROJECT_BLOCK.format(rule_locations="x" * 150)
     assert len(block.encode()) <= PROJECT_BLOCK_MAX
     assert len((content.SCOUT_DESCRIPTION + content.SCOUT_INSTRUCTIONS).encode()) <= SCOUT_MAX
+    assert len((content.RUNNER_DESCRIPTION + content.RUNNER_INSTRUCTIONS).encode()) <= SCOUT_MAX
     for name, body in content.SKILLS.items():
         assert len(body.encode()) <= SKILL_MAX, name
 
