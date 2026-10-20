@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.1 - 2026-10-20
+
+### Fixes
+- Base the next version on the last release commit.
+
 ## 1.1.0 - 2026-10-20
 
 ### Features
