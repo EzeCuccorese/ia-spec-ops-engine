@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -16,7 +16,7 @@ members = [
 
 [[package]]
 name = "ai-governance"
-version = "1.1.2"
+version = "1.1.3"
 source = { editable = "packages/ai-governance" }
 dependencies = [
     { name = "marklas" },
@@ -234,7 +234,7 @@ toml = [
 
 [[package]]
 name = "ia-spec-ops-engine"
-version = "1.1.2"
+version = "1.1.3"
 source = { virtual = "." }
 
 [package.dev-dependencies]
@@ -664,7 +664,7 @@ wheels = [
 
 [[package]]
 name = "spec"
-version = "1.1.2"
+version = "1.1.3"
 source = { editable = "packages/spec" }
 
 [package.optional-dependencies]
@@ -754,7 +754,7 @@ wheels = [
 
 [[package]]
 name = "workspace"
-version = "1.1.2"
+version = "1.1.3"
 source = { editable = "packages/workspace" }
 dependencies = [
     { name = "lizard" },
