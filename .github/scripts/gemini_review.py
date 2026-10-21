@@ -10,9 +10,15 @@ import json
 import os
 import subprocess
 import sys
+import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
+
+MAX_DIFF_CHARS = 80_000
+GEMINI_TIMEOUT = 180
+MAX_RETRIES = 2
 
 
 @dataclass
@@ -31,30 +37,37 @@ class ReviewConfig:
     model: str
 
 
+def _request_gemini(url: str, body: bytes, api_key: str) -> dict[str, Any]:
+    for attempt in range(MAX_RETRIES + 1):
+        req = urllib.request.Request(
+            url,
+            data=body,
+            headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=GEMINI_TIMEOUT) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            err_msg = e.read().decode("utf-8", errors="replace")
+            if e.code in (429, 500, 502, 503, 504) and attempt < MAX_RETRIES:
+                time.sleep(2 ** (attempt + 1))
+                continue
+            raise RuntimeError(f"Gemini API call failed (HTTP {e.code}): {err_msg}") from e
+        except (urllib.error.URLError, TimeoutError):
+            if attempt < MAX_RETRIES:
+                time.sleep(2 ** (attempt + 1))
+                continue
+            raise
+    raise RuntimeError("Gemini API call failed after retries")
+
+
 def call_gemini(prompt: str, api_key: str, model: str) -> str:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.1,
-            "responseMimeType": "application/json",
-        },
+        "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"},
     }
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "x-goog-api-key": api_key,
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        err_msg = e.read().decode("utf-8")
-        raise RuntimeError(f"Gemini API call failed (HTTP {e.code}): {err_msg}") from e
-    
+    data = _request_gemini(url, json.dumps(payload).encode("utf-8"), api_key)
     candidates = data.get("candidates", [])
     if not candidates:
         raise ValueError(f"No candidates generated from Gemini: {data}")
@@ -70,7 +83,11 @@ def _matches_any(filepath: str, patterns: list[str]) -> bool:
         p = p.strip()
         if not p:
             continue
-        if fnmatch.fnmatch(filepath, p) or fnmatch.fnmatch(filepath, f"*/{p}") or fnmatch.fnmatch(name, p):
+        if (
+            fnmatch.fnmatch(filepath, p)
+            or fnmatch.fnmatch(filepath, f"*/{p}")
+            or fnmatch.fnmatch(name, p)
+        ):
             return True
     return False
 
@@ -150,13 +167,16 @@ def _post_fallback(target: ReviewTarget, summary: Any, comments: list[dict[str, 
         with urllib.request.urlopen(req, timeout=30) as resp:
             print(f"Posted fallback review: HTTP {resp.status}")
     except urllib.error.HTTPError as e:
-        print(f"Failed to post fallback review: HTTP {e.code} - {e.read().decode('utf-8')}", file=sys.stderr)
+        print(
+            f"Failed to post fallback review: HTTP {e.code} - {e.read().decode('utf-8')}",
+            file=sys.stderr,
+        )
 
 
 def post_github_review(target: ReviewTarget, summary: Any, comments: list[dict[str, Any]]) -> None:
     valid_comments = _filter_comments(comments)
     url = f"https://api.github.com/repos/{target.owner}/{target.repo}/pulls/{target.pr_number}/reviews"
-    
+
     clean_summary = (summary or "").strip() or "Review completed."
     payload: dict[str, Any] = {
         "body": clean_summary,
@@ -188,7 +208,10 @@ def post_github_review(target: ReviewTarget, summary: Any, comments: list[dict[s
 
 
 def _load_repo_instructions() -> str:
-    for candidate in [".github/copilot-code-review-instructions.md", ".github/code-review-instructions.md"]:
+    for candidate in [
+        ".github/copilot-code-review-instructions.md",
+        ".github/code-review-instructions.md",
+    ]:
         if os.path.exists(candidate):
             with open(candidate, encoding="utf-8") as f:
                 return f.read()
@@ -265,7 +288,9 @@ def _parse_review_response(raw_response: str) -> dict[str, Any] | None:
         print(f"Failed to parse Gemini response as JSON: {err}", file=sys.stderr)
         return None
     if not isinstance(data, dict):
-        print(f"Expected JSON object from Gemini response, got {type(data).__name__}", file=sys.stderr)
+        print(
+            f"Expected JSON object from Gemini response, got {type(data).__name__}", file=sys.stderr
+        )
         return None
     return data
 
@@ -288,6 +313,8 @@ def main() -> None:
     if not diff.strip():
         print("Empty diff after excludes. Nothing to review.")
         return
+    if len(diff) > MAX_DIFF_CHARS:
+        diff = diff[:MAX_DIFF_CHARS] + "\n... [diff truncated for review budget] ...\n"
 
     repo_instructions = _load_repo_instructions()
     prompt = build_prompt(diff, config, repo_instructions)
@@ -295,13 +322,25 @@ def main() -> None:
     owner, repo = repo_slug.split("/", 1)
     target = ReviewTarget(owner=owner, repo=repo, pr_number=pr_num, token=token)
 
-    raw_response = call_gemini(prompt, api_key, config.model)
+    try:
+        raw_response = call_gemini(prompt, api_key, config.model)
+    except (RuntimeError, urllib.error.URLError, TimeoutError, ValueError) as err:
+        print(
+            f"Gemini review unavailable ({type(err).__name__}: {err}). Skipping.", file=sys.stderr
+        )
+        return
     review_data = _parse_review_response(raw_response)
     if review_data is None:
-        _post_fallback(target, f"Review completed, but response was not a valid JSON object:\n\n{raw_response}", [])
+        _post_fallback(
+            target,
+            f"Review completed, but response was not a valid JSON object:\n\n{raw_response}",
+            [],
+        )
         return
 
-    post_github_review(target, review_data.get("summary", "Review completed."), review_data.get("comments", []))
+    post_github_review(
+        target, review_data.get("summary", "Review completed."), review_data.get("comments", [])
+    )
 
 
 if __name__ == "__main__":
