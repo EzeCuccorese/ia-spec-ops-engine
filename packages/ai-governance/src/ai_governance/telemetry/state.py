@@ -141,9 +141,13 @@ class ThresholdTracker:
         atomic_json_write(path, state)
 
 
+def _escape_applescript(text: str) -> str:
+    return text.replace("\\", "\\\\").replace('"', '\\"').replace("\r", " ").replace("\n", " ")
+
+
 def notify_macos(title: str, message: str) -> bool:
-    escaped_title = title.replace("\\", "\\\\").replace('"', '\\"')
-    escaped_message = message.replace("\\", "\\\\").replace('"', '\\"')
+    escaped_title = _escape_applescript(title)
+    escaped_message = _escape_applescript(message)
     script = f'display notification "{escaped_message}" with title "{escaped_title}"'
     try:
         result = subprocess.run(

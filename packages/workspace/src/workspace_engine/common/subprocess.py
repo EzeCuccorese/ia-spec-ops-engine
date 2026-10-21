@@ -29,7 +29,9 @@ def _isolate_git_env(merged_env: dict[str, str]) -> None:
     merged_env["GIT_CONFIG_SYSTEM"] = "/dev/null"
 
 
-def run_git(repo_path: str | Path, *args: str) -> subprocess.CompletedProcess[str]:
+def run_git(
+    repo_path: str | Path, *args: str, timeout: int | None = DEFAULT_COMMAND_TIMEOUT
+) -> subprocess.CompletedProcess[str]:
     """Runs git commands hermetically, isolating environment variables from subshells."""
     clean_env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     clean_env["GIT_CONFIG_GLOBAL"] = "/dev/null"
@@ -43,6 +45,7 @@ def run_git(repo_path: str | Path, *args: str) -> subprocess.CompletedProcess[st
         capture_output=True,
         text=True,
         env=clean_env,
+        timeout=timeout,
     )
 
 

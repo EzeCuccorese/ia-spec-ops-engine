@@ -54,21 +54,51 @@ def _has_dirty_repos(target: Path) -> list[str]:
     return dirty
 
 
+def _deregister_worktree(r_dir: Path, force: bool) -> bool:
+    is_worktree = (r_dir / ".git").is_file()
+    git_common = run_git(r_dir, "rev-parse", "--git-common-dir")
+    if git_common.returncode == 0 and git_common.stdout.strip():
+        common_path = Path(git_common.stdout.strip())
+        if not common_path.is_absolute():
+            common_path = (r_dir / common_path).resolve()
+        if is_worktree or (common_path != (r_dir / ".git").resolve() and common_path != r_dir):
+            cmd = ["worktree", "remove"]
+            if force:
+                cmd.append("--force")
+            cmd.append(str(r_dir))
+            remove_res = run_git(common_path, *cmd)
+            if remove_res.returncode != 0 and "is a main working tree" not in remove_res.stderr:
+                log_error(
+                    f"Error removing worktree for '{r_dir.name}': {remove_res.stderr.strip()}"
+                )
+                return False
+            run_git(common_path, "worktree", "prune")
+    return True
+
+
+def _is_within_allowed_base(
+    target: Path, workspaces_dir: Path | None, root: Path
+) -> tuple[bool, Path]:
+    if workspaces_dir is not None:
+        base_dir = Path(workspaces_dir).resolve()
+        return (target.is_relative_to(base_dir) and target != base_dir), base_dir
+    base_dir = (
+        root / "workspaces" if (root / "workspaces").exists() else root.parent / "workspaces"
+    ).resolve()
+    if target.is_relative_to(base_dir) and target != base_dir:
+        return True, base_dir
+    if target.parent == root.parent.resolve() and target.name.startswith("workspace-"):
+        return True, base_dir
+    return False, base_dir
+
+
 def delete_single_workspace(
     workspace_dir: Path, force: bool = False, workspaces_dir: Path | None = None
 ) -> bool:
-    # 1. Resolve the base workspaces_dir
-    if workspaces_dir is not None:
-        base_dir = Path(workspaces_dir).resolve()
-    else:
-        root = find_project_root()
-        base_dir = (
-            root / "workspaces" if (root / "workspaces").exists() else root.parent / "workspaces"
-        ).resolve()
-
-    # 2. Path confinement: validate that target is strictly contained in base_dir
+    root = find_project_root() if workspaces_dir is None else Path.cwd()
     target = Path(workspace_dir).resolve()
-    if not (target.is_relative_to(base_dir) and target != base_dir):
+    allowed, base_dir = _is_within_allowed_base(target, workspaces_dir, root)
+    if not allowed:
         raise ValueError(
             f"Workspace path '{workspace_dir}' escapes managed workspaces directory '{base_dir}'."
         )
@@ -77,7 +107,6 @@ def delete_single_workspace(
         log_error(f"Workspace not found at {target}")
         return False
 
-    # 3. Ownership marker verification
     if not _is_owned_workspace(target):
         raise ValueError(
             f"Directory '{target}' is not an owned workspace: missing ownership marker "
@@ -85,8 +114,6 @@ def delete_single_workspace(
         )
 
     workspace_name = target.name
-
-    # 4. Check repositories' dirty state
     dirty_repos = _has_dirty_repos(target)
     if dirty_repos and not force:
         log_error(
@@ -97,40 +124,21 @@ def delete_single_workspace(
 
     print(f"\n{Color.BOLD}Deleting workspace '{workspace_name}'...{Color.RESET}")
 
-    # 5. Clean deregistration of Git worktrees if applicable
     repos_dir = target / "repositories"
     if repos_dir.is_dir():
         for r_dir in repos_dir.iterdir():
-            if r_dir.is_dir() and ((r_dir / ".git").exists() or (r_dir / ".git").is_file()):
-                is_worktree = (r_dir / ".git").is_file()
-                git_common = run_git(r_dir, "rev-parse", "--git-common-dir")
-                if git_common.returncode == 0 and git_common.stdout.strip():
-                    common_path = Path(git_common.stdout.strip())
-                    if not common_path.is_absolute():
-                        common_path = (r_dir / common_path).resolve()
-                    # Only attempt git worktree remove if it is actually a linked worktree
-                    if is_worktree or (
-                        common_path != (r_dir / ".git").resolve() and common_path != r_dir
-                    ):
-                        cmd = ["worktree", "remove"]
-                        if force:
-                            cmd.append("--force")
-                        cmd.append(str(r_dir))
-                        remove_res = run_git(common_path, *cmd)
-                        if (
-                            remove_res.returncode != 0
-                            and "is a main working tree" not in remove_res.stderr
-                        ):
-                            log_error(
-                                f"Error removing worktree for '{r_dir.name}': {remove_res.stderr.strip()}"
-                            )
-                            return False
+            if (
+                r_dir.is_dir()
+                and ((r_dir / ".git").exists() or (r_dir / ".git").is_file())
+                and not _deregister_worktree(r_dir, force)
+            ):
+                return False
+    elif (target / ".git").is_file() and not _deregister_worktree(target, force):
+        return False
 
-                        run_git(common_path, "worktree", "prune")
-
-    # 6. Honest filesystem deletion (no silent ignore_errors)
     try:
-        shutil.rmtree(target)
+        if target.exists():
+            shutil.rmtree(target)
     except OSError as e:
         log_error(f"Error deleting workspace '{workspace_name}': {e}")
         return False

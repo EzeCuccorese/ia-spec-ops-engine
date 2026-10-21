@@ -372,6 +372,24 @@ def test_delete_single_workspace_success(tmp_path: Path) -> None:
     assert not target.exists()
 
 
+def test_delete_single_workspace_allows_sibling_worktree(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    target = tmp_path / "workspace-feat"
+    target.mkdir()
+    (target / ".git").write_text("gitdir: /somewhere")
+
+    with (
+        patch("workspace_engine.cli.delete_workspaces.find_project_root", return_value=root),
+        patch(
+            "workspace_engine.cli.delete_workspaces.run_git",
+            return_value=_git_result(returncode=0, stdout=""),
+        ),
+    ):
+        assert dw.delete_single_workspace(target) is True
+    assert not target.exists()
+
+
 # ---------------------------------------------------------------------------
 # delete_workspaces
 # ---------------------------------------------------------------------------
