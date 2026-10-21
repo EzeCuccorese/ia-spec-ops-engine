@@ -40,23 +40,13 @@ def run_git(
     clean_env.setdefault("GIT_AUTHOR_EMAIL", "workspace@example.com")
     clean_env.setdefault("GIT_COMMITTER_NAME", "Workspace User")
     clean_env.setdefault("GIT_COMMITTER_EMAIL", "workspace@example.com")
-    cmd = ["git", "-C", str(repo_path)] + list(args)
-    try:
-        return subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            env=clean_env,
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired as exc:
-        out = exc.stdout if isinstance(exc.stdout, str) else ""
-        return subprocess.CompletedProcess(
-            cmd,
-            124,
-            stdout=out,
-            stderr=f"Timed out ({timeout}s) running: {' '.join(cmd)}",
-        )
+    return subprocess.run(
+        ["git", "-C", str(repo_path)] + list(args),
+        capture_output=True,
+        text=True,
+        env=clean_env,
+        timeout=timeout,
+    )
 
 
 def run_command(

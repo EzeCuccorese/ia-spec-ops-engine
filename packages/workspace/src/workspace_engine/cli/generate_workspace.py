@@ -30,9 +30,7 @@ from workspace_engine.services.select_repos import select_repos
 def _create_worktree_for_mode(repo_path: Path, target_path: Path, config: RepoConfig) -> None:
     if config.mode == "new":
         parent = config.parent or "main"
-        fetch_res = run_git(repo_path, "fetch", "origin", parent)
-        if fetch_res.returncode == 124:
-            raise RuntimeError(f"Failed to create worktree for {config.name}: {fetch_res.stderr}")
+        run_git(repo_path, "fetch", "origin", parent)
         remote_ref = f"origin/{parent}"
         remote_check = run_git(repo_path, "rev-parse", "--verify", remote_ref)
         start = remote_ref if remote_check.returncode == 0 else parent
@@ -41,11 +39,7 @@ def _create_worktree_for_mode(repo_path: Path, target_path: Path, config: RepoCo
             raise RuntimeError(f"Failed to create worktree for {config.name}: {result.stderr}")
     elif config.mode == "existing":
         if getattr(config, "is_remote_only", False):
-            fetch_res = run_git(repo_path, "fetch", "origin", config.branch)
-            if fetch_res.returncode == 124:
-                raise RuntimeError(
-                    f"Failed to create worktree for {config.name}: {fetch_res.stderr}"
-                )
+            run_git(repo_path, "fetch", "origin", config.branch)
             result = run_git(
                 repo_path,
                 "worktree",
