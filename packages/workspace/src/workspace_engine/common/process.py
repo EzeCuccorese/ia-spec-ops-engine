@@ -5,8 +5,49 @@ workspace_engine.common.process — Process inspection helpers for Workspace Eng
 from __future__ import annotations
 
 import contextlib
+import json
 import subprocess
 from pathlib import Path
+
+
+def _parse_json_pid(
+    raw_text: str, default_name: str
+) -> tuple[int | None, str | None, str, str | None]:
+    with contextlib.suppress(json.JSONDecodeError, ValueError, TypeError):
+        meta = json.loads(raw_text)
+        pid = int(meta.get("pid", 0))
+        cmd = meta.get("cmd") or meta.get("cmdline") or meta.get("command")
+        name = meta.get("repo") or meta.get("name") or default_name
+        path = meta.get("path")
+        return (pid if pid > 0 else None), cmd, str(name), (str(path) if path else None)
+    return None, None, default_name, None
+
+
+def _parse_text_pid(
+    raw_text: str, default_name: str
+) -> tuple[int | None, str | None, str, str | None]:
+    lines = raw_text.splitlines()
+    if not lines:
+        return None, None, default_name, None
+    with contextlib.suppress(ValueError):
+        pid = int(lines[0].strip())
+        cmd = lines[1].strip() if len(lines) > 1 and lines[1].strip() else None
+        return (pid if pid > 0 else None), cmd, default_name, None
+    return None, None, default_name, None
+
+
+def parse_pid_file(
+    pid_file: Path, default_name: str | None = None
+) -> tuple[int | None, str | None, str, str | None]:
+    """Parses a JSON or plain-text .pid file into (pid, cmd, name, path)."""
+    fallback = default_name if default_name is not None else pid_file.stem
+    try:
+        raw_text = pid_file.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None, None, fallback, None
+    if raw_text.startswith("{"):
+        return _parse_json_pid(raw_text, fallback)
+    return _parse_text_pid(raw_text, fallback)
 
 
 def get_process_cmdline(pid: int) -> str:

@@ -155,21 +155,32 @@ def delete_single_workspace(
     return True
 
 
+def _resolve_target_path(
+    ws_name: str, workspaces_root: Path, workspaces_dir: Path | None, root: Path
+) -> tuple[Path, Path | None]:
+    candidate = workspaces_root / ws_name
+    if workspaces_dir is not None or candidate.exists():
+        return candidate, workspaces_root
+    for alt in (root.parent / ws_name, root / ws_name, Path(ws_name)):
+        if alt.exists():
+            return alt.resolve(), None
+    return candidate, workspaces_root
+
+
 def delete_workspaces(
     workspaces: list[str] | None = None,
     force: bool = False,
     workspaces_dir: Path | None = None,
 ) -> int:
+    root = find_project_root()
     if workspaces_dir is not None:
         workspaces_root = Path(workspaces_dir).resolve()
     else:
-        root = find_project_root()
         workspaces_root = (
             root / "workspaces" if (root / "workspaces").exists() else root.parent / "workspaces"
         ).resolve()
 
     # If run from inside a workspace
-    root = find_project_root()
     if (root / "repositories").is_dir() and root.name != "workspaces":
         if not force:
             print(
@@ -203,8 +214,10 @@ def delete_workspaces(
         workspaces = [available[i - 1] for i in selected_indices if 1 <= i <= len(available)]
 
     for ws_name in workspaces:
-        ws_path = workspaces_root / ws_name
-        ok = delete_single_workspace(ws_path, force=force, workspaces_dir=workspaces_root)
+        ws_path, effective_dir = _resolve_target_path(
+            ws_name, workspaces_root, workspaces_dir, root
+        )
+        ok = delete_single_workspace(ws_path, force=force, workspaces_dir=effective_dir)
         if not ok:
             return 1
 

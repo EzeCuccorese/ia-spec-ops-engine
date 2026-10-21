@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import json
 import os
 import signal
 import sys
@@ -20,6 +19,7 @@ from workspace_engine.common import (
     log_info,
     log_success,
     log_warning,
+    parse_pid_file,
 )
 
 
@@ -75,37 +75,6 @@ def verify_process_identity(
     )
 
 
-def _parse_json_pid(raw_text: str, default_repo: str) -> tuple[int | None, str | None, str]:
-    with contextlib.suppress(json.JSONDecodeError, ValueError, TypeError):
-        meta = json.loads(raw_text)
-        pid = int(meta.get("pid", 0))
-        expected_cmd = meta.get("cmdline") or meta.get("command") or meta.get("cmd")
-        repo = meta.get("repo") or default_repo
-        return (pid if pid > 0 else None), expected_cmd, repo
-    return None, None, default_repo
-
-
-def _parse_text_pid(raw_text: str, default_repo: str) -> tuple[int | None, str | None, str]:
-    lines = raw_text.splitlines()
-    if not lines:
-        return None, None, default_repo
-    with contextlib.suppress(ValueError):
-        pid = int(lines[0].strip())
-        cmd = lines[1].strip() if len(lines) > 1 and lines[1].strip() else None
-        return (pid if pid > 0 else None), cmd, default_repo
-    return None, None, default_repo
-
-
-def _parse_pid_file(pid_file: Path, default_repo: str) -> tuple[int | None, str | None, str]:
-    try:
-        raw_text = pid_file.read_text(encoding="utf-8").strip()
-    except OSError:
-        return None, None, default_repo
-    if raw_text.startswith("{"):
-        return _parse_json_pid(raw_text, default_repo)
-    return _parse_text_pid(raw_text, default_repo)
-
-
 def _signal_target(pid: int, proc_pgid: int | None, use_pg: bool, sig: int) -> None:
     if use_pg and proc_pgid is not None:
         with contextlib.suppress(OSError):
@@ -152,26 +121,21 @@ def _stop_run_local_services(workspace_dir: Path, timeout: float) -> int:
     ws_resolved = workspace_dir.resolve()
     stopped = 0
     for pid_file in pid_files:
-        pid, expected_cmd, name = _parse_pid_file(pid_file, pid_file.stem)
+        pid, expected_cmd, name, file_path = parse_pid_file(pid_file)
         if pid is None:
             pid_file.unlink(missing_ok=True)
             continue
-        file_path: str | None = None
-        with contextlib.suppress(OSError, json.JSONDecodeError):
-            raw = pid_file.read_text(encoding="utf-8").strip()
-            if raw.startswith("{"):
-                file_path = json.loads(raw).get("path")
-        if file_path and not Path(file_path).resolve().is_relative_to(ws_resolved):
+        if not file_path or not Path(file_path).resolve().is_relative_to(ws_resolved):
             continue
         if graceful_kill_pid(
             pid,
             timeout=timeout,
             service_name=name,
             expected_cmd=expected_cmd,
-            service_path=file_path or str(ws_resolved),
+            service_path=file_path,
         ):
             stopped += 1
-        pid_file.unlink(missing_ok=True)
+            pid_file.unlink(missing_ok=True)
     return stopped
 
 
@@ -200,7 +164,7 @@ def stop_workspace(start_dir: Path | None = None, timeout: float = 5.0) -> int:
     my_pgid = os.getpgrp()
 
     for pid_file in pid_files:
-        pid, expected_cmd, repo = _parse_pid_file(pid_file, pid_file.stem)
+        pid, expected_cmd, repo, _ = parse_pid_file(pid_file)
         if pid is None:
             pid_file.unlink(missing_ok=True)
             continue

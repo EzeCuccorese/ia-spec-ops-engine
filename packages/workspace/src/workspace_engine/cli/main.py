@@ -80,14 +80,16 @@ def doctor_check() -> None:
     )
 
 
-CONDENSE_COMMANDS = ("run", "condense", "log", "check", "changed", "design")
-
 # Commands that own their argument parser: `ws <command> ...` forwards everything after the
 # command name to `<module>.main(argv)`.
 DELEGATED_COMMANDS = {
     "generate": (
         "workspace_engine.cli.generate_workspace",
         "Generate a new multi-repo workspace from Git worktrees",
+    ),
+    "worktree": (
+        "workspace_engine.cli.create_worktree",
+        "Create an isolated Git worktree",
     ),
     "edit": (
         "workspace_engine.cli.edit_workspace",
@@ -189,11 +191,6 @@ def _build_parser() -> argparse.ArgumentParser:
     for name, (_, help_text) in DELEGATED_COMMANDS.items():
         subparsers.add_parser(name, help=help_text, add_help=False)
 
-    p_wt = subparsers.add_parser("worktree", help="Create an isolated Git worktree")
-    p_wt.add_argument("repo", help="Base repository path or name")
-    p_wt.add_argument("target", help="Target path for new worktree")
-    p_wt.add_argument("branch", help="Branch name to associate")
-
     p_kube = subparsers.add_parser(
         "kube", help="Kubernetes pod manager for environment extraction and shells"
     )
@@ -246,12 +243,6 @@ def _run_hook(args: argparse.Namespace) -> None:
         sys.exit(hook_main(args.hook_args))
 
 
-def _run_worktree(args: argparse.Namespace) -> None:
-    from workspace_engine.cli.create_worktree import main as wt_main
-
-    wt_main([args.repo, args.target, args.branch])
-
-
 def _run_kube(args: argparse.Namespace) -> None:
     from workspace_engine.cli.kube.main import main as kube_main
 
@@ -263,7 +254,6 @@ _BUILTIN_HANDLERS = {
     "config": _run_config,
     "doctor": lambda _args: doctor_check(),
     "hook": _run_hook,
-    "worktree": _run_worktree,
     "kube": _run_kube,
 }
 

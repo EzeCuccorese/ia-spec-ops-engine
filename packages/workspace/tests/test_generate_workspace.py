@@ -139,6 +139,22 @@ def test_setup_repo_worktree_new_mode_failure_raises(tmp_path: Path) -> None:
         gw.setup_repo_worktree(tmp_path, target, cfg)
 
 
+def test_setup_repo_worktree_timeout_raises_controlled_runtime_error(tmp_path: Path) -> None:
+    import subprocess
+
+    target = tmp_path / "target"
+    cfg = RepoConfig(name="repo-a", mode="new", branch="feature", parent="main")
+
+    with (
+        patch(
+            "workspace_engine.cli.generate_workspace.run_git",
+            side_effect=subprocess.TimeoutExpired(cmd=["git", "fetch"], timeout=120),
+        ),
+        pytest.raises(RuntimeError, match="Failed to create worktree for repo-a"),
+    ):
+        gw.setup_repo_worktree(tmp_path, target, cfg)
+
+
 def test_setup_repo_worktree_existing_local_branch(tmp_path: Path) -> None:
     target = tmp_path / "target"
     cfg = RepoConfig(name="repo-a", mode="existing", branch="feature", parent=None)

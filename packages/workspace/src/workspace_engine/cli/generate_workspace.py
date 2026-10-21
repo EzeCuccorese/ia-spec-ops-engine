@@ -9,6 +9,7 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -26,13 +27,7 @@ from workspace_engine.services.render_agents import render_agents_md
 from workspace_engine.services.select_repos import select_repos
 
 
-def setup_repo_worktree(repo_path: Path, target_path: Path, config: RepoConfig) -> None:
-    """Deterministically creates a git worktree."""
-    wt_list = run_git(repo_path, "worktree", "list", "--porcelain")
-    for line in wt_list.stdout.splitlines():
-        if line == f"worktree {target_path}":
-            return
-
+def _create_worktree_for_mode(repo_path: Path, target_path: Path, config: RepoConfig) -> None:
     if config.mode == "new":
         parent = config.parent or "main"
         run_git(repo_path, "fetch", "origin", parent)
@@ -59,6 +54,17 @@ def setup_repo_worktree(repo_path: Path, target_path: Path, config: RepoConfig) 
             result = run_git(repo_path, "worktree", "add", str(target_path), config.branch)
         if result.returncode != 0:
             raise RuntimeError(f"Failed to create worktree for {config.name}: {result.stderr}")
+
+
+def setup_repo_worktree(repo_path: Path, target_path: Path, config: RepoConfig) -> None:
+    """Deterministically creates a git worktree."""
+    try:
+        wt_list = run_git(repo_path, "worktree", "list", "--porcelain")
+        if f"worktree {target_path}" in wt_list.stdout.splitlines():
+            return
+        _create_worktree_for_mode(repo_path, target_path, config)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"Failed to create worktree for {config.name}: {exc}") from exc
 
 
 # (source repo, worktree path, config, whether this run created the branch)
