@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import sys
 
 COMMANDS: dict[str, str] = {
@@ -32,13 +33,25 @@ INSTALL_COMMANDS = (
     "budget",
     "probe",
 )
+_SUBCOMMAND_MODULES: dict[str, str] = {
+    "rules": "ai_governance.rules.cli",
+    "progress": "ai_governance.session.cli",
+    "telemetry": "ai_governance.telemetry.cli",
+    "jira": "ai_governance.tools.jira",
+    "confluence": "ai_governance.tools.confluence",
+    "completion": "ai_governance.completion",
+    "hook": "ai_governance.hooks",
+}
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    from . import __version__
+
     parser = argparse.ArgumentParser(
         prog="ai-governance",
         description="Per-agent engineering standards, token frugality, telemetry and progress.",
     )
+    parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="subcommand")
     for name, help_text in COMMANDS.items():
         sub.add_parser(name, help=help_text, add_help=False)
@@ -62,35 +75,9 @@ def main(argv: list[str] | None = None) -> int:
         from .install.cli import main as install_main
 
         return install_main(cmd, rest)
-    if cmd == "rules":
-        from .rules.cli import main as rules_main
-
-        return rules_main(rest)
-    if cmd == "progress":
-        from .session.cli import main as session_main
-
-        return session_main(rest)
-    if cmd == "telemetry":
-        from .telemetry.cli import main as telemetry_main
-
-        return telemetry_main(rest)
-    if cmd == "jira":
-        from .tools.jira import main as jira_main
-
-        jira_main(rest)
-        return 0
-    if cmd == "confluence":
-        from .tools.confluence import main as confluence_main
-
-        confluence_main(rest)
-        return 0
-    if cmd == "completion":
-        from .completion import main as completion_main
-
-        return completion_main(rest)
-    from .hooks import main as hook_main
-
-    return hook_main(rest)
+    target = importlib.import_module(_SUBCOMMAND_MODULES[cmd])
+    result = target.main(rest)
+    return result if isinstance(result, int) else 0
 
 
 if __name__ == "__main__":

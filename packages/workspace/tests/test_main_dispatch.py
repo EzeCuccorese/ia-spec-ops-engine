@@ -161,3 +161,34 @@ def test_main_no_command_prints_help_and_exits_0():
     ):
         main()
     assert exc.value.code == 0
+
+
+def test_main_version_flag(capsys):
+    from workspace_engine import __version__
+
+    with (
+        patch("sys.argv", ["ws", "--version"]),
+        pytest.raises(SystemExit) as exc,
+    ):
+        main()
+    assert exc.value.code == 0
+    assert __version__ in capsys.readouterr().out
+
+
+def test_main_dispatches_detect(tmp_path, capsys):
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
+    with (
+        patch("sys.argv", ["ws", "detect", "--dir", str(tmp_path)]),
+        pytest.raises(SystemExit) as exc,
+    ):
+        main()
+    assert exc.value.code == 0
+    assert "python" in capsys.readouterr().out
+
+    with (
+        patch("sys.argv", ["ws", "detect", "--dir", str(tmp_path), "--json"]),
+        pytest.raises(SystemExit) as exc,
+    ):
+        main()
+    assert exc.value.code == 0
+    assert '"python"' in capsys.readouterr().out

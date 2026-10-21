@@ -19,6 +19,24 @@ from workspace_engine.common import (
     log_warning,
 )
 
+_MANIFEST_COMMANDS: tuple[tuple[str, list[str]], ...] = (
+    ("yarn.lock", ["yarn", "install"]),
+    ("package-lock.json", ["npm", "install"]),
+    ("package.json", ["npm", "install"]),
+    ("gradlew", ["./gradlew", "dependencies", "--quiet"]),
+    ("pom.xml", ["mvn", "dependency:resolve", "-q"]),
+    ("go.mod", ["go", "mod", "download"]),
+    ("requirements.txt", ["pip", "install", "-r", "requirements.txt"]),
+    ("pyproject.toml", ["pip", "install", "-e", "."]),
+)
+
+
+def _detect_install_command(repo_path: Path) -> list[str] | None:
+    for filename, cmd in _MANIFEST_COMMANDS:
+        if (repo_path / filename).is_file():
+            return cmd
+    return None
+
 
 def install_repo_deps(repo_path: Path) -> bool:
     """Installs dependencies for a specific repository based on its technology."""
@@ -26,32 +44,21 @@ def install_repo_deps(repo_path: Path) -> bool:
     ptype = detect_project_type(repo_path)
 
     log_info(f"[{name}] Installing dependencies ({ptype})...")
-
-    if (repo_path / "yarn.lock").is_file():
-        cmd = ["yarn", "install"]
-    elif (repo_path / "package-lock.json").is_file() or (repo_path / "package.json").is_file():
-        cmd = ["npm", "install"]
-    elif (repo_path / "gradlew").is_file():
-        cmd = ["./gradlew", "dependencies", "--quiet"]
-    elif (repo_path / "pom.xml").is_file():
-        cmd = ["mvn", "dependency:resolve", "-q"]
-    elif (repo_path / "go.mod").is_file():
-        cmd = ["go", "mod", "download"]
-    elif (repo_path / "requirements.txt").is_file():
-        cmd = ["pip", "install", "-r", "requirements.txt"]
-    elif (repo_path / "pyproject.toml").is_file():
-        cmd = ["pip", "install", "-e", "."]
-    else:
+    cmd = _detect_install_command(repo_path)
+    if not cmd:
         log_warning(f"[{name}] No recognized dependency manifest detected.")
         return True
 
-    res = subprocess.run(cmd, cwd=str(repo_path), capture_output=True, text=True)
+    try:
+        res = subprocess.run(cmd, cwd=str(repo_path), capture_output=True, text=True, timeout=600)
+    except subprocess.TimeoutExpired:
+        log_error(f"[{name}] Timed out installing dependencies.")
+        return False
     if res.returncode == 0:
         log_success(f"[{name}] Dependencies installed successfully.")
         return True
-    else:
-        log_error(f"[{name}] Error installing dependencies:\n{res.stderr.strip()[:300]}")
-        return False
+    log_error(f"[{name}] Error installing dependencies:\n{res.stderr.strip()[:300]}")
+    return False
 
 
 def install_all_deps(repos_filter: list[str] | None = None, start_dir: Path | None = None) -> int:

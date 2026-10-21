@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -46,6 +47,18 @@ def _read(path: Path) -> str | None:
 
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and not path.is_symlink():
+        fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+        tmp = Path(tmp_name)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(text)
+                handle.flush()
+                os.fsync(handle.fileno())
+            tmp.replace(path)
+        finally:
+            tmp.unlink(missing_ok=True)
+        return
     path.write_text(text, encoding="utf-8")
 
 

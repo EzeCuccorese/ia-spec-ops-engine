@@ -436,7 +436,9 @@ def save_state(results: list, launch_configs: list) -> None:
         )
     try:
         constants.DATA_DIR.mkdir(parents=True, exist_ok=True)
-        constants.STATE_FILE.write_text(json.dumps(entries, indent=2), encoding="utf-8")
+        tmp_state = constants.STATE_FILE.with_suffix(".json.tmp")
+        tmp_state.write_text(json.dumps(entries, indent=2), encoding="utf-8")
+        tmp_state.replace(constants.STATE_FILE)
     except OSError:
         pass
 

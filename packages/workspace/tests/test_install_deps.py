@@ -53,6 +53,18 @@ def test_install_repo_deps_failure_logs_and_returns_false(tmp_path: Path) -> Non
         assert install_deps.install_repo_deps(tmp_path) is False
 
 
+def test_install_repo_deps_timeout_returns_false(tmp_path: Path) -> None:
+    import subprocess
+
+    (tmp_path / "go.mod").write_text("", encoding="utf-8")
+    with patch.object(
+        install_deps.subprocess,
+        "run",
+        side_effect=subprocess.TimeoutExpired(cmd=["go"], timeout=600),
+    ):
+        assert install_deps.install_repo_deps(tmp_path) is False
+
+
 def test_install_all_deps_missing_repositories_dir_and_not_git(tmp_path: Path) -> None:
     assert install_deps.install_all_deps(start_dir=tmp_path) == 1
 
