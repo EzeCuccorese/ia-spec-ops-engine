@@ -136,7 +136,7 @@ def sanitize_secrets(msg: str) -> str:
     return msg
 
 
-def read_input_text(source: str) -> str:
+def read_input_text(source: str, *, allow_bare_path: bool = True) -> str:
     """Reads text from literal string, stdin ('-'), or file path ('@path' or path if exists)."""
     if source == "-":
         return sys.stdin.read()
@@ -144,9 +144,10 @@ def read_input_text(source: str) -> str:
         path = Path(source[1:])
         if path.is_file():
             return path.read_text(encoding="utf-8")
-    p = Path(source)
-    if p.is_file():
-        return p.read_text(encoding="utf-8")
+    if allow_bare_path:
+        p = Path(source)
+        if p.is_file():
+            return p.read_text(encoding="utf-8")
     return source
 
 

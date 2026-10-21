@@ -155,10 +155,11 @@ def test_notify_macos_success(monkeypatch: pytest.MonkeyPatch) -> None:
         return subprocess.CompletedProcess(cmd, returncode=0)
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    assert notify_macos('Title "Q"', "Message\\path") is True
+    assert notify_macos('Title "Q"\nLine2', "Message\\path\r\nNext") is True
     cmd = captured["cmd"]
     assert cmd[0] == "osascript"
     assert '\\"Q\\"' in cmd[2]
+    assert "\n" not in cmd[2]
 
 
 def test_notify_macos_nonzero_exit(monkeypatch: pytest.MonkeyPatch) -> None:

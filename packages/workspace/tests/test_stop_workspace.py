@@ -282,3 +282,45 @@ def test_main_forwards_timeout_and_exit_code() -> None:
         sw.main()
     assert exc.value.code == 0
     mock_stop.assert_called_once_with(timeout=2.5)
+
+
+def test_stop_workspace_also_stops_run_local_services(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from workspace_engine.run_local import constants
+
+    rl_pids = tmp_path / "rl-pids"
+    rl_pids.mkdir()
+    svc_dir = tmp_path / "ws" / "repositories" / "svc"
+    svc_dir.mkdir(parents=True)
+    pid_file = rl_pids / "svc.pid"
+    pid_file.write_text(
+        json.dumps({"pid": 9999, "cmd": "node index.js", "path": str(svc_dir)}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(constants, "PIDS_DIR", rl_pids)
+
+    with patch(
+        "workspace_engine.run_local.process_manager.graceful_kill_pid", return_value=True
+    ) as mock_kill:
+        assert sw.stop_workspace(start_dir=tmp_path / "ws") == 0
+    mock_kill.assert_called_once()
+    assert not pid_file.exists()
+
+    # Empty rl_pids dir + empty .ai-toolkit/run-pids dir
+    (tmp_path / "ws" / ".ai-toolkit" / "run-pids").mkdir(parents=True)
+    pid_file.write_text(
+        json.dumps({"pid": 9999, "cmd": "node index.js", "path": str(svc_dir)}),
+        encoding="utf-8",
+    )
+    bad_pid = rl_pids / "bad.pid"
+    bad_pid.write_text("0", encoding="utf-8")
+    outside_pid = rl_pids / "outside.pid"
+    outside_pid.write_text(
+        json.dumps({"pid": 8888, "cmd": "node x.js", "path": "/tmp/elsewhere"}),
+        encoding="utf-8",
+    )
+    with patch("workspace_engine.run_local.process_manager.graceful_kill_pid", return_value=True):
+        assert sw.stop_workspace(start_dir=tmp_path / "ws") == 0
+    assert not bad_pid.exists()
+    assert outside_pid.exists()

@@ -886,6 +886,7 @@ def test_read_input_text_plain_existing_path(tmp_path) -> None:
     f = tmp_path / "body2.txt"
     f.write_text("more content")
     assert atlassian_common.read_input_text(str(f)) == "more content"
+    assert atlassian_common.read_input_text(str(f), allow_bare_path=False) == str(f)
 
 
 def test_read_input_text_literal() -> None:

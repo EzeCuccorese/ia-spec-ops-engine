@@ -33,5 +33,5 @@ jobs:
           range="$last_release..HEAD"
           git log --format='%s%n%b%x00' "$range" > commits.txt
           echo "Range: $range"
-          python3 scripts/release.py --log commits.txt | tee version.txt
+          python3 scripts/release.py next --log commits.txt | tee version.txt
           echo "Next version: $(cat version.txt)" >> "$GITHUB_STEP_SUMMARY"
