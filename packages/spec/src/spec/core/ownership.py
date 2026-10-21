@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -88,18 +91,31 @@ class OwnershipManifest:
     def get(self, candidate: str | Path) -> OwnershipRecord | None:
         return self._records.get(self.boundary.relative(candidate))
 
+    @contextmanager
+    def _locked(self) -> Iterator[None]:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = self.path.with_suffix(".lock")
+        with lock_path.open("a+", encoding="utf-8") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
     def record(self, candidate: str | Path, sha256: str) -> OwnershipRecord:
         relative = self.boundary.relative(candidate)
         now = datetime.now(UTC).isoformat()
-        existing = self._records.get(relative)
-        record = OwnershipRecord(
-            path=relative,
-            sha256=sha256,
-            created_at=existing.created_at if existing else now,
-            updated_at=now,
-        )
-        self._records[relative] = record
-        self._save()
+        with self._locked():
+            self._records = self._load()
+            existing = self._records.get(relative)
+            record = OwnershipRecord(
+                path=relative,
+                sha256=sha256,
+                created_at=existing.created_at if existing else now,
+                updated_at=now,
+            )
+            self._records[relative] = record
+            self._save()
         return record
 
     def assert_unchanged(self, candidate: str | Path) -> OwnershipRecord:
@@ -116,11 +132,13 @@ class OwnershipManifest:
         return record
 
     def delete_owned(self, candidate: str | Path, *, dry_run: bool = False) -> DeleteResult:
-        record = self.assert_unchanged(candidate)
-        if dry_run:
-            return DeleteResult(path=record.path, deleted=False, would_delete=True)
-        target = self.boundary.resolve(record.path)
-        target.unlink()
-        del self._records[record.path]
-        self._save()
-        return DeleteResult(path=record.path, deleted=True, would_delete=False)
+        with self._locked():
+            self._records = self._load()
+            record = self.assert_unchanged(candidate)
+            if dry_run:
+                return DeleteResult(path=record.path, deleted=False, would_delete=True)
+            target = self.boundary.resolve(record.path)
+            target.unlink()
+            del self._records[record.path]
+            self._save()
+            return DeleteResult(path=record.path, deleted=True, would_delete=False)

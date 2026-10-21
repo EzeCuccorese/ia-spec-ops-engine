@@ -12,6 +12,15 @@ def test_cli_dispatch_help() -> None:
     assert main([]) == 0
 
 
+def test_cli_version_flag(capsys: pytest.CaptureFixture[str]) -> None:
+    from ai_governance import __version__
+
+    with pytest.raises(SystemExit) as exc:
+        main(["--version"])
+    assert exc.value.code == 0
+    assert __version__ in capsys.readouterr().out
+
+
 def test_cli_unmatched_subcommand_falls_through_to_bare_parse(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -41,15 +50,19 @@ def test_cli_dispatch_progress() -> None:
 
 
 def test_cli_dispatch_jira() -> None:
-    with patch("ai_governance.tools.jira.main") as mock_jira:
+    with patch("ai_governance.tools.jira.main", return_value=0) as mock_jira:
         assert main(["jira", "help"]) == 0
         mock_jira.assert_called_once_with(["help"])
+    with patch("ai_governance.tools.jira.main", return_value=1):
+        assert main(["jira", "issue", "PROJ-1"]) == 1
 
 
 def test_cli_dispatch_confluence() -> None:
-    with patch("ai_governance.tools.confluence.main") as mock_confluence:
+    with patch("ai_governance.tools.confluence.main", return_value=0) as mock_confluence:
         assert main(["confluence", "help"]) == 0
         mock_confluence.assert_called_once_with(["help"])
+    with patch("ai_governance.tools.confluence.main", return_value=1):
+        assert main(["confluence", "read", "1"]) == 1
 
 
 def test_cli_does_not_import_optional_packages() -> None:

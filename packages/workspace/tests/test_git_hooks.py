@@ -72,7 +72,7 @@ def _run_generated_hook(
         capture_output=True,
         text=True,
     ).stdout.strip()
-    env = os.environ.copy()
+    env = {k: v for k, v in os.environ.items() if not k.startswith("QG_")}
     env.update(
         {
             "GIT_CONFIG_GLOBAL": "/dev/null",
@@ -1023,3 +1023,18 @@ def test_skip_command_sets_shows_and_clears(tmp_path: Path, capsys) -> None:
         ["git", "config", "--get", "workspace.skip"], cwd=project_dir, capture_output=True
     )
     assert got.returncode != 0
+
+
+def test_run_quality_gate_enforces_subprocess_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _init_test_git_repo(tmp_path)
+    _commit_fixture(tmp_path)
+
+    def fake_run(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired(cmd=["pre-push"], timeout=1, output="partial", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    captured: list[str] = []
+    assert run_quality_gate(tmp_path, timeout=1, capture=captured) == 124
+    assert "timed out after 1s" in captured[0]

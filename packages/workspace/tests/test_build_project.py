@@ -27,17 +27,23 @@ def test_build_project_maven(tmp_path: Path) -> None:
     assert build_call.args[0] == "mvn clean install"
 
 
-def test_build_project_gradlew(tmp_path: Path) -> None:
+def test_build_project_gradlew(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     (tmp_path / "gradlew").write_text("#!/bin/sh", encoding="utf-8")
     with (
         patch.object(build_project.set_java, "setups_java", return_value=None),
-        patch.object(build_project, "run_command", return_value="") as mock_run,
+        patch.object(
+            build_project,
+            "run_command",
+            side_effect=["", "name: demo\nversion: 2.4.0\ngroup: com.example\n"],
+        ) as mock_run,
     ):
         assert build_project.build_project(tmp_path) == 0
     # No java env available -> falls back to a copy of the current environment.
     build_call = mock_run.call_args_list[0]
     assert build_call.args[0] == "./gradlew clean build -x test"
     assert build_call.kwargs["env"] is not None
+    assert mock_run.call_args_list[1].args[0] == "./gradlew -q properties"
+    assert "2.4.0" in capsys.readouterr().out
 
 
 def test_build_project_gradle_groovy(tmp_path: Path) -> None:

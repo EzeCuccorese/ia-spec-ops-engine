@@ -26,7 +26,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import html
 import json
 import re
 import sys
@@ -54,6 +53,21 @@ from ai_governance.tools.atlassian_common import (
 from ai_governance.tools.atlassian_common import (
     sanitize_secrets as sanitize_secrets,
 )
+from ai_governance.tools.atlassian_format import (
+    _CODE_BODY as _CODE_BODY,
+)
+from ai_governance.tools.atlassian_format import (
+    _CODE_LANG as _CODE_LANG,
+)
+from ai_governance.tools.atlassian_format import (
+    _CODE_MACRO as _CODE_MACRO,
+)
+from ai_governance.tools.atlassian_format import (
+    _flatten_item as _flatten_item,
+)
+from ai_governance.tools.atlassian_format import (
+    html_to_md as html_to_md,
+)
 from ai_governance.tools.md_adf import md_to_adf
 
 _auth_header = auth_header
@@ -78,131 +92,6 @@ def post(path: str, payload: dict[str, Any]) -> Any:
 
 def put(path: str, payload: dict[str, Any]) -> Any:
     return _request("PUT", f"{_get_api_url()}{path}", payload)
-
-
-_CODE_MACRO = re.compile(
-    r'<ac:structured-macro[^>]*ac:name=["\']code["\'][^>]*>.*?</ac:structured-macro>',
-    flags=re.DOTALL | re.IGNORECASE,
-)
-_CODE_LANG = re.compile(
-    r'<ac:parameter ac:name=["\']language["\']>([^<]*)</ac:parameter>', re.IGNORECASE
-)
-_CODE_BODY = re.compile(
-    r"<ac:plain-text-body><!\[CDATA\[(.*?)\]\]></ac:plain-text-body>", flags=re.DOTALL
-)
-
-
-def _flatten_item(fragment: str) -> str:
-    """Drops the <p> wrappers Confluence puts inside list items and quotes (one line out)."""
-    fragment = re.sub(r"</?p[^>]*>", " ", fragment, flags=re.IGNORECASE)
-    return re.sub(r"\s+", " ", fragment).strip()
-
-
-def html_to_md(html_str: str) -> str:
-    """Converts Confluence storage format (XHTML) to clean Markdown."""
-    if not html_str:
-        return ""
-    text = html_str
-
-    # Code macros hold raw text in CDATA: park them so the tag/entity passes below leave them alone.
-    code_blocks: list[str] = []
-
-    def park_code_macro(match: re.Match[str]) -> str:
-        lang = _CODE_LANG.search(match.group(0))
-        body = _CODE_BODY.search(match.group(0))
-        fence = f"```{lang.group(1) if lang else ''}\n{body.group(1) if body else ''}\n```"
-        code_blocks.append(fence)
-        return f"\n\x00CODE{len(code_blocks) - 1}\x00\n"
-
-    text = _CODE_MACRO.sub(park_code_macro, text)
-
-    for level in range(6, 0, -1):
-        text = re.sub(
-            rf"<h{level}[^>]*>(.*?)</h{level}>",
-            rf"\n{'#' * level} \1\n",
-            text,
-            flags=re.DOTALL | re.IGNORECASE,
-        )
-
-    text = re.sub(
-        r"<pre[^>]*><code[^>]*>(.*?)</code></pre>",
-        r"\n```\n\1\n```\n",
-        text,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
-    text = re.sub(
-        r"<pre[^>]*>(.*?)</pre>", r"\n```\n\1\n```\n", text, flags=re.DOTALL | re.IGNORECASE
-    )
-    text = re.sub(r"<code[^>]*>(.*?)</code>", r"`\1`", text, flags=re.DOTALL | re.IGNORECASE)
-
-    text = re.sub(r"<strong[^>]*>(.*?)</strong>", r"**\1**", text, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r"<b[^>]*>(.*?)</b>", r"**\1**", text, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r"<em[^>]*>(.*?)</em>", r"*\1*", text, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r"<i[^>]*>(.*?)</i>", r"*\1*", text, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r"<s[^>]*>(.*?)</s>", r"~~\1~~", text, flags=re.DOTALL | re.IGNORECASE)
-
-    text = re.sub(
-        r'<a[^>]*href=["\']([^"\']*)["\'][^>]*>(.*?)</a>',
-        r"[\2](\1)",
-        text,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
-
-    def convert_ordered_list(match: re.Match[str]) -> str:
-        items = re.findall(r"<li[^>]*>(.*?)</li>", match.group(0), flags=re.DOTALL | re.IGNORECASE)
-        return "\n" + "\n".join(f"{n}. {_flatten_item(i)}" for n, i in enumerate(items, 1)) + "\n"
-
-    text = re.sub(r"<ol[^>]*>.*?</ol>", convert_ordered_list, text, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(
-        r"<li[^>]*>(.*?)</li>",
-        lambda m: f"- {_flatten_item(m.group(1))}\n",
-        text,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
-    text = re.sub(r"</?[uo]l[^>]*>", "\n", text, flags=re.IGNORECASE)
-
-    def convert_table(match: re.Match[str]) -> str:
-        table_html = match.group(0)
-        rows = re.findall(r"<tr[^>]*>(.*?)</tr>", table_html, flags=re.DOTALL | re.IGNORECASE)
-        if not rows:
-            return ""
-        md_rows = []
-        for row in rows:
-            cells = re.findall(r"<t[hd][^>]*>(.*?)</t[hd]>", row, flags=re.DOTALL | re.IGNORECASE)
-            clean_cells = [re.sub(r"<[^>]+>", "", c).strip() for c in cells]
-            md_rows.append("| " + " | ".join(clean_cells) + " |")
-        if len(md_rows) > 1:
-            first_cells = re.findall(
-                r"<t[hd][^>]*>(.*?)</t[hd]>", rows[0], flags=re.DOTALL | re.IGNORECASE
-            )
-            sep = "| " + " | ".join(["---"] * len(first_cells)) + " |"
-            md_rows.insert(1, sep)
-        return "\n" + "\n".join(md_rows) + "\n"
-
-    text = re.sub(r"<table[^>]*>.*?</table>", convert_table, text, flags=re.DOTALL | re.IGNORECASE)
-
-    text = re.sub(
-        r"<blockquote[^>]*>(.*?)</blockquote>",
-        lambda m: f"\n> {_flatten_item(m.group(1))}\n",
-        text,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
-    text = re.sub(r"<p[^>]*>(.*?)</p>", r"\n\1\n", text, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
-    text = re.sub(r"<hr\s*/?>", "\n---\n", text, flags=re.IGNORECASE)
-
-    text = re.sub(
-        r"<ac:rich-text-body>(.*?)</ac:rich-text-body>",
-        r"\1",
-        text,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
-    text = re.sub(r"<ac:[^>]*>.*?</ac:[^>]*>", "", text, flags=re.DOTALL)
-    text = re.sub(r"<[^>]+>", "", text)
-    text = html.unescape(text)
-    text = re.sub(r"\x00CODE(\d+)\x00", lambda m: code_blocks[int(m.group(1))], text)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
 
 
 # Lines that start like this are raw Confluence storage XML/HTML and go through untouched.
@@ -352,7 +241,7 @@ def cmd_spaces(as_json: bool = False) -> None:
 
 def cmd_create(space_key: str, title: str, body_md: str, parent_id: str | None = None) -> None:
     """Creates a new page in Confluence."""
-    content_text = read_input_text(body_md)
+    content_text = read_input_text(body_md, allow_bare_path=False)
     payload: dict[str, Any] = {
         "type": "page",
         "title": title,
@@ -382,7 +271,7 @@ def cmd_update(page_id: str, body_md: str, expected_version: int | None = None) 
         )
         sys.exit(1)
 
-    content_text = read_input_text(body_md)
+    content_text = read_input_text(body_md, allow_bare_path=False)
     payload = {
         "type": "page",
         "title": title,
@@ -409,7 +298,7 @@ def cmd_append(page_id: str, text: str, expected_version: int | None = None) -> 
         sys.exit(1)
 
     old_body = current.get("body", {}).get("storage", {}).get("value", "")
-    append_text = read_input_text(text)
+    append_text = read_input_text(text, allow_bare_path=False)
     new_content = _shift_task_ids(md_to_storage(append_text), old_body)
     combined = old_body + new_content
 
@@ -426,7 +315,7 @@ def cmd_append(page_id: str, text: str, expected_version: int | None = None) -> 
 
 def cmd_comment(page_id: str, text: str) -> None:
     """Adds comment to a page."""
-    comment_text = read_input_text(text)
+    comment_text = read_input_text(text, allow_bare_path=False)
     payload = {
         "type": "comment",
         "container": {"id": str(page_id), "type": "page"},
@@ -540,10 +429,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _body(args: argparse.Namespace, parser: argparse.ArgumentParser) -> str:
-    body = args.file or args.body
-    if not body:
+    if args.file:
+        return f"@{args.file}" if not str(args.file).startswith("@") else str(args.file)
+    if not args.body:
         parser.error(f"{args.command} needs a body or --file")
-    return str(body)
+    return str(args.body)
 
 
 HANDLERS: dict[str, Any] = {
@@ -559,16 +449,17 @@ HANDLERS: dict[str, Any] = {
 }
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(sys.argv[1:] if argv is None else list(argv))
     if args.show_help or args.command in (None, "help"):
         cmd_help()
-        return
+        return 0
     if args.profile:
         set_profile(args.profile)
     HANDLERS[args.command](args, parser)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
