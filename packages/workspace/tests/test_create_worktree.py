@@ -173,3 +173,17 @@ def test_main_uses_sys_argv_when_no_argv_given(
 
     assert exc.value.code == 0
     assert (tmp_path / "workspace-argv-branch").is_dir()
+
+
+def test_main_two_args_repo_and_branch(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path / "repo")
+    with pytest.raises(SystemExit) as exc:
+        create_worktree.main([str(repo), "two-arg-branch"])
+    assert exc.value.code == 0
+    assert (tmp_path / "workspace-two-arg-branch").is_dir()
+
+
+def test_main_too_many_args_exits_2() -> None:
+    with pytest.raises(SystemExit) as exc:
+        create_worktree.main(["a", "b", "c", "d"])
+    assert exc.value.code == 2

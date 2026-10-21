@@ -138,52 +138,62 @@ DELEGATED_COMMANDS = {
         "Orchestrate and launch local microservices with live TUI",
     ),
     "hooks": (
-        "workspace_engine.cli.manage_hooks",
+        "workspace_engine.cli.manage_hooks:main",
         "Multi-stack Git Hooks & Quality Gates manager",
+    ),
+    "run": (
+        "workspace_engine.condense.cli:run",
+        "Run a command and print a condensed summary (ws run -- <cmd>)",
+    ),
+    "condense": (
+        "workspace_engine.condense.cli:condense_stdin",
+        "Condense command output read from stdin",
+    ),
+    "log": (
+        "workspace_engine.condense.cli:show_log",
+        "Read a saved full output (ws log <id> --grep RE)",
+    ),
+    "check": (
+        "workspace_engine.cli.check:check",
+        "Run the quality gate with condensed output (--changed, --cache, --json)",
+    ),
+    "changed": (
+        "workspace_engine.cli.check:changed",
+        "Files changed vs. the base branch (--json)",
+    ),
+    "design": (
+        "workspace_engine.cli.design:design",
+        "Design/complexity metrics per function (--changed, --files-from, --json)",
     ),
 }
 
 
-def main() -> None:
-    if len(sys.argv) > 1 and sys.argv[1] in DELEGATED_COMMANDS:
-        module_name, _ = DELEGATED_COMMANDS[sys.argv[1]]
-        result = importlib.import_module(module_name).main(sys.argv[2:])
-        if isinstance(result, int):  # e.g. `ws hooks` returns its exit code
-            sys.exit(result)
-        return
+def _invoke_delegated(target: str, argv: list[str]) -> int | None:
+    module_name, _, attr = target.partition(":")
+    fn = getattr(importlib.import_module(module_name), attr or "main")
+    result = fn(argv)
+    return result if isinstance(result, int) else None
 
-    if len(sys.argv) > 1 and sys.argv[1] in CONDENSE_COMMANDS:
-        from workspace_engine.cli import check as check_cli
-        from workspace_engine.cli import design as design_cli
-        from workspace_engine.condense import cli as condense_cli
 
-        handler = {
-            "run": condense_cli.run,
-            "condense": condense_cli.condense_stdin,
-            "log": condense_cli.show_log,
-            "check": check_cli.check,
-            "changed": check_cli.changed,
-            "design": design_cli.design,
-        }[sys.argv[1]]
-        sys.exit(handler(sys.argv[2:]))
+def _build_parser() -> argparse.ArgumentParser:
+    from workspace_engine import __version__
 
     parser = argparse.ArgumentParser(
         prog="ws",
         description="ia-spec-ops-engine — deterministic workspace, Git worktree & local microservices manager.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command", help="Available Workspace Engine commands")
 
     for name, (_, help_text) in DELEGATED_COMMANDS.items():
-        subparsers.add_parser(name, help=help_text)
+        subparsers.add_parser(name, help=help_text, add_help=False)
 
-    # ws worktree
     p_wt = subparsers.add_parser("worktree", help="Create an isolated Git worktree")
     p_wt.add_argument("repo", help="Base repository path or name")
     p_wt.add_argument("target", help="Target path for new worktree")
     p_wt.add_argument("branch", help="Branch name to associate")
 
-    # ws kube
     p_kube = subparsers.add_parser(
         "kube", help="Kubernetes pod manager for environment extraction and shells"
     )
@@ -191,19 +201,6 @@ def main() -> None:
         "action", nargs="?", choices=["env", "logs", "shell"], help="Action to execute"
     )
 
-    # ws hook (host integration hooks)
-    subparsers.add_parser(
-        "run", help="Run a command and print a condensed summary (ws run -- <cmd>)"
-    )
-    subparsers.add_parser("condense", help="Condense command output read from stdin")
-    subparsers.add_parser("log", help="Read a saved full output (ws log <id> --grep RE)")
-    subparsers.add_parser(
-        "check", help="Run the quality gate with condensed output (--changed, --cache, --json)"
-    )
-    subparsers.add_parser("changed", help="Files changed vs. the base branch (--json)")
-    subparsers.add_parser(
-        "design", help="Design/complexity metrics per function (--changed, --files-from, --json)"
-    )
     p_detect = subparsers.add_parser(
         "detect", help="Detect the repository technology stacks (deterministic)"
     )
@@ -214,52 +211,81 @@ def main() -> None:
     p_host_hook.add_argument("hook_name", choices=["claude-worktree-create"])
     p_host_hook.add_argument("hook_args", nargs=argparse.REMAINDER)
 
-    # ws doctor
     subparsers.add_parser(
         "doctor", help="Verify system tools, compilers, and development environment"
     )
 
-    # ws config
     p_config = subparsers.add_parser("config", help="Initialize and manage workspace configuration")
     from workspace_engine.config.init_config import add_config_arguments
 
     add_config_arguments(p_config)
+    return parser
 
+
+def _run_detect(args: argparse.Namespace) -> None:
+    from workspace_engine.services.detect import detect_stacks
+
+    detection = detect_stacks(args.dir)
+    if args.json:
+        print(json.dumps(detection.to_dict(), separators=(",", ":")))
+    else:
+        print(" ".join(detection.stacks) or "(no known stack detected)")
+    sys.exit(0)
+
+
+def _run_config(args: argparse.Namespace) -> None:
+    from workspace_engine.config.init_config import run_config
+
+    sys.exit(run_config(args))
+
+
+def _run_hook(args: argparse.Namespace) -> None:
+    if args.hook_name == "claude-worktree-create":
+        from workspace_engine.integrations.claude.worktree_hook import main as hook_main
+
+        sys.exit(hook_main(args.hook_args))
+
+
+def _run_worktree(args: argparse.Namespace) -> None:
+    from workspace_engine.cli.create_worktree import main as wt_main
+
+    wt_main([args.repo, args.target, args.branch])
+
+
+def _run_kube(args: argparse.Namespace) -> None:
+    from workspace_engine.cli.kube.main import main as kube_main
+
+    sys.exit(kube_main(args.action))
+
+
+_BUILTIN_HANDLERS = {
+    "detect": _run_detect,
+    "config": _run_config,
+    "doctor": lambda _args: doctor_check(),
+    "hook": _run_hook,
+    "worktree": _run_worktree,
+    "kube": _run_kube,
+}
+
+
+def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] in DELEGATED_COMMANDS:
+        target, _ = DELEGATED_COMMANDS[sys.argv[1]]
+        code = _invoke_delegated(target, sys.argv[2:])
+        if code is not None:
+            sys.exit(code)
+        return
+
+    parser = _build_parser()
     args = parser.parse_args()
 
     if not args.command:
         parser.print_help()
         sys.exit(0)
 
-    # Delegate to corresponding modules
-    if args.command == "detect":
-        from workspace_engine.services.detect import detect_stacks
-
-        detection = detect_stacks(args.dir)
-        if args.json:
-            print(json.dumps(detection.to_dict(), separators=(",", ":")))
-        else:
-            print(" ".join(detection.stacks) or "(no known stack detected)")
-        sys.exit(0)
-    elif args.command == "config":
-        from workspace_engine.config.init_config import run_config
-
-        sys.exit(run_config(args))
-    elif args.command == "doctor":
-        doctor_check()
-    elif args.command == "hook":
-        if args.hook_name == "claude-worktree-create":
-            from workspace_engine.integrations.claude.worktree_hook import main as hook_main
-
-            sys.exit(hook_main(args.hook_args))
-    elif args.command == "worktree":
-        from workspace_engine.cli.create_worktree import main as wt_main
-
-        wt_main([args.repo, args.target, args.branch])
-    elif args.command == "kube":
-        from workspace_engine.cli.kube.main import main as kube_main
-
-        sys.exit(kube_main(args.action))
+    handler = _BUILTIN_HANDLERS.get(args.command)
+    if handler:
+        handler(args)
 
 
 if __name__ == "__main__":

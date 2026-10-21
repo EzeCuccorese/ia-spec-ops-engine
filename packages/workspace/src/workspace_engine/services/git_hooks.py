@@ -204,6 +204,21 @@ def get_hooks_status(
     }
 
 
+def _resolve_hook_to_run(root: Path) -> tuple[Path, Path | None]:
+    local_hook = local_hook_path(root)
+    if local_hook.is_file() and os.access(local_hook, os.X_OK):
+        return local_hook, None
+    global_hook = global_hook_path()
+    if global_hook.is_file() and os.access(global_hook, os.X_OK):
+        return global_hook, None
+    script = generate_canonical_pre_push_script()
+    temp_dir = Path(tempfile.mkdtemp(prefix="ws_qg_"))
+    temp_hook = temp_dir / "pre-push"
+    temp_hook.write_text(script, encoding="utf-8")
+    temp_hook.chmod(temp_hook.stat().st_mode | stat.S_IXUSR)
+    return temp_hook, temp_hook
+
+
 def run_quality_gate(
     target_dir: str | Path | None = None,
     scope: str = "all",
@@ -219,39 +234,18 @@ def run_quality_gate(
     combined output is appended to it instead of being streamed.
     """
     root = Path(target_dir).resolve() if target_dir else Path.cwd().resolve()
-    local_hook = local_hook_path(root)
-    global_hook = global_hook_path()
+    hook_to_run, temp_hook = _resolve_hook_to_run(root)
 
-    hook_to_run = None
-    if local_hook.is_file() and os.access(local_hook, os.X_OK):
-        hook_to_run = local_hook
-    elif global_hook.is_file() and os.access(global_hook, os.X_OK):
-        hook_to_run = global_hook
-
-    # If no hook is installed, temporarily write the canonical one
-    temp_hook = None
-    if not hook_to_run:
-        script = generate_canonical_pre_push_script()
-        temp_dir = Path(tempfile.mkdtemp(prefix="ws_qg_"))
-        temp_hook = temp_dir / "pre-push"
-        temp_hook.write_text(script, encoding="utf-8")
-        temp_hook.chmod(temp_hook.stat().st_mode | stat.S_IXUSR)
-        hook_to_run = temp_hook
-
-    # Get the current commit for stdin
     _, head_sha, _ = run_command_safe("git rev-parse HEAD", cwd=root)
     head_sha = head_sha.strip() or "0000000000000000000000000000000000000000"
     _, prev_sha, _ = run_command_safe("git rev-parse HEAD~1", cwd=root)
     prev_sha = prev_sha.strip() or "0000000000000000000000000000000000000000"
-
     ref_line = f"refs/heads/current {head_sha} refs/heads/current {prev_sha}\n"
 
     env = os.environ.copy()
-    env["QG_SCOPE"] = scope
+    env.update(QG_SCOPE=scope, QG_TIMEOUT=str(timeout), QG_OUTPUT=output)
     if skip:
         env["QG_SKIP"] = skip
-    env["QG_TIMEOUT"] = str(timeout)
-    env["QG_OUTPUT"] = output
     if commit_style:
         env["QG_COMMIT_STYLE"] = commit_style
 
@@ -264,10 +258,15 @@ def run_quality_gate(
             env=env,
             capture_output=capture is not None,
             errors="replace",
+            timeout=timeout,
         )
         if capture is not None:
             capture.append(proc.stdout + proc.stderr)
         return proc.returncode
+    except subprocess.TimeoutExpired:
+        if capture is not None:
+            capture.append(f"Quality gate timed out after {timeout}s.")
+        return 124
     finally:
         if temp_hook and temp_hook.exists():
             shutil.rmtree(temp_hook.parent, ignore_errors=True)

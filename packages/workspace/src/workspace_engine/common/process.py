@@ -4,6 +4,7 @@ workspace_engine.common.process — Process inspection helpers for Workspace Eng
 
 from __future__ import annotations
 
+import contextlib
 import subprocess
 from pathlib import Path
 
@@ -14,10 +15,8 @@ def get_process_cmdline(pid: int) -> str:
         return ""
     proc_cmdline = Path(f"/proc/{pid}/cmdline")
     if proc_cmdline.exists():
-        try:
+        with contextlib.suppress(OSError, UnicodeDecodeError):
             return proc_cmdline.read_text(encoding="utf-8").replace("\x00", " ").strip()
-        except OSError:
-            pass
 
     try:
         res = subprocess.run(

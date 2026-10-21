@@ -131,14 +131,26 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         description="Creates an isolated Git worktree at ../workspace-<branch>"
     )
-    parser.add_argument("repo", nargs="?", help="Base repository path or name")
-    parser.add_argument("target", nargs="?", help="Target path for new worktree")
-    parser.add_argument("branch", help="Branch name for the worktree")
-    args = parser.parse_args(sys.argv[1:] if argv is None else argv)
+    parser.add_argument(
+        "args",
+        nargs="+",
+        metavar="ARG",
+        help="Either <branch> or <repo> <target> <branch>",
+    )
+    parsed = parser.parse_args(sys.argv[1:] if argv is None else argv)
+    pos = parsed.args
+    if len(pos) == 1:
+        start_dir, target_dir, branch = None, None, pos[0]
+    elif len(pos) == 2:
+        start_dir, target_dir, branch = Path(pos[0]), None, pos[1]
+    elif len(pos) == 3:
+        start_dir = Path(pos[0]) if pos[0] else None
+        target_dir = Path(pos[1]) if pos[1] else None
+        branch = pos[2]
+    else:
+        parser.error("expected <branch> or <repo> <target> <branch>")
 
-    start_dir = Path(args.repo) if args.repo else None
-    target_dir = Path(args.target) if args.target else None
-    sys.exit(create_worktree(args.branch, start_dir=start_dir, target_dir=target_dir))
+    sys.exit(create_worktree(branch, start_dir=start_dir, target_dir=target_dir))
 
 
 if __name__ == "__main__":

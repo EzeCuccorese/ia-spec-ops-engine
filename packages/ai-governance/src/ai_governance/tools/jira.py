@@ -53,6 +53,7 @@ from ai_governance.tools.atlassian_common import (
 )
 
 # ── Configuration & Profiles (Shared with Atlassian Common) ─────────────────
+from ai_governance.tools.atlassian_format import adf_to_md as _adf_to_md
 from ai_governance.tools.md_adf import md_to_adf
 
 _auth_header = auth_header
@@ -93,72 +94,6 @@ def agile_get(path: str) -> Any:
 
 def agile_post(path: str, payload: dict[str, Any]) -> Any:
     return _request("POST", path, payload, base=_get_agile_url())
-
-
-def _adf_to_md(node: Any) -> str:
-    """Converts Atlassian Document Format (ADF) to clean Markdown."""
-    if not node or not isinstance(node, dict):
-        return ""
-    ntype = node.get("type", "")
-    content = node.get("content", [])
-
-    if ntype == "text":
-        text = node.get("text", "")
-        for m in node.get("marks", []):
-            mtype = m.get("type")
-            if mtype == "strong":
-                text = f"**{text}**"
-            elif mtype == "em":
-                text = f"*{text}*"
-            elif mtype == "code":
-                text = f"`{text}`"
-            elif mtype == "strike":
-                text = f"~~{text}~~"
-            elif mtype == "link":
-                text = f"[{text}]({m.get('attrs', {}).get('href', '')})"
-        return text
-
-    inner = "".join(_adf_to_md(c) for c in content)
-
-    if ntype == "paragraph":
-        return f"{inner}\n\n"
-    elif ntype == "heading":
-        level = node.get("attrs", {}).get("level", 2)
-        return f"{'#' * level} {inner}\n\n"
-    elif ntype == "bulletList":
-        return "".join(f"- {_adf_to_md(item).strip()}\n" for item in content) + "\n"
-    elif ntype == "orderedList":
-        return (
-            "".join(f"{i + 1}. {_adf_to_md(item).strip()}\n" for i, item in enumerate(content))
-            + "\n"
-        )
-    elif ntype == "listItem":
-        return inner.strip()
-    elif ntype == "taskList":
-        return "".join(f"- {_adf_to_md(item).strip()}\n" for item in content) + "\n"
-    elif ntype == "taskItem":
-        done = node.get("attrs", {}).get("state") == "DONE"
-        return f"[{'x' if done else ' '}] {inner.strip()}"
-    elif ntype == "codeBlock":
-        lang = node.get("attrs", {}).get("language", "")
-        return f"```{lang}\n{inner.rstrip()}\n```\n\n"
-    elif ntype == "blockquote":
-        return f"> {inner.strip()}\n\n"
-    elif ntype == "rule":
-        return "---\n\n"
-    elif ntype == "table":
-        rows = []
-        for row in content:
-            cells = [_adf_to_md(cell).strip().replace("\n", " ") for cell in row.get("content", [])]
-            rows.append("| " + " | ".join(cells) + " |")
-        if len(rows) > 1:
-            n_cols = len(content[0].get("content", []))
-            sep = "| " + " | ".join(["---"] * n_cols) + " |"
-            rows.insert(1, sep)
-        return "\n".join(rows) + "\n\n"
-    elif ntype in ("tableRow", "tableCell", "tableHeader"):
-        return inner
-    return inner
 
 
 def _fmt_date(iso: str | None) -> str:
@@ -284,7 +219,7 @@ def cmd_create(
     if parent:
         fields["parent"] = {"key": parent}
     if desc:
-        desc_text = read_input_text(desc)
+        desc_text = read_input_text(desc, allow_bare_path=False)
         fields["description"] = md_to_adf(desc_text)
     data = post("/issue", {"fields": fields})
     key = data.get("key", "")
@@ -294,7 +229,7 @@ def cmd_create(
 
 def cmd_comment(key: str, text: str) -> None:
     """Adds a comment to an issue."""
-    comment_text = read_input_text(text)
+    comment_text = read_input_text(text, allow_bare_path=False)
     data = post(f"/issue/{key}/comment", {"body": md_to_adf(comment_text)})
     print(f"✅ Comment added to {key}")
     print(f"   id: {data.get('id', '')}")
@@ -302,7 +237,7 @@ def cmd_comment(key: str, text: str) -> None:
 
 def cmd_comment_edit(key: str, comment_id: str, text: str) -> None:
     """Replaces the body of an existing comment."""
-    comment_text = read_input_text(text)
+    comment_text = read_input_text(text, allow_bare_path=False)
     put(f"/issue/{key}/comment/{comment_id}", {"body": md_to_adf(comment_text)})
     print(f"✅ Comment {comment_id} edited on {key}")
 
@@ -311,7 +246,7 @@ def cmd_edit(key: str, desc: str | None = None, title: str | None = None) -> Non
     """Replaces the description and/or the title of an existing issue."""
     fields: dict[str, Any] = {}
     if desc is not None:
-        fields["description"] = md_to_adf(read_input_text(desc))
+        fields["description"] = md_to_adf(read_input_text(desc, allow_bare_path=False))
     if title:
         fields["summary"] = title
     if not fields:
@@ -562,10 +497,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _text(args: argparse.Namespace, parser: argparse.ArgumentParser) -> str:
-    text = args.file or args.text
-    if not text:
+    if args.file:
+        return f"@{args.file}" if not str(args.file).startswith("@") else str(args.file)
+    if not args.text:
         parser.error(f"{args.command} needs a text or --file")
-    return str(text)
+    return str(args.text)
 
 
 HANDLERS: dict[str, Any] = {
@@ -577,14 +513,16 @@ HANDLERS: dict[str, Any] = {
     "create": lambda a, _p: cmd_create(
         a.project,
         a.title,
-        desc=a.desc if a.desc is not None else (a.file or ""),
+        desc=a.desc if a.desc is not None else (f"@{a.file}" if a.file else ""),
         issue_type=a.type,
         parent=a.parent,
     ),
     "comment": lambda a, p: cmd_comment(a.key, _text(a, p)),
     "comment-edit": lambda a, p: cmd_comment_edit(a.key, a.comment_id, _text(a, p)),
     "edit": lambda a, _p: cmd_edit(
-        a.key, desc=a.desc if a.desc is not None else a.file, title=a.title
+        a.key,
+        desc=a.desc if a.desc is not None else (f"@{a.file}" if a.file else None),
+        title=a.title,
     ),
     "transition": lambda a, _p: cmd_transition(a.key, a.status),
     "assign": lambda a, _p: cmd_assign(a.key, a.assignee),
@@ -592,16 +530,17 @@ HANDLERS: dict[str, Any] = {
 }
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(sys.argv[1:] if argv is None else list(argv))
     if args.show_help or args.command in (None, "help"):
         cmd_help()
-        return
+        return 0
     if args.profile:
         set_profile(args.profile)
     HANDLERS[args.command](args, parser)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
