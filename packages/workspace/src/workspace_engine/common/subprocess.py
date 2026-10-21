@@ -30,7 +30,7 @@ def _isolate_git_env(merged_env: dict[str, str]) -> None:
 
 
 def run_git(
-    repo_path: str | Path, *args: str, timeout: int | None = DEFAULT_COMMAND_TIMEOUT
+    repo_path: str | Path, *args: str, timeout: float | None = None
 ) -> subprocess.CompletedProcess[str]:
     """Runs git commands hermetically, isolating environment variables from subshells."""
     clean_env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
@@ -40,13 +40,23 @@ def run_git(
     clean_env.setdefault("GIT_AUTHOR_EMAIL", "workspace@example.com")
     clean_env.setdefault("GIT_COMMITTER_NAME", "Workspace User")
     clean_env.setdefault("GIT_COMMITTER_EMAIL", "workspace@example.com")
-    return subprocess.run(
-        ["git", "-C", str(repo_path)] + list(args),
-        capture_output=True,
-        text=True,
-        env=clean_env,
-        timeout=timeout,
-    )
+    cmd = ["git", "-C", str(repo_path)] + list(args)
+    try:
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            env=clean_env,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        out = exc.stdout if isinstance(exc.stdout, str) else ""
+        return subprocess.CompletedProcess(
+            cmd,
+            124,
+            stdout=out,
+            stderr=f"Timed out ({timeout}s) running: {' '.join(cmd)}",
+        )
 
 
 def run_command(

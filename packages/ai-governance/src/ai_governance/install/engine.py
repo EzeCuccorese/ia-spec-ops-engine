@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -48,6 +49,7 @@ def _read(path: Path) -> str | None:
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and not path.is_symlink():
+        mode = stat.S_IMODE(path.stat().st_mode)
         fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
         tmp = Path(tmp_name)
         try:
@@ -55,6 +57,7 @@ def _write(path: Path, text: str) -> None:
                 handle.write(text)
                 handle.flush()
                 os.fsync(handle.fileno())
+            os.chmod(tmp, mode)
             tmp.replace(path)
         finally:
             tmp.unlink(missing_ok=True)
