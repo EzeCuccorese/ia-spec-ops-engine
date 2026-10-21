@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.3 - 2026-10-21
+
+### Fixes
+- Resolve audit bugs, unify CLI dispatch and harden state.
+- Handle Gemini review timeouts, retries and large diffs gracefully.
+- Never treat the repo root as a sibling worktree.
+
 ## 1.1.2 - 2026-10-20
 
 ### Fixes
