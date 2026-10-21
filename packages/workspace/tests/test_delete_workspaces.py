@@ -390,6 +390,18 @@ def test_delete_single_workspace_allows_sibling_worktree(tmp_path: Path) -> None
     assert not target.exists()
 
 
+def test_delete_single_workspace_refuses_root_named_like_a_worktree(tmp_path: Path) -> None:
+    root = tmp_path / "workspace-engine"
+    root.mkdir()
+
+    with (
+        patch("workspace_engine.cli.delete_workspaces.find_project_root", return_value=root),
+        pytest.raises(ValueError, match="escapes managed workspaces"),
+    ):
+        dw.delete_single_workspace(root)
+    assert root.exists()
+
+
 # ---------------------------------------------------------------------------
 # delete_workspaces
 # ---------------------------------------------------------------------------

@@ -87,7 +87,11 @@ def _is_within_allowed_base(
     ).resolve()
     if target.is_relative_to(base_dir) and target != base_dir:
         return True, base_dir
-    if target.parent == root.parent.resolve() and target.name.startswith("workspace-"):
+    if (
+        target != root.resolve()
+        and target.parent == root.parent.resolve()
+        and target.name.startswith("workspace-")
+    ):
         return True, base_dir
     return False, base_dir
 
