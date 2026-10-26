@@ -194,7 +194,6 @@ class ClaudeSpec(AgentSpec):
                 (
                     HookEntry("PreToolUse", "Bash", f"{command} pre-tool-use"),
                     HookEntry("PostToolUse", "Bash", f"{command} post-tool-use"),
-                    HookEntry("Stop", None, f"{command} stop"),
                     HookEntry("SessionStart", None, f"{command} session-start"),
                     HookEntry("SessionEnd", None, f"{command} session-end"),
                 ),
@@ -236,14 +235,14 @@ class CodexSpec(AgentSpec):
                 home / "agents" / "scout.toml",
                 'name = "scout"\n'
                 f"description = {json.dumps(content.SCOUT_DESCRIPTION)}\n"
-                'model = "terra"\n'
+                'model = "gpt-6-luna"\n'
                 'model_reasoning_effort = "medium"\n'
                 'sandbox_mode = "read-only"\n'
                 f'developer_instructions = """\n{content.SCOUT_INSTRUCTIONS}"""\n',
             ),
             BlockArtifact(
                 home / "config.toml",
-                'agents.default_subagent_model = "terra"\n'
+                'agents.default_subagent_model = "gpt-6-luna"\n'
                 'agents.default_subagent_reasoning_effort = "medium"\n',
                 comment="#",
                 prepend=True,
@@ -303,7 +302,7 @@ AGENTS: dict[str, AgentSpec] = {
         id="claude",
         name="Claude Code",
         global_instructions="~/.claude/rules/ai-governance.md",
-        global_hooks="~/.claude/settings.json (Pre/PostToolUse Bash, Stop, SessionStart/End)",
+        global_hooks="~/.claude/settings.json (Pre/PostToolUse Bash, SessionStart/End)",
         project_rules=".claude/rules/ai-governance-<id>.md -> symlink to .agents/rules",
         project_rules_mechanism="native `paths:` frontmatter (loaded per file)",
         scout="~/.claude/agents/scout.md (haiku, no web) + researcher.md (sonnet, web research) + runner.md (haiku, Bash, no edits), effort medium",
@@ -316,7 +315,7 @@ AGENTS: dict[str, AgentSpec] = {
         global_hooks="$CODEX_HOME/hooks.json PostToolUse condensing (after `probe` verifies)",
         project_rules=".agents/rules/ai-governance-<id>.md (shared)",
         project_rules_mechanism="injected on edit by a PreToolUse hook (planned)",
-        scout="$CODEX_HOME/agents/scout.toml (terra, effort medium, read-only) + config.toml default subagent model terra",
+        scout="$CODEX_HOME/agents/scout.toml (gpt-6-luna, effort medium, read-only) + config.toml default subagent model gpt-6-luna",
         skills="~/.agents/skills/{progress,test-audit}/SKILL.md",
     ),
     "antigravity": AntigravitySpec(

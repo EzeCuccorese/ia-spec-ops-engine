@@ -117,11 +117,11 @@ def test_codex_config_block_is_prepended_and_reversible(project: Path, tmp_path:
     config.write_text('model = "x"\n\n[mcp_servers.a]\ncommand = "a"\n')
     install_user(["codex"])
     text = config.read_text()
-    assert text.startswith('# ai-governance:start\nagents.default_subagent_model = "terra"')
+    assert text.startswith('# ai-governance:start\nagents.default_subagent_model = "gpt-6-luna"')
     assert text.index("ai-governance:end") < text.index("[mcp_servers.a]")
     import tomllib
 
-    assert tomllib.loads(text)["agents"]["default_subagent_model"] == "terra"
+    assert tomllib.loads(text)["agents"]["default_subagent_model"] == "gpt-6-luna"
     installer.uninstall_user(["codex"])
     assert config.read_text() == 'model = "x"\n\n[mcp_servers.a]\ncommand = "a"\n'
 

@@ -143,7 +143,8 @@ def registered_projects() -> list[Path]:
 SCRIPTS_OWNER = "corporate"
 # Shell completions of the engine's CLIs: kept while any agent is installed, like scripts.
 COMPLETIONS_OWNER = "completions"
-# Daily price-table refresh (macOS LaunchAgent): kept while any agent is installed.
+# Daily price-table refresh (macOS LaunchAgent). Retired: no longer installed, but the
+# owner stays in scope so installs and uninstalls remove a plist left by older versions.
 SCHEDULE_OWNER = "schedule"
 
 
@@ -221,11 +222,10 @@ def install_user(agents: list[str], *, dry_run: bool = False, force: bool = Fals
         desired.extend(_corporate_rules(spec, packs, report))
     desired.extend(_corporate_scripts(packs, report))
     desired.extend(_completions())
-    desired.extend(Owned(SCHEDULE_OWNER, artifact) for artifact in schedule.artifacts())
     scope = {spec.id for spec in specs} | {SCRIPTS_OWNER, COMPLETIONS_OWNER, SCHEDULE_OWNER}
-    sync(desired, ledger, agents_in_scope=scope, dry_run=dry_run, force=force, report=report)
     if not dry_run:
-        schedule.load()
+        schedule.unload()  # stop a retired agent before its plist is removed
+    sync(desired, ledger, agents_in_scope=scope, dry_run=dry_run, force=force, report=report)
     ledger.extra["package_version"] = __version__
     ledger.save(report, dry_run)
     return report
@@ -241,14 +241,13 @@ def uninstall_user(agents: list[str], *, dry_run: bool = False) -> Report:
         [
             *_corporate_scripts(corporate.packs(), report),
             *_completions(),
-            *(Owned(SCHEDULE_OWNER, artifact) for artifact in schedule.artifacts()),
         ]
         if keep_shared
         else []
     )
     shared = {SCRIPTS_OWNER, COMPLETIONS_OWNER, SCHEDULE_OWNER}
-    if not keep_shared and not dry_run:
-        schedule.unload()  # stop the agent before its plist is removed
+    if not dry_run:
+        schedule.unload()  # stop a retired agent before its plist is removed
     sync(desired, ledger, agents_in_scope=scope | shared, dry_run=dry_run, report=report)
     ledger.save(report, dry_run)
     return report

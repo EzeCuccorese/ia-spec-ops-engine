@@ -74,7 +74,7 @@ def test_user_install_preserves_foreign_settings_and_is_idempotent(home: Path) -
     data = json.loads(settings.read_text())
     assert data["theme"] == "dark"
     stop = [h["command"] for g in data["hooks"]["Stop"] for h in g["hooks"]]
-    assert stop == ["mine", "ai-governance hook claude stop"]
+    assert stop == ["mine"]
 
     uninstall_user(["claude"])
     data = json.loads(settings.read_text())
@@ -263,10 +263,13 @@ def test_doctor_flags_claude_memory_and_duplicate_hooks(project: Path, home: Pat
         json.dumps(
             {
                 "hooks": {
-                    "Stop": [
+                    "SessionStart": [
                         {
                             "hooks": [
-                                {"type": "command", "command": "ai-governance hook claude stop"}
+                                {
+                                    "type": "command",
+                                    "command": "ai-governance hook claude session-start",
+                                }
                             ]
                         }
                     ]

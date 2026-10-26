@@ -54,7 +54,7 @@ What gets written for Claude Code:
 | `~/.claude/agents/scout.md` | Read-only subagent on `haiku`, effort `medium`, for exploration, reading and summaries (no web tools) | Only its name and description |
 | `~/.claude/agents/researcher.md` | Read-only subagent on `sonnet`, effort `medium`, for web research | Only its name and description |
 | `~/.claude/skills/{progress,test-audit}/SKILL.md` | How to use the progress tracker; how to write and prune tests | Only their names and descriptions |
-| `~/.claude/settings.json` (merged) | Five hooks: `PreToolUse`/`PostToolUse` (Bash), `Stop`, `SessionStart`, `SessionEnd`, all as `ai-governance hook claude <event>` | Only what each hook returns (see below) |
+| `~/.claude/settings.json` (merged) | Four hooks: `PreToolUse`/`PostToolUse` (Bash), `SessionStart`, `SessionEnd`, all as `ai-governance hook claude <event>` | Only what each hook returns (see below) |
 | `~/.local/state/ai-governance/installed.json` | Ownership ledger and the list of projects you install | No |
 
 What each Claude hook does:
@@ -65,11 +65,10 @@ What each Claude hook does:
 | PostToolUse (Bash) | Output over 4,000 characters is replaced by a `ws condense` summary (about 600 tokens). The full text is kept and read with `ws log <id>`. Diffs and explicit file reads are never condensed |
 | SessionStart | Injects up to 400 characters about the task bound to this repository/branch |
 | SessionEnd | Appends branch, HEAD and the number of uncommitted files to that task's log |
-| Stop | Evaluates spend thresholds; a macOS notification only with `"notify_macos": true` in `~/.local/state/ai-governance/telemetry/config.json`. Nothing reaches the model |
 
 Other agents (`--agent codex`, `--agent antigravity`) get the same pieces in their own
 locations; run `ai-governance agents` for the matrix. Codex also gets
-`agents.default_subagent_model = "terra"` and `agents.default_subagent_reasoning_effort =
+`agents.default_subagent_model = "gpt-6-luna"` and `agents.default_subagent_reasoning_effort =
 "medium"` in a marked block at the top of `~/.codex/config.toml`. Their output hooks are only
 installed after step 8 verifies them.
 
@@ -83,7 +82,7 @@ their pack rules refreshed. See [packages/corporate-rules/README.md](../packages
 
 ```bash
 cat ~/.claude/rules/ai-governance.md
-jq '.hooks | keys' ~/.claude/settings.json      # includes PostToolUse, PreToolUse, SessionEnd, SessionStart, Stop
+jq '.hooks | keys' ~/.claude/settings.json      # includes PostToolUse, PreToolUse, SessionEnd, SessionStart
 ai-governance install --scope user --agent claude   # second run: "No changes."
 ```
 

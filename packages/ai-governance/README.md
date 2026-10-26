@@ -38,21 +38,21 @@ Personal, project-agnostic harness. Nothing about engineering policy.
 | | Claude Code | OpenAI Codex | Google Antigravity 2 |
 |---|---|---|---|
 | Global instructions | ~/.claude/rules/ai-governance.md | $CODEX_HOME/AGENTS.md (marker block) | ~/.gemini/config/rules/ai-governance.md (`trigger: always_on`) |
-| Global hooks | ~/.claude/settings.json (Pre/PostToolUse Bash, Stop, SessionStart/End) | $CODEX_HOME/hooks.json PostToolUse condensing (after `probe` verifies) | ~/.gemini/config/hooks.json PreToolUse: raw noisy commands -> `ws run` (after `probe`) |
-| Scout subagent | ~/.claude/agents/scout.md (haiku, no web) + researcher.md (sonnet, web research) + runner.md (haiku, Bash, no edits), effort medium | $CODEX_HOME/agents/scout.toml (terra, effort medium, read-only) + config.toml default subagent model terra | ~/.gemini/config/agents/scout.md (model flash, read-only tools, no commands) |
+| Global hooks | ~/.claude/settings.json (Pre/PostToolUse Bash, SessionStart/End) | $CODEX_HOME/hooks.json PostToolUse condensing (after `probe` verifies) | ~/.gemini/config/hooks.json PreToolUse: raw noisy commands -> `ws run` (after `probe`) |
+| Scout subagent | ~/.claude/agents/scout.md (haiku, no web) + researcher.md (sonnet, web research) + runner.md (haiku, Bash, no edits), effort medium | $CODEX_HOME/agents/scout.toml (gpt-6-luna, effort medium, read-only) + config.toml default subagent model gpt-6-luna | ~/.gemini/config/agents/scout.md (model flash, read-only tools, no commands) |
 | Skills | ~/.claude/skills/{progress,test-audit}/SKILL.md | ~/.agents/skills/{progress,test-audit}/SKILL.md | ~/.gemini/config/skills/{progress,test-audit}/SKILL.md |
 | Project rules | .claude/rules/ai-governance-<id>.md -> symlink to .agents/rules | .agents/rules/ai-governance-<id>.md (shared) | .agents/rules/ai-governance-<id>.md (single source) |
 | Rule loading | native `paths:` frontmatter (loaded per file) | injected on edit by a PreToolUse hook (planned) | `trigger: glob` activation (loaded per file; 20k-token rules budget) |
 <!-- agents-table:end -->
 
 The read-only `scout` subagent is cross-agent: each agent gets it with a cheap model of its
-own provider (Claude `haiku`, Codex `terra`, Antigravity `flash`). Claude splits it in two:
+own provider (Claude `haiku`, Codex `gpt-6-luna`, Antigravity `flash`). Claude splits it in two:
 `scout` (`haiku`, no web tools) reads code, and `researcher` (`sonnet`, `WebSearch`/`WebFetch`)
 does web research, where comparing and checking sources needs a stronger model. Claude also
 gets `runner` (`haiku`, `Bash`/`Read`/`Grep`/`Glob`, no edit tools): it runs noisy commands
 (tests, builds, installs, CI logs) and returns only a verdict, the failing names and the first
 error lines, so the raw output never reaches the main context. For Codex, a marked block
-at the top of `$CODEX_HOME/config.toml` also sets `agents.default_subagent_model = "terra"`
+at the top of `$CODEX_HOME/config.toml` also sets `agents.default_subagent_model = "gpt-6-luna"`
 and `agents.default_subagent_reasoning_effort = "medium"`; if the file already defines an
 `[agents]` table or those keys, the block is left out with a warning. `ai-governance probe`
 verifies that each agent really delegates to the scout. The Claude scout and researcher set
@@ -73,7 +73,6 @@ Claude Code user hooks (all through `ai-governance hook claude <event>`, fail-op
 | PostToolUse (Bash) | Output over `threshold_chars` (4000) is replaced by a `ws condense` summary of at most `budget_chars` (2500); `ws log <id>` keeps the full text. Diffs and explicit file reads are never condensed |
 | SessionStart | Injects the active task digest (≤ 400 chars) |
 | SessionEnd | Logs branch, HEAD and the number of uncommitted files to the active task |
-| Stop | Evaluates spend thresholds; a macOS notification is sent only with `"notify_macos": true` in the telemetry config. Never reaches the model |
 
 ### Shell completion (zsh)
 
@@ -206,9 +205,9 @@ in `~/.local/state/ai-governance/telemetry/` (`config.json`: `monthly_budget_usd
 |---|---|
 | `claude-usage [--budget USD] [--spent USD]` | Month-to-date spend vs. the business-day budget pace (for plans whose UI hides spend) |
 | `report [--budget USD] [--json]` | Today/month estimate by model, token type and effort; fast-mode calls flagged |
-| `thresholds [--notify] [--json]` | Evaluate the daily/monthly alert thresholds (what the Stop hook runs) |
+| `thresholds [--notify] [--json]` | Evaluate the daily/monthly alert thresholds (manual; no hook runs it) |
 | `calibrate USD [--from DATE] [--to DATE]` | Store the ratio between the real spend and the estimate. Dates are typed in local time (`1`, `15/10`, `10/15`, `15/10/2026`, `2026-10-15`) and compared in UTC; default is day 1 of this month until now |
-| `prices update [--url URL]` | Refresh the cached price table (on macOS `install --scope user` schedules it daily at 6:00 via a LaunchAgent, `com.ai-governance.prices-update`) |
+| `prices update [--url URL]` | Refresh the cached price table (manual; `install --scope user` no longer schedules it and removes the old `com.ai-governance.prices-update` LaunchAgent) |
 | `statusline` | Compact `today $x/allowance · left $y` segment for the Claude Code status line |
 
 ## Agent output mode

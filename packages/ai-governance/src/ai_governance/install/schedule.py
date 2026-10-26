@@ -1,6 +1,7 @@
-"""Daily price-table refresh as a macOS LaunchAgent, installed with the user scope.
+"""Daily price-table refresh as a macOS LaunchAgent. Retired: the user scope no longer
+installs it, and installs and uninstalls stop and remove any copy left on disk.
 
-The plist is an owned file (ledger-managed like the completions); launchd is told about
+The plist was an owned file (ledger-managed like the completions); launchd is told about
 it only for the real ``~/Library/LaunchAgents`` folder, never for an overridden one.
 """
 
@@ -77,12 +78,16 @@ def _unload(label: str) -> None:
     _launchctl("bootout", f"{_domain()}/{label}")
 
 
+def _retire_legacy() -> None:
+    _unload(LEGACY_LABEL)
+    plist_path(LEGACY_LABEL).unlink(missing_ok=True)
+
+
 def load() -> None:
     """(Re)loads the agent and retires the hand-made one it replaces."""
     if not (supported() and _live()):
         return
-    _unload(LEGACY_LABEL)
-    plist_path(LEGACY_LABEL).unlink(missing_ok=True)
+    _retire_legacy()
     if plist_path().is_file():
         # launchd cannot open the log files when their folder is missing.
         (state_dir() / "telemetry").mkdir(parents=True, exist_ok=True)
@@ -91,5 +96,9 @@ def load() -> None:
 
 
 def unload() -> None:
+    """Stops and removes the agent, even an orphan the ledger does not know about,
+    and retires the hand-made one it replaced."""
     if supported() and _live():
         _unload(LABEL)
+        plist_path().unlink(missing_ok=True)
+        _retire_legacy()
