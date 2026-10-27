@@ -114,6 +114,14 @@ def codex_home() -> Path:
     return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
 
 
+# Codex has no per-file rules: they are installed here and AGENTS.md points to them.
+CODEX_LANGUAGE_INDEX = "language-rules.md"
+
+
+def codex_rules_dir() -> Path:
+    return codex_home() / "ai-governance"
+
+
 @dataclass(frozen=True)
 class AgentSpec:
     id: str
@@ -131,6 +139,11 @@ class AgentSpec:
 
     def corporate_artifacts(self, rules: list[CorporateRule]) -> list[Artifact]:
         """Always-on company rules; empty when the agent has no per-file global rules."""
+        return []
+
+    def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
+        """Path-scoped catalog rules at user level; empty when the agent has no per-file
+        global rules."""
         return []
 
     # -- project scope -------------------------------------------------------
@@ -206,6 +219,9 @@ class ClaudeSpec(AgentSpec):
             LinkArtifact(home / f"ai-governance-{r.pack}-{r.name}.md", str(r.path)) for r in rules
         ]
 
+    def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
+        return _global_catalog_rules(Path.home() / ".claude" / "rules", rules)
+
     def project_artifacts(
         self, root: Path, rules: list[RuleDefinition], *, gate: bool = False
     ) -> list[Artifact]:
@@ -230,7 +246,10 @@ class CodexSpec(AgentSpec):
     def global_artifacts(self) -> list[Artifact]:
         home = codex_home()
         return [
-            BlockArtifact(home / "AGENTS.md", content.GLOBAL_INSTRUCTIONS),
+            BlockArtifact(
+                home / "AGENTS.md",
+                content.GLOBAL_INSTRUCTIONS + content.codex_rules_pointer(codex_rules_dir()),
+            ),
             FileArtifact(
                 home / "agents" / "scout.toml",
                 'name = "scout"\n'
@@ -255,6 +274,27 @@ class CodexSpec(AgentSpec):
             ),
         ]
 
+    def corporate_artifacts(self, rules: list[CorporateRule]) -> list[Artifact]:
+        company = codex_rules_dir() / "company"
+        return [LinkArtifact(company / f"{r.pack}-{r.name}.md", str(r.path)) for r in rules]
+
+    def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
+        rules_dir = codex_rules_dir()
+        if not rules:
+            return []
+        files = _global_catalog_rules(rules_dir, rules)
+        index = "\n".join(
+            f"- {', '.join(f'`{g}`' for g in rule.globs) or 'every file'}: "
+            f"`{rules_dir / f'ai-governance-{rule.id}.md'}`"
+            for rule in rules
+        )
+        return [
+            *files,
+            FileArtifact(
+                rules_dir / CODEX_LANGUAGE_INDEX, f"{content.CODEX_LANGUAGE_INDEX_HEADER}{index}\n"
+            ),
+        ]
+
 
 class AntigravitySpec(AgentSpec):
     def corporate_artifacts(self, rules: list[CorporateRule]) -> list[Artifact]:
@@ -262,6 +302,9 @@ class AntigravitySpec(AgentSpec):
         return [
             LinkArtifact(home / f"ai-governance-{r.pack}-{r.name}.md", str(r.path)) for r in rules
         ]
+
+    def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
+        return _global_catalog_rules(Path.home() / ".gemini" / "config" / "rules", rules)
 
     def global_artifacts(self) -> list[Artifact]:
         home = Path.home() / ".gemini"
@@ -290,6 +333,13 @@ class AntigravitySpec(AgentSpec):
         ]
 
 
+def _global_catalog_rules(rules_dir: Path, rules: list[RuleDefinition]) -> list[Artifact]:
+    return [
+        FileArtifact(rules_dir / f"ai-governance-{rule.id}.md", render_canonical_rule(rule))
+        for rule in rules
+    ]
+
+
 def skill_artifacts(skills_dir: Path) -> list[Artifact]:
     """One ``<name>/SKILL.md`` per bundled skill, in the agent's skills directory."""
     return [
@@ -301,7 +351,7 @@ AGENTS: dict[str, AgentSpec] = {
     "claude": ClaudeSpec(
         id="claude",
         name="Claude Code",
-        global_instructions="~/.claude/rules/ai-governance.md",
+        global_instructions="~/.claude/rules/ai-governance.md + language rules (`paths:`)",
         global_hooks="~/.claude/settings.json (Pre/PostToolUse Bash, SessionStart/End)",
         project_rules=".claude/rules/ai-governance-<id>.md -> symlink to .agents/rules",
         project_rules_mechanism="native `paths:` frontmatter (loaded per file)",
@@ -311,7 +361,7 @@ AGENTS: dict[str, AgentSpec] = {
     "codex": CodexSpec(
         id="codex",
         name="OpenAI Codex",
-        global_instructions="$CODEX_HOME/AGENTS.md (marker block)",
+        global_instructions="$CODEX_HOME/AGENTS.md (marker block) + rule indexes in $CODEX_HOME/ai-governance/",
         global_hooks="$CODEX_HOME/hooks.json PostToolUse condensing (after `probe` verifies)",
         project_rules=".agents/rules/ai-governance-<id>.md (shared)",
         project_rules_mechanism="injected on edit by a PreToolUse hook (planned)",
@@ -321,7 +371,7 @@ AGENTS: dict[str, AgentSpec] = {
     "antigravity": AntigravitySpec(
         id="antigravity",
         name="Google Antigravity 2",
-        global_instructions="~/.gemini/config/rules/ai-governance.md (`trigger: always_on`)",
+        global_instructions="~/.gemini/config/rules/ai-governance.md (`trigger: always_on`) + language rules (`trigger: glob`)",
         global_hooks="~/.gemini/config/hooks.json PreToolUse: raw noisy commands -> `ws run` (after `probe`)",
         project_rules=".agents/rules/ai-governance-<id>.md (single source)",
         project_rules_mechanism="`trigger: glob` activation (loaded per file; 20k-token rules budget)",

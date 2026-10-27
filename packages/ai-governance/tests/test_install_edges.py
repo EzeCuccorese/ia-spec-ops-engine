@@ -70,7 +70,8 @@ def test_budget_counts_shared_blocks_and_no_codex_project_rules(project: Path) -
     sync_project(project, add_agents=["codex"])
     user = fixed_cost(installer.global_ledger())
     lock = fixed_cost(Ledger(project / PROJECT_DIR / "lock.json", base=project))
-    assert 0 < user["codex"] <= 1024
+    # Codex also carries the pointer to its rule indexes (it has no per-file rules).
+    assert 0 < user["codex"] <= 1280
     assert lock.get("codex", 0) == 0 and lock["project"] > 0
 
 

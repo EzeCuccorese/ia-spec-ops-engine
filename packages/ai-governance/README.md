@@ -32,12 +32,15 @@ Nothing ever defaults to all agents.
 
 ### User scope — `ai-governance install --scope user --agent <claude|codex|antigravity>`
 
-Personal, project-agnostic harness. Nothing about engineering policy.
+Personal, project-agnostic harness, plus the language rules: every catalog rule marked
+`user_scope` (all `2-stacks` rules, the code-level core rules and `api-design`) is written to the
+agent's global rules folder with its globs, so it loads per file in any repository without
+committing anything. Codex has no per-file global rules and skips them with a warning.
 
 <!-- agents-table:start -->
 | | Claude Code | OpenAI Codex | Google Antigravity 2 |
 |---|---|---|---|
-| Global instructions | ~/.claude/rules/ai-governance.md | $CODEX_HOME/AGENTS.md (marker block) | ~/.gemini/config/rules/ai-governance.md (`trigger: always_on`) |
+| Global instructions | ~/.claude/rules/ai-governance.md + language rules (`paths:`) | $CODEX_HOME/AGENTS.md (marker block) + rule indexes in $CODEX_HOME/ai-governance/ | ~/.gemini/config/rules/ai-governance.md (`trigger: always_on`) + language rules (`trigger: glob`) |
 | Global hooks | ~/.claude/settings.json (Pre/PostToolUse Bash, SessionStart/End) | $CODEX_HOME/hooks.json PostToolUse condensing (after `probe` verifies) | ~/.gemini/config/hooks.json PreToolUse: raw noisy commands -> `ws run` (after `probe`) |
 | Scout subagent | ~/.claude/agents/scout.md (haiku, no web) + researcher.md (sonnet, web research) + runner.md (haiku, Bash, no edits), effort medium | $CODEX_HOME/agents/scout.toml (gpt-6-luna, effort medium, read-only) + config.toml default subagent model gpt-6-luna | ~/.gemini/config/agents/scout.md (model flash, read-only tools, no commands) |
 | Skills | ~/.claude/skills/{progress,test-audit}/SKILL.md | ~/.agents/skills/{progress,test-audit}/SKILL.md | ~/.gemini/config/skills/{progress,test-audit}/SKILL.md |

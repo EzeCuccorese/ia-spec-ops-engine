@@ -18,7 +18,7 @@ from pathlib import Path
 
 from .. import __version__, corporate
 from ..paths import state_dir
-from ..rules.catalog import RuleCatalog
+from ..rules.catalog import RuleCatalog, RuleDefinition
 from . import content, schedule
 from .agents import (
     AGENTS,
@@ -167,6 +167,14 @@ def _corporate_rules(
     return desired
 
 
+def _language_rules(spec: AgentSpec, rules: list[RuleDefinition], report: Report) -> list[Owned]:
+    """Catalog rules marked ``user_scope``: basic practices per language in every repo."""
+    artifacts = spec.catalog_artifacts(rules)
+    if rules and not artifacts:
+        report.warnings.append(f"{spec.name} has no per-file global rules: language rules skipped.")
+    return [Owned(spec.id, artifact) for artifact in artifacts]
+
+
 def _corporate_scripts(packs: list[corporate.CorporatePack], report: Report) -> list[Owned]:
     """One link per script name; on a clash the first pack (alphabetical) wins."""
     desired: list[Owned] = []
@@ -218,8 +226,10 @@ def install_user(agents: list[str], *, dry_run: bool = False, force: bool = Fals
     packs = corporate.packs()
     report = Report()
     desired = [Owned(spec.id, artifact) for spec in specs for artifact in spec.global_artifacts()]
+    language_rules = RuleCatalog().user_rules()
     for spec in specs:
         desired.extend(_corporate_rules(spec, packs, report))
+        desired.extend(_language_rules(spec, language_rules, report))
     desired.extend(_corporate_scripts(packs, report))
     desired.extend(_completions())
     scope = {spec.id for spec in specs} | {SCRIPTS_OWNER, COMPLETIONS_OWNER, SCHEDULE_OWNER}
