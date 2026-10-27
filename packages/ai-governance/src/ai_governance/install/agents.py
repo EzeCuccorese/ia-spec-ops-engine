@@ -138,13 +138,12 @@ class AgentSpec:
         raise NotImplementedError
 
     def corporate_artifacts(self, rules: list[CorporateRule]) -> list[Artifact]:
-        """Always-on company rules; empty when the agent has no per-file global rules."""
-        return []
+        """Always-on company rules at user level."""
+        raise NotImplementedError
 
     def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
-        """Path-scoped catalog rules at user level; empty when the agent has no per-file
-        global rules."""
-        return []
+        """Path-scoped catalog rules at user level."""
+        raise NotImplementedError
 
     # -- project scope -------------------------------------------------------
     def project_artifacts(

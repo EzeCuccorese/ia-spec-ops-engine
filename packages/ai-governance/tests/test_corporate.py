@@ -199,3 +199,9 @@ def test_corporate_root_defaults_to_the_packages_folder(monkeypatch: pytest.Monk
     monkeypatch.delenv("AI_GOVERNANCE_CORPORATE_DIR")
     root = corporate.corporate_root()
     assert (root.parent.name, root.name) == ("packages", "corporate-rules")
+
+
+def test_codex_installs_no_language_index_without_rules(home: Path) -> None:
+    from ai_governance.install.agents import AGENTS
+
+    assert AGENTS["codex"].catalog_artifacts([]) == []

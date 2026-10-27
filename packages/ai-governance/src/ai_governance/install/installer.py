@@ -148,31 +148,18 @@ COMPLETIONS_OWNER = "completions"
 SCHEDULE_OWNER = "schedule"
 
 
-def _corporate_rules(
-    spec: AgentSpec, packs: list[corporate.CorporatePack], report: Report
-) -> list[Owned]:
+def _corporate_rules(spec: AgentSpec, packs: list[corporate.CorporatePack]) -> list[Owned]:
     """Every pack in the corporate folder, rendered for one agent; nothing to opt into."""
-    desired: list[Owned] = []
-    skipped: list[str] = []
-    for pack in packs:
-        rules = pack.rules()
-        artifacts = spec.corporate_artifacts(rules)
-        if rules and not artifacts:
-            skipped.append(pack.name)
-        desired.extend(Owned(spec.id, artifact) for artifact in artifacts)
-    if skipped:
-        report.warnings.append(
-            f"{spec.name} has no per-file global rules: {', '.join(skipped)} rules skipped."
-        )
-    return desired
+    return [
+        Owned(spec.id, artifact)
+        for pack in packs
+        for artifact in spec.corporate_artifacts(pack.rules())
+    ]
 
 
-def _language_rules(spec: AgentSpec, rules: list[RuleDefinition], report: Report) -> list[Owned]:
+def _language_rules(spec: AgentSpec, rules: list[RuleDefinition]) -> list[Owned]:
     """Catalog rules marked ``user_scope``: basic practices per language in every repo."""
-    artifacts = spec.catalog_artifacts(rules)
-    if rules and not artifacts:
-        report.warnings.append(f"{spec.name} has no per-file global rules: language rules skipped.")
-    return [Owned(spec.id, artifact) for artifact in artifacts]
+    return [Owned(spec.id, artifact) for artifact in spec.catalog_artifacts(rules)]
 
 
 def _corporate_scripts(packs: list[corporate.CorporatePack], report: Report) -> list[Owned]:
@@ -228,8 +215,8 @@ def install_user(agents: list[str], *, dry_run: bool = False, force: bool = Fals
     desired = [Owned(spec.id, artifact) for spec in specs for artifact in spec.global_artifacts()]
     language_rules = RuleCatalog().user_rules()
     for spec in specs:
-        desired.extend(_corporate_rules(spec, packs, report))
-        desired.extend(_language_rules(spec, language_rules, report))
+        desired.extend(_corporate_rules(spec, packs))
+        desired.extend(_language_rules(spec, language_rules))
     desired.extend(_corporate_scripts(packs, report))
     desired.extend(_completions())
     scope = {spec.id for spec in specs} | {SCRIPTS_OWNER, COMPLETIONS_OWNER, SCHEDULE_OWNER}
