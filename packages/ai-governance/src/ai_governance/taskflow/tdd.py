@@ -62,7 +62,8 @@ def red_record(command: str, exit_code: int, output: str, stamp_key: str) -> Jso
     }
 
 
-def green_record(task: Task, command: str, exit_code: int, output: str, stamp_key: str) -> JsonDict:
+def green_record(task: Task, command: str, exit_code: int, output: str) -> JsonDict:
+    stamp_key = task.stamp_key
     red = task.tdd.get("red")
     if not red:
         raise TddError("No red run recorded: run `taskflow tdd red --cmd ...` before changing code")

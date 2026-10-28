@@ -77,6 +77,12 @@ class FlowConfig:
         errors: list[str] = []
         if self.workflow not in WORKFLOWS:
             errors.append(f"workflow must be one of {', '.join(WORKFLOWS)}")
+        errors += self._judge_errors()
+        errors += self._missing_binaries()
+        return errors
+
+    def _judge_errors(self) -> list[str]:
+        errors: list[str] = []
         builder = self.roles.get("builder", {}).get("agent", "")
         for judge in self.judges:
             if judge.get("agent") == builder and judge.get("agent") != "human":
@@ -88,6 +94,10 @@ class FlowConfig:
             errors.append("at least one judge is required")
         if self.workflow == "single-agent" and any(j.get("agent") != "human" for j in self.judges):
             errors.append("single-agent workflow: every judge must be 'human'")
+        return errors
+
+    def _missing_binaries(self) -> list[str]:
+        errors: list[str] = []
         for name, role in [
             *self.roles.items(),
             *((f"judge {j.get('focus')}", j) for j in self.judges),
@@ -118,21 +128,26 @@ def _rules(raw: list[JsonDict]) -> list[RiskRule]:
     ]
 
 
+def _merge_local(
+    local: JsonDict, judges: list[JsonDict], checks: list[str], rules: list[RiskRule]
+) -> None:
+    known = {j.get("focus") for j in judges}
+    judges += [dict(j) for j in local.get("judges", []) if j.get("focus") not in known]
+    checks += [c for c in local.get("checks", {}).get("commands", []) if c not in checks]
+    rules += _rules(local.get("risk", {}).get("rules", []))
+
+
 def load_config(repos: list[Path] | None = None, user_file: Path | None = None) -> FlowConfig:
     """User config plus the additions of every bound repository (TDD is not configurable:
     only the user's ``tdd-skip`` approval replaces it)."""
     user = _read_toml(user_file or config_dir() / CONFIG_NAME)
-    locals_ = [_read_toml(repo / REPO_CONFIG) for repo in repos or []]
     roles = dict(DEFAULT_ROLES)
     roles.update({k: dict(v) for k, v in user.get("roles", {}).items() if k != "judges"})
     judges = [dict(j) for j in user.get("roles", {}).get("judges", DEFAULT_JUDGES)]
     checks = list(user.get("checks", {}).get("commands", DEFAULT_CHECKS))
     rules = _rules(user.get("risk", {}).get("rules", []))
-    for local in locals_:
-        known = {j.get("focus") for j in judges}
-        judges += [dict(j) for j in local.get("judges", []) if j.get("focus") not in known]
-        checks += [c for c in local.get("checks", {}).get("commands", []) if c not in checks]
-        rules += _rules(local.get("risk", {}).get("rules", []))
+    for repo in repos or []:
+        _merge_local(_read_toml(repo / REPO_CONFIG), judges, checks, rules)
     return FlowConfig(
         workflow=str(user.get("workflow", "tri-agent")),
         roles=roles,

@@ -5,15 +5,17 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypeAlias
 
 from ..output import emit_json, emit_kv, emit_rows, emit_status, emit_text
 from . import tdd
 from .approvals import (
     ACTIONS,
     RISKY_ACTIONS,
+    ApprovalContext,
     ApprovalError,
     ApprovalRequest,
     build_approval,
@@ -23,6 +25,7 @@ from .approvals import (
 from .config import FlowConfig, load_config
 from .gates import (
     NEXT_COMMAND,
+    GateContext,
     check_transition,
     checks_unmet,
     close_unmet,
@@ -141,6 +144,20 @@ def policy_summary(config: FlowConfig) -> JsonDict:
     }
 
 
+def _rule_reductions(name: str, rule: JsonDict, now: JsonDict | None) -> list[str]:
+    if now is None:
+        return [f"rule:{name}"]
+    lost = [
+        f"rule:{name}:{kind}:{item}"
+        for kind in ("paths", "judges", "checks")
+        for item in rule.get(kind, [])
+        if item not in now.get(kind, [])
+    ]
+    if rule.get("restaging") and not now.get("restaging"):
+        lost.append(f"rule:{name}:restaging")
+    return lost
+
+
 def policy_reductions(baseline: JsonDict, current: JsonDict) -> list[str]:
     """Every accepted control that is gone or weaker now (adding controls is never one)."""
     lost = [
@@ -150,18 +167,7 @@ def policy_reductions(baseline: JsonDict, current: JsonDict) -> list[str]:
         if item not in current.get(kind, [])
     ]
     for name, rule in baseline.get("rules", {}).items():
-        now = current.get("rules", {}).get(name)
-        if now is None:
-            lost.append(f"rule:{name}")
-            continue
-        lost += [
-            f"rule:{name}:{kind}:{item}"
-            for kind in ("paths", "judges", "checks")
-            for item in rule.get(kind, [])
-            if item not in now.get(kind, [])
-        ]
-        if rule.get("restaging") and not now.get("restaging"):
-            lost.append(f"rule:{name}:restaging")
+        lost += _rule_reductions(name, rule, current.get("rules", {}).get(name))
     return sorted(lost)
 
 
@@ -194,6 +200,13 @@ def cmd_show(args: argparse.Namespace) -> int:
             data["log"] = store.read_log(task.id)
         emit_json(data)
         return 0
+    emit_kv(_show_pairs(task), title=f"Task: {task.id} — {task.title}", full=args.full)
+    if args.full:
+        emit_text(store.read_log(task.id), full=True)
+    return 0
+
+
+def _show_pairs(task: Task) -> list[tuple[str, str]]:
     pairs = [
         ("Status", f"{task.status} · phase {task.phase} · workflow {task.workflow}"),
         ("Summary", task.summary or "-"),
@@ -206,12 +219,15 @@ def cmd_show(args: argparse.Namespace) -> int:
         )
     if task.blocked:
         pairs.append(("Blocked", f"{task.blocked.get('owner')}: {task.blocked.get('needs')}"))
-    pairs += [
-        (
-            "Steps",
-            "; ".join(f"{'✓' if s.get('done') else '□'} {s['text']}" for s in task.steps) or "-",
-        )
-    ]
+    steps = "; ".join(f"{'✓' if s.get('done') else '□'} {s['text']}" for s in task.steps)
+    pairs.append(("Steps", steps or "-"))
+    pairs += _show_context_pairs(task)
+    pairs.append(("Rounds", f"{len(task.rounds)} (taskflow rounds {task.id})"))
+    return pairs
+
+
+def _show_context_pairs(task: Task) -> list[tuple[str, str]]:
+    pairs = []
     if task.facts:
         pairs.append(("Facts", "; ".join(f["text"] for f in task.facts)))
     if task.repos:
@@ -223,11 +239,7 @@ def cmd_show(args: argparse.Namespace) -> int:
             f"{r['kind']}: {r['value']}" for r in task.references
         ]
         pairs.append(("Links", "; ".join(refs)))
-    pairs.append(("Rounds", f"{len(task.rounds)} (taskflow rounds {task.id})"))
-    emit_kv(pairs, title=f"Task: {task.id} — {task.title}", full=args.full)
-    if args.full:
-        emit_text(store.read_log(task.id), full=True)
-    return 0
+    return pairs
 
 
 def cmd_new(args: argparse.Namespace) -> int:
@@ -412,13 +424,9 @@ def cmd_status(args: argparse.Namespace) -> int:
     config = _config(task)
     task, risk = _refresh(store, task, config)
     target = _next_phase(task.phase)
-    missing = check_transition(task, target, config, risk, task.stamp_key) if target else []
-    stale = [
-        f"{r['role']}{'/' + r['focus'] if r.get('focus') else ''} #{int(r['n']):03d}"
-        for r in task.rounds
-        if r.get("source") == "engine" and r.get("stamp") != task.stamp_key
-    ]
-    expired = [a["action"] for a in task.approvals if a.get("stamp") != task.stamp_key]
+    missing = (
+        check_transition(task, target, GateContext(config, risk, task.stamp_key)) if target else []
+    )
     pairs = [
         ("Phase", f"{task.phase}{' (BLOCKED)' if task.blocked else ''} · next: {target or '-'}"),
         ("Code stamp", task.stamp_key or "no repository bound"),
@@ -428,8 +436,8 @@ def cmd_status(args: argparse.Namespace) -> int:
             + (" · restaging required" if risk.restaging else ""),
         ),
         ("Missing", "; ".join(missing) or "nothing"),
-        ("Stale", ", ".join(stale) or "none"),
-        ("Expired approvals", ", ".join(dict.fromkeys(expired)) or "none"),
+        ("Stale", ", ".join(_stale_rounds(task)) or "none"),
+        ("Expired approvals", ", ".join(_expired_approvals(task)) or "none"),
         ("Next", NEXT_COMMAND.get(task.phase, "-")),
     ]
     if args.json:
@@ -437,6 +445,20 @@ def cmd_status(args: argparse.Namespace) -> int:
     else:
         emit_kv(pairs, title=f"{task.id} — {task.title}", full=True)
     return 0
+
+
+def _stale_rounds(task: Task) -> list[str]:
+    return [
+        f"{r['role']}{'/' + r['focus'] if r.get('focus') else ''} #{int(r['n']):03d}"
+        for r in task.rounds
+        if r.get("source") == "engine" and r.get("stamp") != task.stamp_key
+    ]
+
+
+def _expired_approvals(task: Task) -> list[str]:
+    return list(
+        dict.fromkeys(a["action"] for a in task.approvals if a.get("stamp") != task.stamp_key)
+    )
 
 
 def _next_phase(phase: str) -> str:
@@ -450,7 +472,7 @@ def cmd_phase(args: argparse.Namespace) -> int:
     task = store.get(args.task_id)
     config = _config(task)
     task, risk = _refresh(store, task, config)
-    missing = check_transition(task, args.target, config, risk, task.stamp_key)
+    missing = check_transition(task, args.target, GateContext(config, risk, task.stamp_key))
     if missing:
         raise ValueError(f"Cannot move '{task.id}' to {args.target}: " + "; ".join(missing))
     store.mutate(
@@ -489,12 +511,13 @@ def cmd_approve(args: argparse.Namespace) -> int:
     task, _risk = _refresh(store, task, _config(task))
     if task.workflow == "manual":
         raise ValueError("Manual tasks have no gates to approve")
-    request = _approval_request(task, args.action, args.target, args.user_reply, args.consequence)
+    request = replace(
+        _approval_request(task, args.action, args.target),
+        user_reply=args.user_reply,
+        consequence=args.consequence,
+    )
     record = build_approval(
-        request,
-        stamp_key=task.stamp_key,
-        moment=datetime.now(),
-        previous=task.approvals,
+        request, ApprovalContext(task.stamp_key, datetime.now(), task.approvals)
     )
     if args.action == "plan":
         record["plan_round"] = plan_round(task)
@@ -513,11 +536,9 @@ def cmd_approve(args: argparse.Namespace) -> int:
     return 0
 
 
-def _approval_request(
-    task: Task, action: str, target: str, reply: str = "", consequence: str = ""
-) -> ApprovalRequest:
+def _approval_request(task: Task, action: str, target: str) -> ApprovalRequest:
     reference = f"plan-r{plan_round(task)}" if action == "plan" else (task.stamp_key or "no-code")
-    return ApprovalRequest(action, target, reply, consequence, task_id=task.id, reference=reference)
+    return ApprovalRequest(action, target, "", task_id=task.id, reference=reference)
 
 
 def cmd_ask(args: argparse.Namespace) -> int:
@@ -564,7 +585,7 @@ def cmd_tdd(args: argparse.Namespace) -> int:
         if args.stage == "red":
             record = tdd.red_record(args.cmd, exit_code, output, task.stamp_key)
         else:
-            record = tdd.green_record(task, args.cmd, exit_code, output, task.stamp_key)
+            record = tdd.green_record(task, args.cmd, exit_code, output)
     store.mutate(task.id, lambda t: t.tdd.__setitem__(args.stage, record))
     emit_status("ok", f"TDD {args.stage} recorded for '{task.id}'")
     return 0
@@ -584,31 +605,9 @@ def cmd_round(args: argparse.Namespace) -> int:
     config = _config(task)
     task, _risk = _refresh(store, task, config)
     if args.action == "record":
-        info = {
-            "phase": args.phase or task.phase,
-            "role": args.role,
-            "agent": args.agent,
-            "model": args.model,
-            "verdict": args.verdict,
-            "stamp": task.stamp_key,
-        }
-        body = Path(args.file).read_text(encoding="utf-8") if args.file else sys.stdin.read()
-        record = record_manual(store, task.id, info, scrub(body))
-        emit_status("ok", f"Round {record['n']:03d} recorded as context (it never opens a gate)")
-        return 0
-    if args.role == "judge":
-        raise ValueError("Judges run through `taskflow judge`, on an isolated copy")
-    if task.workflow == "manual":
-        raise ValueError("Manual tasks have no agent rounds")
-    if args.role == "builder" and (missing := work_unmet(task)):
-        raise ValueError("A builder cannot write yet: " + "; ".join(missing))
-    if task.blocked:
-        raise ValueError(
-            f"'{task.id}' is blocked by {task.blocked.get('owner')}: {task.blocked.get('needs')}"
-        )
-    agent = config.role(args.role)
-    if args.agent:
-        agent = {"agent": args.agent, "model": args.model}
+        return _record_manual_round(store, task, args)
+    _check_round_allowed(task, args.role)
+    agent = {"agent": args.agent, "model": args.model} if args.agent else config.role(args.role)
     repo = Path(task.repos[0]["path"]) if task.repos else Path.cwd()
     request = RoundRequest(
         task.id,
@@ -622,6 +621,34 @@ def cmd_round(args: argparse.Namespace) -> int:
     record = run_round(store, request, task.stamp_key)
     _report_round(record)
     return 0 if record["state"] == "valid" else 1
+
+
+def _record_manual_round(store: TaskStore, task: Task, args: argparse.Namespace) -> int:
+    info = {
+        "phase": args.phase or task.phase,
+        "role": args.role,
+        "agent": args.agent,
+        "model": args.model,
+        "verdict": args.verdict,
+        "stamp": task.stamp_key,
+    }
+    body = Path(args.file).read_text(encoding="utf-8") if args.file else sys.stdin.read()
+    record = record_manual(store, task.id, info, scrub(body))
+    emit_status("ok", f"Round {record['n']:03d} recorded as context (it never opens a gate)")
+    return 0
+
+
+def _check_round_allowed(task: Task, role: str) -> None:
+    if role == "judge":
+        raise ValueError("Judges run through `taskflow judge`, on an isolated copy")
+    if task.workflow == "manual":
+        raise ValueError("Manual tasks have no agent rounds")
+    if role == "builder" and (missing := work_unmet(task)):
+        raise ValueError("A builder cannot write yet: " + "; ".join(missing))
+    if task.blocked:
+        raise ValueError(
+            f"'{task.id}' is blocked by {task.blocked.get('owner')}: {task.blocked.get('needs')}"
+        )
 
 
 def _report_round(record: dict[str, object]) -> None:
@@ -676,7 +703,9 @@ def cmd_judge(args: argparse.Namespace) -> int:
     missing = judge_unmet(task, task.stamp_key) + policy_unmet(task, task.stamp_key)
     if missing:
         raise ValueError("Not ready to judge: " + "; ".join(missing))
-    records, kept = judge_task(store, task, config, risk, task.stamp_key, focus=args.focus)
+    records, kept = judge_task(
+        store, task, GateContext(config, risk, task.stamp_key), focus=args.focus
+    )
     for record in records:
         _report_round(record)
     for path in kept:
@@ -757,17 +786,26 @@ def cmd_digest(args: argparse.Namespace) -> int:
     return 0
 
 
+def _pick_focus(tasks: list[Task], focus_id: str | None) -> Task | None:
+    return next((t for t in tasks if t.id == focus_id), None) or next(iter(tasks), None)
+
+
+def _focus_lines(focus: Task) -> list[str]:
+    lines = [
+        f"- {focus.id} [{focus.phase}{', blocked' if focus.blocked else ''}]: {focus.summary or focus.title}"
+    ]
+    pending = [s["text"] for s in focus.steps if not s.get("done")][:5]
+    if pending:
+        lines.append("  next: " + "; ".join(pending))
+    return lines
+
+
 def digest(store: TaskStore, focus_id: str | None = None, max_chars: int = 1600) -> str:
     tasks = store.list()
-    focus = next((t for t in tasks if t.id == focus_id), None) or (tasks[0] if tasks else None)
+    focus = _pick_focus(tasks, focus_id)
     lines = [f"TASKFLOW ({len(tasks)} open) — `ai-governance taskflow --help` explains the flow"]
     if focus:
-        lines.append(
-            f"- {focus.id} [{focus.phase}{', blocked' if focus.blocked else ''}]: {focus.summary or focus.title}"
-        )
-        pending = [s["text"] for s in focus.steps if not s.get("done")][:5]
-        if pending:
-            lines.append("  next: " + "; ".join(pending))
+        lines += _focus_lines(focus)
     others = [t.id for t in tasks if focus is None or t.id != focus.id]
     if others:
         lines.append("  others: " + ", ".join(others[:8]))
@@ -801,15 +839,10 @@ def cmd_config(args: argparse.Namespace) -> int:
 
 
 # -- parser --------------------------------------------------------------------------------
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="ai-governance taskflow",
-        description="Track tasks across sessions and run the TriAgentTaskFlow (plan, validate, work, judge).",
-        epilog=GUIDE,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    sub = parser.add_subparsers(dest="cmd")
+Subparsers: TypeAlias = "argparse._SubParsersAction[argparse.ArgumentParser]"
 
+
+def _adder(sub: Subparsers) -> Callable[..., argparse.ArgumentParser]:
     def add(
         name: str, handler: Callable[[argparse.Namespace], int], text: str, task: str = "required"
     ) -> argparse.ArgumentParser:
@@ -821,6 +854,11 @@ def _parser() -> argparse.ArgumentParser:
             item.add_argument("task_id", nargs="?")
         return item
 
+    return add
+
+
+def _task_commands(sub: Subparsers) -> None:
+    add = _adder(sub)
     item = add("list", cmd_list, "List open tasks", task="none")
     item.add_argument("--all", action="store_true", help="Include closed tasks")
     item.add_argument("--json", action="store_true")
@@ -844,6 +882,10 @@ def _parser() -> argparse.ArgumentParser:
         default="self",
         help="external: findings go to another owner",
     )
+
+
+def _content_commands(sub: Subparsers) -> None:
+    add = _adder(sub)
     item = add("switch", cmd_switch, "Set the active subtask of a task")
     item.add_argument("subtask")
     item = add("summary", cmd_summary, "Replace the summary")
@@ -864,6 +906,10 @@ def _parser() -> argparse.ArgumentParser:
     )
     item.add_argument("text")
     item.add_argument("--why", default="")
+
+
+def _reference_commands(sub: Subparsers) -> None:
+    add = _adder(sub)
     item = add(
         "link",
         _list_append("links", lambda a: {"title": a.title, "url": a.url}),
@@ -883,6 +929,10 @@ def _parser() -> argparse.ArgumentParser:
     item.add_argument("text")
     item = add("friction", cmd_friction, "Record a friction of the flow itself")
     item.add_argument("text")
+
+
+def _lifecycle_commands(sub: Subparsers) -> None:
+    add = _adder(sub)
     for name, status in (("pause", "paused"), ("reopen", "active"), ("resume", "active")):
         item = add(name, _set_status(status), f"Mark the task {status}")
         item.add_argument("--reason", default="")
@@ -919,6 +969,10 @@ def _parser() -> argparse.ArgumentParser:
     item.add_argument("--owner", required=True)
     item.add_argument("--needs", required=True)
     add("unblock", cmd_unblock, "Clear the block")
+
+
+def _approval_round_commands(sub: Subparsers) -> None:
+    add = _adder(sub)
     item = add("ask", cmd_ask, "Print the tag your approval question must carry")
     item.add_argument("--action", required=True, choices=ACTIONS)
     item.add_argument("--target", required=True)
@@ -950,6 +1004,10 @@ def _parser() -> argparse.ArgumentParser:
     item.add_argument("--timeout", type=int, default=0)
     item.add_argument("--verdict", choices=VERDICTS, default="info", help="record only")
     item.add_argument("--file", help="record only: the round's text (default: stdin)")
+
+
+def _judge_commands(sub: Subparsers) -> None:
+    add = _adder(sub)
     item = add("rounds", cmd_rounds, "List the rounds, or print one")
     item.add_argument("--show", type=int)
     item = add(
@@ -980,6 +1038,22 @@ def _parser() -> argparse.ArgumentParser:
     item.add_argument("--id", dest="task_id")
     item.add_argument("--max-chars", type=int, default=1600)
     add("config", cmd_config, "Show and validate the taskflow config", task="none")
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="ai-governance taskflow",
+        description="Track tasks across sessions and run the TriAgentTaskFlow (plan, validate, work, judge).",
+        epilog=GUIDE,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sub = parser.add_subparsers(dest="cmd")
+    _task_commands(sub)
+    _content_commands(sub)
+    _reference_commands(sub)
+    _lifecycle_commands(sub)
+    _approval_round_commands(sub)
+    _judge_commands(sub)
     return parser
 
 

@@ -16,7 +16,14 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from .adapters import READ_ONLY_LIMIT, VERDICT_INSTRUCTION, RunResult, parse_verdict, run_agent
+from .adapters import (
+    READ_ONLY_LIMIT,
+    VERDICT_INSTRUCTION,
+    AgentRun,
+    RunResult,
+    parse_verdict,
+    run_agent,
+)
 from .models import READER_ROLES, JsonDict, now_iso
 from .stamp import GitError, changed_paths, git, tree_fingerprint
 from .store import TaskStore, atomic_write_text, fcntl
@@ -152,32 +159,22 @@ def run_round(store: TaskStore, request: RoundRequest, stamp_key: str) -> JsonDi
     with writer_lease(store, request.repo, holder) if not reader else _no_lease():
         # The judge runs tests in its disposable copy, so it gets write access there.
         writes = not reader or request.role == "judge"
-        result = run_agent(
-            request.agent,
-            prompt,
-            cwd=request.repo,
-            writes=writes,
-            workdir=workdir,
-            timeout=request.timeout,
-        )
+        run = AgentRun(request.repo, writes, workdir / "answer.txt")
+        result = run_agent(request.agent, prompt, run, request.timeout)
     atomic_write_text(workdir / "raw.log", result.raw_log)
     changed = (
         [p for p, value in _fingerprints(watched).items() if value != before[p]] if reader else []
     )
-    record = _record(request, number, path, stamp_key, result, changed)
+    record = _record(request, (number, path, stamp_key), result, changed)
     atomic_write_text(path, _render(record, prompt, result.command, result.answer))
     store.mutate(request.task_id, lambda task: task.rounds.append(record))
     return record
 
 
 def _record(
-    request: RoundRequest,
-    number: int,
-    path: Path,
-    stamp_key: str,
-    result: RunResult,
-    changed: list[Path],
+    request: RoundRequest, slot: tuple[int, Path, str], result: RunResult, changed: list[Path]
 ) -> JsonDict:
+    number, path, stamp_key = slot
     state = "invalid" if changed or result.timed_out or result.exit_code != 0 else "valid"
     verdict = parse_verdict(result.answer) if request.role in ("validator", "judge") else "info"
     return {

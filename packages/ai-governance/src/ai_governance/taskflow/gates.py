@@ -9,6 +9,8 @@ never a verdict that opens a gate. The same checks guard every exit: ``phase``,
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from . import tdd
 from .approvals import valid_approval
 from .config import FlowConfig
@@ -135,41 +137,54 @@ def policy_unmet(task: Task, stamp_key: str) -> list[str]:
     return []
 
 
-def _requirements(
-    task: Task, target: str, config: FlowConfig, risk: RiskAssessment, stamp_key: str
-) -> list[str]:
-    planner = _engine_rounds(task, "planner")
-    validator = [r for r in _engine_rounds(task, "validator") if r["n"] > _last_n(planner)]
+@dataclass(frozen=True)
+class GateContext:
+    config: FlowConfig
+    risk: RiskAssessment
+    stamp_key: str
+
+
+def _requirements(task: Task, target: str, ctx: GateContext) -> list[str]:
     if target == "validate":
-        return [] if planner else ["no valid planner round"]
+        return [] if _engine_rounds(task, "planner") else ["no valid planner round"]
     if target == "work":
-        missing = []
-        if not any(r.get("verdict") in ("pass", "concerns") for r in validator):
-            missing.append("no validator pass/concerns on the latest plan")
-        if not plan_approved(task):
-            missing.append(
-                "the user has not approved the current plan (approve --action plan --target <ID>)"
-            )
-        return missing
+        return _work_entry_unmet(task)
     if target == "judge":
-        return judge_unmet(task, stamp_key) + policy_unmet(task, stamp_key)
+        return judge_unmet(task, ctx.stamp_key) + policy_unmet(task, ctx.stamp_key)
     if target in ("staging", "review", "done"):
-        return _judged_unmet(task, target, config, risk, stamp_key)
+        return _judged_unmet(task, target, ctx)
     if target == "findings":
-        verdicts = [r.get("verdict") for r in _engine_rounds(task, "judge")]
-        if task.owner_mode != "external" and not {"block", "concerns"} & set(verdicts):
-            return ["findings need owner_mode=external or a judge verdict of block/concerns"]
+        return _findings_unmet(task)
     return []
 
 
-def _judged_unmet(
-    task: Task, target: str, config: FlowConfig, risk: RiskAssessment, stamp_key: str
-) -> list[str]:
-    missing = judge_unmet(task, stamp_key) + policy_unmet(task, stamp_key)
-    missing += checks_unmet(task, stamp_key) + judges_unmet(task, risk, config, stamp_key)
-    if target == "review" and (task.phase == "staging" or risk.restaging):
-        missing += staging_unmet(task, stamp_key)
-    if target == "done" and not valid_approval(task.approvals, "prod", stamp_key, task.id):
+def _work_entry_unmet(task: Task) -> list[str]:
+    planner = _engine_rounds(task, "planner")
+    validator = [r for r in _engine_rounds(task, "validator") if r["n"] > _last_n(planner)]
+    missing = []
+    if not any(r.get("verdict") in ("pass", "concerns") for r in validator):
+        missing.append("no validator pass/concerns on the latest plan")
+    if not plan_approved(task):
+        missing.append(
+            "the user has not approved the current plan (approve --action plan --target <ID>)"
+        )
+    return missing
+
+
+def _findings_unmet(task: Task) -> list[str]:
+    verdicts = [r.get("verdict") for r in _engine_rounds(task, "judge")]
+    if task.owner_mode != "external" and not {"block", "concerns"} & set(verdicts):
+        return ["findings need owner_mode=external or a judge verdict of block/concerns"]
+    return []
+
+
+def _judged_unmet(task: Task, target: str, ctx: GateContext) -> list[str]:
+    key = ctx.stamp_key
+    missing = judge_unmet(task, key) + policy_unmet(task, key)
+    missing += checks_unmet(task, key) + judges_unmet(task, ctx.risk, ctx.config, key)
+    if target == "review" and (task.phase == "staging" or ctx.risk.restaging):
+        missing += staging_unmet(task, key)
+    if target == "done" and not valid_approval(task.approvals, "prod", key, task.id):
         missing.append(
             "production not confirmed by the user on this code (approve --action prod --target <ID>)"
         )
@@ -202,9 +217,7 @@ def staging_unmet(task: Task, stamp_key: str) -> list[str]:
     return missing
 
 
-def check_transition(
-    task: Task, target: str, config: FlowConfig, risk: RiskAssessment, stamp_key: str
-) -> list[str]:
+def check_transition(task: Task, target: str, ctx: GateContext) -> list[str]:
     """Unmet requirements to move ``task`` to ``target`` (empty list: allowed)."""
     if task.workflow == "manual":
         return ["manual tasks only track steps and facts: they have no phases to move through"]
@@ -213,18 +226,22 @@ def check_transition(
             f"blocked by {task.blocked.get('owner')}: {task.blocked.get('needs')} (taskflow unblock)"
         ]
     if target in EXIT_PHASES:
-        return _requirements(task, target, config, risk, stamp_key)
+        return _requirements(task, target, ctx)
     if target not in PHASES:
         raise ValueError(f"Unknown phase '{target}'")
     if task.phase in EXIT_PHASES:
         return [f"the task left the flow through '{task.phase}'"]
+    return _forward_unmet(task, target, ctx)
+
+
+def _forward_unmet(task: Task, target: str, ctx: GateContext) -> list[str]:
     current, wanted = PHASES.index(task.phase), PHASES.index(target)
     if wanted <= current:
         return []
-    skipping_staging = task.phase == "judge" and target == "review" and not risk.restaging
+    skipping_staging = task.phase == "judge" and target == "review" and not ctx.risk.restaging
     if wanted != current + 1 and not skipping_staging:
         return [f"move one phase at a time: next is '{PHASES[current + 1]}'"]
-    return _requirements(task, target, config, risk, stamp_key)
+    return _requirements(task, target, ctx)
 
 
 def close_unmet(task: Task, config: FlowConfig, risk: RiskAssessment, stamp_key: str) -> list[str]:
@@ -234,4 +251,4 @@ def close_unmet(task: Task, config: FlowConfig, risk: RiskAssessment, stamp_key:
         return []
     if task.phase != "done":
         return [f"phase is '{task.phase}': finish the flow (done/findings) or close --abandon"]
-    return _judged_unmet(task, "done", config, risk, stamp_key)
+    return _judged_unmet(task, "done", GateContext(config, risk, stamp_key))

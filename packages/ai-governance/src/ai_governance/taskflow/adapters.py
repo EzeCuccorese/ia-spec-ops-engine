@@ -49,25 +49,30 @@ class RunResult:
     timed_out: bool = False
 
 
-def build_command(
-    agent: str, model: str, prompt: str, *, cwd: Path, writes: bool, answer_file: Path
-) -> list[str]:
+@dataclass(frozen=True)
+class AgentRun:
+    cwd: Path
+    writes: bool
+    answer_file: Path
+
+
+def build_command(agent: str, model: str, prompt: str, run: AgentRun) -> list[str]:
     if agent == "antigravity":
         command = ["agy"]
         if model:
             command += ["--model", model]
-        mode = "accept-edits" if writes else "plan"
+        mode = "accept-edits" if run.writes else "plan"
         return [*command, "--mode", mode, "--dangerously-skip-permissions", f"--print={prompt}"]
     if agent == "codex":
         command = [
             "codex",
             "exec",
             "-C",
-            str(cwd),
+            str(run.cwd),
             "-s",
-            "danger-full-access" if writes else "read-only",
+            "danger-full-access" if run.writes else "read-only",
             "-o",
-            str(answer_file),
+            str(run.answer_file),
         ]
         if model:
             command += ["-m", model]
@@ -80,24 +85,15 @@ def build_command(
     raise ValueError(f"Unknown agent '{agent}': use one of {', '.join(AGENTS)} (or 'human')")
 
 
-def run_agent(
-    role_config: JsonDict, prompt: str, *, cwd: Path, writes: bool, workdir: Path, timeout: int
-) -> RunResult:
+def run_agent(role_config: JsonDict, prompt: str, run: AgentRun, timeout: int) -> RunResult:
     agent = str(role_config.get("agent", ""))
-    answer_file = workdir / "answer.txt"
+    answer_file = run.answer_file
     answer_file.unlink(missing_ok=True)
-    command = build_command(
-        agent,
-        str(role_config.get("model", "")),
-        prompt,
-        cwd=cwd,
-        writes=writes,
-        answer_file=answer_file,
-    )
+    command = build_command(agent, str(role_config.get("model", "")), prompt, run)
     try:
         proc = subprocess.run(
             command,
-            cwd=cwd,
+            cwd=run.cwd,
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,

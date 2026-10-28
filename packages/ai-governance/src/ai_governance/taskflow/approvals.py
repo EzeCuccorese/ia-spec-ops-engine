@@ -121,18 +121,19 @@ def _messages(transcript: Path) -> list[tuple[str, str]]:
         role = entry.get("type")
         if role not in ("user", "assistant") or entry.get("isMeta"):
             continue
-        content = (entry.get("message") or {}).get("content")
-        texts = (
-            [content]
-            if isinstance(content, str)
-            else [
-                c.get("text", "")
-                for c in content or []
-                if isinstance(c, dict) and c.get("type") == "text"
-            ]
-        )
+        texts = _text_blocks((entry.get("message") or {}).get("content"))
         messages += [(role, t) for t in texts if t and not t.lstrip().startswith("<")]
     return messages
+
+
+def _text_blocks(content: object) -> list[str]:
+    if isinstance(content, str):
+        return [content]
+    return [
+        c.get("text", "")
+        for c in content or []  # type: ignore[attr-defined]
+        if isinstance(c, dict) and c.get("type") == "text"
+    ]
 
 
 def in_claude_session() -> bool:
@@ -160,18 +161,24 @@ def find_proof(request: ApprovalRequest, transcript: Path, risky: bool) -> str:
     """``<transcript>#<message>`` of a recent user message that is exactly the reply and
     answers the assistant message carrying this request's tag (and, for risky actions,
     showing the consequence); else ``""``."""
-    wanted, shown = normalize(request.user_reply), normalize(request.consequence)
+    wanted = normalize(request.user_reply)
     messages = _messages(transcript)
     users = [i for i, (role, _text) in enumerate(messages) if role == "user"]
     for index in reversed(users[-RECENT_USER_MESSAGES:]):  # an answer to what was just asked
-        if normalize(messages[index][1]) != wanted:
-            continue
-        asked = [t for r, t in messages[:index] if r == "assistant"][-1:]
-        if not asked or request_tag(request) not in asked[0]:  # exact: ids are case-sensitive
-            continue
-        if not risky or shown in normalize(asked[0]):
+        if normalize(messages[index][1]) == wanted and _answers_request(
+            messages, index, request, risky
+        ):
             return f"{transcript}#{index}"
     return ""
+
+
+def _answers_request(
+    messages: list[tuple[str, str]], index: int, request: ApprovalRequest, risky: bool
+) -> bool:
+    asked = [t for r, t in messages[:index] if r == "assistant"][-1:]
+    if not asked or request_tag(request) not in asked[0]:  # exact: ids are case-sensitive
+        return False
+    return not risky or normalize(request.consequence) in normalize(asked[0])
 
 
 @dataclass(frozen=True)
@@ -185,14 +192,15 @@ class ApprovalRequest:
     reference: str = ""  # plan-r<validation round> for plans, else the code stamp
 
 
-def build_approval(
-    request: ApprovalRequest,
-    *,
-    stamp_key: str,
-    moment: datetime,
-    previous: list[JsonDict] | None = None,
-    transcripts_root: Path = CLAUDE_PROJECTS,
-) -> JsonDict:
+@dataclass(frozen=True)
+class ApprovalContext:
+    stamp_key: str
+    moment: datetime
+    previous: list[JsonDict] | None = None
+    transcripts_root: Path = CLAUDE_PROJECTS
+
+
+def build_approval(request: ApprovalRequest, context: ApprovalContext) -> JsonDict:
     """Validate a chat approval and return the record to store, or raise ``ApprovalError``.
 
     Inside a Claude Code session every approval must match a whole user message of that
@@ -200,6 +208,32 @@ def build_approval(
     Without a transcript (other agents) ordinary approvals are recorded as ``declared``
     and risky ones are refused.
     """
+    risky = _check_request(request)
+    proof = _require_proof(request, context.transcripts_root, risky)
+    if proof and any(a.get("proof") == proof for a in context.previous or []):
+        raise ApprovalError("That user message already approved something: ask the user again")
+    if request.action in PRODUCTION_ACTIONS and outside_production_window(context.moment):
+        raise ApprovalError(
+            "Outside the production window (never after 16:00, nor Friday after 13:00): "
+            "prepare it now and run it on the next working day."
+        )
+    return {
+        "action": request.action,
+        "target": request.target,
+        "user_reply": request.user_reply,
+        "consequence": request.consequence,
+        "actor": request.actor,
+        "risky": risky,
+        "reference": request.reference,
+        "verified": "transcript" if proof else "declared",
+        "proof": proof,
+        "stamp": context.stamp_key,
+        "at": now_iso(),
+    }
+
+
+def _check_request(request: ApprovalRequest) -> bool:
+    """Reject malformed requests; returns whether the action is risky."""
     if request.action not in ACTIONS:
         raise ApprovalError(f"Unknown action '{request.action}'. Use one of: {', '.join(ACTIONS)}")
     if not request.user_reply.strip() or not request.target.strip():
@@ -207,6 +241,10 @@ def build_approval(
     risky = request.action in RISKY_ACTIONS
     if risky:
         _check_reinforced(request)
+    return risky
+
+
+def _require_proof(request: ApprovalRequest, transcripts_root: Path, risky: bool) -> str:
     transcript = current_transcript(transcripts_root)
     proof = find_proof(request, transcript, risky) if transcript else ""
     if transcript and not proof:
@@ -222,26 +260,7 @@ def build_approval(
         raise ApprovalError(
             "A risky action is approved only from a Claude Code session with the user's own words"
         )
-    if proof and any(a.get("proof") == proof for a in previous or []):
-        raise ApprovalError("That user message already approved something: ask the user again")
-    if request.action in PRODUCTION_ACTIONS and outside_production_window(moment):
-        raise ApprovalError(
-            "Outside the production window (never after 16:00, nor Friday after 13:00): "
-            "prepare it now and run it on the next working day."
-        )
-    return {
-        "action": request.action,
-        "target": request.target,
-        "user_reply": request.user_reply,
-        "consequence": request.consequence,
-        "actor": request.actor,
-        "risky": risky,
-        "reference": request.reference,
-        "verified": "transcript" if proof else "declared",
-        "proof": proof,
-        "stamp": stamp_key,
-        "at": now_iso(),
-    }
+    return proof
 
 
 def _check_reinforced(request: ApprovalRequest) -> None:

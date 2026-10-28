@@ -15,8 +15,13 @@ from pathlib import Path
 
 import pytest
 from ai_governance.taskflow import approvals, gates, tdd
-from ai_governance.taskflow.adapters import build_command, parse_verdict
-from ai_governance.taskflow.approvals import ApprovalError, ApprovalRequest, build_approval
+from ai_governance.taskflow.adapters import AgentRun, build_command, parse_verdict
+from ai_governance.taskflow.approvals import (
+    ApprovalContext,
+    ApprovalError,
+    ApprovalRequest,
+    build_approval,
+)
 from ai_governance.taskflow.cli import main
 from ai_governance.taskflow.config import FlowConfig, RiskRule, load_config
 from ai_governance.taskflow.handoff import scrub
@@ -232,9 +237,7 @@ def _approve(
         task_id="T",
         reference=base.reference or "k1",
     )
-    return build_approval(
-        request, stamp_key="k1", moment=moment, previous=previous, transcripts_root=tmp_path / "t"
-    )
+    return build_approval(request, ApprovalContext("k1", moment, previous, tmp_path / "t"))
 
 
 def test_risky_approval_needs_consequence_named_action_and_target(
@@ -391,11 +394,13 @@ def test_red_must_fail_on_an_assertion_and_green_needs_new_code_and_same_command
     task = Task(
         id="T", title="t", tdd={"red": tdd.red_record("pytest t.py", 1, "E   assert 1 == 2", "k1")}
     )
+    task.code_stamp = {"key": "k1"}
     with pytest.raises(tdd.TddError, match="not changed"):
-        tdd.green_record(task, "pytest t.py", 0, "", "k1")
+        tdd.green_record(task, "pytest t.py", 0, "")
+    task.code_stamp = {"key": "k2"}
     with pytest.raises(tdd.TddError, match="red command"):
-        tdd.green_record(task, "pytest", 0, "", "k2")
-    task.tdd["green"] = tdd.green_record(task, "pytest t.py", 0, "1 passed", "k2")
+        tdd.green_record(task, "pytest", 0, "")
+    task.tdd["green"] = tdd.green_record(task, "pytest t.py", 0, "1 passed")
     assert tdd.unmet(task, "k2") == []
     assert "stale" in tdd.unmet(task, "k3")[0]
 
@@ -437,24 +442,17 @@ def _ready(phase: str, stamp: str = "k1") -> Task:
     )
 
 
-def _judged(
-    task: Task,
-    focus: str,
-    verdict: str,
-    *,
-    stamp: str = "k1",
-    source: str = "engine",
-    state: str = "valid",
-) -> None:
+def _judged(task: Task, focus: str, verdict: str, **overrides: str) -> None:
     task.rounds.append(
         {
             "n": len(task.rounds) + 1,
             "role": "judge",
             "focus": focus,
             "verdict": verdict,
-            "stamp": stamp,
-            "state": state,
-            "source": source,
+            "stamp": "k1",
+            "state": "valid",
+            "source": "engine",
+            **overrides,
         }
     )
 
@@ -468,24 +466,27 @@ def test_risk_rules_accumulate_judges_and_restaging() -> None:
 def test_phases_move_one_at_a_time_and_back_freely() -> None:
     task = Task(id="T", title="t", phase="plan")
     risk = assess(CONFIG, [])
-    assert "one phase" in gates.check_transition(task, "work", CONFIG, risk, "k1")[0]
+    assert (
+        "one phase"
+        in gates.check_transition(task, "work", gates.GateContext(CONFIG, risk, "k1"))[0]
+    )
     task.phase = "judge"
-    assert gates.check_transition(task, "work", CONFIG, risk, "k1") == []
+    assert gates.check_transition(task, "work", gates.GateContext(CONFIG, risk, "k1")) == []
 
 
 def test_every_required_judge_must_pass_on_the_current_code() -> None:
     task = _ready("judge")
     risk = assess(CONFIG, ["migrations/001.sql"])
     _judged(task, "correctness", "pass")
-    assert gates.check_transition(task, "staging", CONFIG, risk, "k1") == [
+    assert gates.check_transition(task, "staging", gates.GateContext(CONFIG, risk, "k1")) == [
         "judge 'security': no verdict yet"
     ]
     _judged(task, "security", "pass")
-    assert gates.check_transition(task, "staging", CONFIG, risk, "k1") == []
+    assert gates.check_transition(task, "staging", gates.GateContext(CONFIG, risk, "k1")) == []
     task.code_stamp["key"] = "k2"
     assert all(
         "stale" in item or "checks" in item
-        for item in gates.check_transition(task, "staging", CONFIG, risk, "k2")
+        for item in gates.check_transition(task, "staging", gates.GateContext(CONFIG, risk, "k2"))
     )
 
 
@@ -493,7 +494,9 @@ def test_a_later_invalid_attempt_cancels_an_earlier_pass() -> None:
     task = _ready("judge")
     _judged(task, "correctness", "pass")
     _judged(task, "correctness", "block", state="invalid")
-    missing = gates.check_transition(task, "review", FlowConfig(), assess(FlowConfig(), []), "k1")
+    missing = gates.check_transition(
+        task, "review", gates.GateContext(FlowConfig(), assess(FlowConfig(), []), "k1")
+    )
     assert "invalid" in missing[0]
 
 
@@ -501,14 +504,18 @@ def test_failed_checks_block_even_when_the_judge_passes() -> None:
     task = _ready("judge")
     task.evidence[0]["passed"] = False
     _judged(task, "correctness", "pass")
-    missing = gates.check_transition(task, "review", FlowConfig(), assess(FlowConfig(), []), "k1")
+    missing = gates.check_transition(
+        task, "review", gates.GateContext(FlowConfig(), assess(FlowConfig(), []), "k1")
+    )
     assert missing == ["checks failed on /r: c.txt"]
 
 
 def test_recorded_rounds_never_open_a_gate() -> None:
     task = _ready("judge")
     _judged(task, "correctness", "pass", source="manual")
-    assert gates.check_transition(task, "review", FlowConfig(), assess(FlowConfig(), []), "k1")
+    assert gates.check_transition(
+        task, "review", gates.GateContext(FlowConfig(), assess(FlowConfig(), []), "k1")
+    )
 
 
 def test_staging_must_cover_the_current_head_of_every_repository() -> None:
@@ -520,11 +527,11 @@ def test_staging_must_cover_the_current_head_of_every_repository() -> None:
     task.approvals.append({"action": "staging", "target": "T", "stamp": "k1"})
     assert (
         "not recorded as deployed"
-        in gates.check_transition(task, "review", FlowConfig(), risk, "k1")[0]
+        in gates.check_transition(task, "review", gates.GateContext(FlowConfig(), risk, "k1"))[0]
     )
     task.deployments.append({"env": "staging", "repo": REPO, "sha": "abc123"})
     task.evidence.append({"kind": "staging", "deployed_sha": "abc123"})
-    assert gates.check_transition(task, "review", FlowConfig(), risk, "k1") == []
+    assert gates.check_transition(task, "review", gates.GateContext(FlowConfig(), risk, "k1")) == []
 
 
 def test_restaging_risk_forbids_skipping_staging_and_done_needs_production_approval() -> None:
@@ -532,36 +539,45 @@ def test_restaging_risk_forbids_skipping_staging_and_done_needs_production_appro
     _judged(task, "correctness", "pass")
     _judged(task, "security", "pass")
     risky = assess(CONFIG, ["migrations/001.sql"])
-    assert "one phase" in gates.check_transition(task, "review", CONFIG, risky, "k1")[0]
+    assert (
+        "one phase"
+        in gates.check_transition(task, "review", gates.GateContext(CONFIG, risky, "k1"))[0]
+    )
     task.phase = "review"
     task.deployments.append({"env": "staging", "repo": REPO, "sha": "abc123"})
     task.evidence.append({"kind": "staging", "deployed_sha": "abc123"})
     task.approvals.append({"action": "staging", "target": "T", "stamp": "k1"})
     assert (
-        "production not confirmed" in gates.check_transition(task, "done", CONFIG, risky, "k1")[-1]
+        "production not confirmed"
+        in gates.check_transition(task, "done", gates.GateContext(CONFIG, risky, "k1"))[-1]
     )
     task.approvals.append({"action": "prod", "target": "OTHER", "stamp": "k1"})
-    assert gates.check_transition(task, "done", CONFIG, risky, "k1")
+    assert gates.check_transition(task, "done", gates.GateContext(CONFIG, risky, "k1"))
     task.approvals.append({"action": "prod", "target": "T", "stamp": "k1"})
-    assert gates.check_transition(task, "done", CONFIG, risky, "k1") == []
+    assert gates.check_transition(task, "done", gates.GateContext(CONFIG, risky, "k1")) == []
 
 
 def test_work_needs_validator_verdict_and_plan_approval_for_this_task() -> None:
     task = Task(id="T", title="t", phase="validate")
     task.rounds.append({"n": 1, "role": "planner", "state": "valid", "source": "engine"})
     risk = assess(FlowConfig(), [])
-    assert len(gates.check_transition(task, "work", FlowConfig(), risk, "k1")) == 2
+    assert (
+        len(gates.check_transition(task, "work", gates.GateContext(FlowConfig(), risk, "k1"))) == 2
+    )
     task.rounds.append(
         {"n": 2, "role": "validator", "verdict": "concerns", "state": "valid", "source": "engine"}
     )
     task.approvals.append({"action": "plan", "target": "OTHER", "stamp": "k0", "plan_round": 2})
-    assert gates.check_transition(task, "work", FlowConfig(), risk, "k1")
+    assert gates.check_transition(task, "work", gates.GateContext(FlowConfig(), risk, "k1"))
     task.approvals.append({"action": "plan", "target": "T", "stamp": "k0", "plan_round": 2})
-    assert gates.check_transition(task, "work", FlowConfig(), risk, "k1") == []
+    assert gates.check_transition(task, "work", gates.GateContext(FlowConfig(), risk, "k1")) == []
     task.rounds.append(
         {"n": 3, "role": "validator", "verdict": "pass", "state": "valid", "source": "engine"}
     )
-    assert "current plan" in gates.check_transition(task, "work", FlowConfig(), risk, "k1")[0]
+    assert (
+        "current plan"
+        in gates.check_transition(task, "work", gates.GateContext(FlowConfig(), risk, "k1"))[0]
+    )
 
 
 def test_builders_write_only_in_work_with_an_approved_plan() -> None:
@@ -587,9 +603,12 @@ def test_removing_a_control_needs_a_policy_downgrade_approval() -> None:
     task.code_stamp["policy_reduced"] = ["judges:security"]
     _judged(task, "correctness", "pass")
     risk = assess(FlowConfig(), [])
-    assert "policy reduced" in gates.check_transition(task, "review", FlowConfig(), risk, "k1")[0]
+    assert (
+        "policy reduced"
+        in gates.check_transition(task, "review", gates.GateContext(FlowConfig(), risk, "k1"))[0]
+    )
     task.approvals.append({"action": "policy-downgrade", "target": "T", "stamp": "k1"})
-    assert gates.check_transition(task, "review", FlowConfig(), risk, "k1") == []
+    assert gates.check_transition(task, "review", gates.GateContext(FlowConfig(), risk, "k1")) == []
 
 
 def test_close_rechecks_done_on_the_current_code() -> None:
@@ -605,19 +624,26 @@ def test_human_judge_approves_in_the_chat() -> None:
     config = FlowConfig(judges=({"focus": "ux", "agent": "human"},))
     task = _ready("judge")
     risk = assess(config, [])
-    assert "human" in gates.check_transition(task, "review", config, risk, "k1")[0]
+    assert (
+        "human" in gates.check_transition(task, "review", gates.GateContext(config, risk, "k1"))[0]
+    )
     task.approvals.append({"action": "review", "target": "ux", "stamp": "k1"})
-    assert gates.check_transition(task, "review", config, risk, "k1") == []
+    assert gates.check_transition(task, "review", gates.GateContext(config, risk, "k1")) == []
 
 
 def test_blocked_task_cannot_advance_and_findings_need_a_reason() -> None:
     task = Task(id="T", title="t", phase="judge", blocked={"owner": "infra", "needs": "access"})
     risk = assess(FlowConfig(), [])
-    assert "blocked by infra" in gates.check_transition(task, "review", FlowConfig(), risk, "k1")[0]
+    assert (
+        "blocked by infra"
+        in gates.check_transition(task, "review", gates.GateContext(FlowConfig(), risk, "k1"))[0]
+    )
     task.blocked = {}
-    assert gates.check_transition(task, "findings", FlowConfig(), risk, "k1")
+    assert gates.check_transition(task, "findings", gates.GateContext(FlowConfig(), risk, "k1"))
     task.owner_mode = "external"
-    assert gates.check_transition(task, "findings", FlowConfig(), risk, "k1") == []
+    assert (
+        gates.check_transition(task, "findings", gates.GateContext(FlowConfig(), risk, "k1")) == []
+    )
 
 
 # -- config --------------------------------------------------------------------------------
@@ -648,14 +674,15 @@ def test_a_judge_on_an_agent_that_built_the_task_is_refused(state: TaskStore, re
     task = _ready("judge")
     task.rounds.append({"n": 1, "role": "builder", "agent": "codex"})
     with pytest.raises(JudgeError, match="not independent"):
-        judge_task(state, task, FlowConfig(), assess(FlowConfig(), []), "k1")
+        judge_task(state, task, gates.GateContext(FlowConfig(), assess(FlowConfig(), []), "k1"))
 
 
 # -- adapters and rounds -------------------------------------------------------------------
 def test_adapter_flags_match_each_cli(tmp_path: Path) -> None:
-    agy = build_command(
-        "antigravity", "m", "hi", cwd=tmp_path, writes=False, answer_file=tmp_path / "a"
-    )
+    def run(writes: bool) -> AgentRun:
+        return AgentRun(tmp_path, writes, tmp_path / "a")
+
+    agy = build_command("antigravity", "m", "hi", run(False))
     assert agy == [
         "agy",
         "--model",
@@ -665,15 +692,10 @@ def test_adapter_flags_match_each_cli(tmp_path: Path) -> None:
         "--dangerously-skip-permissions",
         "--print=hi",
     ]
-    codex = build_command("codex", "m", "hi", cwd=tmp_path, writes=True, answer_file=tmp_path / "a")
+    codex = build_command("codex", "m", "hi", run(True))
     assert codex[:2] == ["codex", "exec"] and "-o" in codex and "danger-full-access" in codex
-    reader = build_command(
-        "codex", "m", "hi", cwd=tmp_path, writes=False, answer_file=tmp_path / "a"
-    )
-    assert "read-only" in reader
-    claude = build_command(
-        "claude", "", "hi", cwd=tmp_path, writes=False, answer_file=tmp_path / "a"
-    )
+    assert "read-only" in build_command("codex", "m", "hi", run(False))
+    claude = build_command("claude", "", "hi", run(False))
     assert claude == ["claude", "-p", "--dangerously-skip-permissions", "hi"]
 
 
@@ -733,16 +755,18 @@ def test_handoff_scrubs_secrets() -> None:
 
 
 # -- end to end through the CLI ------------------------------------------------------------
-def test_full_flow_through_the_cli(
-    state: TaskStore, repo: Path, fake_agents: Path, tmp_path: Path, monkeypatch, capsys
-) -> None:
+@pytest.fixture
+def cli_run(repo: Path, fake_agents: Path, tmp_path: Path, monkeypatch):
     config_dir = tmp_path / "config" / "ai-governance"
     config_dir.mkdir(parents=True)
     (config_dir / "taskflow.toml").write_text('[checks]\ncommands = ["true"]\n')
     monkeypatch.chdir(repo)
-    run = lambda *argv: main(list(argv))  # noqa: E731
+    return lambda *argv: main(list(argv))
+
+
+def _plan_and_approve(run) -> None:
     assert run("new", "ONB-1", "--title", "Restore status", "--summary", "goal") == 0
-    assert run("bind", "ONB-1", "--repo", str(repo)) == 0
+    assert run("bind", "ONB-1", "--repo", str(Path.cwd())) == 0
     assert run("round", "ONB-1", "run", "--role", "planner", "--prompt", "plan it") == 0
     assert run("phase", "ONB-1", "validate") == 0
     assert run("round", "ONB-1", "run", "--role", "validator", "--prompt", "check it") == 0
@@ -751,6 +775,9 @@ def test_full_flow_through_the_cli(
         run("approve", "ONB-1", "--action", "plan", "--target", "ONB-1", "--user-reply", "ok") == 0
     )
     assert run("phase", "ONB-1", "work") == 0
+
+
+def _red_green_commit(run, repo: Path) -> None:
     (repo / "test_app.sh").write_text(
         "grep -q 'x = 2' app.py || { echo 'FAILED: expected x = 2'; exit 1; }\n"
     )
@@ -760,9 +787,14 @@ def test_full_flow_through_the_cli(
     assert run("phase", "ONB-1", "judge") == 1  # uncommitted: the judge only judges commits
     _git(repo, "add", ".")
     _git(repo, "commit", "-qm", "fix")
-    assert (
-        run("tdd", "ONB-1", "green", "--cmd", "sh test_app.sh") == 0
-    )  # green on the committed stamp
+    # green on the committed stamp
+    assert run("tdd", "ONB-1", "green", "--cmd", "sh test_app.sh") == 0
+
+
+def test_full_flow_through_the_cli(state: TaskStore, repo: Path, cli_run, capsys) -> None:
+    run = cli_run
+    _plan_and_approve(run)
+    _red_green_commit(run, repo)
     assert run("phase", "ONB-1", "judge") == 0
     assert run("judge", "ONB-1") == 0
     assert run("phase", "ONB-1", "review") == 0

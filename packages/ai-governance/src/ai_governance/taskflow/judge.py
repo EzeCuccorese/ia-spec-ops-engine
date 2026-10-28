@@ -14,8 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .config import FlowConfig
+from .gates import GateContext
 from .models import JsonDict, Task
-from .risk import RiskAssessment
 from .rounds import RoundRequest, run_round
 from .stamp import GitError, git, tree_fingerprint
 from .store import TaskStore, atomic_write_text
@@ -120,42 +120,58 @@ def builders(task: Task, config: FlowConfig) -> set[str]:
     return {str(config.roles.get("builder", {}).get("agent", "")), *used} - {""}
 
 
-def judge_task(
-    store: TaskStore,
-    task: Task,
-    config: FlowConfig,
-    risk: RiskAssessment,
-    stamp_key: str,
-    focus: str = "",
-) -> tuple[list[JsonDict], list[str]]:
-    """Run the checks and the judges; returns the rounds and the copies kept because a
-    judge modified them. Check results are stored as evidence that gates read directly,
-    so a failing check blocks whatever a judge answers."""
+def _independent_judges(
+    task: Task, config: FlowConfig, focus: str, focuses: list[str]
+) -> list[JsonDict]:
     writers = builders(task, config)
-    focuses = [focus] if focus else list(risk.judges)
-    judges = [config.judge_for(name) for name in focuses]
+    judges = [config.judge_for(name) for name in ([focus] if focus else focuses)]
     for judge in judges:
         if judge.get("agent") in ("", *writers):
             raise JudgeError(
                 f"Judge '{judge.get('focus')}' is not independent of the builder ({', '.join(writers)})"
             )
+    return judges
+
+
+def _check_evidence(
+    copies: list[JudgedCopy], checks: list[JsonDict], stamp_key: str
+) -> list[JsonDict]:
+    return [
+        {
+            "kind": "checks",
+            "repo": str(c.source),
+            "sha": c.head,
+            "stamp": stamp_key,
+            "passed": r["passed"],
+            "path": r["path"],
+        }
+        for c, r in zip(copies, checks, strict=True)
+    ]
+
+
+def _discard_untouched(copies: list[JudgedCopy]) -> list[str]:
+    kept = []
+    for copy in copies:
+        if tree_fingerprint(copy.path) == copy.fingerprint:
+            git(copy.source, "worktree", "remove", "--force", str(copy.path))
+        else:
+            kept.append(str(copy.path))
+    return kept
+
+
+def judge_task(
+    store: TaskStore, task: Task, ctx: GateContext, focus: str = ""
+) -> tuple[list[JsonDict], list[str]]:
+    """Run the checks and the judges; returns the rounds and the copies kept because a
+    judge modified them. Check results are stored as evidence that gates read directly,
+    so a failing check blocks whatever a judge answers."""
+    config, risk = ctx.config, ctx.risk
+    judges = _independent_judges(task, config, focus, list(risk.judges))
     scratch = Path(tempfile.mkdtemp(prefix=f"taskflow-judge-{task.id}-"))
     copies = [make_copy(binding, scratch) for binding in task.repos]
     checks = [run_checks(copy, risk.checks, store.evidence_dir(task.id)) for copy in copies]
-    store.mutate(
-        task.id,
-        lambda t: t.evidence.extend(
-            {
-                "kind": "checks",
-                "repo": str(c.source),
-                "sha": c.head,
-                "stamp": stamp_key,
-                "passed": r["passed"],
-                "path": r["path"],
-            }
-            for c, r in zip(copies, checks, strict=True)
-        ),
-    )
+    evidence = _check_evidence(copies, checks, ctx.stamp_key)
+    store.mutate(task.id, lambda t: t.evidence.extend(evidence))
     records = []
     for judge in judges:
         if judge.get("agent") == "human":
@@ -171,11 +187,5 @@ def judge_task(
             timeout=config.timeout_seconds,
             watch=tuple(c.path for c in copies[1:]),
         )
-        records.append(run_round(store, request, stamp_key))
-    kept = []
-    for copy in copies:
-        if tree_fingerprint(copy.path) == copy.fingerprint:
-            git(copy.source, "worktree", "remove", "--force", str(copy.path))
-        else:
-            kept.append(str(copy.path))
-    return records, kept
+        records.append(run_round(store, request, ctx.stamp_key))
+    return records, _discard_untouched(copies)

@@ -86,7 +86,7 @@ class TestRulesListBudget:
 
 
 @pytest.mark.parametrize(
-    "argv,budget",
+    "case",
     [
         (["list"], 1500),
         (["show", "T-1"], 1500),
@@ -97,10 +97,10 @@ def test_taskflow_commands_stay_in_budget(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
-    argv: list[str],
-    budget: int,
+    case: tuple[list[str], int],
 ) -> None:
     """Parametrized test: various taskflow commands must stay in budget."""
+    argv, budget = case
     _seed_task_with_steps(monkeypatch, tmp_path)
 
     session_main(argv)
