@@ -79,9 +79,10 @@ def _fake_bin(directory: Path, name: str, script: str) -> None:
 
 @pytest.fixture
 def fake_agents(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-    """agy answers on stdout; codex writes its -o file with the verdict in $VERDICT."""
+    """agy and claude answer on stdout; codex writes its -o file with the verdict in $VERDICT."""
     bins = tmp_path / "bin"
     _fake_bin(bins, "agy", 'echo "PLAN: change app.py"\n')
+    _fake_bin(bins, "claude", 'echo "built"\n')  # default builder; CI has no real claude
     _fake_bin(
         bins,
         "codex",
