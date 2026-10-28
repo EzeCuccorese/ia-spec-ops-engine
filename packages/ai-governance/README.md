@@ -35,7 +35,9 @@ Nothing ever defaults to all agents.
 Personal, project-agnostic harness, plus the language rules: every catalog rule marked
 `user_scope` (all `2-stacks` rules, the code-level core rules and `api-design`) is written to the
 agent's global rules folder with its globs, so it loads per file in any repository without
-committing anything. Codex has no per-file global rules and skips them with a warning.
+committing anything. Codex has no per-file global rules: they are copied to
+`$CODEX_HOME/ai-governance/`, indexed by glob in `language-rules.md`, and the `AGENTS.md` block
+points to that index.
 
 <!-- agents-table:start -->
 | | Claude Code | OpenAI Codex | Google Antigravity 2 |
@@ -108,7 +110,7 @@ installing again removes or swaps its files.
 |---|---|
 | `rules/<name>.md` | Claude Code: `~/.claude/rules/ai-governance-<company>-<name>.md` (symlink to the source file) |
 | | Antigravity: `~/.gemini/config/rules/ai-governance-<company>-<name>.md` (symlink to the same file; its `trigger: always_on` front matter is what Antigravity reads) |
-| | Codex: skipped (no per-file global rules), with one warning naming the skipped packs |
+| | Codex: `$CODEX_HOME/ai-governance/company/<company>-<name>.md` (symlink to the same file; the `AGENTS.md` block tells Codex to read them once per session) |
 | `scripts/*` | Symlinks in `~/.local/bin` (`AI_GOVERNANCE_BIN_DIR`), removed when the last installed agent is uninstalled |
 
 Rules are refreshed only for the agents named in that install: other installed agents keep
