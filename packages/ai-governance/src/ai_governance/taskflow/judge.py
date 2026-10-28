@@ -17,7 +17,7 @@ from .config import FlowConfig
 from .gates import GateContext
 from .models import JsonDict, Task
 from .rounds import RoundRequest, run_round
-from .stamp import GitError, git, tree_fingerprint
+from .stamp import git, merge_base, tree_fingerprint
 from .store import TaskStore, atomic_write_text
 
 # Dependency folders are linked from the source checkout so checks can run without a
@@ -42,12 +42,7 @@ class JudgedCopy:
 
 def _base(repo: Path, binding: JsonDict) -> str:
     branch = str(binding.get("integration_branch") or binding.get("base") or "")
-    for ref in (f"origin/{branch}", branch) if branch else ():
-        try:
-            return git(repo, "merge-base", "HEAD", ref).strip()
-        except GitError:
-            continue
-    return ""
+    return merge_base(repo, branch) if branch else ""
 
 
 def make_copy(binding: JsonDict, scratch: Path) -> JudgedCopy:

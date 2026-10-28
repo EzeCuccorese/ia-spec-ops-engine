@@ -27,6 +27,7 @@ from ai_governance.taskflow.config import FlowConfig, RiskRule, load_config
 from ai_governance.taskflow.handoff import scrub
 from ai_governance.taskflow.judge import JudgeError, judge_task
 from ai_governance.taskflow.models import Task
+from ai_governance.taskflow.resolver import TaskResolver
 from ai_governance.taskflow.risk import assess
 from ai_governance.taskflow.rounds import LeaseError, RoundRequest, run_round, writer_lease
 from ai_governance.taskflow.stamp import code_stamp, remote_sha
@@ -870,3 +871,20 @@ def test_claude_edits_are_denied_while_another_agent_holds_the_writer_lease(
     monkeypatch.setattr("sys.stdin", StringIO(payload))
     assert hooks.main(["claude", "writer-lease"]) == 0
     assert capsys.readouterr().out == ""
+
+
+def test_staging_needs_every_head_deployed_and_evidenced() -> None:
+    task = Task(id="T", title="t", code_stamp={"repos": [{"repo": "/r", "head": "a" * 40}]})
+    assert "not recorded as deployed" in gates.staging_unmet(task, "k")[0]
+    task.deployments.append({"env": "staging", "repo": "/r", "sha": "a" * 40})
+    assert "no evidence bound" in gates.staging_unmet(task, "k")[0]
+    task.evidence.append({"kind": "staging", "deployed_sha": "a" * 40})
+    assert gates.staging_unmet(task, "k") == [
+        "the user has not accepted the staging test on this code"
+    ]
+
+
+def test_resolver_reads_the_jira_key_from_the_branch(repo: Path) -> None:
+    _git(repo, "checkout", "-q", "-b", "feat/onb-77-thing")
+    assert TaskResolver.resolve_from_git(repo) == "ONB-77"
+    assert TaskResolver.resolve_from_git(repo.parent / "missing") is None

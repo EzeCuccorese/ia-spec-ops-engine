@@ -41,7 +41,7 @@ from .models import EXIT_PHASES, PHASES, ROLES, VERDICTS, WORKFLOWS, JsonDict, T
 from .resolver import TaskResolver
 from .risk import RiskAssessment, assess
 from .rounds import LeaseError, RoundRequest, record_manual, run_round
-from .stamp import GitError, changed_paths, code_stamp
+from .stamp import GitError, changed_paths, code_stamp, merge_base
 from .store import FRICTION_FILE, TaskStore
 
 GUIDE = """\
@@ -173,7 +173,7 @@ def policy_reductions(baseline: JsonDict, current: JsonDict) -> list[str]:
 
 def _base_ref(repo: dict[str, str]) -> str:
     branch = repo.get("integration_branch", "")
-    return f"origin/{branch}" if branch else ""
+    return merge_base(Path(repo["path"]), branch) if branch else ""
 
 
 # -- tracking ------------------------------------------------------------------------------
