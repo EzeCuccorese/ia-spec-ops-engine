@@ -13,8 +13,7 @@ GENERATED_NOTE = (
 GLOBAL_INSTRUCTIONS = """\
 # ai-governance
 - Deterministic tools first: `ws run -- <cmd>` (condensed output + `ws log <id>` for more),
-  `ws check --changed`, `ws detect`, `ai-governance progress here|show|step|fact`,
-  `ai-governance jira|confluence`. Never re-run a command just to see more of its output.
+  `ws check --changed`, `ws detect`, `ai-governance jira|confluence`. Never re-run a command just to see more of its output.
 - Frugal reads: `git diff --stat` before `git diff`; `git log --oneline -n 10`; pipe JSON
   through `jq` with a minimal projection; read large files with offset/limit; never print
   lockfiles, bundles or generated files.
@@ -22,6 +21,7 @@ GLOBAL_INSTRUCTIONS = """\
   (else `scout`), noisy builds/tests/CI logs to `runner` if present; verify before acting.
 - Executing an approved plan: heavy implementation -> mid-tier subagent, tests/docs/
   mechanical edits -> cheapest tier; you review each delivery and run the gates per phase.
+- Tasks: run `ai-governance taskflow here` first; `taskflow --help` has the whole flow.
 - Never write "honest"/"honestly" (es: "honesto"/"honestamente"); state caveats directly.
 """
 
@@ -31,7 +31,7 @@ PROJECT_BLOCK = """\
   (Claude Code reads them through symlinks in `.claude/rules/`); do not read them manually.
 - Run builds and tests with `ws run -- <cmd>` and the gate with `ws check --changed`.
 - Delegate exploration, reading, summaries and web research to the `scout` subagent.
-- Track multi-session work with `ai-governance progress`.
+- Track multi-session work with `ai-governance taskflow`.
 """
 
 SCOUT_DESCRIPTION = (
@@ -95,23 +95,19 @@ ANTIGRAVITY_SCOUT_SETTINGS = (
     "commandExecutionPolicy: off\n"
 )
 
-PROGRESS_SKILL = """\
+TASKFLOW_SKILL = """\
 ---
-name: progress
-description: Resume, record and close multi-session work with the ai-governance progress tracker.
+name: taskflow
+description: Resume, record and run multi-session tasks (plan, validate, work, judge) with ai-governance taskflow.
 ---
-# Progress tracking
+# Task flow
 
-Use the compact tracker instead of re-reading history:
-
-- `ai-governance progress here` — task bound to the current repository/branch.
-- `ai-governance progress show <task-id>` — compact state (`--full` adds the log).
-- `ai-governance progress new <task-id> --title "..."` — start a task.
-- `ai-governance progress step <task-id> add|done "<text>"` — plan and tick steps.
-- `ai-governance progress fact <task-id> "<text>"` — record a durable decision or finding.
-- `ai-governance progress close <task-id> --reason "..."` — finish.
-
-Record only what a future session needs: decisions, next step, blockers.
+- `ai-governance taskflow here` — task bound to this repository/branch; `status <id>` says what is missing and the next command.
+- `taskflow new <id> --title "..."` (Jira key or slug), `bind <id> --repo <worktree>`.
+- `taskflow step <id> add|done "<text>"`, `fact <id> "<text>"`, `decide <id> "<text>" --why "..."`.
+- Multi-agent flow: `round <id> run --role planner|validator`, `tdd <id> red|green`, `judge <id>`, `phase <id> <next>`.
+- Human gates: ask in the chat, then `approve <id> --action <a> --target <t> --user-reply "<their words>"`.
+- `taskflow --help` has the whole flow. Record only what a future session needs.
 """
 
 TEST_AUDIT_SKILL = """\
@@ -132,7 +128,7 @@ Before deleting, break the production code on purpose and confirm the keeper fai
 Prefer net-negative LOC. `ws design` flags the mechanical junk (no asserts, mock-only, duplicates, sleeps).
 """
 
-SKILLS = {"progress": PROGRESS_SKILL, "test-audit": TEST_AUDIT_SKILL}
+SKILLS = {"taskflow": TASKFLOW_SKILL, "test-audit": TEST_AUDIT_SKILL}
 
 
 CODEX_LANGUAGE_INDEX_HEADER = (

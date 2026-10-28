@@ -6,14 +6,14 @@ from pathlib import Path
 
 import pytest
 from ai_governance.rules.cli import main as rules_main
-from ai_governance.session.cli import main as session_main
+from ai_governance.taskflow.cli import main as session_main
 
 
 def _seed_task_with_steps(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, num_steps: int = 30
 ) -> None:
     """Create a task with many steps to trigger truncation in list/view commands."""
-    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "progress"))
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "taskflow"))
     monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
 
     result = session_main(["new", "T-1", "--title", "Budget task"])
@@ -24,13 +24,13 @@ def _seed_task_with_steps(
         assert result == 0
 
 
-class TestProgressListBudget:
-    """Test that progress list output stays within budget."""
+class TestTaskflowListBudget:
+    """Test that taskflow list output stays within budget."""
 
-    def test_progress_list_budget_1500_chars(
+    def test_taskflow_list_budget_1500_chars(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
     ) -> None:
-        """progress list output in agent mode must be <= 1500 chars."""
+        """taskflow list output in agent mode must be <= 1500 chars."""
         _seed_task_with_steps(monkeypatch, tmp_path)
 
         session_main(["list"])
@@ -40,13 +40,13 @@ class TestProgressListBudget:
         assert "\x1b" not in out
 
 
-class TestProgressViewBudget:
-    """Test that progress view output stays within budget."""
+class TestTaskflowViewBudget:
+    """Test that taskflow view output stays within budget."""
 
-    def test_progress_view_budget_1500_chars(
+    def test_taskflow_view_budget_1500_chars(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
     ) -> None:
-        """progress view output in agent mode must be <= 1500 chars."""
+        """taskflow view output in agent mode must be <= 1500 chars."""
         _seed_task_with_steps(monkeypatch, tmp_path)
 
         session_main(["show", "T-1"])
@@ -55,10 +55,10 @@ class TestProgressViewBudget:
         assert len(out) <= 1500
         assert "\x1b" not in out
 
-    def test_progress_view_json_budget_4000_chars(
+    def test_taskflow_view_json_budget_4000_chars(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
     ) -> None:
-        """progress view --json output in agent mode must be <= 4000 chars."""
+        """taskflow view --json output in agent mode must be <= 4000 chars."""
         _seed_task_with_steps(monkeypatch, tmp_path)
 
         session_main(["show", "T-1", "--json"])
@@ -93,14 +93,14 @@ class TestRulesListBudget:
         (["show", "T-1", "--json"], 4000),
     ],
 )
-def test_progress_commands_stay_in_budget(
+def test_taskflow_commands_stay_in_budget(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
     argv: list[str],
     budget: int,
 ) -> None:
-    """Parametrized test: various progress commands must stay in budget."""
+    """Parametrized test: various taskflow commands must stay in budget."""
     _seed_task_with_steps(monkeypatch, tmp_path)
 
     session_main(argv)

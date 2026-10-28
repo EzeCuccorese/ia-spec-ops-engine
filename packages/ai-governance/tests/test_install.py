@@ -127,7 +127,7 @@ def test_every_agent_gets_the_bundled_skills(home: Path) -> None:
     ):
         audit = (skills_dir / "test-audit" / "SKILL.md").read_text()
         assert audit.startswith("---\nname: test-audit\n")
-        assert (skills_dir / "progress" / "SKILL.md").is_file()
+        assert (skills_dir / "taskflow" / "SKILL.md").is_file()
 
 
 def test_foreign_file_is_never_overwritten_without_force(home: Path) -> None:

@@ -114,8 +114,18 @@ def _project_rows(root: Path) -> list[Row]:
     return rows
 
 
+def _taskflow_rows(root: Path | None) -> list[Row]:
+    """The configured agent CLIs exist and the judges are independent of the builder."""
+    from ..taskflow.config import load_config
+
+    errors = load_config([root] if root else []).validate()
+    return [
+        ("taskflow", WARN if errors else OK, "; ".join(errors) or "roles, judges and agent CLIs OK")
+    ]
+
+
 def check(root: Path | None) -> list[Row]:
-    rows = _binary_rows() + _user_rows()
+    rows = _binary_rows() + _user_rows() + _taskflow_rows(root)
     if root is not None and (root / PROJECT_DIR / "config.toml").exists():
         rows.extend(_project_rows(root))
     return rows

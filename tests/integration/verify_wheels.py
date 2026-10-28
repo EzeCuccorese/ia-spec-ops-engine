@@ -36,7 +36,7 @@ for module in modules:
 if "ai_governance" in modules:
     from ai_governance.cli import main as governance
     from ai_governance.rules.catalog import RuleCatalog
-    from ai_governance.session.cli import main as progress
+    from ai_governance.taskflow.cli import main as taskflow
     catalog = RuleCatalog()
     assert len(catalog.rules) >= 28
     assert governance(["install", "--scope", "project", "--agent", "claude", "--root", "."]) == 0
@@ -44,13 +44,13 @@ if "ai_governance" in modules:
     assert pathlib.Path(".claude/rules/ai-governance-06-security-privacy.md").is_file()
     assert governance(["uninstall", "--scope", "project", "--agent", "claude", "--root", "."]) == 0
     assert not pathlib.Path(".ai-governance").exists()
-    assert progress(["new", "wheel-smoke", "--title", "Wheel smoke"]) == 0
-    assert progress(["summary", "wheel-smoke", "Verified installed wheel"]) == 0
-    assert progress(["step", "wheel-smoke", "add", "Verify resources"]) == 0
-    assert progress(["step", "wheel-smoke", "done", "Verify resources"]) == 0
-    assert progress(["fact", "wheel-smoke", "Resources loaded"]) == 0
-    assert progress(["link", "wheel-smoke", "Documentation", "https://example.com"]) == 0
-    assert progress(["close", "wheel-smoke", "--reason", "Verified"]) == 0
+    assert taskflow(["new", "wheel-smoke", "--title", "Wheel smoke"]) == 0
+    assert taskflow(["summary", "wheel-smoke", "Verified installed wheel"]) == 0
+    assert taskflow(["step", "wheel-smoke", "add", "Verify resources"]) == 0
+    assert taskflow(["step", "wheel-smoke", "done", "Verify resources"]) == 0
+    assert taskflow(["fact", "wheel-smoke", "Resources loaded"]) == 0
+    assert taskflow(["link", "wheel-smoke", "Documentation", "https://example.com"]) == 0
+    assert taskflow(["close", "wheel-smoke", "--reason", "Verified"]) == 0
 if "workspace_engine" in modules:
     from workspace_engine.cli.generate_workspace import create_workspace_structure
     from workspace_engine.services.git_hooks import generate_canonical_pre_push_script

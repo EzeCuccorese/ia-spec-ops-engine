@@ -77,7 +77,13 @@ def test_antigravity_hook_installs_as_named_group_after_pre_tool_probe(
             "hooks": [
                 {"type": "command", "command": "ai-governance hook antigravity pre-tool-use"}
             ],
-        }
+        },
+        {
+            "matcher": "*",
+            "hooks": [
+                {"type": "command", "command": "ai-governance hook antigravity writer-lease"}
+            ],
+        },
     ]
     uninstall_user(["antigravity"])
     assert json.loads(hooks_path.read_text()) == {"other": {"Stop": [{"command": "x"}]}}

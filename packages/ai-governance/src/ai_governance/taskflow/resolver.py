@@ -1,5 +1,5 @@
 """
-resolver.py — Resolves the active Jira ticket or task ID from the current Git environment.
+Resolves the task bound to the current branch (Jira key) or repository.
 """
 
 from __future__ import annotations

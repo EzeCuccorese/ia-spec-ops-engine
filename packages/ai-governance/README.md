@@ -45,7 +45,7 @@ points to that index.
 | Global instructions | ~/.claude/rules/ai-governance.md + language rules (`paths:`) | $CODEX_HOME/AGENTS.md (marker block) + rule indexes in $CODEX_HOME/ai-governance/ | ~/.gemini/config/rules/ai-governance.md (`trigger: always_on`) + language rules (`trigger: glob`) |
 | Global hooks | ~/.claude/settings.json (Pre/PostToolUse Bash, SessionStart/End) | $CODEX_HOME/hooks.json PostToolUse condensing (after `probe` verifies) | ~/.gemini/config/hooks.json PreToolUse: raw noisy commands -> `ws run` (after `probe`) |
 | Scout subagent | ~/.claude/agents/scout.md (haiku, no web) + researcher.md (sonnet, web research) + runner.md (haiku, Bash, no edits), effort medium | $CODEX_HOME/agents/scout.toml (gpt-6-luna, effort medium, read-only) + config.toml default subagent model gpt-6-luna | ~/.gemini/config/agents/scout.md (model flash, read-only tools, no commands) |
-| Skills | ~/.claude/skills/{progress,test-audit}/SKILL.md | ~/.agents/skills/{progress,test-audit}/SKILL.md | ~/.gemini/config/skills/{progress,test-audit}/SKILL.md |
+| Skills | ~/.claude/skills/{taskflow,test-audit}/SKILL.md | ~/.agents/skills/{taskflow,test-audit}/SKILL.md | ~/.gemini/config/skills/{taskflow,test-audit}/SKILL.md |
 | Project rules | .claude/rules/ai-governance-<id>.md -> symlink to .agents/rules | .agents/rules/ai-governance-<id>.md (shared) | .agents/rules/ai-governance-<id>.md (single source) |
 | Rule loading | native `paths:` frontmatter (loaded per file) | injected on edit by a PreToolUse hook (planned) | `trigger: glob` activation (loaded per file; 20k-token rules budget) |
 <!-- agents-table:end -->
@@ -171,7 +171,7 @@ hint to re-enable it.
 | `ai-governance budget [--root DIR]` | Fixed context bytes (~tokens) loaded every session, per agent plus a `project` row for the shared rules and `AGENTS.md` block |
 | `ai-governance probe --agent <a> [--dir DIR]` then `--verify --seen <tokens>` | Proves on this machine which instruction locations the agent loads and which hooks fire. Codex/Antigravity hooks are installed only after a verified probe |
 | `ai-governance rules list` / `rules show <id>` / `rules profiles` | Browse the rule catalog and opt-in profiles |
-| `ai-governance progress <subcommand>` | Compact cross-session task state (see below) |
+| `ai-governance taskflow <subcommand>` | Task tracking and the multi-agent plan/validate/work/judge flow (see below) |
 | `ai-governance telemetry <subcommand>` | Local Claude Code spend estimates (see below) |
 | `ai-governance jira ...` / `confluence ...` | Atlassian as compact Markdown (`jira` / `confluence` without arguments print their usage) |
 | `ai-governance hook <agent> <event>` | Entry point used by the installed hooks |
@@ -180,50 +180,49 @@ Installs are idempotent and reversible: an ownership ledger records every file, 
 hook entry; files you edited are never overwritten, foreign files are never replaced
 without `--force`, and `--dry-run` shows the exact plan.
 
-### Progress
+### Taskflow
 
-Tasks are stored in `~/.local/state/ai-governance/progress/`. `show`, `here`, `list` and
-`digest` accept `--json`.
-
-| Subcommand | Purpose |
-|---|---|
-| `list [--all]` | Tasks that are not closed (`--all` includes closed ones) |
-| `here [--full]` | Task bound to the current repository/branch |
-| `show [<id>] [--full]` | Compact state; `--full` adds the log |
-| `new <id> --title "..." [--summary "..."]` | Create a task |
-| `close` / `reopen` / `pause <id> [--reason "..."]`, `resume [<id>]` | Change task status |
-| `summary <id> "<text>"` | Replace the compact summary |
-| `step <id> add\|done\|remove "<text>"` | Plan and tick steps |
-| `fact <id> "<text>"` / `note <id> "<text>"` | Record a verified fact / append to the long log |
-| `link <id> "<title>" <url>` / `reference <id> <kind> <value> [--url URL]` | Attach links and external references |
-| `repo <id> add\|remove [<path>] [--branch B] [--pr N] [--worktree W]` / `sync [<id>]` | Bind repositories / refresh their branches |
-| `digest [--id <id>] [--max-chars N]` | Compact context for an agent (default 1600 chars) |
-
-### Telemetry
-
-Estimates come from the Claude Code transcripts on this machine; configuration and caches live
-in `~/.local/state/ai-governance/telemetry/` (`config.json`: `monthly_budget_usd`,
-`monthly_hard_limit_usd`, `calibration`, `daily_thresholds_pct`, `monthly_thresholds_pct`,
-`notify_macos`, `holiday_dates`).
+One store, `~/.local/state/ai-governance/taskflow/tasks/<ID>/`: `state.json`, the long
+`log.md`, `rounds/` (one file per agent call plus `index.md`), `evidence/` and
+`friccion.md`. It tracks any task (steps, facts, decisions, links) and runs the
+TriAgentTaskFlow: `plan -> validate -> work -> judge -> [staging] -> review -> done`, with a
+`findings` exit when the branch belongs to someone else. `taskflow --help` is the
+operating guide; `taskflow status <id>` lists what is missing for the next phase, which
+verdicts and approvals are stale, and the next command.
 
 | Subcommand | Purpose |
 |---|---|
-| `claude-usage [--budget USD] [--spent USD]` | Month-to-date spend vs. the business-day budget pace (for plans whose UI hides spend) |
-| `report [--budget USD] [--json]` | Today/month estimate by model, token type and effort; fast-mode calls flagged |
-| `thresholds [--notify] [--json]` | Evaluate the daily/monthly alert thresholds (manual; no hook runs it) |
-| `calibrate USD [--from DATE] [--to DATE]` | Store the ratio between the real spend and the estimate. Dates are typed in local time (`1`, `15/10`, `10/15`, `15/10/2026`, `2026-10-15`) and compared in UTC; default is day 1 of this month until now |
-| `prices update [--url URL]` | Refresh the cached price table (manual; `install --scope user` no longer schedules it and removes the old `com.ai-governance.prices-update` LaunchAgent) |
-| `statusline` | Compact `today $x/allowance · left $y` segment for the Claude Code status line |
+| `list [--all]`, `here`, `show [<id>] [--full] [--json]`, `digest` | Read tasks (`here`: bound to this branch/repository) |
+| `new <id> --title "..." [--parent P] [--workflow W] [--owner self\|external]` | Create a task or subtask; `switch <id> <sub>` sets the active subtask |
+| `summary`, `step add\|done\|remove`, `fact`, `decide --why`, `note`, `link`, `reference`, `friction` | Record what a later session needs |
+| `bind <id> --repo P [--integration-branch B] [--pr N]`, `unbind` | Bind repositories/worktrees |
+| `stamp <id> [--remote]` | Code stamp of the bound repositories (HEAD + every changed path) and risk by path |
+| `round <id> run --role planner\|validator\|builder` / `round <id> record` | Run an agent headless and log it / log a round run elsewhere (context only) |
+| `tdd <id> red\|green --cmd "..."`, `tdd <id> skip` | Mandatory test-first evidence; skipping needs the user's approval |
+| `judge <id> [--focus F]` | Checks and every required judge on an isolated `git worktree` of HEAD |
+| `phase <id> <phase>`, `block`/`unblock`, `close [--abandon]` | Move through the gates |
+| `approve <id> --action A --target T --user-reply "..." [--consequence "..."]` | Record an approval the user gave in the chat |
+| `deploy <id> ...`, `evidence <id> ...` | Record a deployment the user made and evidence bound to its SHA |
+| `findings`, `handoff --to <role>`, `draft` | Findings package for another owner, context for a role, ticket draft (secrets scrubbed) |
+| `config` | Show and validate `taskflow.toml` |
 
-## Agent output mode
+Configuration: `~/.config/ai-governance/taskflow.toml` (`[roles.planner|validator|builder]`
+with `agent`/`model`, `[[roles.judges]]` with `focus`, `[checks] commands`, `[tdd] required`,
+`[[risk.rules]]` with `paths`, `judges`, `checks`, `restaging`); a repository can only add
+controls in `.ai-governance/taskflow.toml`. Gates the engine enforces:
 
-CLIs print compact plain text when run by an agent, detected from `CLAUDE_CODE_CHILD_SESSION`,
-`CLAUDECODE`, `CODEX_SANDBOX` or `ANTIGRAVITY_AGENT`. Override with `AI_GOVERNANCE_AGENT=1|0`.
-A plain pipe keeps full human output.
+- A judge must be a different agent than the builder; every required focus must `pass` on
+  the current code stamp, and any code change makes verdicts and approvals stale.
+- Readers (planner, validator, judge) run with full permissions and a read-only limit in the
+  prompt; a reader that changes the tree invalidates its round, and the change is kept.
+- Risky approvals (deploy, prod, migration, infra, permissions, delete, policy-downgrade,
+  restaging) need the consequence shown, a reply naming action and target, and that reply in
+  a real user message of the Claude transcript; production actions are refused after 16:00
+  and on Friday after 13:00.
 
 ## Configuration and environment
 
-State: `~/.local/state/ai-governance/` (ledger `installed.json`, `progress/`, `telemetry/`,
+State: `~/.local/state/ai-governance/` (ledger `installed.json`, `taskflow/`, `telemetry/`,
 `probe/`, `frugal/`). Data: `~/.local/share/ai-governance/` (`zsh/` completions). Config: `~/.config/ai-governance/` (`frugal.json` with `threshold_chars`
 and `budget_chars`; `atlassian.json` with named Atlassian profiles).
 

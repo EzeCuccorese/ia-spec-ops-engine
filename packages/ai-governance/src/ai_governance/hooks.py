@@ -30,14 +30,64 @@ def _payload() -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _stdin_text() -> str:
+    try:
+        return sys.stdin.read()
+    except OSError:
+        return ""
+
+
 def _cwd(payload: dict[str, Any]) -> Path:
     return Path(payload.get("cwd") or Path.cwd())
 
 
 def _claude_pre_tool_use() -> int:
+    """Bash: refuse while another agent holds the writer lease, else frugality advice."""
+    from io import StringIO
+
     from .frugality.cli import load_config, run_pre_bash
 
+    raw = _stdin_text()
+    if _deny_claude(raw):
+        return 0
+    sys.stdin = StringIO(raw)
     run_pre_bash(load_config())
+    return 0
+
+
+def _deny_claude(raw: str) -> bool:
+    try:
+        payload = json.loads(raw or "{}")
+    except ValueError:
+        return False
+    target = (payload.get("tool_input") or {}).get("file_path") or payload.get("cwd") or "."
+    reason = _lease_denial(Path(str(target)))
+    if reason:
+        decision = {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        }
+        print(json.dumps({"hookSpecificOutput": decision}))
+    return bool(reason)
+
+
+def _lease_denial(path: Path) -> str:
+    """Reason to refuse a write in ``path``'s repository while another agent writes it."""
+    from .taskflow.resolver import TaskResolver
+    from .taskflow.rounds import active_lease
+    from .taskflow.store import TaskStore
+
+    root = TaskResolver._git_root(path if path.is_dir() else path.parent)
+    lease = active_lease(TaskStore(), root) if root else None
+    if lease is None:
+        return ""
+    return f"{root} is being written by {lease.get('holder')} (taskflow writer lease): wait for that round to finish."
+
+
+def _claude_writer_lease() -> int:
+    """Claude PreToolUse on edit tools: deny while another agent holds the writer lease."""
+    _deny_claude(_stdin_text())
     return 0
 
 
@@ -56,20 +106,22 @@ def _claude_stop() -> int:
 
 
 def _active_task(repo: Path) -> tuple[Any, Any] | None:
-    from .session.resolver import TaskResolver
-    from .session.tracker import SessionTracker
+    from .taskflow.resolver import TaskResolver
+    from .taskflow.store import TaskStore
 
-    tracker = SessionTracker()
-    task_id = TaskResolver.resolve_from_context(tracker.list_tasks(), repo)
-    return (tracker, task_id) if task_id else None
+    store = TaskStore()
+    task_id = TaskResolver.resolve_from_context(store.list(), repo)
+    return (store, task_id) if task_id else None
 
 
 def _claude_session_start() -> int:
     """Injects 1-3 lines about the task bound to this repository (stdout -> context)."""
     found = _active_task(_cwd(_payload()))
     if found:
-        tracker, task_id = found
-        print(tracker.digest(task_id, max_chars=SESSION_CONTEXT_CHARS))
+        from .taskflow.cli import digest
+
+        store, task_id = found
+        print(digest(store, task_id, max_chars=SESSION_CONTEXT_CHARS))
     return 0
 
 
@@ -79,7 +131,7 @@ def _claude_session_end() -> int:
     found = _active_task(repo)
     if not found:
         return 0
-    tracker, task_id = found
+    store, task_id = found
 
     def git(*args: str) -> str:
         proc = subprocess.run(
@@ -88,7 +140,7 @@ def _claude_session_end() -> int:
         return proc.stdout.strip() if proc.returncode == 0 else "?"
 
     changed = len([line for line in git("status", "--porcelain").splitlines() if line])
-    tracker.append_log(
+    store.append_log(
         task_id,
         f"Session ended on {git('branch', '--show-current')} @ {git('rev-parse', '--short', 'HEAD')}"
         f" with {changed} uncommitted file(s).",
@@ -137,13 +189,34 @@ def _antigravity_pre_tool_use() -> int:
     """Antigravity cannot rewrite output: deny raw noisy commands and ask for `ws run`."""
     from .frugality.cli import SKIP_CONDENSE
 
-    command = antigravity_command(_payload()).strip()
+    payload = _payload()
+    if _deny_antigravity(payload):
+        return 0
+    command = antigravity_command(payload).strip()
     if not command or command.startswith("ws ") or "#nofrugal" in command:
         return 0
     if SKIP_CONDENSE.match(command) or not NOISY_COMMAND.search(command):
         return 0
     reason = f"Re-run it as `ws run -- {command}` to get a condensed summary (full log kept)."
     print(json.dumps({"decision": "deny", "reason": reason}))
+    return 0
+
+
+ANTIGRAVITY_WRITE_TOOL = re.compile(r"write|replace|edit|delete|move|run_command", re.IGNORECASE)
+
+
+def _deny_antigravity(payload: dict[str, Any]) -> bool:
+    call = payload.get("toolCall") or {}
+    name = str(call.get("name", "")) if isinstance(call, dict) else ""
+    reason = _lease_denial(_cwd(payload)) if ANTIGRAVITY_WRITE_TOOL.search(name) else ""
+    if reason:
+        print(json.dumps({"decision": "deny", "reason": reason}))
+    return bool(reason)
+
+
+def _antigravity_writer_lease() -> int:
+    """Antigravity PreToolUse on every tool: deny writes while another agent holds the lease."""
+    _deny_antigravity(_payload())
     return 0
 
 
@@ -165,12 +238,14 @@ NOISY_COMMAND = re.compile(
 HANDLERS: dict[tuple[str, str], Callable[[], int]] = {
     ("claude", "pre-tool-use"): _claude_pre_tool_use,
     ("claude", "post-tool-use"): _claude_post_tool_use,
+    ("claude", "writer-lease"): _claude_writer_lease,
     ("claude", "stop"): _claude_stop,
     ("claude", "stop-gate"): _claude_stop_gate,
     ("claude", "session-start"): _claude_session_start,
     ("claude", "session-end"): _claude_session_end,
     ("codex", "post-tool-use"): _codex_post_tool_use,
     ("antigravity", "pre-tool-use"): _antigravity_pre_tool_use,
+    ("antigravity", "writer-lease"): _antigravity_writer_lease,
 }
 
 

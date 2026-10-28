@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 from ai_governance import hooks
-from ai_governance.session.tracker import SessionTracker, TaskState
+from ai_governance.taskflow.models import Task
+from ai_governance.taskflow.store import TaskStore
 
 
 def _stdin(monkeypatch, payload: dict) -> None:
@@ -50,10 +51,15 @@ def _repo_with_task(monkeypatch, tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "feat/x", str(repo)], check=True)
-    tracker = SessionTracker()
-    tracker.create_task(TaskState(id="T-1", title="Refactor", summary="Split the installer"))
-    tracker.add_repository("T-1", repo)
-    tracker.add_step("T-1", "write tests")
+    store = TaskStore()
+    store.create(Task(id="T-1", title="Refactor", summary="Split the installer"))
+    store.mutate(
+        "T-1",
+        lambda t: (
+            t.repos.append({"path": str(repo.resolve())}),
+            t.steps.append({"text": "write tests", "done": False}),
+        ),
+    )
     return repo
 
 
@@ -71,7 +77,7 @@ def test_session_end_logs_deterministic_facts(monkeypatch, tmp_path) -> None:
     (repo / "new.txt").write_text("x")
     _stdin(monkeypatch, {"cwd": str(repo)})
     assert hooks.main(["claude", "session-end"]) == 0
-    log = SessionTracker().read_log("T-1")
+    log = TaskStore().read_log("T-1")
     assert "Session ended on feat/x" in log and "1 uncommitted file(s)" in log
 
 
