@@ -1,4 +1,4 @@
-"""The daily price refresh LaunchAgent installed with the user scope."""
+"""The retired daily price refresh LaunchAgent: no longer installed, old copies removed."""
 
 from __future__ import annotations
 
@@ -26,12 +26,19 @@ def test_plist_runs_prices_update_daily() -> None:
     assert document["RunAtLoad"] is False
 
 
-def test_install_writes_the_plist_and_uninstall_removes_it() -> None:
+def test_install_no_longer_writes_the_plist() -> None:
     installer.install_user(["claude"])
+    assert not schedule.plist_path().exists()
+
+
+def test_install_removes_a_plist_left_by_an_older_version() -> None:
+    from ai_governance.install.engine import Owned, sync
+
+    ledger = installer.global_ledger()
+    old = [Owned(installer.SCHEDULE_OWNER, a) for a in schedule.artifacts()]
+    ledger.save(sync(old, ledger, agents_in_scope={installer.SCHEDULE_OWNER}), False)
     assert schedule.plist_path().is_file()
-    installer.install_user(["claude"])  # idempotent
-    assert schedule.plist_path().is_file()
-    installer.uninstall_user(["claude"])
+    installer.install_user(["claude"])
     assert not schedule.plist_path().exists()
 
 
@@ -52,14 +59,6 @@ def test_dry_run_leaves_nothing_behind() -> None:
     assert not schedule.plist_path().exists()
 
 
-def test_plist_stays_while_another_agent_is_installed() -> None:
-    installer.install_user(["claude", "codex"])
-    installer.uninstall_user(["codex"])
-    assert schedule.plist_path().is_file()
-    installer.uninstall_user(["claude"])
-    assert not schedule.plist_path().exists()
-
-
 def test_load_retires_the_legacy_agent(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[str, ...]] = []
     monkeypatch.delenv(schedule.LAUNCH_AGENTS_ENV)
@@ -73,6 +72,20 @@ def test_load_retires_the_legacy_agent(monkeypatch: pytest.MonkeyPatch) -> None:
     assert [c[0] for c in calls] == ["bootout", "bootout", "bootstrap"]
     schedule.unload()
     assert calls[-1][0] == "bootout"
+
+
+def test_unload_retires_the_legacy_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.delenv(schedule.LAUNCH_AGENTS_ENV)
+    monkeypatch.setattr(schedule, "_launchctl", lambda *args: calls.append(args))
+    legacy = schedule.plist_path(schedule.LEGACY_LABEL)
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("old")
+    schedule.plist_path().write_text(schedule.render())  # orphan, not in the ledger
+    schedule.unload()
+    assert not legacy.exists()
+    assert not schedule.plist_path().exists()
+    assert [c[1].rsplit("/", 1)[1] for c in calls] == [schedule.LABEL, schedule.LEGACY_LABEL]
 
 
 def test_installed_agents_ignores_the_schedule_owner() -> None:

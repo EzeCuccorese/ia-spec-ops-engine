@@ -112,10 +112,10 @@ def _build_matcher(entry: str) -> Callable[[str], bool] | None:
 # (id, deterministic command, purpose, manual commands it replaces)
 REPLACEMENTS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
     (
-        "progress-here",
-        "ai-governance progress here",
+        "taskflow-here",
+        "ai-governance taskflow here",
         "resume the task bound to this repository/branch",
-        ("cat PROGRESS.md", "git log to reconstruct task state"),
+        ("git log to reconstruct task state",),
     ),
     (
         "ws-worktree",
