@@ -915,9 +915,150 @@ def test_several_tasks_on_one_repository_narrow_to_one_or_name_the_candidates(
     for task_id in ("P", "A", "B"):
         assert main(["bind", task_id, "--repo", str(repo)]) == 0
     capsys.readouterr()
-    assert main(["here"]) != 0  # the parent gives way to its subtasks, A and B compete
-    assert "Several tasks are bound here (A, B)" in capsys.readouterr().err
-    assert main(["pause", "A"]) == 0
-    capsys.readouterr()
-    assert main(["here"]) == 0
+    assert main(["here"]) == 0  # the parent gives way to its active subtask B, A is a sibling
     assert "B" in capsys.readouterr().out
+    assert main(["switch", "P", "A"]) == 0
+    capsys.readouterr()
+    assert main(["here", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["id"] == "A"
+    assert main(["switch", "P", "B"]) == 0
+    capsys.readouterr()
+    assert main(["here", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["id"] == "B"
+
+
+def test_several_unrelated_tasks_on_one_repository_still_name_the_candidates(
+    state: TaskStore, repo: Path, monkeypatch, capsys
+) -> None:
+    monkeypatch.chdir(repo)
+    for task_id in ("X", "Y"):
+        assert main(["new", task_id, "--title", task_id]) == 0
+        assert main(["bind", task_id, "--repo", str(repo)]) == 0
+    capsys.readouterr()
+    assert main(["here"]) != 0
+    assert "Several tasks are bound here (X, Y)" in capsys.readouterr().err
+
+
+def test_the_branch_key_picks_inside_the_narrowed_bound_tasks(state: TaskStore, repo: Path) -> None:
+    tasks = [
+        Task(id="ONB-1", title="p", repos=[{"path": str(repo)}], active_subtask="SUB"),
+        Task(id="SUB", title="c", parent="ONB-1", repos=[{"path": str(repo)}]),
+    ]
+    assert TaskResolver.resolve_from_context(tasks, repo) == "SUB"  # branch says ONB-1
+    paused = [
+        Task(id="ONB-1", title="p", status="paused", repos=[{"path": str(repo)}]),
+        Task(id="OTHER", title="o", repos=[{"path": str(repo)}]),
+    ]
+    assert TaskResolver.resolve_from_context(paused, repo) == "OTHER"
+    assert TaskResolver.resolve_from_context([Task(id="ONB-1", title="u")], repo) == "ONB-1"
+
+
+def test_bind_from_a_subdirectory_stores_the_repository_top_level(
+    state: TaskStore, repo: Path, monkeypatch
+) -> None:
+    (repo / "sub").mkdir()
+    assert main(["new", "T", "--title", "t"]) == 0
+    assert main(["bind", "T", "--repo", str(repo / "sub")]) == 0
+    assert state.get("T").repos[0]["path"] == str(repo.resolve())
+    assert TaskResolver.bound_to([state.get("T")], repo / "sub") == ["T"]
+    assert main(["unbind", "T", "--repo", str(repo / "sub")]) == 0
+    assert state.get("T").repos == []
+
+
+def _round(n: int, role: str, agent: str, **extra: object) -> dict:
+    base = {"n": n, "role": role, "agent": agent, "state": "valid", "source": "engine"}
+    return {**base, "file": f"r{n}.md", **extra}
+
+
+def test_tri_agent_needs_three_distinct_agents_whatever_the_label() -> None:
+    task = Task(id="T", title="t")
+    task.rounds += [_round(1, "planner", "agy"), _round(2, "validator", "agy")]
+    assert "planner and validator both used 'agy'" in gates._workflow_unmet(task)[0]
+    task.rounds[1]["agent"] = "codex"
+    task.rounds.append(_round(3, "builder", "codex"))
+    assert "validator and builder both used 'codex'" in gates._workflow_unmet(task)[0]
+    task.rounds[2]["agent"] = "claude"
+    assert gates._workflow_unmet(task) == []
+    task.rounds[2]["agent"] = "agy"
+    task.approvals.append({"action": "workflow", "target": "T"})
+    assert gates._workflow_unmet(task) == []
+
+
+def test_workflow_approval_is_not_listed_as_expired_when_the_code_changes() -> None:
+    from ai_governance.taskflow.cli import _expired_approvals
+
+    task = Task(id="T", title="t", code_stamp={"key": "new"})
+    task.approvals += [
+        {"action": "workflow", "stamp": "old"},
+        {"action": "plan", "stamp": "old"},
+        {"action": "prod", "stamp": "old"},
+    ]
+    assert _expired_approvals(task) == ["prod"]
+
+
+def test_round_header_uses_the_highest_engine_plan_capped_and_scrubbed(state: TaskStore) -> None:
+    from ai_governance.taskflow.context import FIELD_CHARS, round_header
+
+    token = "ghp_" + "a" * 30
+    task = Task(id="T", title="t", summary="s" * 1000)
+    task.facts.append({"text": f"password: hunter2 {token}"})
+    task.rounds += [
+        _round(2, "planner", "agy"),  # finished first: records are in completion order
+        _round(1, "planner", "agy"),
+        _round(5, "planner", "agy", source="manual", state="context"),
+        _round(6, "planner", "agy", state="invalid"),
+    ]
+    state.create(task)
+    state.mutate("T", lambda t: t.rounds.extend(task.rounds))
+    header = round_header(state, "T", "validator")
+    assert "Latest plan (read it first): r2.md" in header
+    assert "s" * (FIELD_CHARS + 1) not in header
+    assert "hunter2" not in header and token not in header
+
+
+def test_judge_prompt_does_not_repeat_the_round_header_or_the_builder_checkout(
+    state: TaskStore, repo: Path
+) -> None:
+    from ai_governance.taskflow.context import round_header
+    from ai_governance.taskflow.judge import JudgedCopy, judge_prompt
+
+    task = Task(id="T", title="t", summary="goal", repos=[{"path": str(repo), "branch": "b"}])
+    task.steps += [{"text": f"step {i}"} for i in range(30)]
+    state.create(task)
+    copy = JudgedCopy(repo, repo / "copy", "a" * 40, "", "f")
+    prompt = judge_prompt(task, "security", [copy], [{"passed": True, "path": "p"}])
+    assert "Goal:" not in prompt and "step 29" in prompt and "step 0" not in prompt
+    header = round_header(state, "T", "judge")
+    assert "Goal: goal" in header and f"Repository {repo}" not in header
+
+
+def _request_of(round_file: str) -> str:
+    return Path(round_file).read_text().split("## Request", 1)[1].split("## Answer", 1)[0]
+
+
+def test_round_prompt_names_the_task_and_its_latest_plan(cli_run, state: TaskStore) -> None:
+    cli_run("new", "ONB-1", "--title", "Restore status", "--summary", "goal")
+    cli_run("bind", "ONB-1", "--repo", str(Path.cwd()))
+    cli_run("decide", "ONB-1", "keep it small", "--why", "scope")
+    cli_run("round", "ONB-1", "run", "--role", "planner", "--prompt", "plan it")
+    plan = state.get("ONB-1").rounds[-1]["file"]
+    cli_run("round", "ONB-1", "run", "--role", "validator", "--prompt", "check it")
+    request = _request_of(state.get("ONB-1").rounds[-1]["file"])
+    assert "Task ONB-1: Restore status" in request
+    assert f"Latest plan (read it first): {plan}" in request
+    assert "keep it small" in request
+    assert "check it" in request
+
+
+def test_tasks_sharing_a_repo_only_see_their_own_plan(cli_run, state: TaskStore) -> None:
+    for name in ("AAA-1", "BBB-2"):
+        cli_run("new", name, "--title", f"title {name}")
+        cli_run("bind", name, "--repo", str(Path.cwd()))
+        cli_run("round", name, "run", "--role", "planner", "--prompt", "plan")
+        cli_run("round", name, "run", "--role", "validator", "--prompt", "check")
+    for mine, other in (("AAA-1", "BBB-2"), ("BBB-2", "AAA-1")):
+        task = state.get(mine)
+        request = _request_of(task.rounds[-1]["file"])
+        assert task.rounds[0]["file"] in request
+        assert str(state.rounds_dir(other)) not in request
+        assert f"Task {other}" not in request

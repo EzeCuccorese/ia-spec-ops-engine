@@ -55,13 +55,21 @@ def _claude_pre_tool_use() -> int:
     return 0
 
 
+def _target_path(payload: dict[str, Any]) -> Path:
+    """The file a tool is about to write (``notebook_path`` for notebooks); a relative path
+    is anchored at the session's directory, not the hook process's."""
+    tool_input = payload.get("tool_input") or {}
+    raw = tool_input.get("file_path") or tool_input.get("notebook_path")
+    path = Path(str(raw)) if raw else _cwd(payload)
+    return path if path.is_absolute() else _cwd(payload) / path
+
+
 def _deny_claude(raw: str, denial: Callable[[Path], str] | None = None) -> bool:
     try:
         payload = json.loads(raw or "{}")
     except ValueError:
         return False
-    target = (payload.get("tool_input") or {}).get("file_path") or payload.get("cwd") or "."
-    reason = (denial or _lease_denial)(Path(str(target)))
+    reason = (denial or _lease_denial)(_target_path(payload))
     if reason:
         decision = {
             "hookEventName": "PreToolUse",
@@ -78,20 +86,30 @@ def _lease_denial(path: Path) -> str:
     from .taskflow.rounds import active_lease
     from .taskflow.store import TaskStore
 
-    root = TaskResolver._git_root(path if path.is_dir() else path.parent)
+    root = TaskResolver.root_of_target(path)
     lease = active_lease(TaskStore(), root) if root else None
     if lease is None:
         return ""
     return f"{root} is being written by {lease.get('holder')} (taskflow writer lease): wait for that round to finish."
 
 
+def _is_agent_config(path: Path) -> bool:
+    """The user's own agent configuration and the taskflow state are never gated."""
+    from .taskflow.store import TaskStore
+
+    home = Path.home()
+    free = [home / ".claude", home / ".codex", home / ".gemini", home / ".config", TaskStore().root]
+    target = path.expanduser().resolve()
+    return any(target.is_relative_to(base.resolve()) for base in free)
+
+
 def _edit_denial(path: Path) -> str:
-    """File edits also need a task for the repository: the session-start hint alone is
+    """File edits also need a task bound to the repository: the session-start hint alone is
     easy to skip. Shell commands are not gated, so reading and exploring stay free."""
     from .taskflow.resolver import TaskResolver
 
-    root = TaskResolver._git_root(path if path.is_dir() else path.parent)
-    if root and not _has_task(Path(root)):
+    root = None if _is_agent_config(path) else TaskResolver.root_of_target(path)
+    if root and not _has_task(root):
         return NO_TASK_HINT + " Tracking-only work: `taskflow new --workflow manual`."
     return _lease_denial(path)
 
@@ -133,15 +151,12 @@ NO_TASK_HINT = (
 
 
 def _has_task(repo: Path) -> bool:
-    """Any task bound here allows edits, even when several make ``taskflow here`` ask
-    which one is meant."""
+    """An open task bound to this repository allows edits (even when several make
+    ``taskflow here`` ask which one is meant); a branch name alone never does."""
     from .taskflow.resolver import TaskResolver
     from .taskflow.store import TaskStore
 
-    tasks = TaskStore().list()
-    return bool(
-        TaskResolver.resolve_from_context(tasks, repo) or TaskResolver.bound_to(tasks, repo)
-    )
+    return bool(TaskResolver.bound_to(TaskStore().list(), repo))
 
 
 def _claude_session_start() -> int:
@@ -154,11 +169,22 @@ def _claude_session_start() -> int:
 
         store, task_id = found
         print(digest(store, task_id, max_chars=SESSION_CONTEXT_CHARS))
-    elif _has_task(cwd):
-        print("TASKFLOW: several tasks are bound here: pass the task id to taskflow commands.")
-    elif (cwd / ".git").exists():
-        print(NO_TASK_HINT)
+    elif hint := _session_hint(cwd):
+        print(hint)
     return 0
+
+
+def _session_hint(cwd: Path) -> str:
+    from .taskflow.resolver import TaskResolver
+    from .taskflow.store import TaskStore
+
+    several = TaskResolver.bound_to(TaskStore().list(), cwd)
+    if several:
+        return (
+            f"TASKFLOW: several tasks are bound here ({', '.join(several)}): "
+            "pass the task id to taskflow commands."
+        )
+    return NO_TASK_HINT if TaskResolver._git_root(cwd) else ""
 
 
 def _claude_session_end() -> int:

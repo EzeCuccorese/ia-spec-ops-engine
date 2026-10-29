@@ -24,6 +24,7 @@ from .adapters import (
     parse_verdict,
     run_agent,
 )
+from .context import round_header
 from .models import READER_ROLES, JsonDict, now_iso
 from .stamp import GitError, changed_paths, git, tree_fingerprint
 from .store import TaskStore, atomic_write_text, fcntl
@@ -147,7 +148,8 @@ def _fingerprints(paths: tuple[Path, ...]) -> dict[Path, str]:
 def run_round(store: TaskStore, request: RoundRequest, stamp_key: str) -> JsonDict:
     agent_name = str(request.agent.get("agent", ""))
     reader = request.role in READER_ROLES
-    prompt = (READ_ONLY_LIMIT if reader else "") + request.prompt
+    header = round_header(store, request.task_id, request.role)
+    prompt = (READ_ONLY_LIMIT if reader else "") + header + request.prompt
     if request.role in ("validator", "judge"):
         prompt += VERDICT_INSTRUCTION
     number, path = store.reserve_round(request.task_id, request.phase, request.role, agent_name)

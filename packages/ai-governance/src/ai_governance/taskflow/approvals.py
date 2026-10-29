@@ -42,6 +42,8 @@ ACTIONS: tuple[str, ...] = (
     "delete",
     "policy-downgrade",
 )
+# Checked without the code stamp (the gates pass an empty one): they never expire with it.
+STAMP_FREE_ACTIONS = frozenset({"plan", "workflow", "tdd-skip"})
 # Words (accent-free, lowercase prefixes) the reply must contain to name a risky action.
 RISKY_ACTIONS: dict[str, tuple[str, ...]] = {
     "deploy": ("deploy", "despleg", "desplieg"),

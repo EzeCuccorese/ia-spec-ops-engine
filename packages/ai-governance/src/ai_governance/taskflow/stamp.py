@@ -70,8 +70,16 @@ def _path_digest(repo: Path, rel: str) -> str:
     return f"{oct(info.st_mode & 0o777)}:{digest}"
 
 
+def head_sha(repo: Path) -> str:
+    """HEAD, or ``UNBORN`` in a repository without commits (so a new repo does not crash)."""
+    try:
+        return git(repo, "rev-parse", "HEAD").strip()
+    except GitError:
+        return "UNBORN"
+
+
 def tree_fingerprint(repo: Path) -> str:
-    hasher = hashlib.sha256(git(repo, "rev-parse", "HEAD").strip().encode())
+    hasher = hashlib.sha256(head_sha(repo).encode())
     for rel in changed_paths(repo):
         hasher.update(f"\n{rel}:{_path_digest(repo, rel)}".encode())
     # Staged blob ids: re-staging different content keeps HEAD and the work tree, not these.
@@ -100,7 +108,7 @@ def merge_base(repo: Path, branch: str) -> str:
 
 
 def repo_stamp(repo: Path, *, integration_branch: str = "", check_remote: bool = False) -> JsonDict:
-    head = git(repo, "rev-parse", "HEAD").strip()
+    head = head_sha(repo)
     stamp: JsonDict = {
         "repo": str(repo),
         "branch": git(repo, "branch", "--show-current").strip(),

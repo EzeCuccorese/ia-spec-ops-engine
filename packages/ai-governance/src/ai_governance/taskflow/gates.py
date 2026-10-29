@@ -246,11 +246,30 @@ def _forward_unmet(task: Task, target: str, ctx: GateContext) -> list[str]:
 
 def _workflow_unmet(task: Task) -> list[str]:
     """Code tasks run with three agents; fewer only when the user chose it for this task."""
-    if task.workflow == "tri-agent" or valid_approval(task.approvals, "workflow", "", task.id):
+    if valid_approval(task.approvals, "workflow", "", task.id):
         return []
+    if task.workflow == "tri-agent":
+        return _shared_agents(task)
     return [
         f"workflow '{task.workflow}' needs the user's choice "
         f"(approve {task.id} --action workflow --target {task.id}); the default is tri-agent"
+    ]
+
+
+def _shared_agents(task: Task) -> list[str]:
+    """Planner, validator and builder must be three different agents, whatever the label
+    says: a ``--agent`` override or the configuration can make them the same one."""
+    by_agent: dict[str, list[str]] = {}
+    for role in ("planner", "validator", "builder"):
+        rounds = _engine_rounds(task, role)
+        agent = str(max(rounds, key=lambda r: int(r["n"])).get("agent", "")) if rounds else ""
+        if agent:
+            by_agent.setdefault(agent, []).append(role)
+    return [
+        f"tri-agent needs distinct agents: {' and '.join(roles)} both used '{agent}' "
+        f"(or the user's choice: approve {task.id} --action workflow --target {task.id})"
+        for agent, roles in by_agent.items()
+        if len(roles) > 1
     ]
 
 

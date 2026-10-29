@@ -15,6 +15,7 @@ from . import tdd
 from .approvals import (
     ACTIONS,
     RISKY_ACTIONS,
+    STAMP_FREE_ACTIONS,
     ApprovalContext,
     ApprovalError,
     ApprovalRequest,
@@ -74,6 +75,10 @@ prints in your question to the user, wait for the reply, then record it with
 policy-downgrade, restaging) need --consequence (what breaks if it goes wrong, plainly)
 and a reply that names the action and the target, typed by the user; "ok"/"dale" is
 refused. Production actions are refused after 16:00, and on Friday after 13:00.
+
+One worktree per task: tasks sharing a worktree make `here` ambiguous and reviewers mix
+contexts. `round run` already prepends the task context (goal, plan path, decisions, facts,
+repos), so a prompt only needs the specific question.
 
 Code tasks always run tri-agent (planner, validator and builder are different agents).
 Another workflow only when the user asks for it; record it before leaving plan:
@@ -383,9 +388,15 @@ def cmd_close(args: argparse.Namespace) -> int:
     return _set_status("closed")(args)
 
 
+def _repo_path(raw: str) -> str:
+    """A subdirectory binds its repository's top level, which is what the resolver compares."""
+    path = Path(raw).expanduser().resolve()
+    return str(TaskResolver._git_root(path) or path)
+
+
 def cmd_bind(args: argparse.Namespace) -> int:
     store = _store()
-    path = str(Path(args.repo).expanduser().resolve())
+    path = _repo_path(args.repo)
     branch = args.branch or TaskResolver._git_branch(Path(path)) or ""
 
     def change(task: Task) -> None:
@@ -412,7 +423,7 @@ def cmd_bind(args: argparse.Namespace) -> int:
 
 def cmd_unbind(args: argparse.Namespace) -> int:
     store = _store()
-    path = str(Path(args.repo).expanduser().resolve())
+    path = _repo_path(args.repo)
     store.mutate(
         args.task_id, lambda t: setattr(t, "repos", [r for r in t.repos if r["path"] != path])
     )
@@ -467,8 +478,14 @@ def _stale_rounds(task: Task) -> list[str]:
 
 
 def _expired_approvals(task: Task) -> list[str]:
+    """Approvals bound to the code expire when it changes; workflow, plan and tdd-skip are
+    checked without a stamp by the gates, so they are never listed."""
     return list(
-        dict.fromkeys(a["action"] for a in task.approvals if a.get("stamp") != task.stamp_key)
+        dict.fromkeys(
+            a["action"]
+            for a in task.approvals
+            if a["action"] not in STAMP_FREE_ACTIONS and a.get("stamp") != task.stamp_key
+        )
     )
 
 

@@ -31,6 +31,15 @@ class TaskResolver:
         return Path(value).resolve() if value else None
 
     @staticmethod
+    def root_of_target(target: Path) -> Path | None:
+        """Repository a file path belongs to: symlinks followed, and a path that does not
+        exist yet is looked up from its nearest existing ancestor."""
+        probe = target.expanduser().resolve()
+        while not probe.exists() and probe != probe.parent:
+            probe = probe.parent
+        return TaskResolver._git_root(probe if probe.is_dir() else probe.parent)
+
+    @staticmethod
     def _git_value(command: list[str], repo_dir: Path | None = None) -> str | None:
         try:
             res = subprocess.run(
@@ -40,11 +49,9 @@ class TaskResolver:
                 text=True,
                 timeout=2,
             )
-            if res.returncode == 0 and res.stdout.strip():
-                return res.stdout.strip()
         except (OSError, subprocess.SubprocessError):
-            pass
-        return None
+            return None  # no git, or a directory that does not exist: not a repository
+        return res.stdout.strip() or None if res.returncode == 0 else None
 
     @staticmethod
     def resolve_from_git(repo_dir: Path | None = None) -> str | None:
@@ -55,26 +62,28 @@ class TaskResolver:
         return None
 
     @staticmethod
+    def _matches_branch(task: TaskLike, key: str) -> bool:
+        return task.id.upper() == key or any(
+            ref.get("kind") == "jira" and str(ref.get("value", "")).upper() == key
+            for ref in task.references
+        )
+
+    @staticmethod
     def resolve_from_context(tasks: Iterable[TaskLike], repo_dir: Path | None = None) -> str | None:
+        """The task for this directory: bound open tasks narrowed first; the branch's Jira
+        key then picks inside that pool, or among all open tasks when none is bound."""
         task_list = list(tasks)
-        branch = TaskResolver._git_branch(repo_dir)
-        match = JIRA_RE.search(branch or "")
+        pool = TaskResolver._narrowed_bound(task_list, repo_dir)
+        match = JIRA_RE.search(TaskResolver._git_branch(repo_dir) or "")
         if match:
             key = match.group(1).upper()
-            matches = [
-                task.id
-                for task in task_list
-                if task.id.upper() == key
-                or any(
-                    ref.get("kind") == "jira" and str(ref.get("value", "")).upper() == key
-                    for ref in task.references
-                )
+            candidates = pool or [
+                t for t in task_list if getattr(t, "status", "active") != "closed"
             ]
-            if len(matches) == 1:
-                return matches[0]
-
-        candidates = TaskResolver.bound_to(task_list, repo_dir)
-        return candidates[0] if len(candidates) == 1 else None
+            hits = [t.id for t in candidates if TaskResolver._matches_branch(t, key)]
+            if len(hits) == 1:
+                return hits[0]
+        return pool[0].id if len(pool) == 1 else None
 
     @staticmethod
     def _binds(task: TaskLike, root: Path) -> bool:
@@ -82,18 +91,33 @@ class TaskResolver:
 
     @staticmethod
     def bound_to(tasks: Iterable[TaskLike], repo_dir: Path | None = None) -> list[str]:
-        """Tasks bound to this repository, narrowed when several share it: active over
-        paused, and a parent gives way to the subtask it has switched to."""
+        """Open tasks bound to this repository, narrowed when several share it: active over
+        paused, and a parent (or sibling) gives way to the subtask it switched to."""
+        return [t.id for t in TaskResolver._narrowed_bound(list(tasks), repo_dir)]
+
+    @staticmethod
+    def _narrowed_bound(tasks: list[TaskLike], repo_dir: Path | None) -> list[TaskLike]:
         root = TaskResolver._git_root(repo_dir)
         if root is None:
             return []
-        bound = [task for task in tasks if TaskResolver._binds(task, root)]
-        return TaskResolver._narrow(bound)
+        bound = [
+            t
+            for t in tasks
+            if getattr(t, "status", "active") != "closed" and TaskResolver._binds(t, root)
+        ]
+        return TaskResolver._narrow(bound, {t.id: t for t in tasks})
 
     @staticmethod
-    def _narrow(bound: list[TaskLike]) -> list[str]:
-        active = [task for task in bound if getattr(task, "status", "active") == "active"]
+    def _narrow(bound: list[TaskLike], everyone: dict[str, TaskLike]) -> list[TaskLike]:
+        active = [t for t in bound if getattr(t, "status", "active") == "active"]
         pool = active or bound
-        ids = {task.id for task in pool}
-        leaves = [task.id for task in pool if getattr(task, "active_subtask", "") not in ids]
-        return leaves or [task.id for task in pool]
+        ids = {t.id for t in pool}
+
+        def gives_way(task: TaskLike) -> bool:
+            if getattr(task, "active_subtask", "") in ids:
+                return True
+            parent = everyone.get(getattr(task, "parent", ""))
+            chosen = getattr(parent, "active_subtask", "")
+            return chosen in ids and chosen != task.id
+
+        return [t for t in pool if not gives_way(t)] or pool

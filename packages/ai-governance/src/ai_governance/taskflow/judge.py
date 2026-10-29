@@ -86,15 +86,9 @@ def run_checks(copy: JudgedCopy, commands: tuple[str, ...], evidence: Path) -> J
 
 
 def judge_prompt(task: Task, focus: str, copies: list[JudgedCopy], checks: list[JsonDict]) -> str:
-    lines = [
-        f"Role: judge, focus '{focus}'. Task {task.id}: {task.title}.",
-        f"Goal: {task.summary or task.title}",
-    ]
-    lines += [f"- step: {s['text']}" for s in task.steps]
-    lines += [f"- fact: {f['text']}" for f in task.facts]
-    lines += [
-        f"- reference: {r.get('kind')} {r.get('value')} {r.get('url', '')}" for r in task.references
-    ]
+    # Role, goal and references come from the round header that run_round prepends.
+    lines = [f"Focus: '{focus}'."]
+    lines += [f"- step: {str(s['text'])[:300]}" for s in task.steps[-10:]]
     for copy, check in zip(copies, checks, strict=True):
         diff = f"git diff {copy.base}..{copy.head}" if copy.base else f"git show {copy.head}"
         lines.append(
