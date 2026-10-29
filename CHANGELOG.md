@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.4 - 2026-10-29
+
+### Fixes
+- Resolve PR #38 follow-up regressions and PID/CLI edge cases.
+
 ## 1.1.3 - 2026-10-21
 
 ### Fixes
