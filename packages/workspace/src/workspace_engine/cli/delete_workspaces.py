@@ -158,6 +158,8 @@ def delete_single_workspace(
 def _resolve_target_path(
     ws_name: str, workspaces_root: Path, workspaces_dir: Path | None, root: Path
 ) -> tuple[Path, Path | None]:
+    if Path(ws_name).is_absolute():
+        return Path(ws_name).resolve(), None
     candidate = workspaces_root / ws_name
     if workspaces_dir is not None or candidate.exists():
         return candidate, workspaces_root

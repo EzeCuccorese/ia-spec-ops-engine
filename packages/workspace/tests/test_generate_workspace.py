@@ -139,22 +139,6 @@ def test_setup_repo_worktree_new_mode_failure_raises(tmp_path: Path) -> None:
         gw.setup_repo_worktree(tmp_path, target, cfg)
 
 
-def test_setup_repo_worktree_timeout_raises_controlled_runtime_error(tmp_path: Path) -> None:
-    import subprocess
-
-    target = tmp_path / "target"
-    cfg = RepoConfig(name="repo-a", mode="new", branch="feature", parent="main")
-
-    with (
-        patch(
-            "workspace_engine.cli.generate_workspace.run_git",
-            side_effect=subprocess.TimeoutExpired(cmd=["git", "fetch"], timeout=120),
-        ),
-        pytest.raises(RuntimeError, match="Failed to create worktree for repo-a"),
-    ):
-        gw.setup_repo_worktree(tmp_path, target, cfg)
-
-
 def test_setup_repo_worktree_existing_local_branch(tmp_path: Path) -> None:
     target = tmp_path / "target"
     cfg = RepoConfig(name="repo-a", mode="existing", branch="feature", parent=None)
@@ -566,3 +550,12 @@ def test_failure_after_the_worktrees_rolls_back_the_workspace(tmp_path: Path) ->
 
     assert not (tmp_path / "ws" / "feat-x").exists()
     assert "feat-x" not in _git("-C", str(api), "branch", "--list")
+
+
+def test_setup_repo_worktree_lists_without_timeout(tmp_path: Path) -> None:
+    cfg = RepoConfig(name="repo-a", mode="new", branch="feature", parent="main")
+    target = tmp_path / "target"
+    with patch("workspace_engine.cli.generate_workspace.run_git") as run:
+        run.return_value = MagicMock(returncode=0, stdout=f"worktree {target}\n", stderr="")
+        gw.setup_repo_worktree(tmp_path, target, cfg)
+    assert "timeout" not in run.call_args.kwargs

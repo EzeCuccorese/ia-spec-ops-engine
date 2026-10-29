@@ -574,3 +574,13 @@ def test_main_value_error_exits_1() -> None:
     ):
         dw.main()
     assert exc.value.code == 1
+
+
+def test_resolve_target_path_keeps_absolute_sibling_path(tmp_path: Path) -> None:
+    root = tmp_path / "main"
+    sibling = tmp_path / "sibling-wt"
+    root.mkdir()
+    sibling.mkdir()
+    path, effective = dw._resolve_target_path(str(sibling), tmp_path / "workspaces", None, root)
+    assert path == sibling.resolve()
+    assert effective is None

@@ -9,7 +9,6 @@ import argparse
 import json
 import os
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -58,13 +57,10 @@ def _create_worktree_for_mode(repo_path: Path, target_path: Path, config: RepoCo
 
 def setup_repo_worktree(repo_path: Path, target_path: Path, config: RepoConfig) -> None:
     """Deterministically creates a git worktree."""
-    try:
-        wt_list = run_git(repo_path, "worktree", "list", "--porcelain")
-        if f"worktree {target_path}" in wt_list.stdout.splitlines():
-            return
-        _create_worktree_for_mode(repo_path, target_path, config)
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"Failed to create worktree for {config.name}: {exc}") from exc
+    wt_list = run_git(repo_path, "worktree", "list", "--porcelain")
+    if f"worktree {target_path}" in wt_list.stdout.splitlines():
+        return
+    _create_worktree_for_mode(repo_path, target_path, config)
 
 
 # (source repo, worktree path, config, whether this run created the branch)

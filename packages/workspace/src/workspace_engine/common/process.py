@@ -15,7 +15,10 @@ def _parse_json_pid(
 ) -> tuple[int | None, str | None, str, str | None]:
     with contextlib.suppress(json.JSONDecodeError, ValueError, TypeError):
         meta = json.loads(raw_text)
-        pid = int(meta.get("pid", 0))
+        raw_pid = meta.get("pid", 0)
+        if isinstance(raw_pid, bool):
+            return None, None, default_name, None
+        pid = int(raw_pid)
         cmd = meta.get("cmd") or meta.get("cmdline") or meta.get("command")
         name = meta.get("repo") or meta.get("name") or default_name
         path = meta.get("path")
