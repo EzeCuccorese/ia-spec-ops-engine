@@ -903,3 +903,21 @@ def test_fewer_than_three_agents_needs_the_user_choice() -> None:
     task.approvals.append({"action": "workflow", "target": "T"})
     assert gates._workflow_unmet(task) == []
     assert gates._workflow_unmet(Task(id="U", title="u")) == []
+
+
+def test_several_tasks_on_one_repository_narrow_to_one_or_name_the_candidates(
+    state: TaskStore, repo: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    monkeypatch.chdir(repo)
+    assert main(["new", "P", "--title", "parent"]) == 0
+    assert main(["new", "A", "--title", "a", "--parent", "P"]) == 0
+    assert main(["new", "B", "--title", "b", "--parent", "P"]) == 0
+    for task_id in ("P", "A", "B"):
+        assert main(["bind", task_id, "--repo", str(repo)]) == 0
+    capsys.readouterr()
+    assert main(["here"]) != 0  # the parent gives way to its subtasks, A and B compete
+    assert "Several tasks are bound here (A, B)" in capsys.readouterr().err
+    assert main(["pause", "A"]) == 0
+    capsys.readouterr()
+    assert main(["here"]) == 0
+    assert "B" in capsys.readouterr().out

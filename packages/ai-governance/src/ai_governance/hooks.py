@@ -91,7 +91,7 @@ def _edit_denial(path: Path) -> str:
     from .taskflow.resolver import TaskResolver
 
     root = TaskResolver._git_root(path if path.is_dir() else path.parent)
-    if root and not _active_task(Path(root)):
+    if root and not _has_task(Path(root)):
         return NO_TASK_HINT + " Tracking-only work: `taskflow new --workflow manual`."
     return _lease_denial(path)
 
@@ -132,6 +132,18 @@ NO_TASK_HINT = (
 )
 
 
+def _has_task(repo: Path) -> bool:
+    """Any task bound here allows edits, even when several make ``taskflow here`` ask
+    which one is meant."""
+    from .taskflow.resolver import TaskResolver
+    from .taskflow.store import TaskStore
+
+    tasks = TaskStore().list()
+    return bool(
+        TaskResolver.resolve_from_context(tasks, repo) or TaskResolver.bound_to(tasks, repo)
+    )
+
+
 def _claude_session_start() -> int:
     """Injects 1-3 lines about the task bound to this repository (stdout -> context); in a
     repository without one, a reminder that code changes start a task, not the edit."""
@@ -142,6 +154,8 @@ def _claude_session_start() -> int:
 
         store, task_id = found
         print(digest(store, task_id, max_chars=SESSION_CONTEXT_CHARS))
+    elif _has_task(cwd):
+        print("TASKFLOW: several tasks are bound here: pass the task id to taskflow commands.")
     elif (cwd / ".git").exists():
         print(NO_TASK_HINT)
     return 0

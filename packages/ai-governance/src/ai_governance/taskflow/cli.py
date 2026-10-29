@@ -107,6 +107,12 @@ def _resolve(store: TaskStore, task_id: str | None) -> str:
         return task_id
     found = TaskResolver.resolve_from_context(store.list(), Path.cwd())
     if not found:
+        several = TaskResolver.bound_to(store.list(), Path.cwd())
+        if len(several) > 1:
+            raise FileNotFoundError(
+                f"Several tasks are bound here ({', '.join(several)}): pass the task id, "
+                "or `taskflow switch <parent> <subtask>` to pick the active one"
+            )
         raise FileNotFoundError("No task matches this directory: pass the task id")
     return found
 

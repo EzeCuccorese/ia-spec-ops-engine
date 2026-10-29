@@ -73,16 +73,27 @@ class TaskResolver:
             if len(matches) == 1:
                 return matches[0]
 
+        candidates = TaskResolver.bound_to(task_list, repo_dir)
+        return candidates[0] if len(candidates) == 1 else None
+
+    @staticmethod
+    def _binds(task: TaskLike, root: Path) -> bool:
+        return any(Path(repo.get("path", "")).expanduser().resolve() == root for repo in task.repos)
+
+    @staticmethod
+    def bound_to(tasks: Iterable[TaskLike], repo_dir: Path | None = None) -> list[str]:
+        """Tasks bound to this repository, narrowed when several share it: active over
+        paused, and a parent gives way to the subtask it has switched to."""
         root = TaskResolver._git_root(repo_dir)
         if root is None:
-            return None
-        root_text = str(root)
-        matches = [
-            task.id
-            for task in task_list
-            if any(
-                str(Path(repo.get("path", "")).expanduser().resolve()) == root_text
-                for repo in task.repos
-            )
-        ]
-        return matches[0] if len(matches) == 1 else None
+            return []
+        bound = [task for task in tasks if TaskResolver._binds(task, root)]
+        return TaskResolver._narrow(bound)
+
+    @staticmethod
+    def _narrow(bound: list[TaskLike]) -> list[str]:
+        active = [task for task in bound if getattr(task, "status", "active") == "active"]
+        pool = active or bound
+        ids = {task.id for task in pool}
+        leaves = [task.id for task in pool if getattr(task, "active_subtask", "") not in ids]
+        return leaves or [task.id for task in pool]
