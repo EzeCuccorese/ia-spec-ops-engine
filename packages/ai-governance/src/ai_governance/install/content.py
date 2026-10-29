@@ -21,7 +21,7 @@ GLOBAL_INSTRUCTIONS = """\
   (else `scout`), noisy builds/tests/CI logs to `runner` if present; verify before acting.
 - Executing an approved plan: heavy implementation -> mid-tier subagent, tests/docs/
   mechanical edits -> cheapest tier; you review each delivery and run the gates per phase.
-- Tasks: run `ai-governance taskflow here` first; `taskflow --help` has the whole flow.
+- Code changes: `ai-governance taskflow here`, else create a tri-agent task (`--help`).
 - Never write "honest"/"honestly" (es: "honesto"/"honestamente"); state caveats directly.
 """
 
