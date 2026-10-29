@@ -45,23 +45,12 @@ def test_install_repo_deps_detects_manifest_and_succeeds(
         assert install_deps.install_repo_deps(tmp_path) is True
 
     assert mock_run.call_args.args[0] == expected_cmd
+    assert "timeout" not in mock_run.call_args.kwargs
 
 
 def test_install_repo_deps_failure_logs_and_returns_false(tmp_path: Path) -> None:
     (tmp_path / "go.mod").write_text("", encoding="utf-8")
     with patch.object(install_deps.subprocess, "run", return_value=_completed(1, "boom" * 200)):
-        assert install_deps.install_repo_deps(tmp_path) is False
-
-
-def test_install_repo_deps_timeout_returns_false(tmp_path: Path) -> None:
-    import subprocess
-
-    (tmp_path / "go.mod").write_text("", encoding="utf-8")
-    with patch.object(
-        install_deps.subprocess,
-        "run",
-        side_effect=subprocess.TimeoutExpired(cmd=["go"], timeout=600),
-    ):
         assert install_deps.install_repo_deps(tmp_path) is False
 
 

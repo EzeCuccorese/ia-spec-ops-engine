@@ -186,3 +186,31 @@ def test_run_git_success(tmp_path: Path) -> None:
     )
     result = run_git(tmp_path, "status", "--porcelain")
     assert result.returncode == 0
+
+
+def test_run_git_defaults_to_no_timeout_and_propagates_timeout_expired(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorded_timeouts: list[object] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        recorded_timeouts.append(kwargs.get("timeout"))
+        if kwargs.get("timeout") is not None:
+            raise subprocess.TimeoutExpired(cmd=cmd, timeout=1.0)
+        return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    ok_res = run_git(tmp_path, "fetch", "origin", "main")
+    assert ok_res.returncode == 0
+    assert recorded_timeouts == [None]
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        run_git(tmp_path, "fetch", "origin", "main", timeout=1.0)
+
+
+def test_parse_pid_file_rejects_boolean_pid(tmp_path: Path) -> None:
+    from workspace_engine.common.process import parse_pid_file
+
+    pid_file = tmp_path / "svc.pid"
+    pid_file.write_text('{"pid": true}', encoding="utf-8")
+    assert parse_pid_file(pid_file)[0] is None

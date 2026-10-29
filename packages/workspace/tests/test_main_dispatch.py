@@ -85,6 +85,11 @@ def test_doctor_check_rows(agent_mode, git_path, local, glob, git_status, hooks_
         (["ws", "run-local", "--stop"], "workspace_engine.run_local.main.main", (["--stop"],)),
         (["ws", "doctor"], "workspace_engine.cli.main.doctor_check", ()),
         (
+            ["ws", "worktree", "feat-x"],
+            "workspace_engine.cli.create_worktree.main",
+            (["feat-x"],),
+        ),
+        (
             ["ws", "worktree", "repo-a", "/tmp/target", "feature-x"],
             "workspace_engine.cli.create_worktree.main",
             (["repo-a", "/tmp/target", "feature-x"],),

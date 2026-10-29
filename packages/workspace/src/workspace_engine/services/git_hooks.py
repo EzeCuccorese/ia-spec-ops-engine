@@ -258,15 +258,10 @@ def run_quality_gate(
             env=env,
             capture_output=capture is not None,
             errors="replace",
-            timeout=timeout,
         )
         if capture is not None:
             capture.append(proc.stdout + proc.stderr)
         return proc.returncode
-    except subprocess.TimeoutExpired:
-        if capture is not None:
-            capture.append(f"Quality gate timed out after {timeout}s.")
-        return 124
     finally:
         if temp_hook and temp_hook.exists():
             shutil.rmtree(temp_hook.parent, ignore_errors=True)

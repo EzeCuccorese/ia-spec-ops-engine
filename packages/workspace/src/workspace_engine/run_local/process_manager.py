@@ -513,7 +513,7 @@ def graceful_kill_pid(
 
         cmdline = get_process_cmdline(pid)
         if not cmdline:
-            return False
+            return not _pid_alive(pid)
 
         # Reject obvious false positives where service_name is just an argument to a tool
         first_token = cmdline.split()[0].lower() if cmdline.split() else ""
@@ -618,34 +618,14 @@ def stop_all() -> None:
         except (OSError, json.JSONDecodeError):
             pass
 
+    from workspace_engine.common.process import parse_pid_file
+
     for pid_file in pid_files:
         name = pid_file.stem
-        raw_text = ""
-        try:
-            raw_text = pid_file.read_text(encoding="utf-8").strip()
-        except OSError:
+        pid, expected_cmd, _, file_path = parse_pid_file(pid_file, name)
+        if pid is None:
             pid_file.unlink(missing_ok=True)
             continue
-
-        pid: int | None = None
-        expected_cmd: str | None = None
-        file_path: str | None = None
-
-        if raw_text.startswith("{"):
-            try:
-                meta = json.loads(raw_text)
-                pid = int(meta.get("pid", 0))
-                expected_cmd = meta.get("cmd") or meta.get("command") or meta.get("cmdline")
-                file_path = meta.get("path")
-            except (json.JSONDecodeError, ValueError, TypeError):
-                pass
-
-        if pid is None or pid <= 0:
-            try:
-                pid = int(raw_text.splitlines()[0].strip())
-            except (ValueError, IndexError):
-                pid_file.unlink(missing_ok=True)
-                continue
 
         svc_path = state_map.get(name) or file_path
         stopped = graceful_kill_pid(

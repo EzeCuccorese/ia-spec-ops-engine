@@ -1025,16 +1025,21 @@ def test_skip_command_sets_shows_and_clears(tmp_path: Path, capsys) -> None:
     assert got.returncode != 0
 
 
-def test_run_quality_gate_enforces_subprocess_timeout(
+def test_run_quality_gate_passes_step_timeout_via_env_without_subprocess_timeout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _init_test_git_repo(tmp_path)
     _commit_fixture(tmp_path)
+    recorded_kwargs: dict[str, object] = {}
 
-    def fake_run(*_args, **_kwargs):
-        raise subprocess.TimeoutExpired(cmd=["pre-push"], timeout=1, output="partial", stderr="")
+    def fake_run(cmd, **kwargs):
+        recorded_kwargs.clear()
+        recorded_kwargs.update(kwargs)
+        return subprocess.CompletedProcess(cmd, 0, stdout="ok\n", stderr="")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     captured: list[str] = []
-    assert run_quality_gate(tmp_path, timeout=1, capture=captured) == 124
-    assert "timed out after 1s" in captured[0]
+    assert run_quality_gate(tmp_path, timeout=900, capture=captured) == 0
+    assert captured == ["ok\n"]
+    assert "timeout" not in recorded_kwargs
+    assert recorded_kwargs["env"]["QG_TIMEOUT"] == "900"
