@@ -399,3 +399,19 @@ def test_project_gate_hook_is_configurable(project: Path) -> None:
         not (project / ".claude" / "settings.json").exists()
         or "stop-gate" not in (project / ".claude" / "settings.json").read_text()
     )
+
+
+def test_engine_write_preserves_existing_file_permissions(tmp_path: Path) -> None:
+    import stat
+
+    from ai_governance.install.engine import _write
+
+    for expected_mode in (0o644, 0o600):
+        target = tmp_path / f"file_{expected_mode:o}.md"
+        target.write_text("initial\n", encoding="utf-8")
+        target.chmod(expected_mode)
+
+        _write(target, "updated\n")
+
+        assert target.read_text(encoding="utf-8") == "updated\n"
+        assert stat.S_IMODE(target.stat().st_mode) == expected_mode

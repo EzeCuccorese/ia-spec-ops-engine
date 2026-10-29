@@ -6,6 +6,7 @@ principles (SOLID, Clean Code, Resource Management, Security, Concurrency).
 """
 
 import fnmatch
+import http.client
 import json
 import os
 import subprocess
@@ -19,6 +20,12 @@ from typing import Any
 MAX_DIFF_CHARS = 80_000
 GEMINI_TIMEOUT = 180
 MAX_RETRIES = 2
+_RETRYABLE_NETWORK_ERRORS = (
+    urllib.error.URLError,
+    TimeoutError,
+    ConnectionError,
+    http.client.IncompleteRead,
+)
 
 
 @dataclass
@@ -53,11 +60,11 @@ def _request_gemini(url: str, body: bytes, api_key: str) -> dict[str, Any]:
                 time.sleep(2 ** (attempt + 1))
                 continue
             raise RuntimeError(f"Gemini API call failed (HTTP {e.code}): {err_msg}") from e
-        except (urllib.error.URLError, TimeoutError):
+        except _RETRYABLE_NETWORK_ERRORS as e:
             if attempt < MAX_RETRIES:
                 time.sleep(2 ** (attempt + 1))
                 continue
-            raise
+            raise RuntimeError(f"Gemini API connection failed: {e}") from e
     raise RuntimeError("Gemini API call failed after retries")
 
 
@@ -324,7 +331,7 @@ def main() -> None:
 
     try:
         raw_response = call_gemini(prompt, api_key, config.model)
-    except (RuntimeError, urllib.error.URLError, TimeoutError, ValueError) as err:
+    except (RuntimeError, *_RETRYABLE_NETWORK_ERRORS, ValueError) as err:
         print(
             f"Gemini review unavailable ({type(err).__name__}: {err}). Skipping.", file=sys.stderr
         )
