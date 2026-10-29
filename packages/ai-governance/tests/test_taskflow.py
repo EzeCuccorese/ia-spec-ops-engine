@@ -888,3 +888,11 @@ def test_resolver_reads_the_jira_key_from_the_branch(repo: Path) -> None:
     _git(repo, "checkout", "-q", "-b", "feat/onb-77-thing")
     assert TaskResolver.resolve_from_git(repo) == "ONB-77"
     assert TaskResolver.resolve_from_git(repo.parent / "missing") is None
+
+
+def test_fewer_than_three_agents_needs_the_user_choice() -> None:
+    task = Task(id="T", title="t", workflow="single-agent")
+    assert "needs the user's choice" in gates._workflow_unmet(task)[0]
+    task.approvals.append({"action": "workflow", "target": "T"})
+    assert gates._workflow_unmet(task) == []
+    assert gates._workflow_unmet(Task(id="U", title="u")) == []

@@ -75,6 +75,11 @@ policy-downgrade, restaging) need --consequence (what breaks if it goes wrong, p
 and a reply that names the action and the target, typed by the user; "ok"/"dale" is
 refused. Production actions are refused after 16:00, and on Friday after 13:00.
 
+Code tasks always run tri-agent (planner, validator and builder are different agents).
+Another workflow only when the user asks for it; record it before leaving plan:
+  taskflow approve <ID> --action workflow --target <ID> --user-reply "<their words>"
+manual is for tracking only (no code, no phases).
+
 TDD is mandatory unless the user asks to skip it:
   taskflow approve <ID> --action tdd-skip --target <ID> --user-reply "<their words>"
   taskflow tdd <ID> skip --reason "..."

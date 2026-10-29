@@ -241,7 +241,17 @@ def _forward_unmet(task: Task, target: str, ctx: GateContext) -> list[str]:
     skipping_staging = task.phase == "judge" and target == "review" and not ctx.risk.restaging
     if wanted != current + 1 and not skipping_staging:
         return [f"move one phase at a time: next is '{PHASES[current + 1]}'"]
-    return _requirements(task, target, ctx)
+    return _workflow_unmet(task) + _requirements(task, target, ctx)
+
+
+def _workflow_unmet(task: Task) -> list[str]:
+    """Code tasks run with three agents; fewer only when the user chose it for this task."""
+    if task.workflow == "tri-agent" or valid_approval(task.approvals, "workflow", "", task.id):
+        return []
+    return [
+        f"workflow '{task.workflow}' needs the user's choice "
+        f"(approve {task.id} --action workflow --target {task.id}); the default is tri-agent"
+    ]
 
 
 def close_unmet(task: Task, config: FlowConfig, risk: RiskAssessment, stamp_key: str) -> list[str]:

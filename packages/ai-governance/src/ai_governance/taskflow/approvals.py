@@ -31,6 +31,7 @@ ACTIONS: tuple[str, ...] = (
     "slack",
     "staging",
     "tdd-skip",
+    "workflow",
     "review",
     "restaging",
     "deploy",
