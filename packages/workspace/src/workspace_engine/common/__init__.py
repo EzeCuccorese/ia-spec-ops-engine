@@ -34,7 +34,7 @@ from workspace_engine.common.colors import (
 )
 from workspace_engine.common.dotenv import parse_dotenv
 from workspace_engine.common.frontmatter import parse_frontmatter
-from workspace_engine.common.process import get_process_cmdline
+from workspace_engine.common.process import get_process_cmdline, parse_pid_file
 from workspace_engine.common.project import (
     ProjectType,
     detect_fe_framework,
@@ -94,4 +94,5 @@ __all__ = [
     "run_command_safe",
     "run_git",
     "get_process_cmdline",
+    "parse_pid_file",
 ]

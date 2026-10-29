@@ -529,6 +529,27 @@ def test_delete_workspaces_direct_list_failure_stops_early(
     assert rc == 1
 
 
+def test_delete_workspaces_deletes_sibling_worktree_and_rejects_other_sibling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    feat = tmp_path / "workspace-feat"
+    feat.mkdir()
+    (feat / ".workspace_metadata").write_text("x", encoding="utf-8")
+    other = tmp_path / "otra-cosa"
+    other.mkdir()
+    (other / ".workspace_metadata").write_text("x", encoding="utf-8")
+
+    monkeypatch.setattr(dw, "find_project_root", lambda: proj)
+    assert dw.delete_workspaces(["workspace-feat"]) == 0
+    assert not feat.exists()
+
+    with pytest.raises(ValueError, match="escapes managed workspaces"):
+        dw.delete_workspaces(["otra-cosa"])
+    assert other.exists()
+
+
 # ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
@@ -553,3 +574,13 @@ def test_main_value_error_exits_1() -> None:
     ):
         dw.main()
     assert exc.value.code == 1
+
+
+def test_resolve_target_path_keeps_absolute_sibling_path(tmp_path: Path) -> None:
+    root = tmp_path / "main"
+    sibling = tmp_path / "sibling-wt"
+    root.mkdir()
+    sibling.mkdir()
+    path, effective = dw._resolve_target_path(str(sibling), tmp_path / "workspaces", None, root)
+    assert path == sibling.resolve()
+    assert effective is None

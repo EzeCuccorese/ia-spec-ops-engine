@@ -550,3 +550,12 @@ def test_failure_after_the_worktrees_rolls_back_the_workspace(tmp_path: Path) ->
 
     assert not (tmp_path / "ws" / "feat-x").exists()
     assert "feat-x" not in _git("-C", str(api), "branch", "--list")
+
+
+def test_setup_repo_worktree_lists_without_timeout(tmp_path: Path) -> None:
+    cfg = RepoConfig(name="repo-a", mode="new", branch="feature", parent="main")
+    target = tmp_path / "target"
+    with patch("workspace_engine.cli.generate_workspace.run_git") as run:
+        run.return_value = MagicMock(returncode=0, stdout=f"worktree {target}\n", stderr="")
+        gw.setup_repo_worktree(tmp_path, target, cfg)
+    assert "timeout" not in run.call_args.kwargs
