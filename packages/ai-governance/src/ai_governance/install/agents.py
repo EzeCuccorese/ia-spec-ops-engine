@@ -114,6 +114,14 @@ def codex_home() -> Path:
     return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
 
 
+# Codex has no per-file rules: they are installed here and AGENTS.md points to them.
+CODEX_LANGUAGE_INDEX = "language-rules.md"
+
+
+def codex_rules_dir() -> Path:
+    return codex_home() / "ai-governance"
+
+
 @dataclass(frozen=True)
 class AgentSpec:
     id: str
@@ -130,8 +138,12 @@ class AgentSpec:
         raise NotImplementedError
 
     def corporate_artifacts(self, rules: list[CorporateRule]) -> list[Artifact]:
-        """Always-on company rules; empty when the agent has no per-file global rules."""
-        return []
+        """Always-on company rules at user level."""
+        raise NotImplementedError
+
+    def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
+        """Path-scoped catalog rules at user level."""
+        raise NotImplementedError
 
     # -- project scope -------------------------------------------------------
     def project_artifacts(
@@ -193,8 +205,10 @@ class ClaudeSpec(AgentSpec):
                 home / "settings.json",
                 (
                     HookEntry("PreToolUse", "Bash", f"{command} pre-tool-use"),
+                    HookEntry(
+                        "PreToolUse", "Edit|Write|MultiEdit|NotebookEdit", f"{command} writer-lease"
+                    ),
                     HookEntry("PostToolUse", "Bash", f"{command} post-tool-use"),
-                    HookEntry("Stop", None, f"{command} stop"),
                     HookEntry("SessionStart", None, f"{command} session-start"),
                     HookEntry("SessionEnd", None, f"{command} session-end"),
                 ),
@@ -206,6 +220,9 @@ class ClaudeSpec(AgentSpec):
         return [
             LinkArtifact(home / f"ai-governance-{r.pack}-{r.name}.md", str(r.path)) for r in rules
         ]
+
+    def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
+        return _global_catalog_rules(Path.home() / ".claude" / "rules", rules)
 
     def project_artifacts(
         self, root: Path, rules: list[RuleDefinition], *, gate: bool = False
@@ -231,19 +248,22 @@ class CodexSpec(AgentSpec):
     def global_artifacts(self) -> list[Artifact]:
         home = codex_home()
         return [
-            BlockArtifact(home / "AGENTS.md", content.GLOBAL_INSTRUCTIONS),
+            BlockArtifact(
+                home / "AGENTS.md",
+                content.GLOBAL_INSTRUCTIONS + content.codex_rules_pointer(codex_rules_dir()),
+            ),
             FileArtifact(
                 home / "agents" / "scout.toml",
                 'name = "scout"\n'
                 f"description = {json.dumps(content.SCOUT_DESCRIPTION)}\n"
-                'model = "terra"\n'
+                'model = "gpt-6-luna"\n'
                 'model_reasoning_effort = "medium"\n'
                 'sandbox_mode = "read-only"\n'
                 f'developer_instructions = """\n{content.SCOUT_INSTRUCTIONS}"""\n',
             ),
             BlockArtifact(
                 home / "config.toml",
-                'agents.default_subagent_model = "terra"\n'
+                'agents.default_subagent_model = "gpt-6-luna"\n'
                 'agents.default_subagent_reasoning_effort = "medium"\n',
                 comment="#",
                 prepend=True,
@@ -256,6 +276,27 @@ class CodexSpec(AgentSpec):
             ),
         ]
 
+    def corporate_artifacts(self, rules: list[CorporateRule]) -> list[Artifact]:
+        company = codex_rules_dir() / "company"
+        return [LinkArtifact(company / f"{r.pack}-{r.name}.md", str(r.path)) for r in rules]
+
+    def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
+        rules_dir = codex_rules_dir()
+        if not rules:
+            return []
+        files = _global_catalog_rules(rules_dir, rules)
+        index = "\n".join(
+            f"- {', '.join(f'`{g}`' for g in rule.globs) or 'every file'}: "
+            f"`{rules_dir / f'ai-governance-{rule.id}.md'}`"
+            for rule in rules
+        )
+        return [
+            *files,
+            FileArtifact(
+                rules_dir / CODEX_LANGUAGE_INDEX, f"{content.CODEX_LANGUAGE_INDEX_HEADER}{index}\n"
+            ),
+        ]
+
 
 class AntigravitySpec(AgentSpec):
     def corporate_artifacts(self, rules: list[CorporateRule]) -> list[Artifact]:
@@ -263,6 +304,9 @@ class AntigravitySpec(AgentSpec):
         return [
             LinkArtifact(home / f"ai-governance-{r.pack}-{r.name}.md", str(r.path)) for r in rules
         ]
+
+    def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
+        return _global_catalog_rules(Path.home() / ".gemini" / "config" / "rules", rules)
 
     def global_artifacts(self) -> list[Artifact]:
         home = Path.home() / ".gemini"
@@ -286,9 +330,17 @@ class AntigravitySpec(AgentSpec):
                 HookEntry(
                     "PreToolUse", "run_command", f"{HOOK_COMMAND_PREFIX} antigravity pre-tool-use"
                 ),
+                HookEntry("PreToolUse", "*", f"{HOOK_COMMAND_PREFIX} antigravity writer-lease"),
                 group=MARKER,
             ),
         ]
+
+
+def _global_catalog_rules(rules_dir: Path, rules: list[RuleDefinition]) -> list[Artifact]:
+    return [
+        FileArtifact(rules_dir / f"ai-governance-{rule.id}.md", render_canonical_rule(rule))
+        for rule in rules
+    ]
 
 
 def skill_artifacts(skills_dir: Path) -> list[Artifact]:
@@ -302,32 +354,32 @@ AGENTS: dict[str, AgentSpec] = {
     "claude": ClaudeSpec(
         id="claude",
         name="Claude Code",
-        global_instructions="~/.claude/rules/ai-governance.md",
-        global_hooks="~/.claude/settings.json (Pre/PostToolUse Bash, Stop, SessionStart/End)",
+        global_instructions="~/.claude/rules/ai-governance.md + language rules (`paths:`)",
+        global_hooks="~/.claude/settings.json (Pre/PostToolUse Bash, SessionStart/End)",
         project_rules=".claude/rules/ai-governance-<id>.md -> symlink to .agents/rules",
         project_rules_mechanism="native `paths:` frontmatter (loaded per file)",
         scout="~/.claude/agents/scout.md (haiku, no web) + researcher.md (sonnet, web research) + runner.md (haiku, Bash, no edits), effort medium",
-        skills="~/.claude/skills/{progress,test-audit}/SKILL.md",
+        skills="~/.claude/skills/{taskflow,test-audit}/SKILL.md",
     ),
     "codex": CodexSpec(
         id="codex",
         name="OpenAI Codex",
-        global_instructions="$CODEX_HOME/AGENTS.md (marker block)",
+        global_instructions="$CODEX_HOME/AGENTS.md (marker block) + rule indexes in $CODEX_HOME/ai-governance/",
         global_hooks="$CODEX_HOME/hooks.json PostToolUse condensing (after `probe` verifies)",
         project_rules=".agents/rules/ai-governance-<id>.md (shared)",
         project_rules_mechanism="injected on edit by a PreToolUse hook (planned)",
-        scout="$CODEX_HOME/agents/scout.toml (terra, effort medium, read-only) + config.toml default subagent model terra",
-        skills="~/.agents/skills/{progress,test-audit}/SKILL.md",
+        scout="$CODEX_HOME/agents/scout.toml (gpt-6-luna, effort medium, read-only) + config.toml default subagent model gpt-6-luna",
+        skills="~/.agents/skills/{taskflow,test-audit}/SKILL.md",
     ),
     "antigravity": AntigravitySpec(
         id="antigravity",
         name="Google Antigravity 2",
-        global_instructions="~/.gemini/config/rules/ai-governance.md (`trigger: always_on`)",
+        global_instructions="~/.gemini/config/rules/ai-governance.md (`trigger: always_on`) + language rules (`trigger: glob`)",
         global_hooks="~/.gemini/config/hooks.json PreToolUse: raw noisy commands -> `ws run` (after `probe`)",
         project_rules=".agents/rules/ai-governance-<id>.md (single source)",
         project_rules_mechanism="`trigger: glob` activation (loaded per file; 20k-token rules budget)",
         scout="~/.gemini/config/agents/scout.md (model flash, read-only tools, no commands)",
-        skills="~/.gemini/config/skills/{progress,test-audit}/SKILL.md",
+        skills="~/.gemini/config/skills/{taskflow,test-audit}/SKILL.md",
     ),
 }
 

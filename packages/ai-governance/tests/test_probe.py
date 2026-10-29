@@ -53,7 +53,7 @@ def test_codex_hooks_install_only_after_verified_probe(monkeypatch, tmp_path: Pa
     assert data["hooks"]["PostToolUse"][0]["hooks"][0]["command"] == (
         "ai-governance hook codex post-tool-use"
     )
-    assert 'model = "terra"' in (tmp_path / "home/.codex/agents/scout.toml").read_text()
+    assert 'model = "gpt-6-luna"' in (tmp_path / "home/.codex/agents/scout.toml").read_text()
 
 
 def test_antigravity_hook_installs_as_named_group_after_pre_tool_probe(
@@ -77,7 +77,13 @@ def test_antigravity_hook_installs_as_named_group_after_pre_tool_probe(
             "hooks": [
                 {"type": "command", "command": "ai-governance hook antigravity pre-tool-use"}
             ],
-        }
+        },
+        {
+            "matcher": "*",
+            "hooks": [
+                {"type": "command", "command": "ai-governance hook antigravity writer-lease"}
+            ],
+        },
     ]
     uninstall_user(["antigravity"])
     assert json.loads(hooks_path.read_text()) == {"other": {"Stop": [{"command": "x"}]}}

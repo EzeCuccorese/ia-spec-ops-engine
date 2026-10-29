@@ -16,7 +16,7 @@ COMMANDS: dict[str, str] = {
     "budget": "Fixed context (bytes/tokens) loaded per agent every session",
     "probe": "Verify on this machine what an agent loads and which hooks fire",
     "rules": "Browse the engineering-rules catalog (list, show, profiles)",
-    "progress": "Compact cross-session task tracker",
+    "taskflow": "Task tracking and the plan/validate/work/judge flow across agents",
     "telemetry": "Claude spend estimates (claude-usage), prices and threshold alerts",
     "jira": "Jira issues and transitions in Markdown",
     "confluence": "Confluence pages in Markdown",
@@ -35,7 +35,7 @@ INSTALL_COMMANDS = (
 )
 _SUBCOMMAND_MODULES: dict[str, str] = {
     "rules": "ai_governance.rules.cli",
-    "progress": "ai_governance.session.cli",
+    "taskflow": "ai_governance.taskflow.cli",
     "telemetry": "ai_governance.telemetry.cli",
     "jira": "ai_governance.tools.jira",
     "confluence": "ai_governance.tools.confluence",
@@ -49,7 +49,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="ai-governance",
-        description="Per-agent engineering standards, token frugality, telemetry and progress.",
+        description="Per-agent engineering standards, token frugality, telemetry and task flow.",
     )
     parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="subcommand")

@@ -43,9 +43,9 @@ def test_cli_dispatch_telemetry() -> None:
         mock_telemetry.assert_called_once_with(["report"])
 
 
-def test_cli_dispatch_progress() -> None:
-    with patch("ai_governance.session.cli.main", return_value=0) as mock_session:
-        assert main(["progress", "list"]) == 0
+def test_cli_dispatch_taskflow() -> None:
+    with patch("ai_governance.taskflow.cli.main", return_value=0) as mock_session:
+        assert main(["taskflow", "list"]) == 0
         mock_session.assert_called_once_with(["list"])
 
 
@@ -73,7 +73,7 @@ def test_cli_does_not_import_optional_packages() -> None:
 def test_cli_help_lists_all_canonical_subcommands(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["--help"]) == 0
     out = capsys.readouterr().out
-    for subcommand in ("install", "update", "doctor", "rules", "telemetry", "progress", "hook"):
+    for subcommand in ("install", "update", "doctor", "rules", "telemetry", "taskflow", "hook"):
         assert subcommand in out
     listing = out.split("{", 1)[1].split("}", 1)[0].split(",")
     for removed in ("frugal", "harness", "progreso", "ritmo"):
@@ -119,11 +119,11 @@ def _subcommand_helps(parser: argparse.ArgumentParser) -> dict[str, str | None]:
     return helps
 
 
-def test_every_progress_and_telemetry_subcommand_has_help() -> None:
-    from ai_governance.session.cli import _build_parser as progress_parser
+def test_every_taskflow_and_telemetry_subcommand_has_help() -> None:
+    from ai_governance.taskflow.cli import _parser as taskflow_parser
     from ai_governance.telemetry.cli import _build_parser as telemetry_parser
 
-    for parser in (progress_parser(), telemetry_parser()):
+    for parser in (taskflow_parser(), telemetry_parser()):
         missing = [name for name, text in _subcommand_helps(parser).items() if not text]
         assert missing == []
 

@@ -2,7 +2,7 @@
 
 This repository contains three independently installable Python packages:
 
-- `packages/ai-governance`: rules, progress tracking, telemetry, context-frugality tools, and Atlassian utilities.
+- `packages/ai-governance`: rules, task flow (taskflow), telemetry, context-frugality tools, and Atlassian utilities.
 - `packages/workspace`: Git worktrees, quality gates, local services, and environment tools.
 - `packages/spec`: specification workflows and coding-agent adapters.
 

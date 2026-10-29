@@ -4,7 +4,7 @@ When reviewing Pull Requests in this repository, follow these standards:
 
 ## Repository Architecture & Scope
 - This repository contains independent Python packages:
-  - `packages/ai-governance`: rules, telemetry, progress tracking, context-frugality tools.
+  - `packages/ai-governance`: rules, telemetry, task flow (taskflow), context-frugality tools.
   - `packages/workspace`: Git worktree management, quality gates, environment tools.
   - `packages/spec`: specification workflows and agent adapters.
 - Keep dependencies isolated between packages; do not create circular or unnecessary cross-dependencies.
