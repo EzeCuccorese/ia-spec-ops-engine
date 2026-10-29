@@ -116,22 +116,18 @@ def condensed_output(payload: dict, cfg: dict) -> tuple[str, dict | str] | None:
     return condensed, condensed
 
 
+def post_bash_output(payload: dict, cfg: dict) -> dict | None:
+    """PostToolUse(Bash) fields that replace large output with the ws summary."""
+    replaced = condensed_output(payload, cfg)
+    return None if replaced is None else {"updatedToolOutput": replaced[1]}
+
+
 def run_post_bash(cfg: dict) -> None:
     """Claude Code PostToolUse(Bash): replace large output with the ws summary."""
     try:
         payload = json.load(sys.stdin)
     except (json.JSONDecodeError, UnicodeDecodeError, OSError):
         return
-    replaced = condensed_output(payload, cfg)
-    if replaced is None:
-        return
-    print(
-        json.dumps(
-            {
-                "hookSpecificOutput": {
-                    "hookEventName": "PostToolUse",
-                    "updatedToolOutput": replaced[1],
-                }
-            }
-        )
-    )
+    fields = post_bash_output(payload, cfg)
+    if fields:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", **fields}}))

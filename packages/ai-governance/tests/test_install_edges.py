@@ -106,7 +106,7 @@ def test_claude_hook_handlers_delegate(monkeypatch) -> None:
 
     calls: list[str] = []
     monkeypatch.setattr(frugal, "run_pre_bash", lambda cfg: calls.append("pre"))
-    monkeypatch.setattr(frugal, "run_post_bash", lambda cfg: calls.append("post"))
+    monkeypatch.setattr(frugal, "post_bash_output", lambda payload, cfg: calls.append("post"))
     monkeypatch.setattr(telemetry, "main", lambda argv: calls.append(" ".join(argv)) or 0)
     for event in ("pre-tool-use", "post-tool-use", "stop"):
         assert hooks.main(["claude", event]) == 0

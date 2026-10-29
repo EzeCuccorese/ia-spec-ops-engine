@@ -121,10 +121,42 @@ def _claude_writer_lease() -> int:
     return 0
 
 
-def _claude_post_tool_use() -> int:
-    from .frugality.cli import load_config, run_post_bash
+SHELL_CHANGE_WARNING = (
+    "TASKFLOW: this repository has uncommitted changes and no task. Shell edits skip the "
+    "edit check, not the flow: create the task (`ai-governance taskflow new`) and plan first."
+)
 
-    run_post_bash(load_config())
+
+def _shell_change_warning(payload: dict[str, Any]) -> str:
+    """Bash stays ungated; when it leaves changes in a repository without a task, the agent
+    is told so instead of being blocked."""
+    from .taskflow.resolver import TaskResolver
+    from .taskflow.stamp import GitError, git
+
+    cwd = _cwd(payload)
+    root = None if _is_agent_config(cwd) else TaskResolver.root_of_target(cwd)
+    if root is None or _has_task(root):
+        return ""
+    try:
+        dirty = bool(git(root, "status", "--porcelain").strip())
+    except GitError:
+        return ""
+    return SHELL_CHANGE_WARNING if dirty else ""
+
+
+def _claude_post_tool_use() -> int:
+    from .frugality.cli import load_config, post_bash_output
+
+    try:
+        payload = json.loads(_stdin_text() or "{}")
+    except ValueError:
+        return 0
+    fields = post_bash_output(payload, load_config()) or {}
+    warning = _shell_change_warning(payload)
+    if warning:
+        fields["additionalContext"] = warning
+    if fields:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", **fields}}))
     return 0
 
 

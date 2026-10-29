@@ -199,3 +199,28 @@ def test_a_new_repository_without_commits_can_get_a_task_and_edits(
     from ai_governance.taskflow.stamp import repo_stamp
 
     assert repo_stamp(fresh.resolve())["head"] == "UNBORN"
+
+
+def _post_bash(monkeypatch, capsys, cwd: Path) -> str:
+    _stdin(monkeypatch, {"cwd": str(cwd), "tool_name": "Bash", "tool_response": {"stdout": ""}})
+    assert hooks.main(["claude", "post-tool-use"]) == 0
+    return capsys.readouterr().out
+
+
+def test_shell_changes_in_a_repository_without_task_warn_without_blocking(
+    monkeypatch, capsys, tmp_path
+) -> None:
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    assert _post_bash(monkeypatch, capsys, repo) == ""  # clean tree: nothing to say
+    (repo / "config.yaml").write_text("x: 1\n")
+    out = json.loads(_post_bash(monkeypatch, capsys, repo))["hookSpecificOutput"]
+    assert out["additionalContext"] == hooks.SHELL_CHANGE_WARNING
+    assert "permissionDecision" not in out
+
+
+def test_shell_changes_in_a_repository_with_task_stay_silent(monkeypatch, capsys, tmp_path) -> None:
+    repo = _repo_with_task(monkeypatch, tmp_path)
+    (repo / "new.txt").write_text("x")
+    assert _post_bash(monkeypatch, capsys, repo) == ""
