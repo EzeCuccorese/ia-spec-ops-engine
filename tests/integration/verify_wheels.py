@@ -44,7 +44,7 @@ if "ai_governance" in modules:
     assert pathlib.Path(".claude/rules/ai-governance-06-security-privacy.md").is_file()
     assert governance(["uninstall", "--scope", "project", "--agent", "claude", "--root", "."]) == 0
     assert not pathlib.Path(".ai-governance").exists()
-    assert taskflow(["new", "wheel-smoke", "--title", "Wheel smoke"]) == 0
+    assert taskflow(["new", "wheel-smoke", "--title", "Wheel smoke", "--workflow", "manual"]) == 0
     assert taskflow(["summary", "wheel-smoke", "Verified installed wheel"]) == 0
     assert taskflow(["step", "wheel-smoke", "add", "Verify resources"]) == 0
     assert taskflow(["step", "wheel-smoke", "done", "Verify resources"]) == 0
