@@ -24,7 +24,13 @@
           "**/*.rs",
           "**/*.cs",
           "**/*.php",
-          "**/*.dart"
+          "**/*.dart",
+          "**/*.kts",
+          "**/*.mts",
+          "**/*.cts",
+          "**/*.mjs",
+          "**/*.cjs",
+          "**/*.pyi"
         ]
       },
       "stacks": [
@@ -38,7 +44,8 @@
         "php",
         "flutter",
         "dotnet"
-      ]
+      ],
+      "user_scope": true
     },
     {
       "id": "02-clean-architecture-hexagonal",
@@ -175,10 +182,17 @@
           "**/*.rs",
           "**/*.cs",
           "**/*.php",
-          "**/*.dart"
+          "**/*.dart",
+          "**/*.kts",
+          "**/*.mts",
+          "**/*.cts",
+          "**/*.mjs",
+          "**/*.cjs",
+          "**/*.pyi"
         ]
       },
-      "stacks": []
+      "stacks": [],
+      "user_scope": true
     },
     {
       "id": "11-self-documenting-code",
@@ -198,7 +212,13 @@
           "**/*.rs",
           "**/*.cs",
           "**/*.php",
-          "**/*.dart"
+          "**/*.dart",
+          "**/*.kts",
+          "**/*.mts",
+          "**/*.cts",
+          "**/*.mjs",
+          "**/*.cjs",
+          "**/*.pyi"
         ]
       },
       "stacks": [
@@ -212,7 +232,49 @@
         "php",
         "flutter",
         "dotnet"
-      ]
+      ],
+      "user_scope": true
+    },
+    {
+      "id": "12-boundaries-and-reuse",
+      "category": "1-core",
+      "file": "1-core/12-boundaries-and-reuse.md",
+      "description": "Typed boundaries: library validation types, no escape-hatch types, no pass-through functions, reuse existing helpers",
+      "triggers": {
+        "globs": [
+          "**/*.py",
+          "**/*.java",
+          "**/*.kt",
+          "**/*.ts",
+          "**/*.tsx",
+          "**/*.js",
+          "**/*.jsx",
+          "**/*.go",
+          "**/*.rs",
+          "**/*.cs",
+          "**/*.php",
+          "**/*.dart",
+          "**/*.kts",
+          "**/*.mts",
+          "**/*.cts",
+          "**/*.mjs",
+          "**/*.cjs",
+          "**/*.pyi"
+        ]
+      },
+      "stacks": [
+        "java",
+        "kotlin",
+        "node",
+        "typescript",
+        "python",
+        "go",
+        "rust",
+        "php",
+        "flutter",
+        "dotnet"
+      ],
+      "user_scope": true
     },
     {
       "id": "java-spring",
@@ -229,7 +291,8 @@
       },
       "stacks": [
         "java"
-      ]
+      ],
+      "user_scope": true
     },
     {
       "id": "csharp-dotnet",
@@ -245,7 +308,8 @@
       },
       "stacks": [
         "dotnet"
-      ]
+      ],
+      "user_scope": true
     },
     {
       "id": "typescript-nodejs",
@@ -255,7 +319,13 @@
       "triggers": {
         "globs": [
           "**/*.ts",
+          "**/*.tsx",
+          "**/*.mts",
+          "**/*.cts",
           "**/*.js",
+          "**/*.jsx",
+          "**/*.mjs",
+          "**/*.cjs",
           "tsconfig.json",
           "package.json"
         ]
@@ -263,7 +333,8 @@
       "stacks": [
         "node",
         "typescript"
-      ]
+      ],
+      "user_scope": true
     },
     {
       "id": "react-frontend",
@@ -280,23 +351,26 @@
       },
       "stacks": [
         "react"
-      ]
+      ],
+      "user_scope": true
     },
     {
       "id": "python-async",
       "category": "2-stacks",
       "file": "2-stacks/python-async.md",
-      "description": "Python 3.11+, Pydantic v2, Asyncio, and Pytest standards",
+      "description": "Python 3.11+: typing without Any, Pydantic v2 types for validation, async safety",
       "triggers": {
         "globs": [
           "**/*.py",
+          "**/*.pyi",
           "pyproject.toml",
           "requirements.txt"
         ]
       },
       "stacks": [
         "python"
-      ]
+      ],
+      "user_scope": true
     },
     {
       "id": "go-idiomatic",
@@ -312,7 +386,8 @@
       },
       "stacks": [
         "go"
-      ]
+      ],
+      "user_scope": true
     },
     {
       "id": "rust-safety",
@@ -328,7 +403,8 @@
       },
       "stacks": [
         "rust"
-      ]
+      ],
+      "user_scope": true
     },
     {
       "id": "kotlin",
@@ -343,7 +419,8 @@
       },
       "stacks": [
         "kotlin"
-      ]
+      ],
+      "user_scope": true
     },
     {
       "id": "php-modern",
@@ -358,7 +435,8 @@
       },
       "stacks": [
         "php"
-      ]
+      ],
+      "user_scope": true
     },
     {
       "id": "flutter-dart",
@@ -373,7 +451,8 @@
       },
       "stacks": [
         "flutter"
-      ]
+      ],
+      "user_scope": true
     },
     {
       "id": "database-migrations",
@@ -420,10 +499,16 @@
           "**/controllers/**",
           "**/routes/**",
           "**/*.openapi.*",
-          "**/*.swagger.*"
+          "**/*.swagger.*",
+          "**/*route*.*",
+          "**/*router*.*",
+          "**/*controller*.*",
+          "**/*endpoint*.*",
+          "**/webapp.*"
         ]
       },
-      "stacks": []
+      "stacks": [],
+      "user_scope": true
     },
     {
       "id": "observability",

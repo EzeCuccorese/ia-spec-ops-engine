@@ -23,6 +23,7 @@ class RuleDefinition:
     profile: str | None
     content: str
     sha256: str
+    user_scope: bool = False
 
     @property
     def always_on(self) -> bool:
@@ -67,12 +68,18 @@ class RuleCatalog:
                 profile=profile,
                 content=content,
                 sha256=hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                user_scope=bool(item.get("user_scope", False)),
             )
             self._rules[rule.id] = rule
 
     @property
     def rules(self) -> list[RuleDefinition]:
         return list(self._rules.values())
+
+    def user_rules(self) -> list[RuleDefinition]:
+        """Language-level rules installed globally: they load per file in every repo,
+        so basic practices never depend on a project having opted in."""
+        return sorted((rule for rule in self.rules if rule.user_scope), key=lambda r: r.id)
 
     def get(self, rule_id: str) -> RuleDefinition | None:
         return self._rules.get(rule_id)

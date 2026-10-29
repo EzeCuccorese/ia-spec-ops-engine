@@ -5,3 +5,5 @@
 - **Explicit Error Handling**: Return `(result, error)`. Wrap errors with context using `fmt.Errorf("...: %w", err)`. Inspect with `errors.Is` and `errors.As`.
 - **Context Propagation**: The first parameter of every I/O-bound function must be `ctx context.Context`.
 - **Goroutine Lifecycle**: Always ensure goroutines have a deterministic termination path via `context` or channels. Use `sync.WaitGroup` or `errgroup`.
+- **Boundary Validation**: Decode into structs and validate with `go-playground/validator` tags (`validate:"required,email"`, `url`) or `net/mail.ParseAddress` / `net/url.ParseRequestURI`; no hand-rolled regex.
+- **No Escape Hatches**: No `any`/`interface{}` in signatures or `map[string]interface{}` for known payloads; use structs or generic type parameters.

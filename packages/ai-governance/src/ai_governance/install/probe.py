@@ -63,7 +63,7 @@ def _canaries(agent: str) -> dict[str, tuple[str, str]]:
             "CANARY-CODEX-NESTED": ("sub/AGENTS.md", "- CANARY-CODEX-NESTED\n"),
             SCOUT_CANARY: (
                 ".codex/agents/probe-scout.toml",
-                'name = "probe-scout"\ndescription = "Probe subagent"\nmodel = "terra"\n'
+                'name = "probe-scout"\ndescription = "Probe subagent"\nmodel = "gpt-6-luna"\n'
                 'model_reasoning_effort = "medium"\nsandbox_mode = "read-only"\n'
                 f'developer_instructions = """\n{SCOUT_BODY}"""\n',
             ),
