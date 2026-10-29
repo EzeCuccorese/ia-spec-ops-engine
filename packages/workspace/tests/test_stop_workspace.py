@@ -324,3 +324,33 @@ def test_stop_workspace_also_stops_run_local_services(
         assert sw.stop_workspace(start_dir=tmp_path / "ws") == 0
     assert not bad_pid.exists()
     assert outside_pid.exists()
+
+
+def test_stop_workspace_skips_run_local_pid_without_path_and_preserves_when_kill_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from workspace_engine.run_local import constants
+
+    rl_pids = tmp_path / "rl-pids"
+    rl_pids.mkdir()
+    svc_dir = tmp_path / "ws" / "repositories" / "svc"
+    svc_dir.mkdir(parents=True)
+    monkeypatch.setattr(constants, "PIDS_DIR", rl_pids)
+
+    no_path_pid = rl_pids / "no-path.pid"
+    no_path_pid.write_text(json.dumps({"pid": 7777, "cmd": "node index.js"}), encoding="utf-8")
+    still_alive_pid = rl_pids / "alive.pid"
+    still_alive_pid.write_text(
+        json.dumps({"pid": 8888, "cmd": "node index.js", "path": str(svc_dir)}),
+        encoding="utf-8",
+    )
+
+    with patch(
+        "workspace_engine.run_local.process_manager.graceful_kill_pid", return_value=False
+    ) as mock_kill:
+        assert sw.stop_workspace(start_dir=tmp_path / "ws") == 0
+
+    mock_kill.assert_called_once()
+    assert mock_kill.call_args.args[0] == 8888
+    assert no_path_pid.exists()
+    assert still_alive_pid.exists()

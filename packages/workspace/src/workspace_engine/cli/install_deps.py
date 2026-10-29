@@ -49,11 +49,7 @@ def install_repo_deps(repo_path: Path) -> bool:
         log_warning(f"[{name}] No recognized dependency manifest detected.")
         return True
 
-    try:
-        res = subprocess.run(cmd, cwd=str(repo_path), capture_output=True, text=True, timeout=600)
-    except subprocess.TimeoutExpired:
-        log_error(f"[{name}] Timed out installing dependencies.")
-        return False
+    res = subprocess.run(cmd, cwd=str(repo_path), capture_output=True, text=True)
     if res.returncode == 0:
         log_success(f"[{name}] Dependencies installed successfully.")
         return True
