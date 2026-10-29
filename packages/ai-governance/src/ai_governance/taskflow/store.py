@@ -27,7 +27,7 @@ except ImportError:  # pragma: no cover - Windows
 TASK_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 STATE_FILE = "state.json"
 LOG_FILE = "log.md"
-FRICTION_FILE = "friccion.md"
+FRICTION_FILE = "friction.md"
 INDEX_HEADER = "| n | date | phase | role | agent/model | stamp | verdict | status |\n|---|---|---|---|---|---|---|---|\n"
 
 

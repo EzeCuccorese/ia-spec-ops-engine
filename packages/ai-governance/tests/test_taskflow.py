@@ -1069,3 +1069,116 @@ def test_tasks_sharing_a_repo_only_see_their_own_plan(cli_run, state: TaskStore)
         assert task.rounds[0]["file"] in request
         assert str(state.rounds_dir(other)) not in request
         assert f"Task {other}" not in request
+
+
+# -- review fixes ----------------------------------------------------------------------------
+def test_checks_that_write_files_do_not_count_as_a_judge_edit(
+    state: TaskStore, repo: Path, fake_agents: Path, tmp_path: Path
+) -> None:
+    from ai_governance.taskflow.gates import GateContext
+
+    cfg = FlowConfig(roles={"builder": {"agent": "claude"}})
+    task = Task(id="T", title="t", repos=[{"path": str(repo)}])
+    state.create(task)
+    risk = assess(cfg, [])
+    risk = type(risk)(**{**risk.__dict__, "checks": ("echo built > artifact.txt",)})
+    ctx = GateContext(cfg, risk, "stamp")
+    records, kept = judge_task(state, task, ctx)
+    assert records and kept == []
+    assert not list(tmp_path.glob("taskflow-judge-*"))
+    assert "judge-" not in _git(repo, "worktree", "list")
+
+
+def test_scratch_and_worktrees_are_removed_when_judging_raises(
+    state: TaskStore, repo: Path, monkeypatch
+) -> None:
+    from ai_governance.taskflow import judge as judge_module
+    from ai_governance.taskflow.gates import GateContext
+
+    cfg = FlowConfig(roles={"builder": {"agent": "claude"}})
+    task = Task(id="T", title="t", repos=[{"path": str(repo)}])
+    state.create(task)
+
+    def boom(*_a: object, **_k: object) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(judge_module, "run_round", boom)
+    with pytest.raises(RuntimeError):
+        judge_task(state, task, GateContext(cfg, assess(cfg, []), "s"))
+    assert len(_git(repo, "worktree", "list").strip().splitlines()) == 1
+
+
+def test_a_timed_out_command_is_reported_instead_of_crashing(tmp_path: Path, monkeypatch) -> None:
+    from ai_governance.taskflow import judge as judge_module
+
+    monkeypatch.setattr(tdd, "TEST_TIMEOUT", 0.2)
+    code, output = tdd.run_test("sleep 5", tmp_path)
+    assert code == tdd.TIMEOUT_EXIT and "Timed out" in output
+    monkeypatch.setattr(judge_module, "CHECK_TIMEOUT", 0.2)
+    result = judge_module._run_check("sleep 5", tmp_path)
+    assert result["exit"] == judge_module.TIMEOUT_EXIT
+
+
+def test_main_reports_a_timeout_as_an_error(monkeypatch, capsys) -> None:
+    def handler(_args: object) -> int:
+        raise subprocess.TimeoutExpired("x", 1)
+
+    monkeypatch.setattr("ai_governance.taskflow.cli.cmd_list", handler, raising=False)
+    parser_args = type("A", (), {"handler": staticmethod(handler)})
+    monkeypatch.setattr(
+        "ai_governance.taskflow.cli._parser",
+        lambda: type("P", (), {"parse_args": lambda self, argv: parser_args})(),
+    )
+    assert main([]) == 1
+
+
+def test_close_without_a_bound_repo_still_enforces_the_gate(state: TaskStore) -> None:
+    main(["new", "ONB-1", "--title", "Fix"])
+    assert main(["close", "ONB-1"]) == 1
+    assert main(["close", "ONB-1", "--abandon", "--reason", "dropped"]) == 0
+
+
+def test_readers_watch_every_bound_repository(
+    state: TaskStore, repo: Path, tmp_path: Path, fake_agents: Path
+) -> None:
+    other = tmp_path / "other"
+    other.mkdir()
+    _git(other, "init", "-q", "-b", "main")
+    main(["new", "ONB-1", "--title", "Fix"])
+    main(["bind", "ONB-1", "--repo", str(repo)])
+    main(["bind", "ONB-1", "--repo", str(other)])
+    _fake_bin(fake_agents, "agy", f'echo x > "{other}/new.txt"\necho "PLAN: x"\n')
+    main(["round", "ONB-1", "run", "--role", "planner", "--prompt", "plan"])
+    assert state.get("ONB-1").rounds[-1]["state"] != "valid"
+
+
+def test_judges_load_from_either_spelling_in_either_file(tmp_path: Path) -> None:
+    user = tmp_path / "user.toml"
+    user.write_text('[[judges]]\nfocus = "a"\nagent = "codex"\n')
+    repo_dir = tmp_path / "r"
+    (repo_dir / ".ai-governance").mkdir(parents=True)
+    (repo_dir / ".ai-governance" / "taskflow.toml").write_text(
+        '[[roles.judges]]\nfocus = "b"\nagent = "codex"\n'
+    )
+    config = load_config([repo_dir], user)
+    assert [j["focus"] for j in config.judges] == ["a", "b"]
+    user.write_text('[[roles.judges]]\nfocus = "c"\nagent = "codex"\n')
+    assert [j["focus"] for j in load_config([], user).judges] == ["c"]
+
+
+def test_status_parsing_skips_a_truncated_rename_entry(monkeypatch, tmp_path: Path) -> None:
+    from ai_governance.taskflow import stamp
+
+    monkeypatch.setattr(stamp, "git", lambda *_a, **_k: "R  new.py")
+    assert stamp.changed_paths(tmp_path) == ["new.py"]
+
+
+def test_ticket_draft_and_friction_file_are_in_english(state: TaskStore) -> None:
+    from ai_governance.taskflow.store import FRICTION_FILE
+
+    assert FRICTION_FILE == "friction.md"
+    main(["new", "ONB-1", "--title", "Fix"])
+    from ai_governance.taskflow import handoff
+
+    draft = handoff.ticket_draft(state.get("ONB-1"))
+    assert "**Done**" in draft and "Hecho" not in draft

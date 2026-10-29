@@ -93,7 +93,7 @@ def findings(task: Task) -> str:
 
 def ticket_draft(task: Task) -> str:
     """Draft comment for the ticket, written for the team: no tooling or agent names."""
-    lines = [f"**{task.title}**", "", task.summary, "", "**Hecho**"]
+    lines = [f"**{task.title}**", "", task.summary, "", "**Done**"]
     lines += [f"- {s['text']}" for s in task.steps if s.get("done")]
     pending = [f"- {s['text']}" for s in task.steps if not s.get("done")]
     deployed = [
@@ -101,7 +101,7 @@ def ticket_draft(task: Task) -> str:
         for d in task.deployments
     ]
     prs = [f"- {r.get('pr')}" for r in task.repos if r.get("pr")]
-    for heading, items in (("Pendiente", pending), ("Desplegado", deployed), ("PRs", prs)):
+    for heading, items in (("Pending", pending), ("Deployed", deployed), ("PRs", prs)):
         if items:
             lines += ["", f"**{heading}**", *items]
     return scrub("\n".join(lines)) + "\n"

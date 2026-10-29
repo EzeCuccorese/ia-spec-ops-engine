@@ -51,7 +51,8 @@ def changed_paths(repo: Path, base: str = "") -> list[str]:
             continue
         paths.add(entry[3:])
         if entry[0] in "RC":  # porcelain -z: the rename source follows as its own field
-            paths.add(entries[index])
+            if index < len(entries) and entries[index]:
+                paths.add(entries[index])
             index += 1
     return sorted(paths)
 

@@ -26,6 +26,7 @@ ASSERTION_FAILURE = re.compile(
 )
 OUTPUT_TAIL = 4000
 TEST_TIMEOUT = 1800
+TIMEOUT_EXIT = 124  # same code as coreutils `timeout`
 
 
 class TddError(ValueError):
@@ -33,15 +34,18 @@ class TddError(ValueError):
 
 
 def run_test(command: str, cwd: Path) -> tuple[int, str]:
-    proc = subprocess.run(
-        command,
-        shell=True,
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        timeout=TEST_TIMEOUT,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            command,
+            shell=True,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=TEST_TIMEOUT,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return TIMEOUT_EXIT, f"Timed out after {TEST_TIMEOUT}s"
     return proc.returncode, (proc.stdout + proc.stderr)[-OUTPUT_TAIL:]
 
 

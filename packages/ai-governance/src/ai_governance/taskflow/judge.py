@@ -8,9 +8,10 @@ copy. A copy a judge modified is kept and reported; untouched copies are removed
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .config import FlowConfig
@@ -25,6 +26,7 @@ from .store import TaskStore, atomic_write_text
 SHARED_DEPENDENCIES = ("node_modules", ".venv", "venv", "vendor")
 CHECK_TIMEOUT = 1800
 OUTPUT_TAIL = 6000
+TIMEOUT_EXIT = 124  # same code as coreutils `timeout`
 
 
 class JudgeError(ValueError):
@@ -60,25 +62,30 @@ def make_copy(binding: JsonDict, scratch: Path) -> JudgedCopy:
     return JudgedCopy(source, target, head, _base(source, binding), tree_fingerprint(target))
 
 
-def run_checks(copy: JudgedCopy, commands: tuple[str, ...], evidence: Path) -> JsonDict:
-    results = []
-    for command in commands:
+def _run_check(command: str, cwd: Path) -> JsonDict:
+    try:
         proc = subprocess.run(
             command,
             shell=True,
-            cwd=copy.path,
+            cwd=cwd,
             capture_output=True,
             text=True,
             timeout=CHECK_TIMEOUT,
             check=False,
         )
-        results.append(
-            {
-                "cmd": command,
-                "exit": proc.returncode,
-                "tail": (proc.stdout + proc.stderr)[-OUTPUT_TAIL:],
-            }
-        )
+    except subprocess.TimeoutExpired:
+        return {"cmd": command, "exit": TIMEOUT_EXIT, "tail": f"Timed out after {CHECK_TIMEOUT}s"}
+    return {
+        "cmd": command,
+        "exit": proc.returncode,
+        "tail": (proc.stdout + proc.stderr)[-OUTPUT_TAIL:],
+    }
+
+
+def run_checks(copy: JudgedCopy, commands: tuple[str, ...], evidence: Path) -> JsonDict:
+    results = []
+    for command in commands:
+        results.append(_run_check(command, copy.path))
     report = "\n\n".join(f"$ {r['cmd']}\nexit {r['exit']}\n{r['tail']}" for r in results)
     path = evidence / f"checks-{copy.source.name}@{copy.head[:8]}.txt"
     atomic_write_text(path, report)
@@ -148,33 +155,76 @@ def _discard_untouched(copies: list[JudgedCopy]) -> list[str]:
     return kept
 
 
+@dataclass(frozen=True)
+class _Session:
+    store: TaskStore
+    task: Task
+    ctx: GateContext
+    judges: list[JsonDict]
+
+
+def _cleanup(copies: list[JudgedCopy], scratch: Path, kept: list[str]) -> None:
+    """Runs also after an exception: no worktree registration or scratch dir is left behind."""
+    for copy in copies:
+        if str(copy.path) not in kept and copy.path.exists():
+            git(copy.source, "worktree", "remove", "--force", str(copy.path))
+    if not kept:
+        shutil.rmtree(scratch, ignore_errors=True)
+        for source in {copy.source for copy in copies}:
+            git(source, "worktree", "prune")
+
+
+def _run_judges(
+    session: _Session, copies: list[JudgedCopy], checks: list[JsonDict]
+) -> list[JsonDict]:
+    config = session.ctx.config
+    records = []
+    for judge in session.judges:
+        if judge.get("agent") == "human":
+            continue  # the user judges in the chat: approve --action review --target <focus>
+        request = RoundRequest(
+            task_id=session.task.id,
+            phase=session.task.phase,
+            role="judge",
+            focus=str(judge["focus"]),
+            prompt=judge_prompt(session.task, str(judge["focus"]), copies, checks),
+            repo=copies[0].path,
+            agent=judge,
+            timeout=config.timeout_seconds,
+            watch=tuple(c.path for c in copies[1:]),
+        )
+        records.append(run_round(session.store, request, session.ctx.stamp_key))
+    return records
+
+
+def _check_copies(session: _Session, copies: list[JudgedCopy]) -> list[JsonDict]:
+    """Run the checks, then re-take each fingerprint so only the judge's edits count."""
+    evidence_dir = session.store.evidence_dir(session.task.id)
+    checks = []
+    for index, copy in enumerate(copies):
+        checks.append(run_checks(copy, session.ctx.risk.checks, evidence_dir))
+        copies[index] = replace(copy, fingerprint=tree_fingerprint(copy.path))
+    evidence = _check_evidence(copies, checks, session.ctx.stamp_key)
+    session.store.mutate(session.task.id, lambda t: t.evidence.extend(evidence))
+    return checks
+
+
 def judge_task(
     store: TaskStore, task: Task, ctx: GateContext, focus: str = ""
 ) -> tuple[list[JsonDict], list[str]]:
     """Run the checks and the judges; returns the rounds and the copies kept because a
     judge modified them. Check results are stored as evidence that gates read directly,
     so a failing check blocks whatever a judge answers."""
-    config, risk = ctx.config, ctx.risk
-    judges = _independent_judges(task, config, focus, list(risk.judges))
+    judges = _independent_judges(task, ctx.config, focus, list(ctx.risk.judges))
+    session = _Session(store, task, ctx, judges)
     scratch = Path(tempfile.mkdtemp(prefix=f"taskflow-judge-{task.id}-"))
-    copies = [make_copy(binding, scratch) for binding in task.repos]
-    checks = [run_checks(copy, risk.checks, store.evidence_dir(task.id)) for copy in copies]
-    evidence = _check_evidence(copies, checks, ctx.stamp_key)
-    store.mutate(task.id, lambda t: t.evidence.extend(evidence))
-    records = []
-    for judge in judges:
-        if judge.get("agent") == "human":
-            continue  # the user judges in the chat: approve --action review --target <focus>
-        request = RoundRequest(
-            task_id=task.id,
-            phase=task.phase,
-            role="judge",
-            focus=str(judge["focus"]),
-            prompt=judge_prompt(task, str(judge["focus"]), copies, checks),
-            repo=copies[0].path,
-            agent=judge,
-            timeout=config.timeout_seconds,
-            watch=tuple(c.path for c in copies[1:]),
-        )
-        records.append(run_round(store, request, ctx.stamp_key))
-    return records, _discard_untouched(copies)
+    copies: list[JudgedCopy] = []
+    kept: list[str] = []
+    try:
+        copies.extend(make_copy(binding, scratch) for binding in task.repos)
+        checks = _check_copies(session, copies)
+        records = _run_judges(session, copies, checks)
+        kept = _discard_untouched(copies)
+    finally:
+        _cleanup(copies, scratch, kept)
+    return records, kept

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 from collections.abc import Callable
 from dataclasses import replace
@@ -38,7 +39,17 @@ from .gates import (
 )
 from .handoff import findings, handoff, scrub, ticket_draft
 from .judge import JudgeError, judge_task
-from .models import EXIT_PHASES, PHASES, ROLES, VERDICTS, WORKFLOWS, JsonDict, Task, now_iso
+from .models import (
+    EXIT_PHASES,
+    PHASES,
+    READER_ROLES,
+    ROLES,
+    VERDICTS,
+    WORKFLOWS,
+    JsonDict,
+    Task,
+    now_iso,
+)
 from .resolver import TaskResolver
 from .risk import RiskAssessment, assess
 from .rounds import LeaseError, RoundRequest, record_manual, run_round
@@ -376,7 +387,7 @@ def _set_status(status: str) -> Callable[[argparse.Namespace], int]:
 def cmd_close(args: argparse.Namespace) -> int:
     store = _store()
     task = store.get(args.task_id)
-    if task.repos and not args.abandon:
+    if not args.abandon:
         config = _config(task)
         task, risk = _refresh(store, task, config)
         missing = close_unmet(task, config, risk, task.stamp_key)
@@ -638,6 +649,7 @@ def cmd_round(args: argparse.Namespace) -> int:
     _check_round_allowed(task, args.role)
     agent = {"agent": args.agent, "model": args.model} if args.agent else config.role(args.role)
     repo = Path(task.repos[0]["path"]) if task.repos else Path.cwd()
+    watch = tuple(Path(r["path"]) for r in task.repos[1:]) if args.role in READER_ROLES else ()
     request = RoundRequest(
         task.id,
         args.phase or task.phase,
@@ -646,6 +658,7 @@ def cmd_round(args: argparse.Namespace) -> int:
         repo,
         agent,
         timeout=args.timeout or config.timeout_seconds,
+        watch=watch,
     )
     record = run_round(store, request, task.stamp_key)
     _report_round(record)
@@ -1102,6 +1115,7 @@ def main(argv: list[str] | None = None) -> int:
         JudgeError,
         ApprovalError,
         tdd.TddError,
+        subprocess.TimeoutExpired,
     ) as exc:
         emit_status("error", str(exc))
         return 1

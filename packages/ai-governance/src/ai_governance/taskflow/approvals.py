@@ -286,7 +286,7 @@ def _check_reinforced(request: ApprovalRequest) -> None:
     if is_generic(request.user_reply):
         raise ApprovalError(
             f"'{request.user_reply}' is a generic reply: a risky action needs the user to name "
-            "the action and the target (e.g. 'confirmo deploy de <service> a producción')"
+            "the action and the target (e.g. 'I confirm the deploy of <service> to production')"
         )
     if not any(word in reply for word in RISKY_ACTIONS[request.action]):
         raise ApprovalError(f"The user's reply does not name the action '{request.action}'")

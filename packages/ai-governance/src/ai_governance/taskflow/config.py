@@ -128,11 +128,16 @@ def _rules(raw: list[JsonDict]) -> list[RiskRule]:
     ]
 
 
+def _judge_entries(raw: JsonDict) -> list[JsonDict]:
+    """Judges from ``[[judges]]`` or ``[[roles.judges]]``: both files accept both spellings."""
+    return [dict(j) for j in [*raw.get("judges", []), *raw.get("roles", {}).get("judges", [])]]
+
+
 def _merge_local(
     local: JsonDict, judges: list[JsonDict], checks: list[str], rules: list[RiskRule]
 ) -> None:
     known = {j.get("focus") for j in judges}
-    judges += [dict(j) for j in local.get("judges", []) if j.get("focus") not in known]
+    judges += [j for j in _judge_entries(local) if j.get("focus") not in known]
     checks += [c for c in local.get("checks", {}).get("commands", []) if c not in checks]
     rules += _rules(local.get("risk", {}).get("rules", []))
 
@@ -143,7 +148,7 @@ def load_config(repos: list[Path] | None = None, user_file: Path | None = None) 
     user = _read_toml(user_file or config_dir() / CONFIG_NAME)
     roles = dict(DEFAULT_ROLES)
     roles.update({k: dict(v) for k, v in user.get("roles", {}).items() if k != "judges"})
-    judges = [dict(j) for j in user.get("roles", {}).get("judges", DEFAULT_JUDGES)]
+    judges = _judge_entries(user) or [dict(j) for j in DEFAULT_JUDGES]
     checks = list(user.get("checks", {}).get("commands", DEFAULT_CHECKS))
     rules = _rules(user.get("risk", {}).get("rules", []))
     for repo in repos or []:

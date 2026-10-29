@@ -172,7 +172,7 @@ hint to re-enable it.
 | `ai-governance probe --agent <a> [--dir DIR]` then `--verify --seen <tokens>` | Proves on this machine which instruction locations the agent loads and which hooks fire. Codex/Antigravity hooks are installed only after a verified probe |
 | `ai-governance rules list` / `rules show <id>` / `rules profiles` | Browse the rule catalog and opt-in profiles |
 | `ai-governance taskflow <subcommand>` | Task tracking and the multi-agent plan/validate/work/judge flow (see below) |
-| `ai-governance telemetry <subcommand>` | Local Claude Code spend estimates (see below) |
+| `ai-governance telemetry <subcommand>` | Local Claude Code spend estimates (`ai-governance telemetry --help`) |
 | `ai-governance jira ...` / `confluence ...` | Atlassian as compact Markdown (`jira` / `confluence` without arguments print their usage) |
 | `ai-governance hook <agent> <event>` | Entry point used by the installed hooks |
 
@@ -184,7 +184,7 @@ without `--force`, and `--dry-run` shows the exact plan.
 
 One store, `~/.local/state/ai-governance/taskflow/tasks/<ID>/`: `state.json`, the long
 `log.md`, `rounds/` (one file per agent call plus `index.md`), `evidence/` and
-`friccion.md`. It tracks any task (steps, facts, decisions, links) and runs the
+`friction.md`. It tracks any task (steps, facts, decisions, links) and runs the
 TriAgentTaskFlow: `plan -> validate -> work -> judge -> [staging] -> review -> done`, with a
 `findings` exit when the branch belongs to someone else. `taskflow --help` is the
 operating guide; `taskflow status <id>` lists what is missing for the next phase, which
@@ -207,7 +207,7 @@ verdicts and approvals are stale, and the next command.
 | `config` | Show and validate `taskflow.toml` |
 
 Configuration: `~/.config/ai-governance/taskflow.toml` (`[roles.planner|validator|builder]`
-with `agent`/`model`, `[[roles.judges]]` with `focus`, `[checks] commands`, `[tdd] required`,
+with `agent`/`model`, `[[judges]]` with `focus`/`agent`/`model` (`[[roles.judges]]` is accepted too, in the user and in the repository file), `[checks] commands`,
 `[[risk.rules]]` with `paths`, `judges`, `checks`, `restaging`); a repository can only add
 controls in `.ai-governance/taskflow.toml`. Gates the engine enforces:
 
