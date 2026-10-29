@@ -88,6 +88,16 @@ def test_session_hooks_are_silent_without_task(monkeypatch, capsys, tmp_path) ->
     assert capsys.readouterr().out == ""
 
 
+def test_session_start_in_a_repository_without_task_asks_for_one(
+    monkeypatch, capsys, tmp_path
+) -> None:
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
+    (tmp_path / ".git").mkdir()
+    _stdin(monkeypatch, {"cwd": str(tmp_path)})
+    assert hooks.main(["claude", "session-start"]) == 0
+    assert capsys.readouterr().out.strip() == hooks.NO_TASK_HINT
+
+
 def test_unknown_hook_and_internal_errors_fail_open(monkeypatch, capsys) -> None:
     assert hooks.main(["claude", "nope"]) == 0
     monkeypatch.setitem(hooks.HANDLERS, ("claude", "boom"), lambda: 1 / 0)

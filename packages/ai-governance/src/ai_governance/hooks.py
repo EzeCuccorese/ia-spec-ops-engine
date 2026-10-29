@@ -114,14 +114,24 @@ def _active_task(repo: Path) -> tuple[Any, Any] | None:
     return (store, task_id) if task_id else None
 
 
+NO_TASK_HINT = (
+    "TASKFLOW: no task for this repository/branch. Before changing code, create one "
+    "(`ai-governance taskflow new`, tri-agent) and start with the plan; `taskflow --help`."
+)
+
+
 def _claude_session_start() -> int:
-    """Injects 1-3 lines about the task bound to this repository (stdout -> context)."""
-    found = _active_task(_cwd(_payload()))
+    """Injects 1-3 lines about the task bound to this repository (stdout -> context); in a
+    repository without one, a reminder that code changes start a task, not the edit."""
+    cwd = _cwd(_payload())
+    found = _active_task(cwd)
     if found:
         from .taskflow.cli import digest
 
         store, task_id = found
         print(digest(store, task_id, max_chars=SESSION_CONTEXT_CHARS))
+    elif (cwd / ".git").exists():
+        print(NO_TASK_HINT)
     return 0
 
 
