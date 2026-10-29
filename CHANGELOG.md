@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.0 - 2026-10-29
+
+### Features
+- Retire spend tracking, add user-scope language rules and the TriAgentTaskFlow plan.
+
+### Fixes
+- Resolve PR #38 follow-up regressions and PID/CLI edge cases.
+
 ## 1.1.3 - 2026-10-21
 
 ### Fixes
