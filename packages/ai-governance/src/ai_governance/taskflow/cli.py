@@ -90,7 +90,8 @@ TDD is mandatory unless the user asks to skip it:
   taskflow tdd <ID> skip --reason "..."
 
 In a Claude Code session --user-reply must be one whole message the user typed in this
-session (each message approves once); risky actions are approved only there.
+session; one reply covers every ordinary request asked together in that question, a
+risky action needs its own reply; risky actions are approved only there.
 
 Any code change after a verdict or approval makes it stale: `taskflow status <ID>` shows
 what is stale, what is missing for the next phase and the exact next command.
@@ -115,7 +116,7 @@ def _resolve(store: TaskStore, task_id: str | None) -> str:
         several = TaskResolver.bound_to(store.list(), Path.cwd())
         if len(several) > 1:
             raise FileNotFoundError(
-                f"Several tasks are bound here ({', '.join(several)}): pass the task id, "
+                f"Several tasks are bound here ({', '.join(sorted(several))}): pass the task id, "
                 "or `taskflow switch <parent> <subtask>` to pick the active one"
             )
         raise FileNotFoundError("No task matches this directory: pass the task id")

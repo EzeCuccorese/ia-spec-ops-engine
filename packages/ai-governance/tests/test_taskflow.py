@@ -318,7 +318,9 @@ def test_only_the_running_session_proves_an_approval(tmp_path: Path, monkeypatch
         _approve(ApprovalRequest("push", "ONB-1", "si, pushealo"), tmp_path)
 
 
-def test_a_user_message_approves_only_once(tmp_path: Path, monkeypatch) -> None:
+def test_one_reply_covers_ordinary_requests_asked_together_but_never_twice(
+    tmp_path: Path, monkeypatch
+) -> None:
     _session(
         monkeypatch,
         tmp_path,
@@ -326,8 +328,13 @@ def test_a_user_message_approves_only_once(tmp_path: Path, monkeypatch) -> None:
         ("user", "si"),
     )
     first = _approve(ApprovalRequest("push", "ONB-1", "si"), tmp_path)
+    second = _approve(ApprovalRequest("pr", "ONB-1", "si"), tmp_path, previous=[first])
+    assert second["proof"] == first["proof"]
     with pytest.raises(ApprovalError, match="already approved"):
-        _approve(ApprovalRequest("pr", "ONB-1", "si"), tmp_path, previous=[first])
+        _approve(ApprovalRequest("pr", "ONB-1", "si"), tmp_path, previous=[first, second])
+    risky = {**first, "risky": True}
+    with pytest.raises(ApprovalError, match="already approved"):
+        _approve(ApprovalRequest("pr", "ONB-1", "si"), tmp_path, previous=[risky])
 
 
 def test_inside_a_claude_session_even_plain_approvals_need_the_users_message(

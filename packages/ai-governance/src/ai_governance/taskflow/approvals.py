@@ -207,14 +207,15 @@ def build_approval(request: ApprovalRequest, context: ApprovalContext) -> JsonDi
     """Validate a chat approval and return the record to store, or raise ``ApprovalError``.
 
     Inside a Claude Code session every approval must match a whole user message of that
-    session (and risky ones must follow the consequence shown); a proof is used once.
+    session (and risky ones must follow the consequence shown). One reply covers every
+    ordinary request asked together; a risky one needs a reply of its own.
     Without a transcript (other agents) ordinary approvals are recorded as ``declared``
     and risky ones are refused.
     """
     risky = _check_request(request)
     proof = _require_proof(request, context.transcripts_root, risky)
-    if proof and any(a.get("proof") == proof for a in context.previous or []):
-        raise ApprovalError("That user message already approved something: ask the user again")
+    if proof and any(_reuses(a, proof, request, risky) for a in context.previous or []):
+        raise ApprovalError("That user message already approved this: ask the user again")
     if request.action in PRODUCTION_ACTIONS and outside_production_window(context.moment):
         raise ApprovalError(
             "Outside the production window (never after 16:00, nor Friday after 13:00): "
@@ -245,6 +246,15 @@ def _check_request(request: ApprovalRequest) -> bool:
     if risky:
         _check_reinforced(request)
     return risky
+
+
+def _reuses(previous: JsonDict, proof: str, request: ApprovalRequest, risky: bool) -> bool:
+    """One user reply may answer every ordinary request asked together in the same
+    question; a risky action needs a reply of its own, and nothing is approved twice."""
+    if previous.get("proof") != proof:
+        return False
+    same = (previous.get("action"), previous.get("target")) == (request.action, request.target)
+    return same or risky or bool(previous.get("risky"))
 
 
 def _require_proof(request: ApprovalRequest, transcripts_root: Path, risky: bool) -> str:

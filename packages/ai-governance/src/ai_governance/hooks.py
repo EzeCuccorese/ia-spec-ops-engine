@@ -181,7 +181,7 @@ def _session_hint(cwd: Path) -> str:
     several = TaskResolver.bound_to(TaskStore().list(), cwd)
     if several:
         return (
-            f"TASKFLOW: several tasks are bound here ({', '.join(several)}): "
+            f"TASKFLOW: several tasks are bound here ({', '.join(sorted(several))}): "
             "pass the task id to taskflow commands."
         )
     return NO_TASK_HINT if TaskResolver._git_root(cwd) else ""
