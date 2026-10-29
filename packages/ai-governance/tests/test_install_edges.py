@@ -70,7 +70,9 @@ def test_budget_counts_shared_blocks_and_no_codex_project_rules(project: Path) -
     sync_project(project, add_agents=["codex"])
     user = fixed_cost(installer.global_ledger())
     lock = fixed_cost(Ledger(project / PROJECT_DIR / "lock.json", base=project))
-    assert 0 < user["codex"] <= 1024
+    # Codex also carries the pointer to its rule indexes (it has no per-file rules) and,
+    # lacking a SessionStart hook, the instruction to load its task with `taskflow here`.
+    assert 0 < user["codex"] <= 1344
     assert lock.get("codex", 0) == 0 and lock["project"] > 0
 
 
@@ -104,7 +106,7 @@ def test_claude_hook_handlers_delegate(monkeypatch) -> None:
 
     calls: list[str] = []
     monkeypatch.setattr(frugal, "run_pre_bash", lambda cfg: calls.append("pre"))
-    monkeypatch.setattr(frugal, "run_post_bash", lambda cfg: calls.append("post"))
+    monkeypatch.setattr(frugal, "post_bash_output", lambda payload, cfg: calls.append("post"))
     monkeypatch.setattr(telemetry, "main", lambda argv: calls.append(" ".join(argv)) or 0)
     for event in ("pre-tool-use", "post-tool-use", "stop"):
         assert hooks.main(["claude", event]) == 0
@@ -117,11 +119,11 @@ def test_codex_config_block_is_prepended_and_reversible(project: Path, tmp_path:
     config.write_text('model = "x"\n\n[mcp_servers.a]\ncommand = "a"\n')
     install_user(["codex"])
     text = config.read_text()
-    assert text.startswith('# ai-governance:start\nagents.default_subagent_model = "terra"')
+    assert text.startswith('# ai-governance:start\nagents.default_subagent_model = "gpt-6-luna"')
     assert text.index("ai-governance:end") < text.index("[mcp_servers.a]")
     import tomllib
 
-    assert tomllib.loads(text)["agents"]["default_subagent_model"] == "terra"
+    assert tomllib.loads(text)["agents"]["default_subagent_model"] == "gpt-6-luna"
     installer.uninstall_user(["codex"])
     assert config.read_text() == 'model = "x"\n\n[mcp_servers.a]\ncommand = "a"\n'
 

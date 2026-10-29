@@ -69,8 +69,26 @@ def test_user_install_picks_up_every_pack_without_flags(home: Path) -> None:
     ]
     gemini = home / ".gemini" / "config" / "rules" / "ai-governance-acme-glossary.md"
     assert gemini.is_symlink() and Path(os.readlink(gemini)).is_file()
-    assert any("OpenAI Codex" in warning for warning in report.warnings)
+    codex = home / ".codex" / "ai-governance" / "company" / "acme-glossary.md"
+    assert codex.is_symlink() and Path(os.readlink(codex)).is_file()
+    assert not any("OpenAI Codex" in warning for warning in report.warnings)
     assert _script(home).is_symlink() and Path(os.readlink(_script(home))).is_file()
+
+
+def test_user_install_adds_path_scoped_language_rules(home: Path) -> None:
+    report = install_user(["claude", "antigravity", "codex"])
+
+    python = (home / ".claude" / "rules" / "ai-governance-python-async.md").read_text()
+    assert python.startswith('---\npaths:\n  - "**/*.py"')
+    assert "EmailStr" in python
+    gemini = home / ".gemini" / "config" / "rules" / "ai-governance-go-idiomatic.md"
+    assert "trigger: glob" in gemini.read_text()
+    assert not any("language rules skipped" in warning for warning in report.warnings)
+    codex = home / ".codex" / "ai-governance"
+    index = (codex / "language-rules.md").read_text()
+    assert "`**/*.py`" in index and str(codex / "ai-governance-python-async.md") in index
+    assert "EmailStr" in (codex / "ai-governance-python-async.md").read_text()
+    assert "language-rules.md" in (home / ".codex" / "AGENTS.md").read_text()
 
 
 def test_claude_rules_are_symlinks_and_old_copies_migrate(home: Path, pack_root: Path) -> None:
@@ -113,7 +131,8 @@ def test_switching_company_is_swapping_the_folder(home: Path, pack_root: Path) -
 
     install_user(["claude"])
 
-    rules = sorted(p.name for p in (home / ".claude" / "rules").glob("ai-governance-*-*"))
+    rules_dir = home / ".claude" / "rules"
+    rules = sorted(p.name for p in rules_dir.glob("ai-governance-*-*") if p.is_symlink())
     assert rules == ["ai-governance-globex-glossary.md", "ai-governance-globex-principles.md"]
     assert (home / ".local" / "bin" / "acme-up").is_symlink()  # same script name, new target
     assert "globex" in os.readlink(home / ".local" / "bin" / "acme-up")
@@ -162,15 +181,6 @@ def _add_pack(pack_root: Path, name: str, script: str) -> None:
     (pack_root / name / "scripts" / script).write_text("#!/bin/sh\n")
 
 
-def test_agent_without_global_rules_warns_once_for_all_packs(home: Path, pack_root: Path) -> None:
-    _add_pack(pack_root, "globex", "globex-up")
-
-    report = install_user(["codex"])
-
-    codex = [warning for warning in report.warnings if "OpenAI Codex" in warning]
-    assert codex == ["OpenAI Codex has no per-file global rules: acme, globex rules skipped."]
-
-
 def test_script_name_clash_keeps_the_first_pack(home: Path, pack_root: Path) -> None:
     _add_pack(pack_root, "globex", "acme-up")
 
@@ -189,3 +199,9 @@ def test_corporate_root_defaults_to_the_packages_folder(monkeypatch: pytest.Monk
     monkeypatch.delenv("AI_GOVERNANCE_CORPORATE_DIR")
     root = corporate.corporate_root()
     assert (root.parent.name, root.name) == ("packages", "corporate-rules")
+
+
+def test_codex_installs_no_language_index_without_rules(home: Path) -> None:
+    from ai_governance.install.agents import AGENTS
+
+    assert AGENTS["codex"].catalog_artifacts([]) == []

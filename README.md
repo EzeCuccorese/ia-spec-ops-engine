@@ -9,7 +9,7 @@ installable Python packages (Python 3.11+):
 
 | Package | CLI | Purpose |
 | --- | --- | --- |
-| [`packages/ai-governance`](packages/ai-governance) | `ai-governance` | Per-agent installer (user/project scopes), engineering rules, corporate packs, agent hooks, progress tracking, Claude spend telemetry, Atlassian utilities |
+| [`packages/ai-governance`](packages/ai-governance) | `ai-governance` | Per-agent installer (user/project scopes), engineering rules, corporate packs, agent hooks, task flow (plan/validate/work/judge across agents), Claude spend telemetry, Atlassian utilities |
 | [`packages/workspace`](packages/workspace) | `ws` | Deterministic execution: stack detection, quality gates, Git hooks, condensed command output, worktrees, local services |
 | [`packages/spec`](packages/spec) | `spec` | Specification-driven workflows (archived for now) |
 

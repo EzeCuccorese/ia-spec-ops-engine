@@ -6,7 +6,7 @@ from ai_governance.rules.catalog import SCHEMA_VERSION, RuleCatalog
 
 def test_catalog_loads_all_rules_with_metadata() -> None:
     catalog = RuleCatalog()
-    assert len(catalog.rules) == 29
+    assert len(catalog.rules) == 30
     for rule in catalog.rules:
         assert rule.description and rule.globs and rule.sha256
         assert rule.content.startswith("# ")
@@ -142,3 +142,18 @@ def test_code_design_rules_leave_numeric_limits_to_ws_design() -> None:
     for rule_id in ("01-clean-code-solid", "11-self-documenting-code"):
         content = catalog.get(rule_id).content
         assert not re.search(r"(arity|nesting|parameters?|lines?)\s*(≤|<=)", content, re.I)
+
+
+def test_user_rules_cover_every_language_and_stay_path_scoped() -> None:
+    catalog = RuleCatalog()
+    user_ids = {rule.id for rule in catalog.user_rules()}
+    stacks = {rule.id for rule in catalog.rules if rule.category == "2-stacks"}
+    assert stacks <= user_ids
+    assert "api-design" in user_ids
+    assert not any(rule.always_on for rule in catalog.user_rules())
+
+
+def test_every_language_rule_states_how_to_validate_input() -> None:
+    for rule in RuleCatalog().rules:
+        if rule.category == "2-stacks":
+            assert "valid" in rule.content.lower(), rule.id
