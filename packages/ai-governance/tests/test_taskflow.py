@@ -850,7 +850,7 @@ def test_help_explains_the_flow_and_the_human_gates(capsys) -> None:
         assert needle in text
 
 
-def test_claude_edits_are_denied_while_another_agent_holds_the_writer_lease(
+def test_claude_edits_need_a_task_and_wait_for_the_writer_lease(
     state: TaskStore, repo: Path, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
     from io import StringIO
@@ -858,6 +858,13 @@ def test_claude_edits_are_denied_while_another_agent_holds_the_writer_lease(
     from ai_governance import hooks
 
     payload = json.dumps({"tool_input": {"file_path": str(repo / "app.py")}, "cwd": str(repo)})
+    monkeypatch.setattr("sys.stdin", StringIO(payload))
+    assert hooks.main(["claude", "writer-lease"]) == 0
+    no_task = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert "no task for this repository" in no_task["permissionDecisionReason"]
+    assert main(["new", "T", "--title", "t"]) == 0
+    assert main(["bind", "T", "--repo", str(repo)]) == 0
+    capsys.readouterr()
     with writer_lease(state, repo, "T#001"):
         monkeypatch.delenv(
             "AI_GOVERNANCE_LEASE_HOLDER"

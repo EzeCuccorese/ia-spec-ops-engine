@@ -55,13 +55,13 @@ def _claude_pre_tool_use() -> int:
     return 0
 
 
-def _deny_claude(raw: str) -> bool:
+def _deny_claude(raw: str, denial: Callable[[Path], str] | None = None) -> bool:
     try:
         payload = json.loads(raw or "{}")
     except ValueError:
         return False
     target = (payload.get("tool_input") or {}).get("file_path") or payload.get("cwd") or "."
-    reason = _lease_denial(Path(str(target)))
+    reason = (denial or _lease_denial)(Path(str(target)))
     if reason:
         decision = {
             "hookEventName": "PreToolUse",
@@ -85,9 +85,21 @@ def _lease_denial(path: Path) -> str:
     return f"{root} is being written by {lease.get('holder')} (taskflow writer lease): wait for that round to finish."
 
 
+def _edit_denial(path: Path) -> str:
+    """File edits also need a task for the repository: the session-start hint alone is
+    easy to skip. Shell commands are not gated, so reading and exploring stay free."""
+    from .taskflow.resolver import TaskResolver
+
+    root = TaskResolver._git_root(path if path.is_dir() else path.parent)
+    if root and not _active_task(Path(root)):
+        return NO_TASK_HINT + " Tracking-only work: `taskflow new --workflow manual`."
+    return _lease_denial(path)
+
+
 def _claude_writer_lease() -> int:
-    """Claude PreToolUse on edit tools: deny while another agent holds the writer lease."""
-    _deny_claude(_stdin_text())
+    """Claude PreToolUse on edit tools: deny without a task for the repository, or while
+    another agent holds the writer lease."""
+    _deny_claude(_stdin_text(), _edit_denial)
     return 0
 
 
