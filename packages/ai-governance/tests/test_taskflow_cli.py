@@ -18,6 +18,7 @@ from test_taskflow import (
     cli_run,
     fake_agents,
     judge_orca,
+    orca_path,
     outside_claude,
     repo,
     state,
