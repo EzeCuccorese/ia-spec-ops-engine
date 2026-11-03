@@ -15,7 +15,7 @@ from . import tdd
 from .approvals import valid_approval
 from .config import FlowConfig
 from .models import EXIT_PHASES, PHASES, JsonDict, Task
-from .risk import RiskAssessment
+from .risk import RiskAssessment, decided_by_human
 
 NEXT_COMMAND: dict[str, str] = {
     "plan": "taskflow round <ID> run --role planner --prompt-file <brief.md>",
@@ -66,7 +66,7 @@ def judges_unmet(task: Task, risk: RiskAssessment, config: FlowConfig, stamp_key
     missing: list[str] = []
     attempts = _engine_rounds(task, "judge", valid_only=False)
     for focus in risk.judges:
-        if _is_human(config, focus):
+        if decided_by_human(risk, config, focus):
             if not valid_approval(task.approvals, "review", stamp_key, focus):
                 missing.append(f"judge '{focus}' (human): approve --action review --target {focus}")
             continue
@@ -86,10 +86,6 @@ def judges_unmet(task: Task, risk: RiskAssessment, config: FlowConfig, stamp_key
         elif latest.get("verdict") != "pass":
             missing.append(f"judge '{focus}': {latest.get('verdict')} in round {latest['n']:03d}")
     return missing
-
-
-def _is_human(config: FlowConfig, focus: str) -> bool:
-    return any(j.get("focus") == focus and j.get("agent") == "human" for j in config.judges)
 
 
 def plan_round(task: Task) -> int:

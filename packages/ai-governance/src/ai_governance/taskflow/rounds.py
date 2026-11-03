@@ -153,11 +153,30 @@ def run_round(store: TaskStore, request: RoundRequest, stamp_key: str) -> JsonDi
     prompt = (READ_ONLY_LIMIT if reader else "") + header + request.prompt
     if request.role in ("validator", "judge"):
         prompt += VERDICT_INSTRUCTION
+    watched = (request.repo, *request.watch)
+    before = _fingerprints(watched)  # before reserving: a vanished repo burns no round number
     number, path = store.reserve_round(request.task_id, request.phase, request.role, agent_name)
+    try:
+        return _run_reserved(store, request, (number, path, stamp_key), (prompt, before))
+    except LeaseError:
+        raise
+    except (OSError, RuntimeError) as exc:
+        _abort_round(store, request, (number, path, stamp_key), f"aborted: {exc}")
+        raise
+
+
+def _run_reserved(
+    store: TaskStore,
+    request: RoundRequest,
+    slot: tuple[int, Path, str],
+    given: tuple[str, dict[Path, str]],
+) -> JsonDict:
+    number, path, _key = slot
+    prompt, before = given
+    reader = request.role in READER_ROLES
+    watched = (request.repo, *request.watch)
     workdir = store.task_dir(request.task_id) / "runs" / f"{number:03d}"
     workdir.mkdir(parents=True, exist_ok=True)
-    watched = (request.repo, *request.watch)
-    before = _fingerprints(watched)
     holder = f"{request.task_id}#{number:03d}"
     with writer_lease(store, request.repo, holder) if not reader else _no_lease():
         # The judge runs tests in its disposable copy, so it gets write access there.
@@ -168,10 +187,34 @@ def run_round(store: TaskStore, request: RoundRequest, stamp_key: str) -> JsonDi
     changed = (
         [p for p, value in _fingerprints(watched).items() if value != before[p]] if reader else []
     )
-    record = _record(request, (number, path, stamp_key), result, changed)
+    record = _record(request, slot, result, changed)
     atomic_write_text(path, _render(record, prompt, result.command, result.answer))
     store.mutate(request.task_id, lambda task: task.rounds.append(record))
     return record
+
+
+def _abort_round(
+    store: TaskStore, request: RoundRequest, slot: tuple[int, Path, str], reason: str
+) -> None:
+    """A reserved round that failed is kept as an invalid round with its reason."""
+    number, path, stamp_key = slot
+    record = {
+        "n": number,
+        "at": now_iso(),
+        "phase": request.phase,
+        "role": request.role,
+        "focus": request.focus,
+        "agent": str(request.agent.get("agent", "")),
+        "model": str(request.agent.get("model", "")),
+        "stamp": stamp_key,
+        "verdict": "block",
+        "state": "invalid",
+        "source": "engine",
+        "file": str(path),
+        "reason": reason,
+    }
+    atomic_write_text(path, f"# Round {number:03d} {request.role}: aborted\n\n{reason}\n")
+    store.mutate(request.task_id, lambda task: task.rounds.append(record))
 
 
 def _record(

@@ -45,11 +45,14 @@ from .handoff import findings, handoff, scrub, ticket_draft
 from .judge import JudgeError, judge_task
 from .models import PHASES, READER_ROLES, Task, now_iso
 from .policy import _rule_reductions as _rule_reductions
-from .policy import policy_reductions, policy_summary
+from .policy import policy_reductions as policy_reductions
+from .policy import policy_summary
+from .refresh import legacy_notice, refresh
+from .repos import begin_invocation, first_live, on_live, partition
 from .resolver import TaskResolver
-from .risk import RiskAssessment, assess
+from .risk import RiskAssessment
 from .rounds import LeaseError, RoundRequest, record_manual, run_round
-from .stamp import GitError, changed_paths, code_stamp, merge_base
+from .stamp import GitError
 from .store import FRICTION_FILE, TaskStore
 
 
@@ -80,31 +83,7 @@ def _refresh(
     store: TaskStore, task: Task, config: FlowConfig, remote: bool = False
 ) -> tuple[Task, RiskAssessment]:
     """Recompute the code stamp and the risk of the current changes."""
-    if task.repos:
-        stamp = code_stamp(task.repos, config.policy_digest, check_remote=remote)
-        current = policy_summary(config)
-        # A task starts from the user's own policy, so what a repository switches off before
-        # the first stamp is a reduction like any later one.
-        accepted = task.policy or config.baseline_policy or current
-        acknowledged = set(accepted.get("acknowledged_repo_reductions", []))
-        stamp["policy_reduced"] = sorted(
-            {*policy_reductions(accepted, current), *config.repo_reductions} - acknowledged
-        )
-
-        def save(t: Task) -> None:
-            t.code_stamp = stamp
-            t.policy = t.policy or accepted
-
-        task = store.mutate(task.id, save)
-    paths: list[str] = []
-    for repo in task.repos:
-        paths += changed_paths(Path(repo["path"]), _base_ref(repo))
-    return task, assess(config, paths)
-
-
-def _base_ref(repo: dict[str, str]) -> str:
-    branch = repo.get("integration_branch", "")
-    return merge_base(Path(repo["path"]), branch) if branch else ""
+    return refresh(store, task, config, remote)
 
 
 # -- tracking ------------------------------------------------------------------------------
@@ -299,6 +278,7 @@ def cmd_close(args: argparse.Namespace) -> int:
                 f"Cannot close '{task.id}': "
                 + "; ".join(missing)
                 + " (or --abandon --reason '...')"
+                + (f". {legacy_notice(task)}" if legacy_notice(task) else "")
             )
     return _set_status("closed")(args)
 
@@ -373,6 +353,12 @@ def cmd_status(args: argparse.Namespace) -> int:
             + (" · restaging required" if risk.restaging else ""),
         ),
         ("Missing", "; ".join(missing) or "nothing"),
+        *(
+            ("repo gone (stamp frozen)", str(e["repo"]))
+            for e in task.code_stamp.get("repos", [])
+            if e.get("missing")
+        ),
+        *([("legacy", legacy_notice(task))] if legacy_notice(task) else []),
         ("Stale", ", ".join(_stale_rounds(task)) or "none"),
         ("Expired approvals", ", ".join(_expired_approvals(task)) or "none"),
         ("Next", NEXT_COMMAND.get(task.phase, "-")),
@@ -526,8 +512,9 @@ def cmd_tdd(args: argparse.Namespace) -> int:
     else:
         if not args.cmd:
             raise ValueError("--cmd is required")
-        cwd = Path(task.repos[0]["path"]) if task.repos else Path.cwd()
-        exit_code, output = tdd.run_test(args.cmd, cwd)
+        live = first_live(task.repos)
+        cwd = live[0] if live else Path.cwd()
+        exit_code, output = on_live([cwd], lambda: tdd.run_test(args.cmd, cwd))
         if args.stage == "red":
             record = tdd.red_record(args.cmd, exit_code, output, task.stamp_key)
         else:
@@ -554,8 +541,9 @@ def cmd_round(args: argparse.Namespace) -> int:
         return _record_manual_round(store, task, args)
     _check_round_allowed(task, args.role)
     agent = {"agent": args.agent, "model": args.model} if args.agent else config.role(args.role)
-    repo = Path(task.repos[0]["path"]) if task.repos else Path.cwd()
-    watch = tuple(Path(r["path"]) for r in task.repos[1:]) if args.role in READER_ROLES else ()
+    live = first_live(task.repos)
+    repo, others = live if live else (Path.cwd(), ())
+    watch = others if args.role in READER_ROLES else ()
     request = RoundRequest(
         task.id,
         args.phase or task.phase,
@@ -566,7 +554,7 @@ def cmd_round(args: argparse.Namespace) -> int:
         timeout=args.timeout or config.timeout_seconds,
         watch=watch,
     )
-    record = run_round(store, request, task.stamp_key)
+    record = on_live([repo, *others], lambda: run_round(store, request, task.stamp_key))
     _report_round(record)
     return 0 if record["state"] == "valid" else 1
 
@@ -653,7 +641,11 @@ def cmd_judge(args: argparse.Namespace) -> int:
     if missing:
         raise ValueError("Not ready to judge: " + "; ".join(missing))
     records, kept = judge_task(
-        store, task, GateContext(config, risk, task.stamp_key), focus=args.focus
+        store,
+        task,
+        GateContext(config, risk, task.stamp_key),
+        focus=args.focus,
+        repos=partition(task.repos).live,
     )
     for record in records:
         _report_round(record)
@@ -840,6 +832,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    begin_invocation()
     parser = _parser()
     args = parser.parse_args(argv)
     if not getattr(args, "handler", None):

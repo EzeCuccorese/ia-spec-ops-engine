@@ -10,15 +10,18 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .config import FlowConfig, check_timeout_seconds
 from .gates import GateContext
 from .models import JsonDict, Task
+from .repos import NONE_LIVE, on_live, partition
 from .rounds import RoundRequest, run_round
-from .stamp import git, merge_base, tree_fingerprint
+from .stamp import GitError, git, merge_base, tree_fingerprint
 from .store import TaskStore, atomic_write_text
 
 # Dependency folders are linked from the source checkout so checks can run without a
@@ -40,6 +43,7 @@ class JudgedCopy:
     head: str
     base: str
     fingerprint: str
+    common: Path | None = None  # git dir that outlives a vanished source
 
 
 def _base(repo: Path, binding: JsonDict) -> str:
@@ -55,11 +59,36 @@ def make_copy(binding: JsonDict, scratch: Path) -> JudgedCopy:
         )
     head = git(source, "rev-parse", "HEAD").strip()
     target = scratch / f"{source.name}-{head[:8]}"
-    git(source, "worktree", "add", "--detach", str(target), head)
-    for name in SHARED_DEPENDENCIES:
-        if (source / name).exists() and not (target / name).exists():
-            (target / name).symlink_to(source / name)
-    return JudgedCopy(source, target, head, _base(source, binding), tree_fingerprint(target))
+    common = _common_dir(source)
+    try:
+        # `worktree add` can register the worktree and still fail (a failing post-checkout hook).
+        git(source, "worktree", "add", "--detach", str(target), head)
+        for name in SHARED_DEPENDENCIES:
+            if (source / name).exists() and not (target / name).exists():
+                (target / name).symlink_to(source / name)
+        return JudgedCopy(
+            source, target, head, _base(source, binding), tree_fingerprint(target), common
+        )
+    except BaseException:
+        _forget_worktree(common, target)
+        raise
+
+
+def _common_dir(source: Path) -> Path:
+    """The repository's git dir, kept apart from the source cwd (a linked worktree can vanish)."""
+    raw = Path(git(source, "rev-parse", "--git-common-dir").strip())
+    return raw if raw.is_absolute() else (source / raw).resolve()
+
+
+def _forget_worktree(common: Path, target: Path) -> None:
+    """Delete a throwaway worktree and unregister it through the surviving git dir."""
+    shutil.rmtree(target, ignore_errors=True)
+    if not common.is_dir():
+        return  # the repository itself is gone: nothing is left to unregister
+    try:
+        git(common, "worktree", "prune")
+    except GitError as exc:  # never hide the original failure, but do not hide this one either
+        print(f"warning: could not prune the judge worktree of {common}: {exc}", file=sys.stderr)
 
 
 def _run_check(command: str, cwd: Path) -> JsonDict:
@@ -164,15 +193,32 @@ class _Session:
     judges: list[JsonDict]
 
 
+def _git_if_present(source: Path | None, *args: str) -> None:
+    """Cleanup of a source that vanished has nothing to undo and must not mask the real error."""
+    if source is None:
+        return
+    try:
+        git(source, *args)
+    except GitError:
+        if source.is_dir():
+            raise
+
+
 def _cleanup(copies: list[JudgedCopy], scratch: Path, kept: list[str]) -> None:
     """Runs also after an exception: no worktree registration or scratch dir is left behind."""
     for copy in copies:
-        if str(copy.path) not in kept and copy.path.exists():
-            git(copy.source, "worktree", "remove", "--force", str(copy.path))
+        if str(copy.path) in kept:
+            continue
+        if copy.source.is_dir() and copy.path.exists():
+            _git_if_present(copy.source, "worktree", "remove", "--force", str(copy.path))
+        elif copy.common is not None:
+            _forget_worktree(copy.common, copy.path)
     if not kept:
         shutil.rmtree(scratch, ignore_errors=True)
-        for source in {copy.source for copy in copies}:
-            git(source, "worktree", "prune")
+        for copy in copies:
+            _git_if_present(
+                copy.source if copy.source.is_dir() else copy.common, "worktree", "prune"
+            )
 
 
 def _run_judges(
@@ -211,18 +257,31 @@ def _check_copies(session: _Session, copies: list[JudgedCopy]) -> list[JsonDict]
 
 
 def judge_task(
-    store: TaskStore, task: Task, ctx: GateContext, focus: str = ""
+    store: TaskStore,
+    task: Task,
+    ctx: GateContext,
+    focus: str = "",
+    *,
+    repos: Sequence[JsonDict] | None = None,
 ) -> tuple[list[JsonDict], list[str]]:
     """Run the checks and the judges; returns the rounds and the copies kept because a
     judge modified them. Check results are stored as evidence that gates read directly,
-    so a failing check blocks whatever a judge answers."""
+    so a failing check blocks whatever a judge answers. Only repos on disk are judged
+    (``repos`` defaults to the task's live bindings); none live is an error."""
     judges = _independent_judges(task, ctx.config, focus, list(ctx.risk.judges))
+    bound = list(partition(task.repos).live if repos is None else repos)
+    if task.repos and not bound:
+        raise ValueError(NONE_LIVE)
     session = _Session(store, task, ctx, judges)
-    scratch = Path(tempfile.mkdtemp(prefix=f"taskflow-judge-{task.id}-"))
+    return on_live([Path(b["path"]) for b in bound], lambda: _judge_copies(session, bound))
+
+
+def _judge_copies(session: _Session, bound: list[JsonDict]) -> tuple[list[JsonDict], list[str]]:
+    scratch = Path(tempfile.mkdtemp(prefix=f"taskflow-judge-{session.task.id}-"))
     copies: list[JudgedCopy] = []
     kept: list[str] = []
     try:
-        copies.extend(make_copy(binding, scratch) for binding in task.repos)
+        copies.extend(make_copy(binding, scratch) for binding in bound)
         checks = _check_copies(session, copies)
         records = _run_judges(session, copies, checks)
         kept = _discard_untouched(copies)

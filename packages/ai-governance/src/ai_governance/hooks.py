@@ -230,12 +230,20 @@ def _claude_session_end() -> int:
     store, task_id = found
 
     def git(*args: str) -> str:
-        proc = subprocess.run(
-            ["git", *args], cwd=repo, capture_output=True, text=True, timeout=5, check=False
-        )
+        try:
+            proc = subprocess.run(
+                ["git", *args], cwd=repo, capture_output=True, text=True, timeout=5, check=False
+            )
+        except OSError:  # the working directory vanished
+            return "?"
         return proc.stdout.strip() if proc.returncode == 0 else "?"
 
-    changed = len([line for line in git("status", "--porcelain").splitlines() if line])
+    status = git("status", "--porcelain")
+    changed = (
+        "an unknown number of"
+        if status == "?"
+        else len([line for line in status.splitlines() if line])
+    )
     store.append_log(
         task_id,
         f"Session ended on {git('branch', '--show-current')} @ {git('rev-parse', '--short', 'HEAD')}"
