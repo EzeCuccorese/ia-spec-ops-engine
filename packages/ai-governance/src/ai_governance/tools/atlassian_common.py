@@ -28,7 +28,7 @@ class UnknownProfileError(LookupError):
 def atlassian_timeout() -> float:
     """HTTP timeout in seconds: ``$ATLASSIAN_TIMEOUT``, ``[atlassian] timeout_seconds``, 30."""
     try:
-        return float(effective()["atlassian.timeout_seconds"].value)
+        return float(str(effective()["atlassian.timeout_seconds"].value))
     except (ConfigError, ValueError):
         return DEFAULT_TIMEOUT_SECONDS
 

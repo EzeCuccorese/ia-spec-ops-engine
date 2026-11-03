@@ -189,7 +189,12 @@ class _RunConfigScreen:
 
     @staticmethod
     def _column_titles() -> str:
-        titles = (("", 1, ""), ("", 3, ""), ("Service", 28, DIM), ("Env", 14, DIM))
+        titles: tuple[tuple[str, int, str], ...] = (
+            ("", 1, ""),
+            ("", 3, ""),
+            ("Service", 28, DIM),
+            ("Env", 14, DIM),
+        )
         titles += (("Local DB", 10, DIM), ("Local MS", 11, DIM), ("Port", 7, DIM))
         return "  " + " ".join(_cell(*t) for t in titles) + f" {DIM}Type{RESET}\r\n"
 
@@ -249,7 +254,9 @@ class _RunConfigScreen:
     def _target(self) -> dict | None:
         return None if self.cursor == 0 else self.view[self.cursor - 1]
 
-    def _handle(self, key: bytes) -> object:
+    def _handle(self, key: bytes | None) -> object:
+        if key is None:
+            return _STAY
         if key == b"\x03":
             sys.exit(130)
         if key == b"\x1b":

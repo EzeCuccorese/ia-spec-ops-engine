@@ -324,7 +324,7 @@ class _MonitorScreen:
 
     # -- keys --------------------------------------------------------------------------
     def _answer_cascade(self, key: bytes | None) -> None:
-        if key in (b"y", b"Y"):
+        if key in (b"y", b"Y") and self.ask_cascade is not None:
             from workspace_engine.run_local.main import _restart_named
 
             _restart_named(self.ask_cascade, self.results, self.launch_configs, self.db_cfg)

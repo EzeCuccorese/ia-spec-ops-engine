@@ -13,7 +13,7 @@ from workspace_engine.services.tui_utils import read_key as _read_key
 from workspace_engine.services.tui_utils import write_tty as _w
 
 
-def _append_printable(buf: str, key: bytes, max_len: int) -> str:
+def _append_printable(buf: str, key: bytes | None, max_len: int) -> str:
     try:
         ch = key.decode("utf-8") if key else ""
     except UnicodeDecodeError:

@@ -7,6 +7,7 @@ Layers (lowest to highest): default < ``~/.config/ai-governance/config.toml`` <
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TypedDict, Unpack
 
 from ._config_core import Layers, Setting, Value, flatten, load_layers, read_table, resolve
 from .paths import APP_NAME, config_dir
@@ -171,10 +172,16 @@ def layers(
     return base
 
 
+class LayerOptions(TypedDict, total=False):
+    user_extra: dict[Path, str]
+    repo_extra: dict[Path, str]
+    user_values: tuple[Path, dict[str, object]]
+
+
 def effective(
     root: Path | None = None,
     flags: dict[str, object] | None = None,
-    **extra: dict[Path, str],
+    **extra: Unpack[LayerOptions],
 ) -> dict[str, Value]:
     found = layers(root, **extra)
     values = resolve(SETTINGS, found, flags=flags)
@@ -189,7 +196,7 @@ def get(
     key: str,
     root: Path | None = None,
     flags: dict[str, object] | None = None,
-    **extra: dict[Path, str],
+    **extra: Unpack[LayerOptions],
 ) -> object:
     """Effective value of one setting (default < user < repo < env < flag)."""
     return effective(root, flags, **extra)[key].value

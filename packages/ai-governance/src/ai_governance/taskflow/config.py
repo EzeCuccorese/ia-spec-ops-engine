@@ -15,6 +15,7 @@ import tomllib
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TypeVar
 
 from .._config_core import Value
 from ..paths import config_dir, state_dir
@@ -301,7 +302,10 @@ class _Overlay:
     mark: Callable[[str, object], None] = lambda key, value: None
 
 
-def _position(items: list, key: Callable[[object], object], wanted: object) -> int | None:
+_Item = TypeVar("_Item")
+
+
+def _position(items: list[_Item], key: Callable[[_Item], object], wanted: object) -> int | None:
     return next((i for i, item in enumerate(items) if key(item) == wanted), None)
 
 

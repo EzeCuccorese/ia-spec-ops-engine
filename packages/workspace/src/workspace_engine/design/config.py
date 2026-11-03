@@ -116,10 +116,10 @@ class DesignConfig:
         repo = _read_repo_table(root / ".ai-governance" / "config.toml")
         raw_profiles = repo.get("profiles", [])
         profiles = tuple(str(p) for p in raw_profiles) if isinstance(raw_profiles, list) else ()
-        table = _design_table(user, "user config"), _design_table(repo, "[design]")
-        if not any(t is not None for t in table):
+        tables = _design_table(user, "user config"), _design_table(repo, "[design]")
+        if not any(t is not None for t in tables):
             return cls(profiles=profiles)
-        table = merge_tables(*(t for t in table if t is not None))
+        table: dict = merge_tables(*(t for t in tables if t is not None))
         unknown = set(table) - _FIELDS
         if unknown:
             raise ValueError(f"[design] has unknown key(s): {', '.join(sorted(unknown))}")
