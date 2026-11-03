@@ -62,7 +62,7 @@ def ci_node(state: str | None) -> dict[str, Any]:
 def healthy(**changes: Any) -> dict[str, Any]:
     """The real open-PR response, made non-draft and green, with fields overridden."""
     data = deepcopy(OPEN_DRAFT_49)
-    pr_of(data).update(isDraft=False, commits=ci_node("SUCCESS"), **changes)
+    pr_of(data).update({"isDraft": False, "commits": ci_node("SUCCESS"), **changes})
     return data
 
 

@@ -1,5 +1,6 @@
 """The GitHub reader against a fake ``gh`` that replays the REAL captured response shapes."""
 
+# ruff: noqa: F401, F811
 from __future__ import annotations
 
 import json
@@ -31,7 +32,7 @@ from ai_governance.taskflow.prs.snapshot import (
     SyncError,
 )
 from ai_governance.taskflow.prs.status import classify
-from gh_fakes import GhWorld, make_gh_world, normalized, spec_of
+from gh_fakes import GhWorld, gh_world, make_gh_world, normalized, spec_of
 from prs_real_samples import (
     AUTH_STATUS_JSON,
     MERGED_47,

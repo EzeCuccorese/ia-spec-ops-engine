@@ -110,7 +110,7 @@ def _same_repo(ref: PrRef, flag: str, store: TaskStore, task_id: str) -> bool:
 def _accepted(payload: dict[str, Any]) -> tuple[tuple[str, str], PrRef] | None:
     """((directory, -R repo), created PR) when the payload is a clean ``gh pr create``."""
     command = (payload.get("tool_input") or {}).get("command")
-    if not isinstance(command, str) or "gh pr create" not in command:
+    if not isinstance(command, str) or "pr create" not in command:
         return None
     tokens = _tokens(command)
     shape = _shape(tokens) if tokens else None
