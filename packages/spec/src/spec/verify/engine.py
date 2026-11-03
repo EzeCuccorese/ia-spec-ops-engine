@@ -8,12 +8,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from spec._config_core import ConfigError
 from spec.core.paths import PathBoundary
 from spec.core.result import CheckResult, CheckStatus, VerificationReport
+from spec.settings import get
 
 
 class ConfigurationError(ValueError):
     """Verification configuration is invalid or unsafe to interpret."""
+
+
+DEFAULT_TIMEOUT_SECONDS = 300
 
 
 @dataclass(frozen=True)
@@ -21,7 +26,7 @@ class CommandCheck:
     id: str
     command: tuple[str, ...]
     required: bool = True
-    timeout_seconds: int = 300
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS  # `verify.timeout_seconds` default
 
 
 @dataclass(frozen=True)
@@ -174,6 +179,10 @@ def load_checks(root: str | Path) -> tuple[CommandCheck, ...]:
     if not isinstance(raw_checks, list):
         raise ConfigurationError("Verification config checks must be a list")
 
+    try:
+        default_timeout = int(get("verify.timeout_seconds", boundary.root))  # type: ignore[call-overload]
+    except ConfigError as exc:
+        raise ConfigurationError(str(exc)) from exc
     checks: list[CommandCheck] = []
     seen: set[str] = set()
     for index, raw in enumerate(raw_checks):
@@ -182,7 +191,7 @@ def load_checks(root: str | Path) -> tuple[CommandCheck, ...]:
         check_id = raw.get("id")
         command = raw.get("command")
         required = raw.get("required", True)
-        timeout = raw.get("timeout_seconds", 300)
+        timeout = raw.get("timeout_seconds", default_timeout)
         if not isinstance(check_id, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", check_id):
             raise ConfigurationError(f"Check {index} has an invalid id")
         if check_id in seen:

@@ -18,7 +18,9 @@ from rich.console import Console
 from rich.table import Table
 
 from workspace_engine._config_core import AGENT_ENV_MARKERS as AGENT_ENV_MARKERS
+from workspace_engine._config_core import ConfigError
 from workspace_engine._config_core import is_agent_mode as core_is_agent_mode
+from workspace_engine.settings import effective
 
 # Shared Rich Console instance
 console = Console()
@@ -38,11 +40,18 @@ def is_agent_mode() -> bool:
     return core_is_agent_mode("workspace")
 
 
+def _limit(key: str, fallback: int) -> int:
+    try:
+        return int(effective()[key].value)  # type: ignore[call-overload]
+    except ConfigError:
+        return fallback
+
+
 def truncate(
     text: str,
     *,
-    max_lines: int = DEFAULT_MAX_LINES,
-    max_chars: int = DEFAULT_MAX_CHARS,
+    max_lines: int | None = None,
+    max_chars: int | None = None,
     more_hint: str = "",
 ) -> str:
     """Truncates `text` to at most `max_lines` lines and `max_chars` characters.
@@ -51,6 +60,12 @@ def truncate(
     the last returned line is exactly ``more: <more_hint>`` (or just
     ``more:`` when `more_hint` is empty).
     """
+    max_lines = (
+        max_lines if max_lines is not None else _limit("output.max_lines", DEFAULT_MAX_LINES)
+    )
+    max_chars = (
+        max_chars if max_chars is not None else _limit("output.max_chars", DEFAULT_MAX_CHARS)
+    )
     all_lines = text.splitlines()
     hint_line = "more:" + (f" {more_hint}" if more_hint else "")
 

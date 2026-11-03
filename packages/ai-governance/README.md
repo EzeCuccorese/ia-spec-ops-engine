@@ -238,9 +238,35 @@ Files are TOML (`[frugality]` / `threshold_chars = 4000`). Older JSON files keep
 |---|---|---|---|
 | `frugality.threshold_chars` | `AI_GOVERNANCE_FRUGAL_THRESHOLD_CHARS` | `4000` | Shell output longer than this is condensed |
 | `frugality.budget_chars` | `AI_GOVERNANCE_FRUGAL_BUDGET_CHARS` | `2500` | Size the condensed output is cut down to |
-| `taskflow.timeout_seconds` | `AI_GOVERNANCE_CHECK_TIMEOUT_SECONDS` | `1800` | Timeout of checks, judges and TDD commands |
-| `atlassian.timeout_seconds` | `ATLASSIAN_TIMEOUT` | `30` | HTTP timeout of Jira and Confluence calls |
-| `schedule.label` | `AI_GOVERNANCE_SCHEDULE_LABEL` | `com.ai-governance.prices-update` | launchd label of the price-refresh agent; older labels are retired on uninstall |
+| `frugality.condense_timeout_seconds` | `AI_GOVERNANCE_FRUGAL_TIMEOUT_SECONDS` | `30` | Timeout of the `ws condense` call |
+| `output.max_lines` | `AI_GOVERNANCE_OUTPUT_MAX_LINES` | `20` | Lines before output is cut |
+| `output.max_chars` | `AI_GOVERNANCE_OUTPUT_MAX_CHARS` | `1500` | Characters before output is cut |
+| `hooks.gate_command` | `AI_GOVERNANCE_GATE_COMMAND` | `ws check --changed --cache --json` | Command of the turn-end quality gate (`--budget N` is appended) |
+| `hooks.gate_budget_chars` | `AI_GOVERNANCE_GATE_BUDGET_CHARS` | `1500` | Size of the failure summary the gate reports |
+| `hooks.gate_timeout_seconds` | `AI_GOVERNANCE_GATE_TIMEOUT_SECONDS` | `900` | Timeout of the turn-end quality gate |
+| `taskflow.timeout_seconds` | `AI_GOVERNANCE_CHECK_TIMEOUT_SECONDS` | `1800` | Timeout of each check, judge and TDD command |
+| `taskflow.planner_agent` | `AI_GOVERNANCE_PLANNER_AGENT` | `antigravity` | Agent of the planner role (user level only: a repo cannot change it) |
+| `taskflow.planner_model` | `AI_GOVERNANCE_PLANNER_MODEL` | `gemini-4-argon-high` | Model of the planner role (user level only: a repo cannot change it) |
+| `taskflow.validator_agent` | `AI_GOVERNANCE_VALIDATOR_AGENT` | `codex` | Agent of the validator role (user level only: a repo cannot change it) |
+| `taskflow.validator_model` | `AI_GOVERNANCE_VALIDATOR_MODEL` | `gpt-6.1-sol` | Model of the validator role (user level only: a repo cannot change it) |
+| `taskflow.builder_agent` | `AI_GOVERNANCE_BUILDER_AGENT` | `claude` | Agent of the builder role (user level only: a repo cannot change it) |
+| `taskflow.builder_model` | `AI_GOVERNANCE_BUILDER_MODEL` | `""` | Model of the builder role (user level only: a repo cannot change it) |
+| `taskflow.judge_agent` | `AI_GOVERNANCE_JUDGE_AGENT` | `codex` | Agent of the judge role (user level only: a repo cannot change it) |
+| `taskflow.judge_model` | `AI_GOVERNANCE_JUDGE_MODEL` | `gpt-6.1-sol` | Model of the judge role (user level only: a repo cannot change it) |
+| `agents.antigravity_binary` | `AI_GOVERNANCE_ANTIGRAVITY_BINARY` | `agy` | CLI of Antigravity |
+| `agents.codex_binary` | `AI_GOVERNANCE_CODEX_BINARY` | `codex` | CLI of Codex |
+| `agents.claude_binary` | `AI_GOVERNANCE_CLAUDE_BINARY` | `claude` | CLI of Claude Code |
+| `agents.codex_scout_model` | `AI_GOVERNANCE_CODEX_SCOUT_MODEL` | `gpt-6-luna` | Model of the Codex scout subagent written at install |
+| `corporate.packs` | `AI_GOVERNANCE_CORPORATE` | `[]` (all) | Company packs to install, comma separated (empty: every pack present) |
+| `atlassian.timeout_seconds` | `ATLASSIAN_TIMEOUT` | `30.0` | HTTP timeout of Jira and Confluence calls |
+| `pricing.timeout_seconds` | `AI_GOVERNANCE_PRICING_TIMEOUT_SECONDS` | `10.0` | Timeout of the price feed download |
+| `schedule.label` | `AI_GOVERNANCE_SCHEDULE_LABEL` | `com.ai-governance.prices-update` | launchd label of the price-refresh agent |
+
+Role, agent-binary and model settings (`taskflow.<role>_agent|_model`, `agents.*`) are read from
+the user level only: a repository cannot swap the agents that run with full permissions.
+`ai-governance install --scope user --corporate acme,globex` (or `corporate.packs`) installs
+only those company packs; an unknown name is an error that lists the packs present.
+`hooks.gate_command` is split like a shell line and its first word looked up on `PATH`.
 
 `taskflow.toml` keeps roles, judges, checks and risk rules: a repository can only add to
 them. Of its scalars only `timeout_seconds` follows the precedence above; `workflow` and the

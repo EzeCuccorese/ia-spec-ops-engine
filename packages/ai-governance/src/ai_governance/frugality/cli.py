@@ -74,6 +74,13 @@ SKIP_CONDENSE = re.compile(
 )
 
 
+def _condense_timeout() -> float:
+    try:
+        return float(effective()["frugality.condense_timeout_seconds"].value)  # type: ignore[arg-type]
+    except ConfigError:
+        return 30.0
+
+
 def condense_with_ws(text: str, command: str, budget: int) -> dict | None:
     """Condenses via the ``ws condense --json`` contract; None when ws is unavailable."""
     ws = shutil.which("ws")
@@ -85,7 +92,7 @@ def condense_with_ws(text: str, command: str, budget: int) -> dict | None:
             input=text,
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=_condense_timeout(),
             check=False,
         )
         result = json.loads(proc.stdout)

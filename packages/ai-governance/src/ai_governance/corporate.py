@@ -9,8 +9,11 @@ swapping folders.
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+
+from .settings import get as setting
 
 CORPORATE_DIR = "corporate-rules"
 
@@ -59,6 +62,24 @@ def available(root: Path | None = None) -> list[str]:
     return sorted(p.name for p in base.iterdir() if p.is_dir() and not p.name.startswith("."))
 
 
-def packs(root: Path | None = None) -> list[CorporatePack]:
+def packs(root: Path | None = None, only: Sequence[str] | None = None) -> list[CorporatePack]:
+    """The packs present on disk, or just ``only`` (default: ``corporate.packs``, empty = all).
+
+    A name that is not a folder of the corporate root raises ``ValueError`` listing the
+    available packs, so a typo never silently installs nothing.
+    """
     base = root or corporate_root()
-    return [CorporatePack(name, base / name) for name in available(base)]
+    present = available(base)
+    wanted = list(only) if only is not None else list(selected_names())
+    unknown = [name for name in wanted if name not in present]
+    if unknown:
+        raise ValueError(
+            f"Unknown corporate pack(s): {', '.join(unknown)}. Available: {', '.join(present) or '(none)'}"
+        )
+    return [CorporatePack(name, base / name) for name in (wanted or present)]
+
+
+def selected_names(flag: str | None = None) -> list[str]:
+    """``--corporate`` > ``AI_GOVERNANCE_CORPORATE`` > ``[corporate] packs`` > every pack."""
+    chosen = setting("corporate.packs", flags={"corporate.packs": flag} if flag else None)
+    return [str(name) for name in chosen]  # type: ignore[attr-defined]

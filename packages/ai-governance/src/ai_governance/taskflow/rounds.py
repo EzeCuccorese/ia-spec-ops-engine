@@ -13,7 +13,7 @@ import os
 import shlex
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .adapters import (
@@ -24,6 +24,7 @@ from .adapters import (
     parse_verdict,
     run_agent,
 )
+from .config import check_timeout_seconds
 from .context import round_header
 from .models import READER_ROLES, JsonDict, now_iso
 from .stamp import GitError, changed_paths, git, tree_fingerprint
@@ -43,7 +44,7 @@ class RoundRequest:
     repo: Path
     agent: JsonDict
     focus: str = ""
-    timeout: int = 1800
+    timeout: int = field(default_factory=check_timeout_seconds)
     watch: tuple[Path, ...] = ()  # other trees a reader must not change
 
 

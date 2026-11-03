@@ -9,10 +9,18 @@ import re
 import time
 from pathlib import Path
 
-from workspace_engine._config_core import xdg_dir
+from workspace_engine._config_core import ConfigError, xdg_dir
+from workspace_engine.settings import SETTINGS, effective
 
-RETENTION_DAYS = 7
-MAX_LOGS = 200
+RETENTION_DAYS: int | None = None  # None: the `logs.retention_days` setting (default 7)
+MAX_LOGS: int | None = None  # None: `logs.max_entries` (default 200)
+
+
+def _setting(key: str) -> int:
+    try:
+        return int(effective()[key].value)  # type: ignore[call-overload]
+    except ConfigError:
+        return int(next(s.default for s in SETTINGS if s.key == key))  # type: ignore[call-overload]
 
 
 def logs_dir() -> Path:
@@ -34,10 +42,12 @@ def save(text: str, command: str) -> str:
 
 def prune(directory: Path) -> None:
     files = sorted(directory.glob("*.log"), key=lambda p: p.stat().st_mtime, reverse=True)
-    cutoff = time.time() - RETENTION_DAYS * 86400
+    retention = RETENTION_DAYS if RETENTION_DAYS is not None else _setting("logs.retention_days")
+    max_logs = MAX_LOGS if MAX_LOGS is not None else _setting("logs.max_entries")
+    cutoff = time.time() - retention * 86400
     for index, path in enumerate(files):
         with contextlib.suppress(OSError):
-            if index >= MAX_LOGS or path.stat().st_mtime < cutoff:
+            if index >= max_logs or path.stat().st_mtime < cutoff:
                 path.unlink()
 
 

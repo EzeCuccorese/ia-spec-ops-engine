@@ -519,6 +519,25 @@ there as `project.*`. The `[design]` table also has a user layer
 Config, state and data directories follow XDG and accept `WORKSPACE_CONFIG_DIR` /
 `WORKSPACE_STATE_DIR` / `WORKSPACE_DATA_DIR` (and `RUN_LOCAL_*` for `run-local`).
 
+Gate settings sit in the `[gate]` table. Priority for them is
+**env `QG_*` > `git config workspace.*` > repo file > user file > default**, so
+`git config workspace.skip tests` and `QG_SKIP=tests` keep working. `git config` keys:
+`workspace.skip`, `workspace.commitStyle`, `workspace.protected`, `workspace.timeout`.
+The pre-push, pre-commit and commit-msg hooks call `ws hooks gate-config`, which prints an
+assignment only for settings the config files decide. `ws hooks status` warns when this repo
+has gate settings (git config or `.workspace/config.toml`) but the gate is not installed.
+
+| Key | Env var | Default | Meaning |
+|---|---|---|---|
+| `gate.skip` | `QG_SKIP` | `[]` | Gate checks to skip: gitleaks,commits,lint,design,tests,all |
+| `gate.protected_branches` | `QG_PROTECTED` | `^(main|master|develop|staging)$` | Regex of branches the gate refuses to push to directly |
+| `gate.timeout_seconds` | `QG_TIMEOUT` | `900` | Timeout of each gate step |
+| `gate.commit_style` | `QG_COMMIT_STYLE` | `""` | Set to `conventional` to enforce it |
+| `logs.retention_days` | `WORKSPACE_LOG_RETENTION_DAYS` | `7` | Age after which `ws log` entries are pruned |
+| `logs.max_entries` | `WORKSPACE_LOG_MAX_ENTRIES` | `200` | Most `ws log` entries kept |
+| `output.max_lines` | `WORKSPACE_OUTPUT_MAX_LINES` | `20` | Agent-mode output: lines before truncating |
+| `output.max_chars` | `WORKSPACE_OUTPUT_MAX_CHARS` | `1500` | Agent-mode output: characters before truncating |
+
 | Variable | Used by | Description | Default |
 | --- | --- | --- | --- |
 | `AI_REPOSITORIES_DIR` | `ws generate`, `ws edit` | Directory containing local project repositories used when wiring up a new/edited workspace. | none (falls back to values already present in the workspace's `.env`) |

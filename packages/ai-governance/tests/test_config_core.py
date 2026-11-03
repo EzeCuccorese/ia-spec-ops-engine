@@ -125,7 +125,7 @@ def test_frugal_json_and_taskflow_toml_feed_the_same_layers(
     from ai_governance.taskflow.config import load_config
 
     _write(home / "frugal.json", json.dumps({"threshold_chars": 123}))
-    assert frugal.load_config() == {"threshold_chars": 123, "budget_chars": 2500}
+    assert frugal.load_config() == {**frugal.DEFAULT_CONFIG, "threshold_chars": 123}
     _write(home / "config.toml", "[frugality]\nthreshold_chars = 456\n")
     assert frugal.load_config()["threshold_chars"] == 456
 

@@ -21,17 +21,44 @@ from .models import WORKFLOWS, JsonDict
 CONFIG_NAME = "taskflow.toml"
 REPO_CONFIG = Path(".ai-governance") / CONFIG_NAME
 
-DEFAULT_ROLES: dict[str, JsonDict] = {
-    "planner": {"agent": "antigravity", "model": "gemini-4-argon-high"},
-    "validator": {"agent": "codex", "model": "gpt-6.1-sol"},
-    "builder": {"agent": "claude", "model": ""},
-}
-DEFAULT_JUDGES: list[JsonDict] = [
-    {"focus": "correctness", "agent": "codex", "model": "gpt-6.1-sol"},
-]
+
+def default_roles() -> dict[str, JsonDict]:
+    """Planner, validator and builder: the ``taskflow.<role>_agent/_model`` settings."""
+    found = effective()
+    return {
+        role: {
+            "agent": found[f"taskflow.{role}_agent"].value,
+            "model": found[f"taskflow.{role}_model"].value,
+        }
+        for role in ("planner", "validator", "builder")
+    }
+
+
+def default_judges() -> list[JsonDict]:
+    found = effective()
+    return [
+        {
+            "focus": "correctness",
+            "agent": found["taskflow.judge_agent"].value,
+            "model": found["taskflow.judge_model"].value,
+        }
+    ]
+
+
 DEFAULT_CHECKS: list[str] = ["ws check --changed"]
-DEFAULT_TIMEOUT_SECONDS = 1800
-AGENT_BINARIES = {"antigravity": "agy", "codex": "codex", "claude": "claude"}
+AGENTS_WITH_BINARY = ("antigravity", "codex", "claude")
+
+
+def agent_binary(agent: str) -> str | None:
+    """CLI that runs ``agent`` (``[agents] <agent>_binary``); None for ``human`` or unknown."""
+    if agent not in AGENTS_WITH_BINARY:
+        return None
+    return str(effective()[f"agents.{agent}_binary"].value)
+
+
+def check_timeout_seconds() -> int:
+    """The single timeout of checks, judges and TDD commands (``taskflow.timeout_seconds``)."""
+    return int(effective()["taskflow.timeout_seconds"].value)  # type: ignore[call-overload]
 
 
 @dataclass(frozen=True)
@@ -46,11 +73,11 @@ class RiskRule:
 @dataclass(frozen=True)
 class FlowConfig:
     workflow: str = "tri-agent"
-    roles: dict[str, JsonDict] = field(default_factory=lambda: dict(DEFAULT_ROLES))
-    judges: tuple[JsonDict, ...] = tuple(DEFAULT_JUDGES)
+    roles: dict[str, JsonDict] = field(default_factory=default_roles)
+    judges: tuple[JsonDict, ...] = field(default_factory=lambda: tuple(default_judges()))
     checks: tuple[str, ...] = tuple(DEFAULT_CHECKS)
     risk_rules: tuple[RiskRule, ...] = ()
-    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
+    timeout_seconds: int = field(default_factory=check_timeout_seconds)
 
     def role(self, name: str) -> JsonDict:
         if name == "judge":
@@ -103,7 +130,7 @@ class FlowConfig:
             *self.roles.items(),
             *((f"judge {j.get('focus')}", j) for j in self.judges),
         ]:
-            binary = AGENT_BINARIES.get(str(role.get("agent", "")))
+            binary = agent_binary(str(role.get("agent", "")))
             if binary and shutil.which(binary) is None:
                 errors.append(f"{name}: '{binary}' is not installed or not on PATH")
         return errors
@@ -148,9 +175,9 @@ def load_config(repos: list[Path] | None = None, user_file: Path | None = None) 
     only the user's ``tdd-skip`` approval replaces it)."""
     user_path = user_file or config_dir() / CONFIG_NAME
     user = _read_toml(user_path)
-    roles = dict(DEFAULT_ROLES)
+    roles = default_roles()
     roles.update({k: dict(v) for k, v in user.get("roles", {}).items() if k != "judges"})
-    judges = _judge_entries(user) or [dict(j) for j in DEFAULT_JUDGES]
+    judges = _judge_entries(user) or default_judges()
     checks = list(user.get("checks", {}).get("commands", DEFAULT_CHECKS))
     rules = _rules(user.get("risk", {}).get("rules", []))
     for repo in repos or []:

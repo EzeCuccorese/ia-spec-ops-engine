@@ -7,6 +7,7 @@ import json
 import sys
 from pathlib import Path
 
+from .. import corporate
 from ..output import emit_rows, emit_status, emit_text, is_agent_mode
 from ..rules.catalog import RuleCatalog
 from . import doctor, probe
@@ -79,6 +80,10 @@ def build_parser() -> argparse.ArgumentParser:
     install = sub.add_parser("install", help="Install for the chosen agent(s)")
     _add_common(install)
     install.add_argument("--force", action="store_true", help="Replace files we do not own")
+    install.add_argument(
+        "--corporate",
+        help="Company packs to install, comma separated (default: every pack present)",
+    )
     uninstall = sub.add_parser("uninstall", help="Remove what was installed for the agent(s)")
     _add_common(uninstall)
     update = sub.add_parser("update", help="Refresh project rules for the detected stacks")
@@ -116,7 +121,14 @@ def _selected_agents(args: argparse.Namespace) -> list[str]:
 
 def _user_report(args: argparse.Namespace, agents: list[str]) -> Report:
     if args.cmd == "install":
-        return install_user(agents, dry_run=args.dry_run, force=args.force)
+        names = corporate.selected_names(args.corporate)
+        try:
+            corporate.packs(only=names)
+        except ValueError as exc:
+            raise SystemExit(f"Error: {exc}") from exc
+        return install_user(
+            agents, dry_run=args.dry_run, force=args.force, corporate_names=names or None
+        )
     return uninstall_user(agents, dry_run=args.dry_run)
 
 
