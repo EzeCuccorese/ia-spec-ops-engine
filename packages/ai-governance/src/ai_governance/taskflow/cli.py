@@ -3,18 +3,20 @@
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import subprocess
 import sys
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, TypeAlias
+from typing import Literal
 
+from .._config_core import AGENT_ENV_MARKERS
 from ..output import emit_json, emit_kv, emit_rows, emit_status, emit_text
 from . import tdd
 from .approvals import (
-    ACTIONS,
     RISKY_ACTIONS,
     STAMP_FREE_ACTIONS,
     ApprovalContext,
@@ -24,7 +26,8 @@ from .approvals import (
     request_tag,
     valid_approval,
 )
-from .config import FlowConfig, load_config
+from .config import REPO_CONFIG, FlowConfig, PendingTrust, load_config, record_trust
+from .digest import digest
 from .gates import (
     NEXT_COMMAND,
     GateContext,
@@ -37,78 +40,17 @@ from .gates import (
     policy_unmet,
     work_unmet,
 )
+from .guide import GUIDE as GUIDE
 from .handoff import findings, handoff, scrub, ticket_draft
 from .judge import JudgeError, judge_task
-from .models import (
-    EXIT_PHASES,
-    PHASES,
-    READER_ROLES,
-    ROLES,
-    VERDICTS,
-    WORKFLOWS,
-    JsonDict,
-    Task,
-    now_iso,
-)
+from .models import PHASES, READER_ROLES, Task, now_iso
+from .policy import _rule_reductions as _rule_reductions
+from .policy import policy_reductions, policy_summary
 from .resolver import TaskResolver
 from .risk import RiskAssessment, assess
 from .rounds import LeaseError, RoundRequest, record_manual, run_round
 from .stamp import GitError, changed_paths, code_stamp, merge_base
 from .store import FRICTION_FILE, TaskStore
-
-GUIDE = """\
-Flow (one task or subtask at a time):
-  plan -> validate -> work -> judge -> [staging] -> review -> done   (exit: findings)
-
-  1. Start:     taskflow new <ID> --title "..."   (ID = Jira key, or a slug until it exists)
-                taskflow bind <ID> --repo <worktree> --integration-branch <branch>
-  2. plan:      taskflow round <ID> run --role planner --prompt-file brief.md
-                taskflow phase <ID> validate
-  3. validate:  taskflow round <ID> run --role validator --prompt-file review.md
-                show the user the final plan; on their ok in the chat:
-                taskflow approve <ID> --action plan --target <ID> --user-reply "<their words>"
-                taskflow phase <ID> work
-  4. work:      taskflow tdd <ID> red --cmd "<test>"   (before the change; must fail)
-                implement, then taskflow tdd <ID> green --cmd "<same test>"; commit
-                taskflow phase <ID> judge
-  5. judge:     taskflow judge <ID>   (isolated copy of HEAD, checks + every required judge)
-                block/concerns -> taskflow phase <ID> work, fix, judge again
-  6. staging:   optional unless a risk rule asks for it. The USER deploys and approves.
-                taskflow deploy <ID> --env staging --repo <path> --sha <sha> --provenance ci
-                taskflow evidence <ID> --kind staging --file results.md --deployed-sha <sha>
-  7. review:    clean up/rebase, taskflow judge <ID> again on the final SHA
-  8. done:      only after the user confirms production (approve --action prod)
-
-Human gates (the engine never runs them itself): ticket, push, pr, comment, slack,
-staging, deploy, prod. Run `taskflow ask <ID> --action A --target T`, put the tag it
-prints in your question to the user, wait for the reply, then record it with
-`taskflow approve`. Risky actions (deploy, prod, migration, infra, permissions, delete,
-policy-downgrade, restaging) need --consequence (what breaks if it goes wrong, plainly)
-and a reply that names the action and the target, typed by the user; "ok"/"dale" is
-refused. Production actions are refused after 16:00, and on Friday after 13:00.
-
-One worktree per task: tasks sharing a worktree make `here` ambiguous and reviewers mix
-contexts. `round run` already prepends the task context (goal, plan path, decisions, facts,
-repos), so a prompt only needs the specific question.
-
-Code tasks always run tri-agent (planner, validator and builder are different agents).
-Another workflow only when the user asks for it; record it before leaving plan:
-  taskflow approve <ID> --action workflow --target <ID> --user-reply "<their words>"
-manual is for tracking only (no code, no phases).
-
-TDD is mandatory unless the user asks to skip it:
-  taskflow approve <ID> --action tdd-skip --target <ID> --user-reply "<their words>"
-  taskflow tdd <ID> skip --reason "..."
-
-In a Claude Code session --user-reply must be one whole message the user typed in this
-session; one reply covers every ordinary request asked together in that question, a
-risky action needs its own reply; risky actions are approved only there.
-
-Any code change after a verdict or approval makes it stale: `taskflow status <ID>` shows
-what is stale, what is missing for the next phase and the exact next command.
-Another owner's branch: taskflow findings <ID> --out findings.md, hand it over, close.
-Nothing of this tool or of the agents goes into tickets, commits, PRs or Slack.
-"""
 
 
 def _store() -> TaskStore:
@@ -141,62 +83,23 @@ def _refresh(
     if task.repos:
         stamp = code_stamp(task.repos, config.policy_digest, check_remote=remote)
         current = policy_summary(config)
-        stamp["policy_reduced"] = policy_reductions(task.policy or current, current)
+        # A task starts from the user's own policy, so what a repository switches off before
+        # the first stamp is a reduction like any later one.
+        accepted = task.policy or config.baseline_policy or current
+        acknowledged = set(accepted.get("acknowledged_repo_reductions", []))
+        stamp["policy_reduced"] = sorted(
+            {*policy_reductions(accepted, current), *config.repo_reductions} - acknowledged
+        )
 
         def save(t: Task) -> None:
             t.code_stamp = stamp
-            t.policy = t.policy or current
+            t.policy = t.policy or accepted
 
         task = store.mutate(task.id, save)
     paths: list[str] = []
     for repo in task.repos:
         paths += changed_paths(Path(repo["path"]), _base_ref(repo))
     return task, assess(config, paths)
-
-
-def policy_summary(config: FlowConfig) -> JsonDict:
-    """The controls a task accepted, rule by rule; weakening any of them later is a
-    reduction that needs the user's D3 ``policy-downgrade`` approval."""
-    return {
-        "judges": sorted(str(j.get("focus")) for j in config.judges),
-        "checks": sorted(config.checks),
-        "rules": {
-            r.name: {
-                "paths": sorted(r.paths),
-                "judges": sorted(r.judges),
-                "checks": sorted(r.checks),
-                "restaging": r.restaging,
-            }
-            for r in config.risk_rules
-        },
-    }
-
-
-def _rule_reductions(name: str, rule: JsonDict, now: JsonDict | None) -> list[str]:
-    if now is None:
-        return [f"rule:{name}"]
-    lost = [
-        f"rule:{name}:{kind}:{item}"
-        for kind in ("paths", "judges", "checks")
-        for item in rule.get(kind, [])
-        if item not in now.get(kind, [])
-    ]
-    if rule.get("restaging") and not now.get("restaging"):
-        lost.append(f"rule:{name}:restaging")
-    return lost
-
-
-def policy_reductions(baseline: JsonDict, current: JsonDict) -> list[str]:
-    """Every accepted control that is gone or weaker now (adding controls is never one)."""
-    lost = [
-        f"{kind}:{item}"
-        for kind in ("judges", "checks")
-        for item in baseline.get(kind, [])
-        if item not in current.get(kind, [])
-    ]
-    for name, rule in baseline.get("rules", {}).items():
-        lost += _rule_reductions(name, rule, current.get("rules", {}).get(name))
-    return sorted(lost)
 
 
 def _base_ref(repo: dict[str, str]) -> str:
@@ -474,6 +377,9 @@ def cmd_status(args: argparse.Namespace) -> int:
         ("Expired approvals", ", ".join(_expired_approvals(task)) or "none"),
         ("Next", NEXT_COMMAND.get(task.phase, "-")),
     ]
+    waiting = _warn_pending_trust(config) if not args.json else []
+    if args.json or waiting:
+        pairs.insert(-1, ("Pending trust", "; ".join(waiting) or "none"))
     if args.json:
         emit_json(dict(pairs))
     else:
@@ -740,6 +646,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
     if errors:
         raise ValueError("Invalid taskflow config: " + "; ".join(errors))
     task, risk = _refresh(store, task, config)
+    _warn_pending_trust(config)
     if task.workflow == "manual":
         raise ValueError("Manual tasks have no judges")
     missing = judge_unmet(task, task.stamp_key) + policy_unmet(task, task.stamp_key)
@@ -828,35 +735,78 @@ def cmd_digest(args: argparse.Namespace) -> int:
     return 0
 
 
-def _pick_focus(tasks: list[Task], focus_id: str | None) -> Task | None:
-    return next((t for t in tasks if t.id == focus_id), None) or next(iter(tasks), None)
-
-
-def _focus_lines(focus: Task) -> list[str]:
-    lines = [
-        f"- {focus.id} [{focus.phase}{', blocked' if focus.blocked else ''}]: {focus.summary or focus.title}"
+def _warn_pending_trust(config: FlowConfig) -> list[str]:
+    notes = [
+        f"repo config pending trust: {p.repo} is ignored entirely (no adds, replaces or "
+        f"disables) until approved. Review and approve with "
+        f"`ai-governance taskflow trust --repo {p.repo}`"
+        for p in config.pending_trust
     ]
-    pending = [s["text"] for s in focus.steps if not s.get("done")][:5]
-    if pending:
-        lines.append("  next: " + "; ".join(pending))
-    return lines
+    for note in notes:
+        emit_status("warn", note)
+    return notes
 
 
-def digest(store: TaskStore, focus_id: str | None = None, max_chars: int = 1600) -> str:
-    tasks = store.list()
-    focus = _pick_focus(tasks, focus_id)
-    lines = [f"TASKFLOW ({len(tasks)} open) — `ai-governance taskflow --help` explains the flow"]
-    if focus:
-        lines += _focus_lines(focus)
-    others = [t.id for t in tasks if focus is None or t.id != focus.id]
-    if others:
-        lines.append("  others: " + ", ".join(others[:8]))
-    text = "\n".join(lines)
-    return text if len(text) <= max_chars else text[: max_chars - 1] + "…"
+def _agent_markers() -> list[str]:
+    """Agent variables actually present: the AI_GOVERNANCE_AGENT output override is ignored,
+    so setting it to 0 cannot turn an agent into a human for an approval."""
+    return sorted(
+        name
+        for name, value in os.environ.items()
+        if value and (name in AGENT_ENV_MARKERS or name.startswith(("CODEX_", "CLAUDE_CODE_")))
+    )
+
+
+def _show_pending(repo: Path, pending: PendingTrust) -> None:
+    print(f"Control config of {repo / REPO_CONFIG} that you are approving (everything in it):")
+    print(json.dumps(pending.config, indent=2, sort_keys=True, ensure_ascii=False))
+    if pending.commands:
+        print("Commands it would run with your permissions:")
+        for command in pending.commands:
+            print(f"  $ {command}")
+
+
+def _user_confirms(repo: Path, assume_yes: bool) -> bool:
+    """Approval needs a person at a terminal: --yes only skips the question."""
+    if _agent_markers() or not (sys.stdin.isatty() and sys.stdout.isatty()):
+        emit_status(
+            "error",
+            "These commands run with your permissions: approve them yourself in an interactive "
+            f"terminal (ai-governance taskflow trust --repo {repo})",
+        )
+        return False
+    if assume_yes:
+        return True
+    try:
+        answer = input("Run these checks for this repository? [y/N] ")
+    except (EOFError, KeyboardInterrupt):
+        print()  # the terminal closed or the user hit Ctrl-C: that is a refusal, not a crash
+        answer = ""
+    if answer.strip().lower() == "y":
+        return True
+    emit_status("warn", "Not trusted")
+    return False
+
+
+def cmd_trust(args: argparse.Namespace) -> int:
+    """Shows the check commands a repository defines and, after the user confirms, remembers
+    that exact set (a changed set is pending again)."""
+    repo = Path(args.repo).expanduser().resolve()
+    pending = [p for p in load_config([repo]).pending_trust if Path(p.repo).resolve() == repo]
+    if not pending:
+        emit_status("ok", f"No repo config pending trust in {repo}")
+        return 0
+    _show_pending(repo, pending[0])
+    if not _user_confirms(repo, args.yes):
+        return 1
+    digest_ = record_trust(repo, pending[0].config or {})
+    emit_status("ok", f"Trusted {len(pending[0].commands)} command(s) for {repo} ({digest_})")
+    return 0
 
 
 def cmd_config(args: argparse.Namespace) -> int:
     config = load_config([Path.cwd()])
+    _warn_pending_trust(config)
     errors = config.validate()
     emit_kv(
         [
@@ -881,222 +831,12 @@ def cmd_config(args: argparse.Namespace) -> int:
 
 
 # -- parser --------------------------------------------------------------------------------
-Subparsers: TypeAlias = "argparse._SubParsersAction[argparse.ArgumentParser]"
-
-
-def _adder(sub: Subparsers) -> Callable[..., argparse.ArgumentParser]:
-    def add(
-        name: str, handler: Callable[[argparse.Namespace], int], text: str, task: str = "required"
-    ) -> argparse.ArgumentParser:
-        item = sub.add_parser(name, help=text, description=text)
-        item.set_defaults(handler=handler)
-        if task == "required":
-            item.add_argument("task_id")
-        elif task == "optional":
-            item.add_argument("task_id", nargs="?")
-        return item
-
-    return add
-
-
-def _task_commands(sub: Subparsers) -> None:
-    add = _adder(sub)
-    item = add("list", cmd_list, "List open tasks", task="none")
-    item.add_argument("--all", action="store_true", help="Include closed tasks")
-    item.add_argument("--json", action="store_true")
-    for name, text in (
-        ("show", "Show a task (default: the one bound to this directory)"),
-        ("here", "Task bound to this branch/repository"),
-    ):
-        item = add(name, cmd_show, text, task="optional" if name == "show" else "none")
-        item.add_argument("--full", action="store_true", help="Include the long log")
-        item.add_argument("--json", action="store_true")
-        if name == "here":
-            item.set_defaults(task_id=None)
-    item = add("new", cmd_new, "Create a task (ID = Jira key or slug)")
-    item.add_argument("--title", required=True)
-    item.add_argument("--summary", default="")
-    item.add_argument("--parent", help="Make it a subtask of this task")
-    item.add_argument("--workflow", choices=WORKFLOWS, default="tri-agent")
-    item.add_argument(
-        "--owner",
-        choices=("self", "external"),
-        default="self",
-        help="external: findings go to another owner",
-    )
-
-
-def _content_commands(sub: Subparsers) -> None:
-    add = _adder(sub)
-    item = add("switch", cmd_switch, "Set the active subtask of a task")
-    item.add_argument("subtask")
-    item = add("summary", cmd_summary, "Replace the summary")
-    item.add_argument("text")
-    item = add("step", cmd_step, "Add, complete or remove a step")
-    item.add_argument("action", choices=("add", "done", "remove"))
-    item.add_argument("value", help="Step text, or its 1-based number for done/remove")
-    item = add(
-        "fact",
-        _list_append("facts", lambda a: {"text": a.text, "at": now_iso()}),
-        "Record a verified fact",
-    )
-    item.add_argument("text")
-    item = add(
-        "decide",
-        _list_append("decisions", lambda a: {"text": a.text, "why": a.why, "at": now_iso()}),
-        "Record a decision",
-    )
-    item.add_argument("text")
-    item.add_argument("--why", default="")
-
-
-def _reference_commands(sub: Subparsers) -> None:
-    add = _adder(sub)
-    item = add(
-        "link",
-        _list_append("links", lambda a: {"title": a.title, "url": a.url}),
-        "Add a titled URL",
-    )
-    item.add_argument("title")
-    item.add_argument("url")
-    item = add(
-        "reference",
-        _list_append("references", lambda a: {"kind": a.kind, "value": a.value, "url": a.url}),
-        "Add an external reference (jira, pr, slack...)",
-    )
-    item.add_argument("kind")
-    item.add_argument("value")
-    item.add_argument("--url", default="")
-    item = add("note", cmd_note, "Append to the long log")
-    item.add_argument("text")
-    item = add("friction", cmd_friction, "Record a friction of the flow itself")
-    item.add_argument("text")
-
-
-def _lifecycle_commands(sub: Subparsers) -> None:
-    add = _adder(sub)
-    for name, status in (("pause", "paused"), ("reopen", "active"), ("resume", "active")):
-        item = add(name, _set_status(status), f"Mark the task {status}")
-        item.add_argument("--reason", default="")
-    item = add("close", cmd_close, "Close a task (after done/findings, or --abandon)")
-    item.add_argument("--reason", default="")
-    item.add_argument(
-        "--abandon", action="store_true", help="Close a task that left the flow unfinished"
-    )
-    item = add("bind", cmd_bind, "Bind a repository/worktree to the task")
-    item.add_argument("--repo", default=".")
-    item.add_argument("--branch", default="")
-    item.add_argument(
-        "--integration-branch",
-        default="",
-        help="Branch that is deployed/merged into (e.g. develop)",
-    )
-    item.add_argument("--pr", default="")
-    item = add("unbind", cmd_unbind, "Remove a bound repository")
-    item.add_argument("--repo", default=".")
-    item = add("stamp", cmd_stamp, "Recompute the code stamp and the risk")
-    item.add_argument(
-        "--remote", action="store_true", help="Verify the integration branch with git ls-remote"
-    )
-    item = add(
-        "status",
-        cmd_status,
-        "Phase, missing requirements, stale verdicts and next command",
-        task="optional",
-    )
-    item.add_argument("--json", action="store_true")
-    item = add("phase", cmd_phase, "Move the task to a phase (checked against the gates)")
-    item.add_argument("target", choices=(*PHASES, *EXIT_PHASES))
-    item = add("block", cmd_block, "Mark the task blocked waiting for someone")
-    item.add_argument("--owner", required=True)
-    item.add_argument("--needs", required=True)
-    add("unblock", cmd_unblock, "Clear the block")
-
-
-def _approval_round_commands(sub: Subparsers) -> None:
-    add = _adder(sub)
-    item = add("ask", cmd_ask, "Print the tag your approval question must carry")
-    item.add_argument("--action", required=True, choices=ACTIONS)
-    item.add_argument("--target", required=True)
-    item = add("approve", cmd_approve, "Record the user's approval given in the chat")
-    item.add_argument("--action", required=True, choices=ACTIONS)
-    item.add_argument(
-        "--target", required=True, help="What it applies to: task, PR, service, environment"
-    )
-    item.add_argument("--user-reply", required=True, help="The user's words, verbatim")
-    item.add_argument(
-        "--consequence",
-        default="",
-        help="Risky actions: what breaks if it goes wrong, as shown to the user",
-    )
-    item = add("tdd", cmd_tdd, "Record the red/green test runs (or a skip the user approved)")
-    item.add_argument("stage", choices=("red", "green", "skip"))
-    item.add_argument("--cmd", default="", help="Test command, the same for red and green")
-    item.add_argument("--reason", default="")
-    item = add(
-        "round", cmd_round, "Run a planner/validator/builder round, or record one run elsewhere"
-    )
-    item.add_argument("action", choices=("run", "record"))
-    item.add_argument("--role", required=True, choices=ROLES)
-    item.add_argument("--phase", choices=PHASES, help="Default: the task's phase")
-    item.add_argument("--prompt-file")
-    item.add_argument("--prompt")
-    item.add_argument("--agent", default="", help="Override the configured agent")
-    item.add_argument("--model", default="")
-    item.add_argument("--timeout", type=int, default=0)
-    item.add_argument("--verdict", choices=VERDICTS, default="info", help="record only")
-    item.add_argument("--file", help="record only: the round's text (default: stdin)")
-
-
-def _judge_commands(sub: Subparsers) -> None:
-    add = _adder(sub)
-    item = add("rounds", cmd_rounds, "List the rounds, or print one")
-    item.add_argument("--show", type=int)
-    item = add(
-        "judge",
-        cmd_judge,
-        "Judge the committed code on an isolated copy (checks + every required judge)",
-    )
-    item.add_argument("--focus", default="", help="Run only this focus (the gate still needs all)")
-    item = add("deploy", cmd_deploy, "Record a deployment the user made (never deploys)")
-    item.add_argument("--env", required=True)
-    item.add_argument("--repo", required=True)
-    item.add_argument("--sha", required=True)
-    item.add_argument("--provenance", choices=("ci", "health", "k8s", "manual"), required=True)
-    item = add("evidence", cmd_evidence, "Store evidence (test results, captures) bound to a SHA")
-    item.add_argument("--kind", required=True, choices=("staging", "review", "prod", "other"))
-    item.add_argument("--file", required=True)
-    item.add_argument("--deployed-sha", default="")
-    for name, handler, text in (
-        ("findings", cmd_findings, "Findings package for another owner"),
-        ("draft", cmd_draft, "Draft comment for the ticket"),
-    ):
-        item = add(name, handler, text)
-        item.add_argument("--out")
-    item = add("handoff", cmd_handoff, "Context package for a role, secrets scrubbed")
-    item.add_argument("--to", required=True, choices=ROLES)
-    item.add_argument("--out")
-    item = add("digest", cmd_digest, "Compact context of the open tasks", task="none")
-    item.add_argument("--id", dest="task_id")
-    item.add_argument("--max-chars", type=int, default=1600)
-    add("config", cmd_config, "Show and validate the taskflow config", task="none")
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="ai-governance taskflow",
-        description="Track tasks across sessions and run the TriAgentTaskFlow (plan, validate, work, judge).",
-        epilog=GUIDE,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    sub = parser.add_subparsers(dest="cmd")
-    _task_commands(sub)
-    _content_commands(sub)
-    _reference_commands(sub)
-    _lifecycle_commands(sub)
-    _approval_round_commands(sub)
-    _judge_commands(sub)
-    return parser
+    from .parser import build_parser
+
+    return build_parser()
 
 
 def main(argv: list[str] | None = None) -> int:

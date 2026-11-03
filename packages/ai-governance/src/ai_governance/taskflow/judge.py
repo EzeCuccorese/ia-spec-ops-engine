@@ -14,7 +14,7 @@ import tempfile
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from .config import FlowConfig
+from .config import FlowConfig, check_timeout_seconds
 from .gates import GateContext
 from .models import JsonDict, Task
 from .rounds import RoundRequest, run_round
@@ -24,7 +24,7 @@ from .store import TaskStore, atomic_write_text
 # Dependency folders are linked from the source checkout so checks can run without a
 # fresh install; they are git-ignored, so they never enter the judged diff.
 SHARED_DEPENDENCIES = ("node_modules", ".venv", "venv", "vendor")
-CHECK_TIMEOUT = 1800
+CHECK_TIMEOUT: float | None = None  # None: the `taskflow.timeout_seconds` setting (tests override)
 OUTPUT_TAIL = 6000
 TIMEOUT_EXIT = 124  # same code as coreutils `timeout`
 
@@ -63,6 +63,7 @@ def make_copy(binding: JsonDict, scratch: Path) -> JudgedCopy:
 
 
 def _run_check(command: str, cwd: Path) -> JsonDict:
+    timeout = CHECK_TIMEOUT if CHECK_TIMEOUT is not None else check_timeout_seconds()
     try:
         proc = subprocess.run(
             command,
@@ -70,11 +71,11 @@ def _run_check(command: str, cwd: Path) -> JsonDict:
             cwd=cwd,
             capture_output=True,
             text=True,
-            timeout=CHECK_TIMEOUT,
+            timeout=timeout,
             check=False,
         )
     except subprocess.TimeoutExpired:
-        return {"cmd": command, "exit": TIMEOUT_EXIT, "tail": f"Timed out after {CHECK_TIMEOUT}s"}
+        return {"cmd": command, "exit": TIMEOUT_EXIT, "tail": f"Timed out after {timeout}s"}
     return {
         "cmd": command,
         "exit": proc.returncode,

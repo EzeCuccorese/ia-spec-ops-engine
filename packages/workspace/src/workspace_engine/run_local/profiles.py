@@ -56,7 +56,7 @@ def load_last_configs() -> list:
         entries = json.loads(constants.LAST_CONFIGS_FILE.read_text())
     except (json.JSONDecodeError, OSError):
         return []
-    env_by_id = {e["id"]: e for e in constants.ENVIRONMENTS}
+    env_by_id = {e["id"]: e for e in constants.get_environments()}
     configs = []
     for e in entries:
         path = Path(e["path"])

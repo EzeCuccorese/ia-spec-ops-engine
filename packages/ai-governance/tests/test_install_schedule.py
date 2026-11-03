@@ -92,3 +92,21 @@ def test_installed_agents_ignores_the_schedule_owner() -> None:
     installer.install_user(["claude"])
     assert installer.installed_agents(installer.global_ledger()) == {"claude"}
     assert isinstance(installer.global_ledger(), Ledger)
+
+
+def test_label_is_configurable_and_old_labels_are_retired(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.delenv(schedule.LAUNCH_AGENTS_ENV)
+    monkeypatch.setenv(schedule.LABEL_ENV, "org.example.prices")
+    monkeypatch.setattr(schedule, "_launchctl", lambda *args: calls.append(args))
+    assert plistlib.loads(schedule.render().encode())["Label"] == "org.example.prices"
+    old = schedule.plist_path(schedule.LABEL)
+    old.parent.mkdir(parents=True)
+    old.write_text("old")
+    schedule.unload()
+    assert not old.exists()
+    assert [c[1].rsplit("/", 1)[1] for c in calls] == [
+        "org.example.prices",
+        schedule.LABEL,
+        schedule.LEGACY_LABEL,
+    ]

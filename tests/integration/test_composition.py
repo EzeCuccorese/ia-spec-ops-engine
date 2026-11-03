@@ -46,7 +46,7 @@ def test_governance_does_not_advertise_checkout_or_optional_commands(tmp_path: P
     )
     assert proc.returncode == 0
     help_lines = [line.lstrip().lower() for line in proc.stdout.splitlines()]
-    for removed_command in ("spec", "agent", "audit", "config"):
+    for removed_command in ("spec", "agent", "audit"):
         assert not any(line.startswith(f"{removed_command} ") for line in help_lines)
 
 

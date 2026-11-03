@@ -23,6 +23,7 @@ def _atlassian_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ATLASSIAN_EMAIL", "test@example.com")
     monkeypatch.setenv("ATLASSIAN_API_TOKEN", "fake_token")
     monkeypatch.setenv("ATLASSIAN_URL", "https://company.atlassian.net")
+    monkeypatch.setenv("ATLASSIAN_WORK_URL", "https://company.atlassian.net")
 
 
 def _mock_sequence(*bodies: dict | list) -> MagicMock:
@@ -864,8 +865,9 @@ def test_load_profile_config_invalid_json_file(tmp_path, monkeypatch: pytest.Mon
     profiles_file.write_text("{not valid json")
     monkeypatch.setenv("ATLASSIAN_PROFILES_FILE", str(profiles_file))
     # Falls through past the broken file to the environment-variable fallback.
+    monkeypatch.setenv("ATLASSIAN_TEAMB_EMAIL", "b@x.com")
     cfg = atlassian_common.load_profile_config("teamB")
-    assert "email" in cfg
+    assert cfg["email"] == "b@x.com"
 
 
 # ── atlassian_common: read_input_text branches ──────────────────────────────
@@ -995,8 +997,8 @@ def test_load_profile_config_from_file_target_missing(
     profiles_file = tmp_path / "profiles.json"
     profiles_file.write_text(json.dumps({"other": {"email": "o@x.com"}}))
     monkeypatch.setenv("ATLASSIAN_PROFILES_FILE", str(profiles_file))
-    cfg = atlassian_common.load_profile_config("teamC")
-    assert "email" in cfg
+    with pytest.raises(atlassian_common.UnknownProfileError, match="other"):
+        atlassian_common.load_profile_config("teamC")
 
 
 def test_read_input_text_at_missing_file_falls_back_to_literal() -> None:

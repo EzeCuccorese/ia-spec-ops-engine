@@ -202,7 +202,13 @@ def sync_completions(*, dry_run: bool = False) -> Report | None:
     return report
 
 
-def install_user(agents: list[str], *, dry_run: bool = False, force: bool = False) -> Report:
+def install_user(
+    agents: list[str],
+    *,
+    dry_run: bool = False,
+    force: bool = False,
+    corporate_names: list[str] | None = None,
+) -> Report:
     """Global artifacts of the agents plus every corporate pack present on disk.
 
     Pack rules are refreshed only for ``agents``; other installed agents keep theirs
@@ -210,7 +216,7 @@ def install_user(agents: list[str], *, dry_run: bool = False, force: bool = Fals
     """
     specs = resolve_agents(agents)
     ledger = global_ledger()
-    packs = corporate.packs()
+    packs = corporate.packs(only=corporate_names)
     report = Report()
     desired = [Owned(spec.id, artifact) for spec in specs for artifact in spec.global_artifacts()]
     language_rules = RuleCatalog().user_rules()
@@ -228,7 +234,9 @@ def install_user(agents: list[str], *, dry_run: bool = False, force: bool = Fals
     return report
 
 
-def uninstall_user(agents: list[str], *, dry_run: bool = False) -> Report:
+def uninstall_user(
+    agents: list[str], *, dry_run: bool = False, corporate_names: list[str] | None = None
+) -> Report:
     """Removes the agents' artifacts; pack scripts and completions go with the last agent."""
     scope = {spec.id for spec in resolve_agents(agents)}
     ledger = global_ledger()
@@ -236,7 +244,7 @@ def uninstall_user(agents: list[str], *, dry_run: bool = False) -> Report:
     keep_shared = bool(installed_agents(ledger) - scope)
     desired = (
         [
-            *_corporate_scripts(corporate.packs(), report),
+            *_corporate_scripts(corporate.packs(only=corporate_names), report),
             *_completions(),
         ]
         if keep_shared
