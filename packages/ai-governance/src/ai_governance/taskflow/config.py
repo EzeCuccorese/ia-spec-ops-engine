@@ -184,7 +184,9 @@ def load_config(repos: list[Path] | None = None, user_file: Path | None = None) 
     for name, legacy in legacy_roles.items():
         if name in roles:
             roles[name] = {**legacy, **roles[name]}
-    judges = [_with_env_judge(j, found) for j in _judge_entries(user)] or default_judges(found)
+    judges = [_with_configured_judge(j, found) for j in _judge_entries(user)] or default_judges(
+        found
+    )
     checks = list(user.get("checks", {}).get("commands", DEFAULT_CHECKS))
     rules = _rules(user.get("risk", {}).get("rules", []))
     for repo in repos or []:
@@ -221,11 +223,12 @@ def _settings(user_path: Path, repos: list[Path], legacy_roles: dict[str, JsonDi
     )
 
 
-def _with_env_judge(judge: JsonDict, found: dict) -> JsonDict:
-    """A judge from the file, with ``AI_GOVERNANCE_JUDGE_AGENT/_MODEL`` applied over it."""
+def _with_configured_judge(judge: JsonDict, found: dict) -> JsonDict:
+    """A legacy judge, with ``taskflow.judge_agent/_model`` applied over it when config.toml or the
+    environment set them (default < legacy taskflow.toml < config.toml < env); its focus stays."""
     merged = dict(judge)
     for attribute in ("agent", "model"):
         setting = found[f"taskflow.judge_{attribute}"]
-        if setting.origin == "env":
+        if setting.origin in ("user", "env"):  # not "default": the legacy file outranks that
             merged[attribute] = setting.value
     return merged

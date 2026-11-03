@@ -214,3 +214,33 @@ def test_env_judge_overrides_legacy_judge_fields(
     monkeypatch.setenv("AI_GOVERNANCE_JUDGE_MODEL", "env-judge")
     judge = load_config().judges[0]
     assert (judge["agent"], judge["model"]) == ("antigravity", "env-judge")
+
+
+@pytest.mark.parametrize(
+    ("field", "legacy", "configured", "env_name", "from_env"),
+    [
+        ("agent", "antigravity", "claude", "AI_GOVERNANCE_JUDGE_AGENT", "codex"),
+        ("model", "old", "new", "AI_GOVERNANCE_JUDGE_MODEL", "env-model"),
+    ],
+)
+def test_legacy_judge_fields_follow_config_precedence(
+    isolated: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    legacy: str,
+    configured: str,
+    env_name: str,
+    from_env: str,
+) -> None:
+    isolated.mkdir(parents=True)
+    (isolated / "taskflow.toml").write_text(
+        '[[judges]]\nfocus = "security"\nagent = "antigravity"\nmodel = "old"\n'
+    )
+    judge = load_config().judges[0]
+    assert judge[field] == legacy and judge["focus"] == "security"  # legacy beats the default
+    (isolated / "config.toml").write_text(f'[taskflow]\njudge_{field} = "{configured}"\n')
+    judge = load_config().judges[0]
+    assert judge[field] == configured and judge["focus"] == "security"  # config.toml > legacy
+    assert effective()[f"taskflow.judge_{field}"].value == configured  # config show agrees
+    monkeypatch.setenv(env_name, from_env)
+    assert load_config().judges[0][field] == from_env  # env > config.toml
