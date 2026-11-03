@@ -121,6 +121,8 @@ USER_ONLY_PREFIXES = (
     "taskflow.builder_",
     "taskflow.judge_",
     "agents.",
+    "hooks.",  # hooks.gate_command picks the program the automatic stop hook runs
+    "corporate.",  # which company packs get installed
 )
 
 
@@ -151,12 +153,19 @@ def layers(
     *,
     user_extra: dict[Path, str] | None = None,
     repo_extra: dict[Path, str] | None = None,
+    user_values: tuple[Path, dict[str, object]] | None = None,
 ) -> Layers:
     """File layers. ``user_extra`` / ``repo_extra`` map a legacy file to its table prefix."""
     base = load_layers(APP_NAME, root if root is not None else repo_root())
     legacy = {config_dir() / name: prefix for name, prefix in LEGACY_USER_FILES.items()}
     for path, prefix in {**legacy, **(user_extra or {})}.items():
         _inject(base.user, base.user_files, path, prefix)
+    if user_values is not None:  # already-flat legacy values, below config.toml
+        path, values = user_values
+        for name, value in values.items():
+            if name not in base.user:
+                base.user[name] = value
+                base.user_files[name] = path
     for path, prefix in (repo_extra or {}).items():
         _inject(base.repo, base.repo_files, path, prefix)
     return base

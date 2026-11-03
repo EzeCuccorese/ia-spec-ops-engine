@@ -81,7 +81,7 @@ def test_shell_assignments_only_cover_what_a_file_decides(repo: Path) -> None:
     _git(repo, "config", "workspace.timeout", "70")  # git config outranks the repo file
     lines = shell_assignments(repo).splitlines()
     assert "QG_SKIP=tests" in lines and "QG_COMMIT_STYLE=conventional" in lines
-    assert not any(line.startswith("QG_TIMEOUT") for line in lines)
+    assert "QG_TIMEOUT=70" in lines
     assert any(line.startswith("QG_SKIP_SOURCE=") and "config file" in line for line in lines)
     assert not any(line.startswith("QG_PROTECTED") for line in lines)
 
@@ -120,3 +120,53 @@ def test_hooks_status_warns_when_the_gate_is_not_active(
     captured = capsys.readouterr()
     assert "gate.timeout_seconds" in captured.out + captured.err
     assert "ws hooks install" in captured.out + captured.err
+
+
+def test_git_config_winners_are_emitted_but_the_environment_still_wins(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _git(repo, "config", "workspace.protected", "^(release)$")
+    _git(repo, "config", "workspace.timeout", "70")
+    lines = shell_assignments(repo).splitlines()
+    assert "QG_TIMEOUT=70" in lines and "QG_PROTECTED='^(release)$'" in lines
+    monkeypatch.setenv("QG_TIMEOUT", "5")
+    monkeypatch.setenv("QG_SKIP", "")  # defined but empty: nothing is skipped, nothing emitted
+    _git(repo, "config", "workspace.skip", "tests")
+    lines = shell_assignments(repo).splitlines()
+    assert not any(line.startswith(("QG_TIMEOUT", "QG_SKIP")) for line in lines)
+
+
+def test_hooks_find_ws_in_the_user_bin_when_path_is_minimal(repo: Path, tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    (home / ".local" / "bin").mkdir(parents=True)
+    _ws_shim(home / ".local" / "bin")
+    _write(repo / ".workspace" / "config.toml", '[gate]\ncommit_style = "conventional"\n')
+    msg = tmp_path / "MSG"
+    msg.write_text("not conventional at all\n", encoding="utf-8")
+    env = {**os.environ, "HOME": str(home), "PATH": "/usr/bin:/bin"}
+    bad = subprocess.run(["bash", str(HOOKS / "commit-msg"), str(msg)], cwd=repo, env=env)
+    assert bad.returncode != 0  # the repo file was loaded although ws was not on PATH
+    msg.write_text("fix(core): a real subject\n", encoding="utf-8")
+    assert (
+        subprocess.run(["bash", str(HOOKS / "commit-msg"), str(msg)], cwd=repo, env=env).returncode
+        == 0
+    )
+
+
+def test_without_ws_anywhere_the_hooks_fall_back_silently(repo: Path, tmp_path: Path) -> None:
+    home = tmp_path / "empty-home"
+    home.mkdir()
+    _write(repo / ".workspace" / "config.toml", '[gate]\ncommit_style = "conventional"\n')
+    msg = tmp_path / "MSG"
+    msg.write_text("anything\n", encoding="utf-8")
+    env = {**os.environ, "HOME": str(home), "PATH": "/usr/bin:/bin"}
+    done = subprocess.run(
+        ["bash", str(HOOKS / "commit-msg"), str(msg)], cwd=repo, env=env, capture_output=True
+    )
+    assert done.returncode == 0 and done.stderr == b""
+
+
+@pytest.mark.parametrize("hook", ["pre-push", "pre-commit", "commit-msg"])
+def test_every_hook_looks_for_ws_before_loading_the_config(hook: str) -> None:
+    script = (HOOKS / hook).read_text(encoding="utf-8")
+    assert script.index('"$HOME/.local/bin"') < script.index("ws hooks gate-config")

@@ -22,20 +22,23 @@ CONFIG_NAME = "taskflow.toml"
 REPO_CONFIG = Path(".ai-governance") / CONFIG_NAME
 
 
-def default_roles() -> dict[str, JsonDict]:
+ROLE_NAMES = ("planner", "validator", "builder")
+
+
+def default_roles(found: dict | None = None) -> dict[str, JsonDict]:
     """Planner, validator and builder: the ``taskflow.<role>_agent/_model`` settings."""
-    found = effective()
+    found = found or effective()
     return {
         role: {
             "agent": found[f"taskflow.{role}_agent"].value,
             "model": found[f"taskflow.{role}_model"].value,
         }
-        for role in ("planner", "validator", "builder")
+        for role in ROLE_NAMES
     }
 
 
-def default_judges() -> list[JsonDict]:
-    found = effective()
+def default_judges(found: dict | None = None) -> list[JsonDict]:
+    found = found or effective()
     return [
         {
             "focus": "correctness",
@@ -175,9 +178,13 @@ def load_config(repos: list[Path] | None = None, user_file: Path | None = None) 
     only the user's ``tdd-skip`` approval replaces it)."""
     user_path = user_file or config_dir() / CONFIG_NAME
     user = _read_toml(user_path)
-    roles = default_roles()
-    roles.update({k: dict(v) for k, v in user.get("roles", {}).items() if k != "judges"})
-    judges = _judge_entries(user) or default_judges()
+    legacy_roles = {k: dict(v) for k, v in user.get("roles", {}).items() if k != "judges"}
+    found = _settings(user_path, repos or [], legacy_roles)
+    roles = {**legacy_roles, **default_roles(found)}
+    for name, legacy in legacy_roles.items():
+        if name in roles:
+            roles[name] = {**legacy, **roles[name]}
+    judges = [_with_env_judge(j, found) for j in _judge_entries(user)] or default_judges(found)
     checks = list(user.get("checks", {}).get("commands", DEFAULT_CHECKS))
     rules = _rules(user.get("risk", {}).get("rules", []))
     for repo in repos or []:
@@ -188,19 +195,37 @@ def load_config(repos: list[Path] | None = None, user_file: Path | None = None) 
         judges=tuple(judges),
         checks=tuple(checks),
         risk_rules=tuple(rules),
-        timeout_seconds=_timeout(user_path, repos or []),
+        timeout_seconds=int(found["taskflow.timeout_seconds"].value),
     )
 
 
-def _timeout(user_path: Path, repos: list[Path]) -> int:
-    """``taskflow.timeout_seconds`` through the shared precedence (default < user < repo < env).
+def _settings(user_path: Path, repos: list[Path], legacy_roles: dict[str, JsonDict]) -> dict:
+    """Settings with the legacy taskflow.toml folded into the user layer, below config.toml.
 
-    ``timeout_seconds`` in either taskflow.toml counts as that layer's value when
-    ``config.toml`` does not set it. Roles, workflow, judges and checks stay user-owned
-    (a repository can add controls, never replace them): only this scalar is overridable.
+    ``timeout_seconds`` of either taskflow.toml counts as that layer's value. A legacy
+    ``[roles.<role>]`` supplies that role's agent and model (model defaults to empty, never
+    to another agent's default) so the environment still outranks it. Roles, workflow, judges
+    and checks stay user-owned: a repository can add controls, never replace them.
     """
+    legacy: dict[str, object] = {}
+    for role in ROLE_NAMES:
+        if role in legacy_roles:
+            legacy[f"taskflow.{role}_agent"] = legacy_roles[role].get("agent", "")
+            legacy[f"taskflow.{role}_model"] = legacy_roles[role].get("model", "")
     repo_extra = {repo / REPO_CONFIG: "taskflow" for repo in repos}
-    found = effective(
-        repos[0] if repos else None, user_extra={user_path: "taskflow"}, repo_extra=repo_extra
+    return effective(
+        repos[0] if repos else None,
+        user_extra={user_path: "taskflow"},
+        repo_extra=repo_extra,
+        user_values=(user_path, legacy),
     )
-    return int(found["taskflow.timeout_seconds"].value)
+
+
+def _with_env_judge(judge: JsonDict, found: dict) -> JsonDict:
+    """A judge from the file, with ``AI_GOVERNANCE_JUDGE_AGENT/_MODEL`` applied over it."""
+    merged = dict(judge)
+    for attribute in ("agent", "model"):
+        setting = found[f"taskflow.judge_{attribute}"]
+        if setting.origin == "env":
+            merged[attribute] = setting.value
+    return merged

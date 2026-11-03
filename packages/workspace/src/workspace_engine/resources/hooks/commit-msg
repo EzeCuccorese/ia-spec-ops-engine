@@ -5,6 +5,13 @@
 #   git config workspace.commitStyle conventional   (or QG_COMMIT_STYLE=conventional)
 # Skip once with: QG_SKIP=commits git commit ...
 set -uo pipefail
+# ws lives in a per-user directory that IDE and desktop Git clients leave off PATH: look there
+# before loading the config files (not found: the scripts keep their built-in behavior).
+if ! command -v ws >/dev/null 2>&1; then
+  for qg_dir in "$HOME/.local/bin" /opt/homebrew/bin /usr/local/bin "$HOME/.cargo/bin"; do
+    if [ -x "$qg_dir/ws" ]; then PATH="$PATH:$qg_dir"; export PATH; break; fi
+  done
+fi
 if command -v ws >/dev/null 2>&1; then  # [gate] of .workspace/config.toml (repo) / user config
   eval "$(ws hooks gate-config --dir "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" 2>/dev/null)" || true
 fi

