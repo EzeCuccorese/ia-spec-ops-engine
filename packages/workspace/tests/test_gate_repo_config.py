@@ -180,7 +180,7 @@ def test_gate_env_values_keep_the_shell_semantics_of_the_hooks() -> None:
         setting = next(s for s in SETTINGS if s.key == key)
         return resolve([setting], Layers({}, {}, {}, {}), environ={setting.env: value})[key]
 
-    # ${QG_PROTECTED:-default}, ${QG_COMMIT_STYLE:-...} and the timeout: "" means unset ...
+    # an empty QG_PROTECTED, QG_COMMIT_STYLE or QG_TIMEOUT is unset (as in the scripts) ...
     for key in ("gate.protected_branches", "gate.commit_style", "gate.timeout_seconds"):
         assert resolved(key, "").origin == "default", key
     assert resolved("gate.commit_style", "conventional").value == "conventional"

@@ -22,25 +22,77 @@ def _resolved(setting: Setting, value: str):
 
 
 @pytest.mark.parametrize(
-    ("default", "expected"),
-    [([], []), ("text", ""), (True, False)],
-    ids=["list", "string", "bool"],
+    "default", [[], "text", True, 30, 2.5], ids=["list", "text", "bool", "int", "float"]
 )
-def test_an_empty_env_value_is_a_real_value(default: object, expected: object) -> None:
+def test_an_empty_env_value_is_unset_by_default(default: object) -> None:
     found = _resolved(Setting("k", default, "X"), "")
+    assert (found.value, found.origin) == (default, "default")
+
+
+@pytest.mark.parametrize(
+    ("default", "expected"), [([], []), ("text", ""), (True, False)], ids=["list", "text", "bool"]
+)
+def test_a_setting_that_opts_in_takes_an_empty_env_value(default: object, expected: object) -> None:
+    found = _resolved(Setting("k", default, "X", empty_env_is_value=True), "")
     assert (found.value, found.origin, found.source) == (expected, "env", "X")
 
 
-@pytest.mark.parametrize("default", [30, 2.5], ids=["int", "float"])
-def test_an_empty_env_value_is_unset_for_numbers(default: object) -> None:
-    found = _resolved(Setting("k", default, "X"), "")
-    assert (found.value, found.origin) == (default, "default")  # "" is not a number
+def test_only_the_selection_settings_opt_in() -> None:
+    from ai_governance.settings import SETTINGS
+
+    assert {s.key for s in SETTINGS if s.empty_env_is_value} == {"corporate.packs"}
 
 
-def test_a_setting_read_by_a_shell_default_treats_empty_as_unset() -> None:
-    flagged = Setting("k", "dflt", "X", empty_env_is_unset=True)
-    assert _resolved(flagged, "").origin == "default"
-    assert _resolved(flagged, "set").value == "set"
+@pytest.fixture
+def empty_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.setenv("AI_GOVERNANCE_CONFIG_DIR", str(tmp_path / "cfg"))
+    for name in (
+        "AI_GOVERNANCE_GATE_COMMAND",
+        "AI_GOVERNANCE_ANTIGRAVITY_BINARY",
+        "AI_GOVERNANCE_PLANNER_MODEL",
+        "AI_GOVERNANCE_PLANNER_AGENT",
+        "AI_GOVERNANCE_CODEX_SCOUT_MODEL",
+        "AI_GOVERNANCE_SCHEDULE_LABEL",
+    ):
+        monkeypatch.setenv(name, "")
+    return tmp_path
+
+
+def test_empty_operational_env_values_keep_the_defaults(empty_env: Path) -> None:
+    from ai_governance.settings import effective
+    from ai_governance.taskflow import adapters
+
+    found = effective(empty_env)
+    assert found["hooks.gate_command"].value == "ws check --changed --cache --json"
+    assert found["agents.antigravity_binary"].value == "agy"
+    assert found["taskflow.planner_model"].value == "gemini-4-argon-high"
+    assert all(found[k].origin == "default" for k in found if k != "corporate.packs")
+    run = adapters.AgentRun(empty_env, False, empty_env / "a")
+    command = adapters.build_command("antigravity", "gemini-4-argon-high", "hi", run)
+    assert command[:3] == ["agy", "--model", "gemini-4-argon-high"]
+
+
+def test_an_empty_gate_command_env_still_runs_the_stop_gate(
+    empty_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+    import subprocess
+
+    from ai_governance import hooks
+
+    seen: list[list[str]] = []
+
+    def fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen.append(argv)
+        return subprocess.CompletedProcess(
+            argv, 0, stdout=json.dumps({"status": "failed", "text": "x"}), stderr=""
+        )
+
+    monkeypatch.setattr(hooks.shutil, "which", lambda name: f"/bin/{name}")
+    monkeypatch.setattr(hooks.subprocess, "run", fake_run)
+    monkeypatch.setattr(hooks, "_payload", lambda: {})
+    assert hooks._claude_stop_gate() == 2  # the check ran and failed, as without the variable
+    assert seen[0][0] == "/bin/ws"
 
 
 @pytest.fixture

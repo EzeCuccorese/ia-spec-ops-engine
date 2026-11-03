@@ -93,6 +93,7 @@ SETTINGS: tuple[Setting, ...] = (
         [],
         "AI_GOVERNANCE_CORPORATE",
         "Company packs to install, comma separated (empty: every pack present)",
+        empty_env_is_value=True,  # AI_GOVERNANCE_CORPORATE= means "install no pack"
     ),
     Setting(
         "atlassian.timeout_seconds",

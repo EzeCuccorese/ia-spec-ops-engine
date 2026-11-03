@@ -21,14 +21,17 @@ DEFAULT_PROTECTED = r"^(main|master|develop|staging)$"
 
 SETTINGS: tuple[Setting, ...] = (
     Setting(
-        "gate.skip", [], "QG_SKIP", "Gate checks to skip: gitleaks,commits,lint,design,tests,all"
+        "gate.skip",
+        [],
+        "QG_SKIP",
+        "Gate checks to skip: gitleaks,commits,lint,design,tests,all",
+        empty_env_is_value=True,  # QG_SKIP= means "skip nothing", and it wins over git config
     ),
     Setting(
         "gate.protected_branches",
         DEFAULT_PROTECTED,
         "QG_PROTECTED",
         "Regex of branches the gate refuses to push to directly",
-        empty_env_is_unset=True,  # the hook script reads ${QG_PROTECTED:-default}
     ),
     Setting("gate.timeout_seconds", 900, "QG_TIMEOUT", "Timeout of each gate step"),
     Setting(
@@ -36,7 +39,6 @@ SETTINGS: tuple[Setting, ...] = (
         "",
         "QG_COMMIT_STYLE",
         "Set to `conventional` to enforce it",
-        empty_env_is_unset=True,  # the hook scripts read ${QG_COMMIT_STYLE:-...}
     ),
     Setting(
         "logs.retention_days",

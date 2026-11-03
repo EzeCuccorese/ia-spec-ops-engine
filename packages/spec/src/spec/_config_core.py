@@ -81,9 +81,10 @@ class Setting:
     default: object
     env: str | None = None
     help: str = ""
-    # True when the variable is read by a shell that treats an empty value as unset
-    # (``${VAR:-default}``); numbers also treat "" as unset since "" is not a number.
-    empty_env_is_unset: bool = False
+    # An empty variable means "not set" for every setting (a stray ``VAR=`` must not blank a
+    # command, binary or model); only a selection where nothing is a meaningful answer, such
+    # as a list of packs or checks to skip, opts in with this flag.
+    empty_env_is_value: bool = False
 
 
 @dataclass(frozen=True)
@@ -222,13 +223,11 @@ def load_layers(
 
 
 def _env_value(setting: Setting, env: Mapping[str, str]) -> str | None:
-    """The variable's value; set-but-empty counts (an empty list, text or false) except where
-    "" means unset: numbers, and settings flagged ``empty_env_is_unset``."""
+    """The variable's value; set-but-empty counts only for ``empty_env_is_value`` settings."""
     raw = env.get(setting.env) if setting.env else None
-    if raw != "":
-        return raw
-    numeric = isinstance(setting.default, int | float) and not isinstance(setting.default, bool)
-    return None if numeric or setting.empty_env_is_unset else raw
+    if raw == "" and not setting.empty_env_is_value:
+        return None
+    return raw
 
 
 def resolve(

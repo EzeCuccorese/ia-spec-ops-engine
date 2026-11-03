@@ -87,7 +87,7 @@ def selected_names(flag: str | None = None) -> list[str] | None:
     None means nothing was chosen (every pack); an empty list means "no pack" because the
     flag, variable or file said so explicitly.
     """
-    flags = {"corporate.packs": flag} if flag is not None else None
+    flags: dict[str, object] | None = {"corporate.packs": flag} if flag is not None else None
     chosen = effective(flags=flags)["corporate.packs"]
     if chosen.origin == "default":
         return None
