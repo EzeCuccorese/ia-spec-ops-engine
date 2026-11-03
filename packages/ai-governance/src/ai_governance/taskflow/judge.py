@@ -256,20 +256,24 @@ def _check_copies(session: _Session, copies: list[JudgedCopy]) -> list[JsonDict]
     return checks
 
 
+@dataclass(frozen=True)
+class JudgeScope:
+    """What to judge: one focus (empty for all) and the repos, None meaning the live bindings."""
+
+    focus: str = ""
+    repos: Sequence[JsonDict] | None = None
+
+
 def judge_task(
-    store: TaskStore,
-    task: Task,
-    ctx: GateContext,
-    focus: str = "",
-    *,
-    repos: Sequence[JsonDict] | None = None,
+    store: TaskStore, task: Task, ctx: GateContext, scope: JudgeScope | None = None
 ) -> tuple[list[JsonDict], list[str]]:
     """Run the checks and the judges; returns the rounds and the copies kept because a
     judge modified them. Check results are stored as evidence that gates read directly,
     so a failing check blocks whatever a judge answers. Only repos on disk are judged
-    (``repos`` defaults to the task's live bindings); none live is an error."""
-    judges = _independent_judges(task, ctx.config, focus, list(ctx.risk.judges))
-    bound = list(partition(task.repos).live if repos is None else repos)
+    (``scope.repos`` defaults to the task's live bindings); none live is an error."""
+    scope = scope or JudgeScope()
+    judges = _independent_judges(task, ctx.config, scope.focus, list(ctx.risk.judges))
+    bound = list(partition(task.repos).live if scope.repos is None else scope.repos)
     if task.repos and not bound:
         raise ValueError(NONE_LIVE)
     session = _Session(store, task, ctx, judges)

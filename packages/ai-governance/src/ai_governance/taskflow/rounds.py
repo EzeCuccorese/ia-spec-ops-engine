@@ -28,7 +28,7 @@ from .config import check_timeout_seconds
 from .context import round_header
 from .models import READER_ROLES, JsonDict, now_iso
 from .stamp import GitError, changed_paths, git, tree_fingerprint
-from .store import TaskStore, atomic_write_text, fcntl
+from .store import RoundSlot, TaskStore, atomic_write_text, fcntl
 
 
 class LeaseError(RuntimeError):
@@ -155,7 +155,9 @@ def run_round(store: TaskStore, request: RoundRequest, stamp_key: str) -> JsonDi
         prompt += VERDICT_INSTRUCTION
     watched = (request.repo, *request.watch)
     before = _fingerprints(watched)  # before reserving: a vanished repo burns no round number
-    number, path = store.reserve_round(request.task_id, request.phase, request.role, agent_name)
+    number, path = store.reserve_round(
+        request.task_id, RoundSlot(request.phase, request.role, agent_name)
+    )
     try:
         return _run_reserved(store, request, (number, path, stamp_key), (prompt, before))
     except LeaseError:
@@ -271,7 +273,7 @@ def _render(record: JsonDict, prompt: str, command: list[str], answer: str) -> s
 def record_manual(store: TaskStore, task_id: str, round_info: JsonDict, body: str) -> JsonDict:
     """A round run outside the engine: kept as context, never counted as a verdict."""
     number, path = store.reserve_round(
-        task_id, round_info["phase"], round_info["role"], round_info["agent"]
+        task_id, RoundSlot(round_info["phase"], round_info["role"], round_info["agent"])
     )
     record = {
         **round_info,

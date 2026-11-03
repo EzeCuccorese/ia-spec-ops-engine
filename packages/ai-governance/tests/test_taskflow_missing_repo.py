@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 from ai_governance import hooks
@@ -641,9 +642,10 @@ def _vanish_after(monkeypatch: pytest.MonkeyPatch, target: str) -> None:
     monkeypatch.setattr(cli, target, wrapper)
 
 
+@pytest.mark.usefixtures("state")
 @pytest.mark.parametrize("name", ["tdd", "round-run"])
 def test_repo_vanishing_after_selection_is_reported_not_a_traceback(
-    name: str, state: TaskStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+    name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
     path = _new_repo(tmp_path, "a")
     _bind(path)
@@ -683,49 +685,47 @@ def _legacy(state: TaskStore) -> None:
     state.mutate(TASK, lambda t: t.code_stamp.pop("obligations", None))
 
 
+class _LegacyCase(NamedTuple):
+    reviewed: bool
+    passed: bool
+    closes: bool
+    live: tuple[dict, ...] = ()
+
+
 @pytest.mark.parametrize(
-    ("live", "reviewed", "passed", "closes"),
+    "case",
     [
-        (({"focus": "sec", "agent": "human"},), True, False, False),  # engine -> live human
-        (({"focus": "sec", "agent": "human"},), True, True, True),
-        ((), False, False, False),
-        ((), False, True, True),
+        _LegacyCase(True, False, False, ({"focus": "sec", "agent": "human"},)),  # engine -> human
+        _LegacyCase(True, True, True, ({"focus": "sec", "agent": "human"},)),
+        _LegacyCase(False, False, False),
+        _LegacyCase(False, True, True),
     ],
 )
 def test_legacy_engine_focus_is_never_taken_as_the_live_type(
-    live: tuple[dict, ...],
-    reviewed: bool,
-    passed: bool,
-    closes: bool,
-    state: TaskStore,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    case: _LegacyCase, state: TaskStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _, second = _two_repos(tmp_path)
-    _use(monkeypatch, _swapped(second, ENGINE, live))
-    _finish(state, passed=("sec",) if passed else (), reviewed=("sec",) if reviewed else ())
+    _use(monkeypatch, _swapped(second, ENGINE, case.live))
+    _finish(
+        state,
+        passed=("sec",) if case.passed else (),
+        reviewed=("sec",) if case.reviewed else (),
+    )
     _legacy(state)
     shutil.rmtree(second)
-    assert (main(["close", TASK]) == 0) is closes
+    assert (main(["close", TASK]) == 0) is case.closes
 
 
-@pytest.mark.parametrize(
-    ("reviewed", "passed", "closes"), [(True, False, False), (True, True, True)]
-)
+@pytest.mark.parametrize("case", [_LegacyCase(True, False, False), _LegacyCase(True, True, True)])
 def test_legacy_human_only_focus_needs_the_engine_verdict_until_recovered(
-    reviewed: bool,
-    passed: bool,
-    closes: bool,
-    state: TaskStore,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    case: _LegacyCase, state: TaskStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _, second = _two_repos(tmp_path)
     _use(monkeypatch, _holder(second, HUMAN))
-    _finish(state, passed=("design",) if passed else (), reviewed=("design",))
+    _finish(state, passed=("design",) if case.passed else (), reviewed=("design",))
     _legacy(state)
     shutil.rmtree(second)
-    assert (main(["close", TASK]) == 0) is closes
+    assert (main(["close", TASK]) == 0) is case.closes
 
 
 def test_legacy_state_tells_the_operator_how_to_recover(

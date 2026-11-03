@@ -74,12 +74,26 @@ def require_orca() -> list[str]:
     return argv
 
 
-def worker_start_argv(spec: str, agent: str, model: str, worktree: str, title: str) -> list[str]:
+@dataclass(frozen=True)
+class WorkerStart:
+    """What one ``worker-start`` line needs: the spec file, who runs it, where, and its title."""
+
+    spec: str
+    agent: str
+    model: str
+    worktree: str
+    title: str
+
+
+def worker_start_argv(start: WorkerStart) -> list[str]:
     """The line the coordinator runs. Built here, printed, and never executed by the engine."""
-    argv = [*orca_argv(), "orchestration", "worker-start", "--spec-file", spec, "--agent", agent]
-    if model:
-        argv += ["--model", model]
-    return [*argv, "--worktree", f"path:{worktree}", "--task-title", title]
+    argv = [
+        *orca_argv(),
+        *("orchestration", "worker-start", "--spec-file", start.spec, "--agent", start.agent),
+    ]
+    if start.model:
+        argv += ["--model", start.model]
+    return [*argv, "--worktree", f"path:{start.worktree}", "--task-title", start.title]
 
 
 def worker_stop_line(dispatch_id: str) -> str:

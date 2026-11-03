@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 from ai_governance.taskflow import store as store_module
 from ai_governance.taskflow.adapters import READ_ONLY_LIMIT, VERDICT_INSTRUCTION
-from ai_governance.taskflow.collect import abort_round, collect_round
+from ai_governance.taskflow.collect import RoundRef, abort_round, collect_round
 from ai_governance.taskflow.control import DispatchError
 from ai_governance.taskflow.guide import GUIDE
 from ai_governance.taskflow.models import Task
@@ -561,10 +561,11 @@ def test_concurrent_collect_and_abort(world: OrcaWorld) -> None:
 
     threads = [
         threading.Thread(
-            target=go, args=("collect", lambda: collect_round(world.store, TASK, 1, "D1"))
+            target=go, args=("collect", lambda: collect_round(world.store, RoundRef(TASK, 1), "D1"))
         ),
         threading.Thread(
-            target=go, args=("abort", lambda: abort_round(world.store, TASK, 1, "r", "D1"))
+            target=go,
+            args=("abort", lambda: abort_round(world.store, RoundRef(TASK, 1), "r", "D1")),
         ),
     ]
     for thread in threads:

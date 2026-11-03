@@ -37,6 +37,23 @@ class Settled:
     already: bool
 
 
+@dataclass(frozen=True)
+class RoundRef:
+    """Which round of which task a collect or abort settles."""
+
+    task_id: str
+    number: int
+
+
+@dataclass(frozen=True)
+class _Settlement:
+    """What one settle writes: the round record, its markdown, and optional audit evidence."""
+
+    record: JsonDict
+    text: str
+    extra: JsonDict | None = None
+
+
 class _Lost(Exception):
     """Another process settled the round between the checks and the write."""
 
@@ -200,10 +217,9 @@ def _base_record(found: JsonDict) -> JsonDict:
     }
 
 
-def _write_settled(
-    store: TaskStore, task_id: str, record: JsonDict, text: str, extra: JsonDict | None = None
-) -> None:
-    """Append ``record`` (and ``extra`` evidence) in one mutate, after re-checking under the lock."""
+def _write_settled(store: TaskStore, task_id: str, settlement: _Settlement) -> None:
+    """Append the record (and ``extra`` evidence) in one mutate, after re-checking under the lock."""
+    record, text, extra = settlement.record, settlement.text, settlement.extra
     number, session = int(record["n"]), str(record.get("session", ""))
 
     def settle(task: Task) -> None:
@@ -220,8 +236,9 @@ def _write_settled(
 
 
 def collect_round(
-    store: TaskStore, task_id: str, number: int, dispatch_id: str, answer_file: Path | None = None
+    store: TaskStore, ref: RoundRef, dispatch_id: str, answer_file: Path | None = None
 ) -> Settled:
+    task_id, number = ref.task_id, ref.number
     task = store.get(task_id)
     read_dispatch(store, task_id, number)
     if (done := _find(task, number)) is not None:
@@ -245,7 +262,7 @@ def collect_round(
         **{"provider_verified": verified, "answer_transport": transport},
     }
     try:
-        _write_settled(store, task_id, record, _render(record, found, answer))
+        _write_settled(store, task_id, _Settlement(record, _render(record, found, answer)))
     except _Lost as lost:
         return _already(lost.record, dispatch_id)
     return Settled(record, False)
@@ -279,11 +296,10 @@ def _abort_text(record: JsonDict) -> str:
     )
 
 
-def abort_round(
-    store: TaskStore, task_id: str, number: int, reason: str, dispatch_id: str | None
-) -> JsonDict:
+def abort_round(store: TaskStore, ref: RoundRef, reason: str, dispatch_id: str | None) -> JsonDict:
     """Settle a pending round as aborted. ``dispatch_id`` None is the operator's assertion that
     no worker started; it is recorded as such and is not evidence."""
+    task_id, number = ref.task_id, ref.number
     if not reason.strip():
         raise DispatchError("--reason must say why the round is aborted")
     task = store.get(task_id)
@@ -309,7 +325,7 @@ def abort_round(
         **{"stamp": record["stamp"], "at": record["at"]},
     }
     try:
-        _write_settled(store, task_id, record, _abort_text(record), audit)
+        _write_settled(store, task_id, _Settlement(record, _abort_text(record), audit))
     except _Lost as lost:
         raise DispatchError(
             f"round {number:03d} was settled meanwhile ({lost.record['state']})"

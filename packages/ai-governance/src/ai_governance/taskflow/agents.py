@@ -141,21 +141,28 @@ def read_repo_allowed(repo: Path) -> frozenset[str] | None:
         return None  # no .ai-governance entry at all: nothing restricts this repository
     except OSError as exc:
         raise _unreadable(where, exc) from exc
-    try:
-        data = tomllib.loads(read_regular_text(path))
-    except FileNotFoundError as exc:
-        # Only a genuinely absent file is "no restriction": a dangling link is present but broken.
-        if not os.path.lexists(path) and os.path.isdir(path.parent):
-            return None
-        raise _unreadable(where, exc) from exc
-    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
-        raise _unreadable(where, exc) from exc
+    data = _read_repo_toml(path)
+    if data is None:
+        return None
     table = data.get("taskflow")
     if table is None or (isinstance(table, dict) and "allowed_agents" not in table):
         return None
     if not isinstance(table, dict):
         raise AllowedAgentsError(f"{where}: [taskflow] must be a table")
     return _ids(table["allowed_agents"], where)
+
+
+def _read_repo_toml(path: Path) -> dict[str, object] | None:
+    """The parsed repo file; None only when it is genuinely absent (raises when unreadable)."""
+    try:
+        return tomllib.loads(read_regular_text(path))
+    except FileNotFoundError as exc:
+        # Only a genuinely absent file is "no restriction": a dangling link is present but broken.
+        if not os.path.lexists(path) and os.path.isdir(path.parent):
+            return None
+        raise _unreadable(str(path), exc) from exc
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+        raise _unreadable(str(path), exc) from exc
 
 
 def resolve_allowed(

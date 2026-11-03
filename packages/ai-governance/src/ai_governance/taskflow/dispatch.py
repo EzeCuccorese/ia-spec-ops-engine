@@ -36,7 +36,7 @@ from .gates import work_unmet
 from .models import JsonDict, Task, now_iso
 from .repos import on_live, partition
 from .stamp import head_sha, tree_fingerprint
-from .store import TaskStore, atomic_write_text
+from .store import RoundSlot, TaskStore, atomic_write_text
 
 DISPATCHABLE = ("planner", "validator")
 
@@ -164,7 +164,7 @@ class _Publisher:
                 f"or abort it with `round {locked.id} abort --round {twin} --reason ...`"
             )
         record, text = self._record(locked, number, round_file)
-        _write_sealed(self.store, locked.id, number, Path(record["spec"]), text, record)
+        _write_sealed(self.store, record, text)
         self.made = {"n": number, "argv": record["command"], "spec": Path(record["spec"])}
 
     def _record(self, locked: Task, number: int, round_file: Path) -> tuple[JsonDict, str]:
@@ -177,7 +177,9 @@ class _Publisher:
         )
         agent, model = str(request.agent.get("agent", "")), str(request.agent.get("model", ""))
         title = f"{request.role} round {number} of {locked.id}"
-        argv = orca.worker_start_argv(str(spec), agent, model, self.repos[0]["path"], title)
+        argv = orca.worker_start_argv(
+            orca.WorkerStart(str(spec), agent, model, self.repos[0]["path"], title)
+        )
         record: JsonDict = {
             "n": number,
             "task": locked.id,
@@ -202,10 +204,9 @@ class _Publisher:
         return record, text
 
 
-def _write_sealed(
-    store: TaskStore, task_id: str, number: int, spec: Path, text: str, record: JsonDict
-) -> None:
+def _write_sealed(store: TaskStore, record: JsonDict, text: str) -> None:
     """spec, then the seal, then ``dispatch.json`` last: that file is what makes a round pending."""
+    task_id, number, spec = str(record["task"]), int(record["n"]), Path(record["spec"])
     body = json.dumps(record, indent=2, sort_keys=True, ensure_ascii=False)
     written: list[Path] = []
     try:
@@ -231,7 +232,7 @@ def plan_dispatch(
     repos = _snapshot_repos(task)
     publisher = _Publisher(store, request, repos)
     agent = str(request.agent.get("agent", ""))
-    store.reserve_round(task.id, request.phase, request.role, agent, publisher)
+    store.reserve_round(task.id, RoundSlot(request.phase, request.role, agent), publisher)
     made = publisher.made
     return Dispatched(int(made["n"]), list(made["argv"]), Path(made["spec"]))
 

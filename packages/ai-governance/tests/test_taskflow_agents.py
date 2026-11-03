@@ -275,16 +275,19 @@ def test_judge_equal_to_builder_provider_blocked() -> None:
     assert len(unmet) == 1 and "judge and builder both used provider 'claude'" in unmet[0]
 
 
-def test_legacy_builder_round_counts_in_the_builder_set() -> None:
+@pytest.mark.parametrize(
+    ("builder", "validator", "expected"),
+    [
+        ("codex/gpt-6.1-sol", "codex", "validator and builder"),  # legacy builder round
+        ("antigravity/gemini", "agy", "provider 'antigravity'"),  # an alias is the same provider
+    ],
+)
+def test_builder_round_counts_in_the_builder_set(
+    builder: str, validator: str, expected: str
+) -> None:
     task = Task(id="T", title="t")
-    task.rounds += _rounds(validator="codex", builder="codex/gpt-6.1-sol")
-    assert "validator and builder" in gates._workflow_unmet(task, _config("claude"))[0]
-
-
-def test_alias_counts_as_the_same_provider() -> None:
-    task = Task(id="T", title="t")
-    task.rounds += _rounds(validator="agy", builder="antigravity/gemini")
-    assert "provider 'antigravity'" in gates._workflow_unmet(task, _config("claude"))[0]
+    task.rounds += _rounds(validator=validator, builder=builder)
+    assert expected in gates._workflow_unmet(task, _config("claude"))[0]
 
 
 def test_single_agent_workflow_with_approval_unchanged() -> None:

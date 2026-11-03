@@ -30,6 +30,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypedDict, Unpack
 
 import ai_governance
 import pytest
@@ -175,21 +176,14 @@ class OrcaWorld:
         parsed = json.loads(result.out) if "--json" in extra else line
         return Dispatched(int(flag(parsed, "--task-title").split()[2]), parsed, result)
 
-    def finish(
-        self,
-        n: int,
-        dispatch_id: str,
-        *,
-        answer: str | None = "the review\n",
-        receipt: str | None = "",
-        state: str = "succeeded",
-        agent: str | None = "claude",
-        register: bool = True,
-    ) -> None:
+    def finish(self, n: int, dispatch_id: str, **opts: Unpack[FinishOpts]) -> None:
         """Play the worker: its receipt, its answer, and Orca's view of it.
 
         ``receipt=""`` writes a correct receipt, ``None`` writes none, any other text is
-        written verbatim; ``answer=None`` writes no answer."""
+        written verbatim; ``answer=None`` writes no answer. Options default to a worker that
+        succeeded as claude: ``answer``, ``receipt``, ``state``, ``agent``, ``register``."""
+        answer = opts.get("answer", "the review\n")
+        receipt = opts.get("receipt", "")
         found = self.dispatch_json(n)
         if receipt == "":
             receipt = f"ROUND {found['nonce']} DISPATCH {dispatch_id}\n"
@@ -197,8 +191,8 @@ class OrcaWorld:
             Path(found["receipt"]).write_text(receipt, encoding="utf-8")
         if answer is not None:
             Path(found["answer"]).write_text(answer, encoding="utf-8")
-        if register:
-            self.worker(dispatch_id, state, agent)
+        if opts.get("register", True):
+            self.worker(dispatch_id, opts.get("state", "succeeded"), opts.get("agent", "claude"))
 
     def collect(self, n: int, dispatch_id: str, *extra: str) -> Result:
         return self.run(
@@ -285,6 +279,19 @@ class OrcaWorld:
             ), call
 
 
+class FinishOpts(TypedDict, total=False):
+    answer: str | None
+    receipt: str | None
+    state: str
+    agent: str | None
+    register: bool
+
+
+class WorldOpts(TypedDict, total=False):
+    repo_name: str
+    state_in_repo: bool
+
+
 def _git(repo: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
 
@@ -318,14 +325,8 @@ def _make_repo(path: Path, ignore: str = "") -> None:
     _git(path, "commit", "-qm", "init")
 
 
-def make_world(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    repo_name: str = "repo",
-    state_in_repo: bool = False,
-) -> OrcaWorld:
-    # 1. clear the real account/runtime environment BEFORE any scenario variable is set
+def _clear_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Clear the real account/runtime environment BEFORE any scenario variable is set."""
     for name in list(os.environ):
         if name.startswith(("ORCA_", "AI_GOVERNANCE_", "FAKE_")) or name in (
             "GH_TOKEN",
@@ -334,6 +335,16 @@ def make_world(
             monkeypatch.delenv(name)
     for name in ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID"):
         monkeypatch.delenv(name, raising=False)
+
+
+def make_world(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    **opts: Unpack[WorldOpts],
+) -> OrcaWorld:
+    _clear_environment(monkeypatch)
+    repo_name, state_in_repo = opts.get("repo_name", "repo"), opts.get("state_in_repo", False)
     real_git = shutil.which("git")
     assert real_git, "git is required"
     base = tmp_path / "world"

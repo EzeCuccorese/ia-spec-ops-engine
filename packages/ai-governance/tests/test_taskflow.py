@@ -31,7 +31,7 @@ from ai_governance.taskflow.resolver import TaskResolver
 from ai_governance.taskflow.risk import assess
 from ai_governance.taskflow.rounds import LeaseError, RoundRequest, run_round, writer_lease
 from ai_governance.taskflow.stamp import code_stamp, remote_sha
-from ai_governance.taskflow.store import TaskStore
+from ai_governance.taskflow.store import RoundSlot, TaskStore
 
 WEEKDAY_MORNING = datetime(2026, 10, 28, 10, 0)  # Wednesday
 FRIDAY_AFTERNOON = datetime(2026, 10, 30, 14, 0)
@@ -131,8 +131,8 @@ def test_close_refuses_an_unfinished_bound_task(state: TaskStore, repo: Path) ->
 
 def test_round_numbers_are_unique_and_the_index_is_rebuilt(state: TaskStore) -> None:
     state.create(Task(id="T", title="t"))
-    first = state.reserve_round("T", "plan", "planner", "agy")
-    second = state.reserve_round("T", "plan", "planner", "agy")
+    first = state.reserve_round("T", RoundSlot("plan", "planner", "agy"))
+    second = state.reserve_round("T", RoundSlot("plan", "planner", "agy"))
     assert (first[0], second[0]) == (1, 2)
     state.mutate(
         "T",

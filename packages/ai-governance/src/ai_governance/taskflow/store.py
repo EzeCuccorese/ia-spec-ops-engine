@@ -13,6 +13,7 @@ import re
 import tempfile
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -50,6 +51,15 @@ def atomic_write_text(path: Path, content: str) -> None:
     except OSError:
         Path(temp).unlink(missing_ok=True)
         raise
+
+
+@dataclass(frozen=True)
+class RoundSlot:
+    """What names a round file: its phase, the role and the agent that will run it."""
+
+    phase: str
+    role: str
+    agent: str
 
 
 class TaskStore:
@@ -139,9 +149,7 @@ class TaskStore:
     def reserve_round(
         self,
         task_id: str,
-        phase: str,
-        role: str,
-        agent: str,
+        slot: RoundSlot,
         publish: Callable[[Task, int, Path], None] | None = None,
     ) -> tuple[int, Path]:
         """Reserve the next round number and create its (empty) file under the task lock.
@@ -157,7 +165,7 @@ class TaskStore:
             taken = [int(p.name[:3]) for p in rounds.glob("[0-9][0-9][0-9]-*.md")]
             recorded = [int(r.get("n", 0)) for r in task.rounds]
             number = max([0, *taken, *recorded]) + 1
-            path = rounds / f"{number:03d}-{phase}-{role}-{_slug(agent)}.md"
+            path = rounds / f"{number:03d}-{slot.phase}-{slot.role}-{_slug(slot.agent)}.md"
             path.touch(exist_ok=False)
             if publish is not None:
                 try:

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 from ..output import emit_json, emit_status
-from .collect import abort_round, collect_round
+from .collect import RoundRef, abort_round, collect_round
 from .config import load_config
 from .control import UsageRefusal
 from .dispatch import DispatchRequest, plan_dispatch, refuse_role
@@ -69,7 +69,9 @@ def _report(record: JsonDict, prefix: str = "") -> None:
 
 def _collect(args: argparse.Namespace) -> int:
     answer = Path(args.answer_file) if args.answer_file else None
-    settled = collect_round(TaskStore(), args.task_id, args.round, args.dispatch_id, answer)
+    settled = collect_round(
+        TaskStore(), RoundRef(args.task_id, args.round), args.dispatch_id, answer
+    )
     record = settled.record
     if settled.already:
         level: Literal["ok", "warn"] = "ok" if record["state"] == "valid" else "warn"
@@ -84,7 +86,7 @@ def _collect(args: argparse.Namespace) -> int:
 
 def _abort(args: argparse.Namespace) -> int:
     dispatch_id = None if args.never_started else args.dispatch_id
-    record = abort_round(TaskStore(), args.task_id, args.round, args.reason, dispatch_id)
+    record = abort_round(TaskStore(), RoundRef(args.task_id, args.round), args.reason, dispatch_id)
     who = f"dispatch {dispatch_id}" if dispatch_id else "your assertion that no worker started"
     emit_status("ok", f"Round {int(record['n']):03d} aborted ({who}): {record['reason']}")
     if not dispatch_id:

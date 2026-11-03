@@ -9,6 +9,7 @@ from its accepted policy with every rule assumed matched.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from .config import FlowConfig
@@ -46,16 +47,25 @@ def _live_paths(repos: list[JsonDict], present: set[str]) -> tuple[list[str], li
 
 
 def _frozen_risk(
-    live: RiskAssessment, previous: JsonDict, key: str, accepted: JsonDict, config: FlowConfig
+    live: RiskAssessment, previous: JsonDict, key: str, legacy: Callable[[], RiskAssessment]
 ) -> RiskAssessment:
-    """Obligations while some repo is missing."""
+    """Obligations while some repo is missing (``legacy`` rebuilds them from the accepted policy)."""
     stored = previous.get("obligations")
     if not stored:
-        return merge(live, legacy_obligations(accepted, config))
+        return merge(live, legacy())
     frozen = thaw(stored)
     # Same code, same key: the evidence was judged against exactly these obligations, so
     # they are used as a unit (a control added to the live config since is not mixed in).
     return frozen if key == previous.get("key") else merge(live, frozen)
+
+
+def _risk_while_missing(
+    stamp: JsonDict, live: RiskAssessment, previous: JsonDict, legacy: Callable[[], RiskAssessment]
+) -> RiskAssessment:
+    risk = _frozen_risk(live, previous, stamp["key"], legacy)
+    if not previous.get("obligations") or previous.get("legacy_types"):
+        stamp["legacy_types"] = True  # judge types were rebuilt, not recovered
+    return risk
 
 
 def _policy_state(task: Task, config: FlowConfig, pinned: bool) -> tuple[JsonDict, list[str]]:
@@ -87,9 +97,9 @@ def refresh(
     accepted, stamp["policy_reduced"] = _policy_state(task, config, pinned)
     risk = assess(config, paths)
     if gone or vanished:
-        risk = _frozen_risk(risk, previous, stamp["key"], accepted, config)
-        if not previous.get("obligations") or previous.get("legacy_types"):
-            stamp["legacy_types"] = True  # judge types were rebuilt, not recovered
+        risk = _risk_while_missing(
+            stamp, risk, previous, lambda: legacy_obligations(accepted, config)
+        )
     stamp["obligations"] = freeze(risk, config)
 
     def save(t: Task) -> None:

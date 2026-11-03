@@ -42,7 +42,7 @@ from .gates import (
 )
 from .guide import GUIDE as GUIDE
 from .handoff import findings, handoff, scrub, ticket_draft
-from .judge import JudgeError, judge_task
+from .judge import JudgeError, JudgeScope, judge_task
 from .models import PHASES, READER_ROLES, Task, now_iso
 from .policy import _rule_reductions as _rule_reductions
 from .policy import policy_reductions as policy_reductions
@@ -335,6 +335,34 @@ def cmd_stamp(args: argparse.Namespace) -> int:
     return 0
 
 
+def _recovery_pairs(task: Task) -> list[tuple[str, str]]:
+    """Status rows about repos gone from disk and the legacy-state notice."""
+    gone = [
+        ("repo gone (stamp frozen)", str(e["repo"]))
+        for e in task.code_stamp.get("repos", [])
+        if e.get("missing")
+    ]
+    return [*gone, *([("legacy", legacy_notice(task))] if legacy_notice(task) else [])]
+
+
+def _status_pairs(task: Task, risk: RiskAssessment, missing: list[str]) -> list[tuple[str, str]]:
+    target = _next_phase(task.phase)
+    return [
+        ("Phase", f"{task.phase}{' (BLOCKED)' if task.blocked else ''} · next: {target or '-'}"),
+        ("Code stamp", task.stamp_key or "no repository bound"),
+        (
+            "Risk",
+            f"{risk.level} · judges: {', '.join(risk.judges)}"
+            + (" · restaging required" if risk.restaging else ""),
+        ),
+        ("Missing", "; ".join(missing) or "nothing"),
+        *_recovery_pairs(task),
+        ("Stale", ", ".join(_stale_rounds(task)) or "none"),
+        ("Expired approvals", ", ".join(_expired_approvals(task)) or "none"),
+        ("Next", NEXT_COMMAND.get(task.phase, "-")),
+    ]
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     store = _store()
     task = store.get(_resolve(store, args.task_id))
@@ -344,25 +372,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     missing = (
         check_transition(task, target, GateContext(config, risk, task.stamp_key)) if target else []
     )
-    pairs = [
-        ("Phase", f"{task.phase}{' (BLOCKED)' if task.blocked else ''} · next: {target or '-'}"),
-        ("Code stamp", task.stamp_key or "no repository bound"),
-        (
-            "Risk",
-            f"{risk.level} · judges: {', '.join(risk.judges)}"
-            + (" · restaging required" if risk.restaging else ""),
-        ),
-        ("Missing", "; ".join(missing) or "nothing"),
-        *(
-            ("repo gone (stamp frozen)", str(e["repo"]))
-            for e in task.code_stamp.get("repos", [])
-            if e.get("missing")
-        ),
-        *([("legacy", legacy_notice(task))] if legacy_notice(task) else []),
-        ("Stale", ", ".join(_stale_rounds(task)) or "none"),
-        ("Expired approvals", ", ".join(_expired_approvals(task)) or "none"),
-        ("Next", NEXT_COMMAND.get(task.phase, "-")),
-    ]
+    pairs = _status_pairs(task, risk, missing)
     waiting = _warn_pending_trust(config) if not args.json else []
     if args.json or waiting:
         pairs.insert(-1, ("Pending trust", "; ".join(waiting) or "none"))
@@ -648,8 +658,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
         store,
         task,
         GateContext(config, risk, task.stamp_key),
-        focus=args.focus,
-        repos=partition(task.repos).live,
+        JudgeScope(args.focus, partition(task.repos).live),
     )
     for record in records:
         _report_round(record)
