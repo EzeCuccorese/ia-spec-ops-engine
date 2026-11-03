@@ -136,8 +136,20 @@ class TaskStore:
         return sorted(tasks, key=lambda task: task.updated_at, reverse=True)
 
     # -- rounds ----------------------------------------------------------------------------
-    def reserve_round(self, task_id: str, phase: str, role: str, agent: str) -> tuple[int, Path]:
-        """Reserve the next round number and create its (empty) file under the task lock."""
+    def reserve_round(
+        self,
+        task_id: str,
+        phase: str,
+        role: str,
+        agent: str,
+        publish: Callable[[Task, int, Path], None] | None = None,
+    ) -> tuple[int, Path]:
+        """Reserve the next round number and create its (empty) file under the task lock.
+
+        ``publish(task, number, round_file)`` runs under the same lock, against the task as
+        just loaded, so a check made there (a duplicate pending round) and the reservation
+        are one atomic step. If it raises, the reservation is withdrawn and the number is
+        not burned."""
         with self._lock(task_id) as directory:
             task = self._read(directory)
             rounds = directory / "rounds"
@@ -147,6 +159,12 @@ class TaskStore:
             number = max([0, *taken, *recorded]) + 1
             path = rounds / f"{number:03d}-{phase}-{role}-{_slug(agent)}.md"
             path.touch(exist_ok=False)
+            if publish is not None:
+                try:
+                    publish(task, number, path)
+                except BaseException:
+                    path.unlink(missing_ok=True)
+                    raise
             return number, path
 
     # -- log -----------------------------------------------------------------------------
@@ -156,6 +174,15 @@ class TaskStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "a", encoding="utf-8") as handle:
             handle.write(f"\n### {stamp}\n\n{entry.strip()}\n")
+
+    def append_log_once(self, task_id: str, marker: str, entry: str) -> bool:
+        """Append ``entry`` unless the log already holds ``marker`` (a projection that can be
+        repeated after a crash without duplicating it). True when it was written."""
+        with self._lock(task_id):
+            if marker in self.read_log(task_id):
+                return False
+            self.append_log(task_id, f"{entry.strip()}\n\n<!-- {marker} -->")
+            return True
 
     def read_log(self, task_id: str) -> str:
         path = self.task_dir(task_id) / LOG_FILE

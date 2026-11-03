@@ -15,7 +15,7 @@ from typing import Literal
 
 from .._config_core import AGENT_ENV_MARKERS
 from ..output import emit_json, emit_kv, emit_rows, emit_status, emit_text
-from . import tdd
+from . import round_cli, tdd
 from .approvals import (
     RISKY_ACTIONS,
     STAMP_FREE_ACTIONS,
@@ -533,6 +533,8 @@ def _prompt(args: argparse.Namespace) -> str:
 
 
 def cmd_round(args: argparse.Namespace) -> int:
+    if args.action in ("dispatch", "collect", "abort"):
+        return round_cli.route(args)
     store = _store()
     task = store.get(args.task_id)
     config = _config(task)

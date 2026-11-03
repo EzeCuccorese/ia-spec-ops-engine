@@ -33,6 +33,16 @@ policy-downgrade, restaging) need --consequence (what breaks if it goes wrong, p
 and a reply that names the action and the target, typed by the user; "ok"/"dale" is
 refused. Production actions are refused after 16:00, and on Friday after 13:00.
 
+Orca-run readers (planner, validator; judges follow in a later change). The builder is you:
+  taskflow round <ID> dispatch --role validator --prompt-file review.md
+      reserves the round and PRINTS an `orchestration worker-start` line; run it yourself
+  taskflow round <ID> collect --round N --dispatch-id <the id Orca gave you>
+      settles it once the worker is done (it refuses while the worker runs, and says how to wait)
+  taskflow round <ID> abort --round N --reason "..." (--dispatch-id <id> | --never-started)
+      --never-started is your own assertion that no worker started; it is recorded, not proven
+The worker writes a receipt (round token + its dispatch id) and its answer under runs/N/;
+collect accepts only the dispatch id that matches that receipt.
+
 One worktree per task: tasks sharing a worktree make `here` ambiguous and reviewers mix
 contexts. `round run` already prepends the task context (goal, plan path, decisions, facts,
 repos), so a prompt only needs the specific question.

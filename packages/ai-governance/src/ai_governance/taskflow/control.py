@@ -1,0 +1,98 @@
+"""Control-plane integrity of a dispatched reader round.
+
+A reader runs with the user's permissions, and the taskflow store is writable by it. The
+repository fingerprints cover the code; this module covers the files that make a round
+authoritative: ``state.json`` (rounds, code stamp, approvals, evidence), earlier round
+markdown, check evidence and the round's own ``dispatch.json``.
+
+At dispatch the coordinator records a baseline of those files inside ``dispatch.json`` and
+keeps a seal of that file (its sha256) outside the task directory, under ``<store>/seals``.
+At collect, anything in the baseline that changed is reported. Legitimate concurrent engine
+writes (new rounds, approvals, evidence, facts, other fields of ``state.json``) are not in the
+baseline's scope, and the worker's two designated files (``answer.txt`` and ``receipt.txt``)
+are not control files.
+
+Limit: a malicious worker running as the same user can rewrite the baseline, the seal and
+the files together, so this cannot make the store tamper-proof. It detects accidental
+writes, the case of a reader that follows a taskflow instruction it should have ignored.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+
+from .models import JsonDict, Task
+from .store import TaskStore
+
+
+class DispatchError(ValueError):
+    """A dispatch, collect or abort that is refused; nothing was changed."""
+
+
+class UsageRefusal(DispatchError):
+    """A request that can never work as written (exit code 2), not a state to wait out."""
+
+
+def digest_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def digest_json(value: object) -> str:
+    return digest_text(json.dumps(value, sort_keys=True, ensure_ascii=False, default=str))
+
+
+def digest_file(path: str | Path) -> str:
+    try:
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    except OSError:
+        return "missing"
+
+
+def baseline(task: Task) -> JsonDict:
+    """What a reader must not change, as seen now by the coordinator."""
+    return {
+        "stamp_key": task.stamp_key,
+        "rounds": {str(r.get("n")): digest_json(r) for r in task.rounds},
+        "round_files": {
+            str(r["file"]): digest_file(r["file"]) for r in task.rounds if r.get("file")
+        },
+        "approvals": [digest_json(a) for a in task.approvals],
+        "evidence": [
+            {"entry": digest_json(e), "file": digest_file(e["path"]) if e.get("path") else ""}
+            for e in task.evidence
+        ],
+    }
+
+
+def _prefix_changes(label: str, old: list[str], new: list[str]) -> list[str]:
+    if len(new) < len(old):
+        return [f"{label}: {len(old) - len(new)} entries removed"]
+    return [f"{label} #{i + 1}" for i, digest in enumerate(old) if new[i] != digest]
+
+
+def drift(task: Task, base: JsonDict) -> list[str]:
+    """Items of ``base`` that differ now; appended rounds, approvals and evidence do not count."""
+    now = baseline(task)
+    changed: list[str] = []
+    if now["stamp_key"] != base.get("stamp_key"):
+        changed.append("task.code_stamp")
+    for number, value in dict(base.get("rounds", {})).items():
+        if now["rounds"].get(number) != value:
+            changed.append(f"round record {number}")
+    for name, value in dict(base.get("round_files", {})).items():
+        if now["round_files"].get(name, digest_file(name)) != value:
+            changed.append(f"round file {Path(name).name}")
+    changed += _prefix_changes("task.approvals", base.get("approvals", []), now["approvals"])
+    old_ev, new_ev = list(base.get("evidence", [])), now["evidence"]
+    if len(new_ev) < len(old_ev):
+        changed.append("task.evidence: entries removed")
+    changed += [
+        f"evidence #{i + 1}" for i, item in enumerate(old_ev) if new_ev[i : i + 1] != [item]
+    ]
+    return changed
+
+
+def seal_path(store: TaskStore, task_id: str, number: int) -> Path:
+    return store.root / "seals" / f"{task_id}.{number:03d}.sha256"

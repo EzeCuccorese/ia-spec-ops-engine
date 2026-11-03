@@ -165,19 +165,58 @@ def _approval_round_commands(sub: Subparsers) -> None:
     item.add_argument("stage", choices=("red", "green", "skip"))
     item.add_argument("--cmd", default="", help="Test command, the same for red and green")
     item.add_argument("--reason", default="")
-    item = add(
-        "round", cli.cmd_round, "Run a planner/validator/builder round, or record one run elsewhere"
-    )
-    item.add_argument("action", choices=("run", "record"))
-    item.add_argument("--role", required=True, choices=ROLES)
+
+
+def _round_agent_args(item: argparse.ArgumentParser) -> None:
     item.add_argument("--phase", choices=PHASES, help="Default: the task's phase")
     item.add_argument("--prompt-file")
     item.add_argument("--prompt")
     item.add_argument("--agent", default="", help="Override the configured agent")
     item.add_argument("--model", default="")
-    item.add_argument("--timeout", type=int, default=0)
-    item.add_argument("--verdict", choices=VERDICTS, default="info", help="record only")
-    item.add_argument("--file", help="record only: the round's text (default: stdin)")
+
+
+def _round_commands(sub: Subparsers) -> None:
+    add = _adder(sub)
+    item = add(
+        "round",
+        cli.cmd_round,
+        "Dispatch a reader round to an Orca worker and collect or abort it, run one, or record one",
+    )
+    actions = item.add_subparsers(dest="action", required=True, metavar="action")
+    run = actions.add_parser("run", help="Run a round as a subprocess (legacy)")
+    run.add_argument("--role", required=True, choices=ROLES)
+    _round_agent_args(run)
+    run.add_argument("--timeout", type=int, default=0)
+    record = actions.add_parser("record", help="Record a round that ran elsewhere (context only)")
+    record.add_argument("--role", required=True, choices=ROLES)
+    _round_agent_args(record)
+    record.add_argument("--verdict", choices=VERDICTS, default="info")
+    record.add_argument("--file", help="The round's text (default: stdin)")
+    _dispatch_commands(actions)
+
+
+def _dispatch_commands(actions: Subparsers) -> None:
+    dispatch = actions.add_parser(
+        "dispatch", help="Reserve a planner/validator round and print its Orca worker-start line"
+    )
+    dispatch.add_argument("--role", required=True, choices=ROLES)
+    _round_agent_args(dispatch)
+    dispatch.add_argument("--focus", default="")
+    dispatch.add_argument("--json", action="store_true", help="Print the command as a JSON array")
+    collect = actions.add_parser("collect", help="Settle a dispatched round from its worker")
+    collect.add_argument("--round", type=int, required=True)
+    collect.add_argument("--dispatch-id", required=True, help="Orca's id of the worker you started")
+    collect.add_argument("--answer-file", help="Read the answer here instead of runs/N/answer.txt")
+    abort = actions.add_parser("abort", help="Settle a dispatched round as aborted (audited)")
+    abort.add_argument("--round", type=int, required=True)
+    abort.add_argument("--reason", required=True)
+    binding = abort.add_mutually_exclusive_group(required=True)
+    binding.add_argument("--dispatch-id", help="Orca's id of the worker that ran this round")
+    binding.add_argument(
+        "--never-started",
+        action="store_true",
+        help="Your assertion that no worker was started for it (recorded; it is not evidence)",
+    )
 
 
 def _judge_commands(sub: Subparsers) -> None:
@@ -234,5 +273,6 @@ def build_parser() -> argparse.ArgumentParser:
     _reference_commands(sub)
     _lifecycle_commands(sub)
     _approval_round_commands(sub)
+    _round_commands(sub)
     _judge_commands(sub)
     return parser
