@@ -146,6 +146,13 @@ def _shell_change_warning(payload: dict[str, Any]) -> str:
     return SHELL_CHANGE_WARNING if dirty else ""
 
 
+def _created_pr_line(payload: dict[str, Any]) -> str:
+    """Registers the PR a ``gh pr create`` just made in the task bound to the cwd (Claude only)."""
+    from .taskflow.pr_hook import register_created_pr
+
+    return register_created_pr(payload, _cwd(payload))
+
+
 def _claude_post_tool_use() -> int:
     from .frugality.cli import load_config, post_bash_output
 
@@ -154,9 +161,11 @@ def _claude_post_tool_use() -> int:
     except ValueError:
         return 0
     fields = post_bash_output(payload, load_config()) or {}
-    warning = _shell_change_warning(payload)
-    if warning:
-        fields["additionalContext"] = warning
+    context = "\n".join(
+        line for line in (_shell_change_warning(payload), _created_pr_line(payload)) if line
+    )
+    if context:
+        fields["additionalContext"] = context
     if fields:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", **fields}}))
     return 0
