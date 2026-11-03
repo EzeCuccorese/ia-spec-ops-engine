@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 from workspace_engine.common import Color
@@ -34,7 +35,12 @@ LOG_MAX_BYTES = 100 * 1024 * 1024  # rotate log when it exceeds 100 MB
 LOG_KEEP_BYTES = 20 * 1024 * 1024  # keep last 20 MB after rotation
 
 # ── Project Configuration ──────────────────────────────────────────────────────
-_CONFIG_LOADED = False
+DEFAULT_DOMAIN = "local.dev"  # also what ``ws config init`` writes and the README documents
+
+
+def url_pattern_for(domain: str) -> str:
+    """Regex matching ``https://<service>.(dev|prod).<domain>/...`` URLs."""
+    return rf"https?://([a-z0-9-]+)\.(?:dev|prod)\.{re.escape(domain)}(/[^\s]*)?"
 
 
 def find_project_root(
@@ -106,17 +112,16 @@ def load_project_config(
     config_path: Path | None = None,
     custom_path: Path | None = None,
 ) -> dict:
-    global _CONFIG_LOADED
     default_config = {
         "project_name": "generic",
-        "domain": "generic.com",
+        "domain": DEFAULT_DOMAIN,
         "namespaces": [],
         "environments": [],
         "repositories_dir_env_var": "PROJECT_REPOSITORIES_DIR",
         "local_envs_dir_name": "local-envs",
         "workspaces_dir_name": "workspaces",
         "toolkit_dir_name": "project-toolkit",
-        "url_pattern": r"https?://([a-z0-9-]+)\.(?:dev|prod)\.generic\.com(/[\S]*)?",
+        "url_pattern": url_pattern_for(DEFAULT_DOMAIN),
     }
 
     explicit_path = config_path or custom_path
@@ -141,18 +146,53 @@ def load_project_config(
             pass
         else:
             if isinstance(user_config, dict):
-                for k, v in user_config.items():
-                    default_config[k] = v
-                _CONFIG_LOADED = True
+                default_config.update(user_config)
+                _LAZY_CACHE["loaded"] = True
+                if "domain" in user_config and "url_pattern" not in user_config:
+                    default_config["url_pattern"] = url_pattern_for(str(user_config["domain"]))
     return default_config
 
 
-PROJECT_CONFIG = load_project_config()
-
 # ── Environments ───────────────────────────────────────────────────────────────
 LOCAL_ENV = {"id": "local", "cluster": None, "namespace": None, "label": "local — set-env-local.sh"}
-KUBE_ENVS = PROJECT_CONFIG["environments"]
-ENVIRONMENTS = [LOCAL_ENV] + KUBE_ENVS
+
+# Loaded on first access (not at import), so importing the module never reads the disk
+# and the config is resolved against the cwd of the command actually running.
+_LAZY_CACHE: dict[str, object] = {}
+
+
+def get_project_config() -> dict:
+    """The project configuration, loaded once per process."""
+    if "PROJECT_CONFIG" in globals():  # explicitly assigned (tests, embedding callers)
+        return globals()["PROJECT_CONFIG"]
+    if "PROJECT_CONFIG" not in _LAZY_CACHE:
+        _LAZY_CACHE["PROJECT_CONFIG"] = load_project_config()
+    return _LAZY_CACHE["PROJECT_CONFIG"]  # type: ignore[return-value]
+
+
+def get_environments() -> list[dict]:
+    """``local`` plus the project's own environments."""
+    if "ENVIRONMENTS" in globals():
+        return globals()["ENVIRONMENTS"]
+    return [LOCAL_ENV] + get_project_config()["environments"]
+
+
+def config_loaded() -> bool:
+    """True when a project config file was found and merged on top of the defaults."""
+    get_project_config()
+    return bool(_LAZY_CACHE.get("loaded"))
+
+
+def __getattr__(name: str) -> object:
+    """Lazy ``PROJECT_CONFIG`` / ``KUBE_ENVS`` / ``ENVIRONMENTS`` (PEP 562)."""
+    if name == "PROJECT_CONFIG":
+        return get_project_config()
+    if name == "KUBE_ENVS":
+        return get_project_config()["environments"]
+    if name == "ENVIRONMENTS":
+        return get_environments()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 # ── Noise filter ───────────────────────────────────────────────────────────────
 _NOISE_EXACT = {

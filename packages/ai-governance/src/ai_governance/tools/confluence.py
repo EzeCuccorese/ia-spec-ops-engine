@@ -37,7 +37,7 @@ from typing import Any
 
 # ── Configuration & Profiles (Shared with Atlassian Common) ─────────────────
 from ai_governance.tools.atlassian_common import (
-    ATLASSIAN_TIMEOUT,
+    atlassian_timeout,
     auth_header,
     execute_request,
     get_base_url,
@@ -79,7 +79,7 @@ def _get_api_url() -> str:
 
 
 def _request(method: str, url: str, payload: dict[str, Any] | list[Any] | None = None) -> Any:
-    return execute_request(method, url, payload=payload, timeout=ATLASSIAN_TIMEOUT)
+    return execute_request(method, url, payload=payload, timeout=atlassian_timeout())
 
 
 def get(path: str) -> Any:

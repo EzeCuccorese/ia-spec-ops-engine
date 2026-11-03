@@ -27,15 +27,14 @@ from workspace_engine.run_local.constants import (
     BOLD,
     CYAN,
     DIM,
-    ENVIRONMENTS,
     ENVS_DIR,
     GREEN,
     LOGS_DIR,
     PIDS_DIR,
-    PROJECT_CONFIG,
     RED,
     RESET,
     YELLOW,
+    get_environments,
 )
 from workspace_engine.run_local.discovery import (
     _fmt_bytes,
@@ -81,7 +80,6 @@ from workspace_engine.services.tui_utils import (
 )
 
 _TAIL_COLORS = [GREEN, CYAN, YELLOW, "\033[0;35m", "\033[0;34m", "\033[0;31m"]
-_PROJECT_URL_RE = re.compile(PROJECT_CONFIG["url_pattern"])
 
 
 def _read_line(tty_fd: Any, prompt: str, max_len: int = 40) -> str | None:
@@ -261,13 +259,13 @@ def panel_profiles(tty_fd: Any) -> dict | None:
 
 
 def panel_run_config(tty_fd: Any, repos: list, db_cfg: dict) -> list | None:
-    env_ids = [e["id"] for e in ENVIRONMENTS]
+    env_ids = [e["id"] for e in get_environments()]
     kubectl_ok = _kubectl_available() and bool(_get_kubectl_contexts())
 
     def _cycle_env(idx: int, step: int) -> int:
-        for _ in range(len(ENVIRONMENTS)):
-            idx = (idx + step) % len(ENVIRONMENTS)
-            if ENVIRONMENTS[idx]["cluster"] is not None and not kubectl_ok:
+        for _ in range(len(get_environments())):
+            idx = (idx + step) % len(get_environments())
+            if get_environments()[idx]["cluster"] is not None and not kubectl_ok:
                 continue
             return idx
         return idx
@@ -589,7 +587,7 @@ def panel_run_config(tty_fd: Any, repos: list, db_cfg: dict) -> list | None:
             return [
                 {
                     **s,
-                    "env": ENVIRONMENTS[s["env_idx"]],
+                    "env": get_environments()[s["env_idx"]],
                     "base_env": env_ids[s["env_idx"]],
                     "db_env": "local" if s["db_local"] else env_ids[s["env_idx"]],
                     "up_mode": "auto" if s["ms_local"] else env_ids[s["env_idx"]],

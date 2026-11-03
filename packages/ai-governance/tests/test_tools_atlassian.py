@@ -13,14 +13,12 @@ from ai_governance.tools import confluence, jira
 def _without_credentials(monkeypatch, tmp_path):
     """No Atlassian credentials anywhere: env, profiles file, or the values the module
     captured from the developer's environment at import time."""
-    from ai_governance.tools import atlassian_common
 
     for name in ("ATLASSIAN_EMAIL", "ATLASSIAN_API_TOKEN", "ATLASSIAN_URL", "ATLASSIAN_PROFILE"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv("ATLASSIAN_PROFILES_FILE", raising=False)
     monkeypatch.setenv("AI_GOVERNANCE_CONFIG_DIR", str(tmp_path))
-    for name in ("EMAIL", "TOKEN", "BASE_URL"):
-        monkeypatch.setattr(atlassian_common, name, "")
+    monkeypatch.setenv("HOME", str(tmp_path))
 
 
 def test_jira_check_env_missing(monkeypatch, tmp_path):
@@ -201,3 +199,23 @@ def test_atlassian_urlerror_handling(mock_urlopen, monkeypatch, capsys):
         confluence.get("/content/FAIL-1")
     err = capsys.readouterr().err
     assert "Network error" in err
+
+
+def test_unknown_profile_raises_with_known_list(monkeypatch, tmp_path):
+    from ai_governance.tools import atlassian_common
+
+    _without_credentials(monkeypatch, tmp_path)
+    (tmp_path / "atlassian.json").write_text('{"work": {"email": "a", "token": "b", "url": "u"}}')
+    with pytest.raises(atlassian_common.UnknownProfileError) as err:
+        atlassian_common.load_profile_config("nope")
+    assert "nope" in str(err.value) and "work" in str(err.value) and "default" in str(err.value)
+    assert atlassian_common.load_profile_config("work")["email"] == "a"
+
+
+def test_timeout_is_read_at_call_time(monkeypatch):
+    from ai_governance.tools import atlassian_common
+
+    monkeypatch.setenv("ATLASSIAN_TIMEOUT", "7.5")
+    assert atlassian_common.atlassian_timeout() == 7.5
+    monkeypatch.setenv("ATLASSIAN_TIMEOUT", "junk")
+    assert atlassian_common.atlassian_timeout() == 30.0

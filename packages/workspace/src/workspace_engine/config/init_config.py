@@ -8,11 +8,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sys
 from pathlib import Path
 
 from workspace_engine.common import log_error, log_success, log_warning
+from workspace_engine.run_local.constants import DEFAULT_DOMAIN, url_pattern_for
 
 
 def generate_default_config(project_name: str, domain: str) -> dict:
@@ -25,7 +25,7 @@ def generate_default_config(project_name: str, domain: str) -> dict:
         "local_envs_dir_name": "local-envs",
         "workspaces_dir_name": "workspaces",
         "toolkit_dir_name": "project-toolkit",
-        "url_pattern": rf"https?://([a-z0-9-]+)\.(?:dev|prod)\.{re.escape(domain)}(/[^\s]*)?",
+        "url_pattern": url_pattern_for(domain),
     }
     return cfg
 
@@ -101,7 +101,7 @@ def init_config(
 
     # Resolve domain
     if not domain:
-        default_domain = "local.dev"
+        default_domain = DEFAULT_DOMAIN
         if non_interactive or not sys.stdin.isatty():
             domain = default_domain
         else:

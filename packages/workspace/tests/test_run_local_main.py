@@ -333,7 +333,7 @@ def test_add_services_drops_a_stopped_service_that_failed_to_relaunch():
 def test_stop_works_without_a_configuration(monkeypatch, capsys):
     import sys
 
-    monkeypatch.setattr(rl, "_CONFIG_LOADED", False)
+    monkeypatch.setattr(rl, "config_loaded", lambda: False)
     monkeypatch.delitem(sys.modules, "pytest")
     with patch(f"{MAIN}.stop_all") as stop:
         rl.main(["--stop"])

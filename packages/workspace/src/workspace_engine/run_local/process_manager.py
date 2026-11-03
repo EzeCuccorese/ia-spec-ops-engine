@@ -214,7 +214,7 @@ def _wait_port_free(port: int, timeout: float = 3.0) -> bool:
 
 
 def _env_by_id(env_id: str) -> dict | None:
-    return next((e for e in constants.ENVIRONMENTS if e["id"] == env_id), None)
+    return next((e for e in constants.get_environments() if e["id"] == env_id), None)
 
 
 _POD_ENV_CACHE: dict = {}
@@ -452,7 +452,7 @@ def load_state() -> tuple[list, list]:
         return [], []
 
     results, launch_configs = [], []
-    env_by_id = {e["id"]: e for e in constants.ENVIRONMENTS}
+    env_by_id = {e["id"]: e for e in constants.get_environments()}
     for e in entries:
         if not _pid_alive(e.get("pid")):
             continue
