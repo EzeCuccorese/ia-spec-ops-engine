@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from . import tdd
+from .agents import builder_providers, provider
 from .approvals import valid_approval
 from .config import FlowConfig
 from .models import EXIT_PHASES, PHASES, JsonDict, Task
@@ -237,35 +238,40 @@ def _forward_unmet(task: Task, target: str, ctx: GateContext) -> list[str]:
     skipping_staging = task.phase == "judge" and target == "review" and not ctx.risk.restaging
     if wanted != current + 1 and not skipping_staging:
         return [f"move one phase at a time: next is '{PHASES[current + 1]}'"]
-    return _workflow_unmet(task) + _requirements(task, target, ctx)
+    return _workflow_unmet(task, ctx.config) + _requirements(task, target, ctx)
 
 
-def _workflow_unmet(task: Task) -> list[str]:
-    """Code tasks run with three agents; fewer only when the user chose it for this task."""
+def _workflow_unmet(task: Task, config: FlowConfig) -> list[str]:
+    """Code tasks run with independent agents; fewer only when the user chose it for this task."""
     if valid_approval(task.approvals, "workflow", "", task.id):
         return []
     if task.workflow == "tri-agent":
-        return _shared_agents(task)
+        return _independence_unmet(task, config)
     return [
         f"workflow '{task.workflow}' needs the user's choice "
         f"(approve {task.id} --action workflow --target {task.id}); the default is tri-agent"
     ]
 
 
-def _shared_agents(task: Task) -> list[str]:
-    """Planner, validator and builder must be three different agents, whatever the label
-    says: a ``--agent`` override or the configuration can make them the same one."""
-    by_agent: dict[str, list[str]] = {}
-    for role in ("planner", "validator", "builder"):
-        rounds = _engine_rounds(task, role)
-        agent = str(max(rounds, key=lambda r: int(r["n"])).get("agent", "")) if rounds else ""
-        if agent:
-            by_agent.setdefault(agent, []).append(role)
+def _independence_unmet(task: Task, config: FlowConfig) -> list[str]:
+    """The validator and every judge must be a different provider than the builder.
+
+    Planner, validator and builder are separate sessions; only providers are compared here. The
+    planner may share the builder's provider. The builder is the configured one plus any
+    legacy builder round (``--agent`` overrides included)."""
+    writers = builder_providers(task, str(config.roles.get("builder", {}).get("agent", "")))
+    validators = _engine_rounds(task, "validator")
+    latest = [max(validators, key=lambda r: int(r["n"]))] if validators else []
+    clashes: dict[str, str] = {}
+    for role, rounds in (("validator", latest), ("judge", _engine_rounds(task, "judge"))):
+        for found in rounds:
+            name = provider(str(found.get("agent", "")))
+            if name in writers:
+                clashes.setdefault(role, name)
     return [
-        f"tri-agent needs distinct agents: {' and '.join(roles)} both used '{agent}' "
+        f"tri-agent needs independent agents: {role} and builder both used provider '{name}' "
         f"(or the user's choice: approve {task.id} --action workflow --target {task.id})"
-        for agent, roles in by_agent.items()
-        if len(roles) > 1
+        for role, name in clashes.items()
     ]
 
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import sys
 import tomllib
@@ -20,6 +21,16 @@ from typing import TypeVar
 from .._config_core import Value
 from ..paths import config_dir, state_dir
 from ..settings import effective
+from .agents import (
+    DEFAULT_MODELS,
+    HUMAN,
+    Allowed,
+    fallback_agent,
+    provider,
+    read_regular_text,
+    resolve_allowed,
+    user_source_problems,
+)
 from .models import WORKFLOWS, JsonDict
 
 CONFIG_NAME = "taskflow.toml"
@@ -90,6 +101,8 @@ class FlowConfig:
     pending_trust: tuple[PendingTrust, ...] = ()
     # Controls a trusted repository removed or weakened relative to what was in force before it.
     repo_reductions: tuple[str, ...] = ()
+    # Agents allowed for the bound repositories: the user's set narrowed by each repo file.
+    allowed: Allowed = field(default_factory=lambda: _default_allowed())
 
     def role(self, name: str) -> JsonDict:
         if name == "judge":
@@ -117,17 +130,57 @@ class FlowConfig:
         errors: list[str] = []
         if self.workflow not in WORKFLOWS:
             errors.append(f"workflow must be one of {', '.join(WORKFLOWS)}")
+        errors += self.allowed.errors()
+        errors += self._allowed_errors()
         errors += self._judge_errors()
+        errors += self._validator_errors()
         errors += self._missing_binaries()
         return errors
 
+    def agent_error(self, agent: str) -> str | None:
+        """Why ``agent`` may not be used here (an explicit choice is never swapped), else None."""
+        if self.allowed.permits(agent):
+            return None
+        if self.allowed.problems:
+            return f"'{agent}' is not allowed here: {'; '.join(self.allowed.problems)}"
+        names = ", ".join(sorted(self.allowed.agents)) or "none"
+        return f"'{agent}' is not allowed here (allowed agents: {names}, human)"
+
+    def _allowed_errors(self) -> list[str]:
+        if self.allowed.errors():  # already reported once: do not repeat it per role
+            return []
+        named = [
+            *((name, role) for name, role in self.roles.items()),
+            *((f"judge '{j.get('focus')}'", j) for j in self.judges),
+        ]
+        return [
+            f"{name}: {problem}"
+            for name, role in named
+            if (problem := self.agent_error(str(role.get("agent", "")))) and role.get("agent")
+        ]
+
+    def _validator_errors(self) -> list[str]:
+        builder = str(self.roles.get("builder", {}).get("agent", ""))
+        validator = str(self.roles.get("validator", {}).get("agent", ""))
+        if (
+            not validator
+            or provider(validator) in (HUMAN, "")
+            or provider(validator) != provider(builder)
+        ):
+            return []
+        return [
+            f"validator uses the builder's provider ({provider(builder)}): "
+            "the validator must be a different provider than the builder"
+        ]
+
     def _judge_errors(self) -> list[str]:
         errors: list[str] = []
-        builder = self.roles.get("builder", {}).get("agent", "")
+        builder = str(self.roles.get("builder", {}).get("agent", ""))
         for judge in self.judges:
-            if judge.get("agent") == builder and judge.get("agent") != "human":
+            agent = str(judge.get("agent", ""))
+            if provider(agent) == provider(builder) and provider(agent) != HUMAN:
                 errors.append(
-                    f"judge '{judge.get('focus')}' uses the builder's agent ({builder}): "
+                    f"judge '{judge.get('focus')}' uses the builder's provider ({provider(builder)}): "
                     "a judge must be a different provider or 'human'"
                 )
         if not self.judges:
@@ -148,11 +201,54 @@ class FlowConfig:
         return errors
 
 
+def _user_sources(user_path: Path) -> list[Path]:
+    """Every user file the allowed-agents setting can come from."""
+    return [config_dir() / "config.toml", config_dir() / "config.json", user_path]
+
+
+def _default_allowed() -> Allowed:
+    problems = user_source_problems(_user_sources(config_dir() / CONFIG_NAME))
+    return resolve_allowed(effective()["taskflow.allowed_agents"].value, [], problems)
+
+
+def _narrowed(found: dict, allowed: Allowed) -> dict:
+    """``found`` with every role whose agent is still the built-in default moved to an allowed
+    agent (and that agent's default model). Explicit choices are left alone: ``validate``
+    reports them, they are never swapped."""
+    result = dict(found)
+    builder = _swap(result, "builder", allowed, "")
+    for role in ("planner", "validator", "judge"):
+        _swap(result, role, allowed, builder)
+    return result
+
+
+def _swap(found: dict, role: str, allowed: Allowed, builder: str) -> str:
+    key = f"taskflow.{role}_agent"
+    current = found[key]
+    if current.origin != "default":
+        return str(current.value)
+    agent = fallback_agent(role, str(current.value), allowed, builder)
+    if agent != current.value:
+        found[key] = Value(agent, "default", "allowed_agents")
+        model = found[f"taskflow.{role}_model"]
+        if model.origin == "default":
+            found[f"taskflow.{role}_model"] = Value(
+                DEFAULT_MODELS.get(agent, ""), "default", "allowed_agents"
+            )
+    return agent
+
+
 def _read_toml(path: Path) -> JsonDict:
-    if not path.is_file():
+    """A missing file is an empty table; one that exists but is not a readable regular file
+    (FIFO, directory, dangling link, no permission) is an error, never read as empty."""
+    try:
+        return tomllib.loads(read_regular_text(path))
+    except FileNotFoundError:
+        if os.path.lexists(path):
+            raise ValueError(f"{path}: dangling link, cannot read it") from None
         return {}
-    with path.open("rb") as handle:
-        return tomllib.load(handle)
+    except OSError as exc:
+        raise ValueError(f"{path}: cannot read it ({exc})") from exc
 
 
 def _rules(raw: list[JsonDict]) -> list[RiskRule]:
@@ -499,11 +595,14 @@ def _build(
     origins: dict[str, tuple[str, str]] | None,
 ) -> tuple[FlowConfig, dict[str, Value]]:
     user_path = user_file or config_dir() / CONFIG_NAME
-    user = _read_toml(user_path)
+    problems = user_source_problems(_user_sources(user_path))
+    user = {} if problems else _read_toml(user_path)
     legacy_roles = {k: dict(v) for k, v in user.get("roles", {}).items() if k != "judges"}
     locals_ = {repo: _read_toml(repo / REPO_CONFIG) for repo in repos}
     active = _trusted_repos(locals_)
-    found = _settings(user_path, active, legacy_roles)
+    settings = _settings(user_path, active, legacy_roles)
+    allowed = resolve_allowed(settings["taskflow.allowed_agents"].value, repos, problems)
+    found = _narrowed(settings, allowed)
     controls = _user_controls(user, found)
     baseline = controls.summary()  # the user's own policy, before any repository
     marks = origins if origins is not None else {}
@@ -524,6 +623,7 @@ def _build(
         baseline_policy=baseline,
         pending_trust=tuple(layers.pending),
         repo_reductions=tuple(sorted(layers.reductions)),
+        allowed=allowed,
     )
     return config, _rows(config, found, marks)
 
@@ -536,6 +636,14 @@ def _setting_rows(config: FlowConfig, found: dict) -> dict[str, Value]:
             rows[f"taskflow.{role}_{attribute}"] = Value(
                 config.roles[role][attribute], got.origin, got.source
             )
+    listed = found["taskflow.allowed_agents"]
+    if config.allowed.errors():
+        listed = Value([], "blocked", "; ".join(config.allowed.errors()))
+    elif config.allowed.narrowed_by:
+        listed = Value(
+            sorted(config.allowed.agents), "repo (narrowed)", config.allowed.narrowed_by[0]
+        )
+    rows["taskflow.allowed_agents"] = listed
     timeout = found["taskflow.timeout_seconds"]
     rows["taskflow.timeout_seconds"] = Value(config.timeout_seconds, timeout.origin, timeout.source)
     return rows

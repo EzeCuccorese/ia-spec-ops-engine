@@ -923,10 +923,10 @@ def test_resolver_reads_the_jira_key_from_the_branch(repo: Path) -> None:
 
 def test_fewer_than_three_agents_needs_the_user_choice() -> None:
     task = Task(id="T", title="t", workflow="single-agent")
-    assert "needs the user's choice" in gates._workflow_unmet(task)[0]
+    assert "needs the user's choice" in gates._workflow_unmet(task, FlowConfig())[0]
     task.approvals.append({"action": "workflow", "target": "T"})
-    assert gates._workflow_unmet(task) == []
-    assert gates._workflow_unmet(Task(id="U", title="u")) == []
+    assert gates._workflow_unmet(task, FlowConfig()) == []
+    assert gates._workflow_unmet(Task(id="U", title="u"), FlowConfig()) == []
 
 
 def test_several_tasks_on_one_repository_narrow_to_one_or_name_the_candidates(
@@ -994,18 +994,28 @@ def _round(n: int, role: str, agent: str, **extra: object) -> dict:
     return {**base, "file": f"r{n}.md", **extra}
 
 
-def test_tri_agent_needs_three_distinct_agents_whatever_the_label() -> None:
+def test_tri_agent_needs_a_validator_of_another_provider_than_the_builder() -> None:
+    config = FlowConfig(
+        roles={
+            "planner": {"agent": "agy", "model": ""},
+            "validator": {"agent": "codex", "model": ""},
+            "builder": {"agent": "claude", "model": ""},
+        }
+    )
     task = Task(id="T", title="t")
     task.rounds += [_round(1, "planner", "agy"), _round(2, "validator", "agy")]
-    assert "planner and validator both used 'agy'" in gates._workflow_unmet(task)[0]
+    assert gates._workflow_unmet(task, config) == []  # planner and validator may share one
     task.rounds[1]["agent"] = "codex"
     task.rounds.append(_round(3, "builder", "codex"))
-    assert "validator and builder both used 'codex'" in gates._workflow_unmet(task)[0]
+    assert (
+        "validator and builder both used provider 'codex'" in gates._workflow_unmet(task, config)[0]
+    )
     task.rounds[2]["agent"] = "claude"
-    assert gates._workflow_unmet(task) == []
-    task.rounds[2]["agent"] = "agy"
+    assert gates._workflow_unmet(task, config) == []
+    task.rounds[1]["agent"] = "claude/opus"
+    assert gates._workflow_unmet(task, config) != []
     task.approvals.append({"action": "workflow", "target": "T"})
-    assert gates._workflow_unmet(task) == []
+    assert gates._workflow_unmet(task, config) == []
 
 
 def test_workflow_approval_is_not_listed_as_expired_when_the_code_changes() -> None:

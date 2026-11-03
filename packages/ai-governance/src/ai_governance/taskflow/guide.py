@@ -37,7 +37,10 @@ One worktree per task: tasks sharing a worktree make `here` ambiguous and review
 contexts. `round run` already prepends the task context (goal, plan path, decisions, facts,
 repos), so a prompt only needs the specific question.
 
-Code tasks always run tri-agent (planner, validator and builder are different agents).
+Code tasks always run tri-agent: planner, validator and each judge are separate sessions and the
+builder is the coordinating session. The validator and every judge must also be a different
+provider than the builder; the planner may share the builder's provider. A repository can
+narrow the allowed agents (`[taskflow] allowed_agents` in its .ai-governance/config.toml).
 Another workflow only when the user asks for it; record it before leaving plan:
   taskflow approve <ID> --action workflow --target <ID> --user-reply "<their words>"
 manual is for tracking only (no code, no phases).

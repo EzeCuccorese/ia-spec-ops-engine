@@ -16,6 +16,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from .agents import builder_providers, provider
 from .config import FlowConfig, check_timeout_seconds
 from .gates import GateContext
 from .models import JsonDict, Task
@@ -141,9 +142,8 @@ def judge_prompt(task: Task, focus: str, copies: list[JudgedCopy], checks: list[
 
 
 def builders(task: Task, config: FlowConfig) -> set[str]:
-    """Every agent that wrote code for the task: the configured builder and any override."""
-    used = {str(r.get("agent")) for r in task.rounds if r.get("role") == "builder"}
-    return {str(config.roles.get("builder", {}).get("agent", "")), *used} - {""}
+    """Every provider that wrote code for the task: the configured builder and any override."""
+    return builder_providers(task, str(config.roles.get("builder", {}).get("agent", "")))
 
 
 def _independent_judges(
@@ -152,7 +152,7 @@ def _independent_judges(
     writers = builders(task, config)
     judges = [config.judge_for(name) for name in ([focus] if focus else focuses)]
     for judge in judges:
-        if judge.get("agent") in ("", *writers):
+        if not judge.get("agent") or provider(str(judge.get("agent"))) in writers:
             raise JudgeError(
                 f"Judge '{judge.get('focus')}' is not independent of the builder ({', '.join(writers)})"
             )

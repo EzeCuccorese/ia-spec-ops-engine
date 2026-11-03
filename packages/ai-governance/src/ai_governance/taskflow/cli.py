@@ -541,6 +541,8 @@ def cmd_round(args: argparse.Namespace) -> int:
         return _record_manual_round(store, task, args)
     _check_round_allowed(task, args.role)
     agent = {"agent": args.agent, "model": args.model} if args.agent else config.role(args.role)
+    if refusal := config.agent_error(str(agent.get("agent", ""))):
+        raise ValueError(f"{args.role}: {refusal}")
     live = first_live(task.repos)
     repo, others = live if live else (Path.cwd(), ())
     watch = others if args.role in READER_ROLES else ()
@@ -797,7 +799,7 @@ def cmd_trust(args: argparse.Namespace) -> int:
 
 
 def cmd_config(args: argparse.Namespace) -> int:
-    config = load_config([Path.cwd()])
+    config = load_config([TaskResolver._git_root(Path.cwd()) or Path.cwd()])
     _warn_pending_trust(config)
     errors = config.validate()
     emit_kv(
@@ -811,6 +813,7 @@ def cmd_config(args: argparse.Namespace) -> int:
                 (f"judge {j.get('focus')}", f"{j.get('agent')} {j.get('model', '')}")
                 for j in config.judges
             ),
+            ("allowed agents", ", ".join(sorted(config.allowed.agents)) or "none"),
             ("checks", "; ".join(config.checks)),
             ("tdd", "mandatory (skip only with the user tdd-skip approval)"),
             ("risk rules", ", ".join(r.name for r in config.risk_rules) or "none"),

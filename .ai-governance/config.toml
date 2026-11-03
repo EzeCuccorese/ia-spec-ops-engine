@@ -1,0 +1,4 @@
+# Agents the task flow may use in this repository. A repository file can only narrow the
+# user's own `taskflow.allowed_agents`; it never widens it.
+[taskflow]
+allowed_agents = ["claude", "codex"]

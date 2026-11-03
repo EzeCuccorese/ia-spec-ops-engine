@@ -211,7 +211,13 @@ with `agent`/`model`, `[[judges]]` with `focus`/`agent`/`model` (`[[roles.judges
 `[[risk.rules]]` with `paths`, `judges`, `checks`, `restaging`); a repository's
 `.ai-governance/taskflow.toml` can add, replace or disable controls (see Configuration layers). Gates the engine enforces:
 
-- A judge must be a different agent than the builder; every required focus must `pass` on
+- Different agents means different sessions: planner, validator and each judge are separate
+  sessions, and the builder is the coordinating session. The validator and every judge must be a
+  different provider (`codex` in `codex/gpt-6.1-sol`) than the builder; the planner may share the
+  builder's provider. A repository narrows the agents it allows with `[taskflow] allowed_agents`
+  in `.ai-governance/config.toml` (the user's set intersected with each bound repo's; malformed
+  values block every agent; a role left at its default moves to an allowed agent, an explicit
+  choice outside the set is an error). Every required focus must `pass` on
   the current code stamp, and any code change makes verdicts and approvals stale.
 - Readers (planner, validator, judge) run with full permissions and a read-only limit in the
   prompt; a reader that changes the tree invalidates its round, and the change is kept.
@@ -245,6 +251,7 @@ Files are TOML (`[frugality]` / `threshold_chars = 4000`). Older JSON files keep
 | `hooks.gate_budget_chars` | `AI_GOVERNANCE_GATE_BUDGET_CHARS` | `1500` | Size of the failure summary the gate reports |
 | `hooks.gate_timeout_seconds` | `AI_GOVERNANCE_GATE_TIMEOUT_SECONDS` | `900` | Timeout of the turn-end quality gate |
 | `taskflow.timeout_seconds` | `AI_GOVERNANCE_CHECK_TIMEOUT_SECONDS` | `1800` | Timeout of each check, judge and TDD command |
+| `taskflow.allowed_agents` | `AI_GOVERNANCE_ALLOWED_AGENTS` | `antigravity, codex, claude` | Agents taskflow may use, comma separated (user level; a repo's `.ai-governance/config.toml` `[taskflow] allowed_agents` can only narrow it) |
 | `taskflow.planner_agent` | `AI_GOVERNANCE_PLANNER_AGENT` | `antigravity` | Agent of the planner role (user level only: a repo cannot change it) |
 | `taskflow.planner_model` | `AI_GOVERNANCE_PLANNER_MODEL` | `gemini-4-argon-high` | Model of the planner role (user level only: a repo cannot change it) |
 | `taskflow.validator_agent` | `AI_GOVERNANCE_VALIDATOR_AGENT` | `codex` | Agent of the validator role (user level only: a repo cannot change it) |
