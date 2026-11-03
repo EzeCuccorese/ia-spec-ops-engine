@@ -10,13 +10,17 @@ must not depend on the `ai-governance` package.
 
 from __future__ import annotations
 
-import os
 import sys
 from collections.abc import Sequence
 from typing import TextIO
 
 from rich.console import Console
 from rich.table import Table
+
+from workspace_engine._config_core import AGENT_ENV_MARKERS as AGENT_ENV_MARKERS
+from workspace_engine._config_core import ConfigError
+from workspace_engine._config_core import is_agent_mode as core_is_agent_mode
+from workspace_engine.settings import effective
 
 # Shared Rich Console instance
 console = Console()
@@ -26,16 +30,6 @@ DEFAULT_MAX_LINES = 20
 DEFAULT_MAX_CHARS = 1500
 
 
-# Environment variables set by supported agents for the commands they spawn.
-# Kept identical to ai_governance.output.AGENT_ENV_MARKERS (contract test at repo root).
-AGENT_ENV_MARKERS: tuple[str, ...] = (
-    "CLAUDE_CODE_CHILD_SESSION",
-    "CLAUDECODE",
-    "CODEX_SANDBOX",
-    "ANTIGRAVITY_AGENT",
-)
-
-
 def is_agent_mode() -> bool:
     """Returns True when output should be compact/plain for an AI agent.
 
@@ -43,19 +37,38 @@ def is_agent_mode() -> bool:
     off. Otherwise agent mode is on when an agent env marker is present; a plain
     pipe keeps full human output.
     """
-    forced = os.environ.get("WORKSPACE_AGENT")
-    if forced == "1":
-        return True
-    if forced == "0":
-        return False
-    return any(os.environ.get(name) for name in AGENT_ENV_MARKERS)
+    return core_is_agent_mode("workspace")
+
+
+def _limit(key: str, fallback: int) -> int:
+    try:
+        return int(effective()[key].value)  # type: ignore[call-overload]
+    except ConfigError:
+        return fallback
+
+
+def _limit_or(value: int | None, key: str, fallback: int) -> int:
+    return value if value is not None else _limit(key, fallback)
+
+
+def _fit_lines(lines: list[str], budget: int) -> list[str]:
+    """The leading lines whose joined length stays within ``budget``."""
+    kept: list[str] = []
+    total = 0
+    for line in lines:
+        add = len(line) + (1 if kept else 0)
+        if total + add > budget:
+            break
+        kept.append(line)
+        total += add
+    return kept
 
 
 def truncate(
     text: str,
     *,
-    max_lines: int = DEFAULT_MAX_LINES,
-    max_chars: int = DEFAULT_MAX_CHARS,
+    max_lines: int | None = None,
+    max_chars: int | None = None,
     more_hint: str = "",
 ) -> str:
     """Truncates `text` to at most `max_lines` lines and `max_chars` characters.
@@ -64,6 +77,8 @@ def truncate(
     the last returned line is exactly ``more: <more_hint>`` (or just
     ``more:`` when `more_hint` is empty).
     """
+    max_lines = _limit_or(max_lines, "output.max_lines", DEFAULT_MAX_LINES)
+    max_chars = _limit_or(max_chars, "output.max_chars", DEFAULT_MAX_CHARS)
     all_lines = text.splitlines()
     hint_line = "more:" + (f" {more_hint}" if more_hint else "")
 
@@ -72,16 +87,7 @@ def truncate(
 
     needs_char_cut = len("\n".join(candidate_lines)) > max_chars
     if needs_char_cut:
-        budget = max_chars - len(hint_line) - 1
-        kept: list[str] = []
-        total = 0
-        for line in candidate_lines:
-            add = len(line) + (1 if kept else 0)
-            if total + add > budget:
-                break
-            kept.append(line)
-            total += add
-        candidate_lines = kept
+        candidate_lines = _fit_lines(candidate_lines, max_chars - len(hint_line) - 1)
 
     if needs_line_cut or needs_char_cut:
         candidate_lines.append(hint_line)

@@ -12,31 +12,20 @@ Paths are resolved on every call so tests can monkeypatch the environment.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
+
+from ._config_core import xdg_dir
 
 APP_NAME = "ai-governance"
 
 
 def config_dir() -> Path:
-    explicit = os.environ.get("AI_GOVERNANCE_CONFIG_DIR")
-    if explicit:
-        return Path(explicit).expanduser()
-    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
-    return Path(base).expanduser() / APP_NAME
+    return xdg_dir("config", APP_NAME)
 
 
 def state_dir() -> Path:
-    explicit = os.environ.get("AI_GOVERNANCE_STATE_DIR")
-    if explicit:
-        return Path(explicit).expanduser()
-    base = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
-    return Path(base).expanduser() / APP_NAME
+    return xdg_dir("state", APP_NAME)
 
 
 def data_dir() -> Path:
-    explicit = os.environ.get("AI_GOVERNANCE_DATA_DIR")
-    if explicit:
-        return Path(explicit).expanduser()
-    base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
-    return Path(base).expanduser() / APP_NAME
+    return xdg_dir("data", APP_NAME)

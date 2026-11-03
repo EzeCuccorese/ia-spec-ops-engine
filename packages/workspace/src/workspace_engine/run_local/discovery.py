@@ -116,9 +116,9 @@ def parse_set_env_sh(path: Path) -> dict:
 
 def find_envs_root(start: Path) -> Path:
     cur = start.resolve()
-    local_envs_dir = constants.PROJECT_CONFIG["local_envs_dir_name"]
-    workspaces_dir = constants.PROJECT_CONFIG["workspaces_dir_name"]
-    toolkit_dir = constants.PROJECT_CONFIG["toolkit_dir_name"]
+    local_envs_dir = constants.get_project_config()["local_envs_dir_name"]
+    workspaces_dir = constants.get_project_config()["workspaces_dir_name"]
+    toolkit_dir = constants.get_project_config()["toolkit_dir_name"]
     for p in [cur, *cur.parents]:
         if (
             (p / local_envs_dir).is_dir()
@@ -130,7 +130,7 @@ def find_envs_root(start: Path) -> Path:
 
 
 def global_env_path(repo_path: Path, repo_name: str) -> Path:
-    local_envs_dir = constants.PROJECT_CONFIG["local_envs_dir_name"]
+    local_envs_dir = constants.get_project_config()["local_envs_dir_name"]
     return find_envs_root(repo_path.parent) / local_envs_dir / f"{repo_name}.sh"
 
 
@@ -139,7 +139,7 @@ def workspace_env_path(repo_path: Path, repo_name: str) -> Path | None:
     ws_dir = repo_path.parent.parent
     if ws_dir == root or not ws_dir.name:
         return None
-    local_envs_dir = constants.PROJECT_CONFIG["local_envs_dir_name"]
+    local_envs_dir = constants.get_project_config()["local_envs_dir_name"]
     return root / local_envs_dir / ws_dir.name / f"{repo_name}.sh"
 
 
@@ -269,7 +269,7 @@ _PG_URI_RE = re.compile(r"^(jdbc:)?postgres(ql)?://", re.IGNORECASE)
 
 def override_urls_from_env(env_vars: dict, src_env: dict) -> dict:
     out = dict(env_vars)
-    domain = constants.PROJECT_CONFIG["domain"]
+    domain = constants.get_project_config()["domain"]
     for k, v in env_vars.items():
         if domain in str(v) and k in src_env:
             out[k] = src_env[k]
@@ -466,7 +466,7 @@ def detect_service(repo_path: Path) -> dict | None:
 def find_project_root(start: Path) -> Path | None:
     """Scans parent directories for repository boundaries."""
     candidate = start
-    workspaces_dir = constants.PROJECT_CONFIG["workspaces_dir_name"]
+    workspaces_dir = constants.get_project_config()["workspaces_dir_name"]
     for _ in range(6):
         if (candidate / "repositories").is_dir() or (candidate / workspaces_dir).is_dir():
             return candidate
@@ -482,7 +482,7 @@ def list_sources(root: Path) -> list:
     repos_dir = root / "repositories"
     if repos_dir.is_dir():
         sources.append({"label": "repositories", "path": repos_dir, "kind": "repos"})
-    workspaces_dir = constants.PROJECT_CONFIG["workspaces_dir_name"]
+    workspaces_dir = constants.get_project_config()["workspaces_dir_name"]
     ws_dir = root / workspaces_dir
     if ws_dir.is_dir():
         for ws in sorted(ws_dir.iterdir()):

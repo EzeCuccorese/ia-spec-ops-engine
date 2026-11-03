@@ -14,10 +14,16 @@ from pathlib import Path
 
 from ..corporate import CorporateRule
 from ..rules.catalog import RuleDefinition
+from ..settings import get as setting
 from . import content
 
 MARKER = "ai-governance"
 HOOK_COMMAND_PREFIX = "ai-governance hook"
+
+
+def scout_model() -> str:
+    """Model of the Codex scout subagent (``agents.codex_scout_model``)."""
+    return str(setting("agents.codex_scout_model"))
 
 
 @dataclass(frozen=True)
@@ -256,14 +262,14 @@ class CodexSpec(AgentSpec):
                 home / "agents" / "scout.toml",
                 'name = "scout"\n'
                 f"description = {json.dumps(content.SCOUT_DESCRIPTION)}\n"
-                'model = "gpt-6-luna"\n'
+                f'model = "{scout_model()}"\n'
                 'model_reasoning_effort = "medium"\n'
                 'sandbox_mode = "read-only"\n'
                 f'developer_instructions = """\n{content.SCOUT_INSTRUCTIONS}"""\n',
             ),
             BlockArtifact(
                 home / "config.toml",
-                'agents.default_subagent_model = "gpt-6-luna"\n'
+                f'agents.default_subagent_model = "{scout_model()}"\n'
                 'agents.default_subagent_reasoning_effort = "medium"\n',
                 comment="#",
                 prepend=True,
@@ -368,7 +374,7 @@ AGENTS: dict[str, AgentSpec] = {
         global_hooks="$CODEX_HOME/hooks.json PostToolUse condensing (after `probe` verifies)",
         project_rules=".agents/rules/ai-governance-<id>.md (shared)",
         project_rules_mechanism="injected on edit by a PreToolUse hook (planned)",
-        scout="$CODEX_HOME/agents/scout.toml (gpt-6-luna, effort medium, read-only) + config.toml default subagent model gpt-6-luna",
+        scout="$CODEX_HOME/agents/scout.toml (gpt-6-luna, effort medium, read-only) + config.toml default subagent model gpt-6-luna",  # default of agents.codex_scout_model,
         skills="~/.agents/skills/{taskflow,test-audit}/SKILL.md",
     ),
     "antigravity": AntigravitySpec(

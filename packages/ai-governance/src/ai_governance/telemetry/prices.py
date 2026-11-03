@@ -13,6 +13,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .._config_core import ConfigError
+from ..settings import effective
+
 DEFAULT_PRICES: dict[str, tuple[float, float]] = {
     "claude-fable-5-1": (10.0, 50.0),
     "claude-mythos-5-1": (10.0, 50.0),
@@ -68,10 +71,17 @@ class Rates:
         return Rates(*(value * factor for value in astuple(self)))
 
 
-FEED_TIMEOUT = 10.0
+FEED_TIMEOUT = 10.0  # default of `pricing.timeout_seconds`
 DEFAULT_FEED_URL = (
     "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
 )
+
+
+def _feed_timeout() -> float:
+    try:
+        return float(effective()["pricing.timeout_seconds"].value)  # type: ignore[arg-type]
+    except ConfigError:
+        return FEED_TIMEOUT
 
 
 def _fetch_json(url: str, timeout: float) -> dict[str, Any]:
@@ -204,7 +214,7 @@ class PriceCatalog:
         *,
         fetcher: Callable[[str, float], dict[str, Any]] = _fetch_json,
     ) -> dict[str, Any]:
-        prices = _direct_anthropic_prices(fetcher(url, FEED_TIMEOUT))
+        prices = _direct_anthropic_prices(fetcher(url, _feed_timeout()))
         if not prices:
             raise ValueError("Price feed contains no direct Anthropic models")
         document = {

@@ -14,15 +14,40 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from .._config_core import ConfigError
 from ..paths import config_dir
+from ..settings import effective
 
-EMAIL = os.environ.get("ATLASSIAN_EMAIL", "")
-TOKEN = os.environ.get("ATLASSIAN_API_TOKEN", "")
-BASE_URL = os.environ.get("ATLASSIAN_URL", "").rstrip("/")
-ATLASSIAN_TIMEOUT = float(os.environ.get("ATLASSIAN_TIMEOUT", "30.0"))
+DEFAULT_TIMEOUT_SECONDS = 30.0
+
+
+class UnknownProfileError(LookupError):
+    """Raised when a named Atlassian profile is not defined anywhere."""
+
+
+def atlassian_timeout() -> float:
+    """HTTP timeout in seconds: ``$ATLASSIAN_TIMEOUT``, ``[atlassian] timeout_seconds``, 30."""
+    try:
+        return float(str(effective()["atlassian.timeout_seconds"].value))
+    except (ConfigError, ValueError):
+        return DEFAULT_TIMEOUT_SECONDS
+
+
+def _default_credentials() -> dict[str, str]:
+    return {
+        "email": os.environ.get("ATLASSIAN_EMAIL", ""),
+        "token": os.environ.get("ATLASSIAN_API_TOKEN", ""),
+        "url": os.environ.get("ATLASSIAN_URL", "").rstrip("/"),
+    }
+
 
 _CURRENT_PROFILE: str | None = None
 _PROFILE_OVERRIDES: dict[str, dict[str, str]] = {}
+
+
+def legacy_profiles_path() -> Path:
+    """Pre-XDG profiles file, still read as a fallback."""
+    return Path.home() / ".config" / "atlassian" / "profiles.json"
 
 
 def set_profile(name: str | None) -> None:
@@ -35,11 +60,7 @@ def load_profile_config(profile_name: str | None = None) -> dict[str, str]:
     """Loads configuration for the requested profile from memory, config files, or environment."""
     target = profile_name or _CURRENT_PROFILE or os.environ.get("ATLASSIAN_PROFILE")
     if not target or target.lower() == "default":
-        return {
-            "email": os.environ.get("ATLASSIAN_EMAIL", EMAIL),
-            "token": os.environ.get("ATLASSIAN_API_TOKEN", TOKEN),
-            "url": os.environ.get("ATLASSIAN_URL", BASE_URL).rstrip("/"),
-        }
+        return _default_credentials()
 
     # 1. Check in-memory overrides
     if target in _PROFILE_OVERRIDES:
@@ -49,22 +70,26 @@ def load_profile_config(profile_name: str | None = None) -> dict[str, str]:
     profiles_paths: list[Path] = []
     if os.environ.get("ATLASSIAN_PROFILES_FILE"):
         profiles_paths.append(Path(os.environ["ATLASSIAN_PROFILES_FILE"]))
-    profiles_paths.append(Path.home() / ".config" / "atlassian" / "profiles.json")
     profiles_paths.append(config_dir() / "atlassian.json")
+    profiles_paths.append(legacy_profiles_path())
 
+    known: set[str] = set(_PROFILE_OVERRIDES)
     for p in profiles_paths:
         if p.is_file():
             try:
                 data = json.loads(p.read_text(encoding="utf-8"))
-                if target in data and isinstance(data[target], dict):
-                    prof = data[target]
-                    return {
-                        "email": prof.get("email", ""),
-                        "token": prof.get("token", prof.get("api_token", "")),
-                        "url": prof.get("url", "").rstrip("/"),
-                    }
             except (json.JSONDecodeError, UnicodeDecodeError, OSError):
                 continue
+            if not isinstance(data, dict):
+                continue
+            known.update(k for k, v in data.items() if isinstance(v, dict))
+            if target in data and isinstance(data[target], dict):
+                prof = data[target]
+                return {
+                    "email": prof.get("email", ""),
+                    "token": prof.get("token", prof.get("api_token", "")),
+                    "url": prof.get("url", "").rstrip("/"),
+                }
 
     # 3. Check environment variables: ATLASSIAN_{PROFILE}_EMAIL, etc.
     p_upper = target.upper().replace("-", "_")
@@ -76,21 +101,32 @@ def load_profile_config(profile_name: str | None = None) -> dict[str, str]:
     )
     url = os.environ.get(f"ATLASSIAN_{p_upper}_URL") or os.environ.get(f"ATLASSIAN_URL_{p_upper}")
 
-    return {
-        "email": email or os.environ.get("ATLASSIAN_EMAIL", EMAIL),
-        "token": token or os.environ.get("ATLASSIAN_API_TOKEN", TOKEN),
-        "url": (url or os.environ.get("ATLASSIAN_URL", BASE_URL)).rstrip("/"),
-    }
+    if email or token or url:
+        fallback = _default_credentials()
+        return {
+            "email": email or fallback["email"],
+            "token": token or fallback["token"],
+            "url": (url or fallback["url"]).rstrip("/"),
+        }
+    listed = ", ".join(["default", *sorted(known)])
+    raise UnknownProfileError(
+        f"Unknown Atlassian profile '{target}'. Known profiles: {listed}. "
+        "Define it in the profiles file or via ATLASSIAN_<PROFILE>_EMAIL/_API_TOKEN/_URL."
+    )
 
 
 def get_base_url() -> str:
     cfg = load_profile_config()
-    return cfg.get("url") or os.environ.get("ATLASSIAN_URL", BASE_URL).rstrip("/")
+    return cfg.get("url") or os.environ.get("ATLASSIAN_URL", "").rstrip("/")
 
 
 def check_env() -> None:
     """Validates required environment variables or profile settings."""
-    cfg = load_profile_config()
+    try:
+        cfg = load_profile_config()
+    except UnknownProfileError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
     missing: list[str] = []
     if not cfg.get("email"):
         missing.append("ATLASSIAN_EMAIL")
@@ -110,8 +146,8 @@ def check_env() -> None:
 
 def auth_header() -> dict[str, str]:
     cfg = load_profile_config()
-    email = cfg.get("email") or os.environ.get("ATLASSIAN_EMAIL", EMAIL)
-    token = cfg.get("token") or os.environ.get("ATLASSIAN_API_TOKEN", TOKEN)
+    email = cfg.get("email") or os.environ.get("ATLASSIAN_EMAIL", "")
+    token = cfg.get("token") or os.environ.get("ATLASSIAN_API_TOKEN", "")
     cred = base64.b64encode(f"{email}:{token}".encode()).decode()
     return {
         "Authorization": f"Basic {cred}",
@@ -122,12 +158,11 @@ def auth_header() -> dict[str, str]:
 
 def sanitize_secrets(msg: str) -> str:
     """Sanitizes sensitive tokens, auth headers, and secrets from error messages."""
-    cfg = load_profile_config()
-    tokens = [
-        cfg.get("token"),
-        os.environ.get("ATLASSIAN_API_TOKEN"),
-        TOKEN,
-    ]
+    try:
+        cfg = load_profile_config()
+    except UnknownProfileError:
+        cfg = {}
+    tokens = [cfg.get("token"), os.environ.get("ATLASSIAN_API_TOKEN")]
     for t in tokens:
         if t and len(t) >= 4:
             msg = msg.replace(t, "[REDACTED_TOKEN]")
@@ -155,7 +190,7 @@ def execute_request(
     method: str, url: str, payload: dict | list | None = None, timeout: float | None = None
 ) -> dict | list:
     check_env()
-    req_timeout = timeout if timeout is not None else ATLASSIAN_TIMEOUT
+    req_timeout = timeout if timeout is not None else atlassian_timeout()
     data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(url, data=data, headers=auth_header(), method=method)
     try:

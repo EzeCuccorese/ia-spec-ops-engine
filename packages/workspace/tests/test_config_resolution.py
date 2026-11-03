@@ -273,7 +273,7 @@ def test_load_project_config_default_fallback(
 
     cfg = load_project_config(start_dir=empty_dir)
     assert cfg["project_name"] == "generic"
-    assert cfg["domain"] == "generic.com"
+    assert cfg["domain"] == "local.dev"
 
 
 def test_config_candidates_are_listed_once_when_xdg_is_the_default(tmp_path, monkeypatch):

@@ -27,13 +27,13 @@ _URL_RE = re.compile(r"https?://([a-z0-9.-]+)(\/[^\s\"']*)?", re.IGNORECASE)
 
 def _namespace_prefixes() -> list[str]:
     """Configured namespaces as `<ns>-` prefixes, longest first."""
-    namespaces = constants.PROJECT_CONFIG.get("namespaces") or _DEFAULT_NAMESPACES
+    namespaces = constants.get_project_config().get("namespaces") or _DEFAULT_NAMESPACES
     return sorted((f"{ns.lower()}-" for ns in namespaces), key=len, reverse=True)
 
 
 def _env_slugs() -> tuple[str, ...]:
     """Ids of the configured environments (the ones `ws run-local` offers)."""
-    environments = constants.PROJECT_CONFIG.get("environments") or []
+    environments = constants.get_project_config().get("environments") or []
     slugs = tuple(env["id"] for env in environments if env.get("id"))
     return slugs or _DEFAULT_ENV_SLUGS
 

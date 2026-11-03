@@ -14,13 +14,31 @@ import subprocess
 import sys
 from pathlib import Path
 
+from .._config_core import ConfigError
 from ..paths import state_dir
+from ..settings import effective
 from .agents import Artifact, FileArtifact
 
-LABEL = "com.ai-governance.prices-update"
-LEGACY_LABEL = "com.cucco.claude-uso-precios"  # hand-made agent this one replaces
+LABEL = "com.ai-governance.prices-update"  # neutral default; override with LABEL_ENV
+LABEL_ENV = "AI_GOVERNANCE_SCHEDULE_LABEL"
+LEGACY_LABEL = "com.cucco.claude-uso-precios"  # hand-made agent: detected only, to retire it
 HOUR = 6
 LAUNCH_AGENTS_ENV = "AI_GOVERNANCE_LAUNCH_AGENTS_DIR"
+
+
+def label() -> str:
+    """Launch agent label: ``$AI_GOVERNANCE_SCHEDULE_LABEL``, ``[schedule] label``, or the default."""
+    try:
+        return str(effective()["schedule.label"].value).strip() or LABEL
+    except ConfigError:
+        return LABEL
+
+
+def _retired_labels() -> list[str]:
+    """Older labels to stop and remove: the hand-made agent, and the default label when
+    the configured one differs (an agent installed before the label was configurable)."""
+    current = label()
+    return [name for name in dict.fromkeys([LABEL, LEGACY_LABEL]) if name != current]
 
 
 def supported() -> bool:
@@ -39,8 +57,8 @@ def launch_agents_dir() -> Path:
     return Path.home() / "Library" / "LaunchAgents"
 
 
-def plist_path(label: str = LABEL) -> Path:
-    return launch_agents_dir() / f"{label}.plist"
+def plist_path(name: str | None = None) -> Path:
+    return launch_agents_dir() / f"{name or label()}.plist"
 
 
 def render() -> str:
@@ -52,7 +70,7 @@ def render() -> str:
     )
     log = str(state_dir() / "telemetry" / "prices-update.log")
     document = {
-        "Label": LABEL,
+        "Label": label(),
         "ProgramArguments": [executable, "telemetry", "prices", "update"],
         "RunAtLoad": False,
         "StartCalendarInterval": {"Hour": HOUR, "Minute": 0},
@@ -79,8 +97,9 @@ def _unload(label: str) -> None:
 
 
 def _retire_legacy() -> None:
-    _unload(LEGACY_LABEL)
-    plist_path(LEGACY_LABEL).unlink(missing_ok=True)
+    for name in _retired_labels():
+        _unload(name)
+        plist_path(name).unlink(missing_ok=True)
 
 
 def load() -> None:
@@ -91,7 +110,7 @@ def load() -> None:
     if plist_path().is_file():
         # launchd cannot open the log files when their folder is missing.
         (state_dir() / "telemetry").mkdir(parents=True, exist_ok=True)
-        _unload(LABEL)
+        _unload(label())
         _launchctl("bootstrap", _domain(), str(plist_path()))
 
 
@@ -99,6 +118,6 @@ def unload() -> None:
     """Stops and removes the agent, even an orphan the ledger does not know about,
     and retires the hand-made one it replaced."""
     if supported() and _live():
-        _unload(LABEL)
+        _unload(label())
         plist_path().unlink(missing_ok=True)
         _retire_legacy()

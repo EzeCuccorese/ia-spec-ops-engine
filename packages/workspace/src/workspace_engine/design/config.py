@@ -13,6 +13,8 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from workspace_engine._config_core import merge_tables, read_table, xdg_dir
+
 MODES = ("block", "warn", "off")
 
 DEFAULT_EXCLUDE = (
@@ -85,6 +87,17 @@ def _parse_layers(table: object) -> LayersConfig:
     return LayersConfig(order=tuple(str(name) for name in order), paths=paths)
 
 
+def _read_repo_table(path: Path) -> dict:
+    return tomllib.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+
+
+def _design_table(data: dict, where: str) -> dict | None:
+    table = data.get("design")
+    if table is not None and not isinstance(table, dict):
+        raise ValueError(f"[design] must be a table ({where})")
+    return table
+
+
 @dataclass(frozen=True)
 class DesignConfig:
     mode: str = "block"
@@ -99,17 +112,14 @@ class DesignConfig:
 
     @classmethod
     def load(cls, root: Path) -> DesignConfig:
-        path = root / ".ai-governance" / "config.toml"
-        if not path.is_file():
-            return cls()
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
-        raw_profiles = data.get("profiles", [])
+        user = read_table(xdg_dir("config", "workspace") / "config.toml")
+        repo = _read_repo_table(root / ".ai-governance" / "config.toml")
+        raw_profiles = repo.get("profiles", [])
         profiles = tuple(str(p) for p in raw_profiles) if isinstance(raw_profiles, list) else ()
-        table = data.get("design")
-        if table is None:
+        tables = _design_table(user, "user config"), _design_table(repo, "[design]")
+        if not any(t is not None for t in tables):
             return cls(profiles=profiles)
-        if not isinstance(table, dict):
-            raise ValueError("[design] must be a table")
+        table: dict = merge_tables(*(t for t in tables if t is not None))
         unknown = set(table) - _FIELDS
         if unknown:
             raise ValueError(f"[design] has unknown key(s): {', '.join(sorted(unknown))}")

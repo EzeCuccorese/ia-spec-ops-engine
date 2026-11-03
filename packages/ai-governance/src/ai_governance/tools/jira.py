@@ -35,7 +35,7 @@ from datetime import datetime
 from typing import Any
 
 from ai_governance.tools.atlassian_common import (
-    ATLASSIAN_TIMEOUT,
+    atlassian_timeout,
     auth_header,
     execute_request,
     get_base_url,
@@ -73,7 +73,7 @@ def _request(
 ) -> Any:
     base_endpoint = base if base is not None else _get_api_url()
     url = f"{base_endpoint}{path}"
-    return execute_request(method, url, payload=payload, timeout=ATLASSIAN_TIMEOUT)
+    return execute_request(method, url, payload=payload, timeout=atlassian_timeout())
 
 
 def get(path: str) -> Any:

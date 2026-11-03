@@ -6,8 +6,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
+from workspace_engine._config_core import xdg_dir
 from workspace_engine.common import Color
 
 # ── ANSI Colors ───────────────────────────────────────────────────────────────
@@ -20,8 +22,8 @@ DIM = Color.DIM
 RESET = Color.RESET
 
 # ── Directories and Files ─────────────────────────────────────────────────────
-CONFIG_DIR = Path.home() / ".config" / "run-local"
-DATA_DIR = Path.home() / ".local" / "share" / "run-local"
+CONFIG_DIR = xdg_dir("config", "run-local")
+DATA_DIR = xdg_dir("data", "run-local")
 LOGS_DIR = DATA_DIR / "logs"
 PIDS_DIR = DATA_DIR / "pids"
 ENVS_DIR = DATA_DIR / "envs"
@@ -34,7 +36,12 @@ LOG_MAX_BYTES = 100 * 1024 * 1024  # rotate log when it exceeds 100 MB
 LOG_KEEP_BYTES = 20 * 1024 * 1024  # keep last 20 MB after rotation
 
 # ── Project Configuration ──────────────────────────────────────────────────────
-_CONFIG_LOADED = False
+DEFAULT_DOMAIN = "local.dev"  # also what ``ws config init`` writes and the README documents
+
+
+def url_pattern_for(domain: str) -> str:
+    """Regex matching ``https://<service>.(dev|prod).<domain>/...`` URLs."""
+    return rf"https?://([a-z0-9-]+)\.(?:dev|prod)\.{re.escape(domain)}(/[^\s]*)?"
 
 
 def find_project_root(
@@ -92,12 +99,30 @@ def find_project_root(
 
 def config_candidates(root: Path) -> list[Path]:
     """Config files searched for ``root``, in order; the first that exists is used."""
-    candidate_paths = [root / ".workspace" / "config.json"]
-    if os.environ.get("XDG_CONFIG_HOME"):  # empty means unset (XDG spec)
-        candidate_paths.append(Path(os.environ["XDG_CONFIG_HOME"]) / "workspace" / "config.json")
-    candidate_paths.append(Path.home() / ".config" / "workspace" / "config.json")
-    candidate_paths.append(root / "config.json")
+    candidate_paths = [
+        root / ".workspace" / "config.json",
+        xdg_dir("config", "workspace") / "config.json",
+        Path.home() / ".config" / "workspace" / "config.json",  # XDG_CONFIG_HOME elsewhere
+        root / "config.json",  # listed by the "no configuration found" message
+    ]
     return list(dict.fromkeys(candidate_paths))  # XDG_CONFIG_HOME may be ~/.config
+
+
+def project_config_origins(start_dir: Path | None = None) -> dict[str, tuple[object, str, str]]:
+    """Each project key as ``(value, origin, source)``: default, or the file it was read from
+    (``repo`` under ``<root>/.workspace``, otherwise ``user``)."""
+    config = load_project_config(start_dir)
+    root = find_project_root(start_dir)
+    target = next((p for p in config_candidates(root) if p.exists()), None)
+    try:
+        in_file = set(json.loads(target.read_text(encoding="utf-8"))) if target else set()
+    except (OSError, ValueError, TypeError):
+        in_file = set()
+    origin = "repo" if target is not None and target.is_relative_to(root) else "user"
+    return {
+        key: (value, origin, str(target)) if key in in_file else (value, "default", "")
+        for key, value in config.items()
+    }
 
 
 def load_project_config(
@@ -106,17 +131,16 @@ def load_project_config(
     config_path: Path | None = None,
     custom_path: Path | None = None,
 ) -> dict:
-    global _CONFIG_LOADED
     default_config = {
         "project_name": "generic",
-        "domain": "generic.com",
+        "domain": DEFAULT_DOMAIN,
         "namespaces": [],
         "environments": [],
         "repositories_dir_env_var": "PROJECT_REPOSITORIES_DIR",
         "local_envs_dir_name": "local-envs",
         "workspaces_dir_name": "workspaces",
         "toolkit_dir_name": "project-toolkit",
-        "url_pattern": r"https?://([a-z0-9-]+)\.(?:dev|prod)\.generic\.com(/[\S]*)?",
+        "url_pattern": url_pattern_for(DEFAULT_DOMAIN),
     }
 
     explicit_path = config_path or custom_path
@@ -141,18 +165,53 @@ def load_project_config(
             pass
         else:
             if isinstance(user_config, dict):
-                for k, v in user_config.items():
-                    default_config[k] = v
-                _CONFIG_LOADED = True
+                default_config.update(user_config)
+                _LAZY_CACHE["loaded"] = True
+                if "domain" in user_config and "url_pattern" not in user_config:
+                    default_config["url_pattern"] = url_pattern_for(str(user_config["domain"]))
     return default_config
 
 
-PROJECT_CONFIG = load_project_config()
-
 # ── Environments ───────────────────────────────────────────────────────────────
 LOCAL_ENV = {"id": "local", "cluster": None, "namespace": None, "label": "local — set-env-local.sh"}
-KUBE_ENVS = PROJECT_CONFIG["environments"]
-ENVIRONMENTS = [LOCAL_ENV] + KUBE_ENVS
+
+# Loaded on first access (not at import), so importing the module never reads the disk
+# and the config is resolved against the cwd of the command actually running.
+_LAZY_CACHE: dict[str, object] = {}
+
+
+def get_project_config() -> dict:
+    """The project configuration, loaded once per process."""
+    if "PROJECT_CONFIG" in globals():  # explicitly assigned (tests, embedding callers)
+        return globals()["PROJECT_CONFIG"]
+    if "PROJECT_CONFIG" not in _LAZY_CACHE:
+        _LAZY_CACHE["PROJECT_CONFIG"] = load_project_config()
+    return _LAZY_CACHE["PROJECT_CONFIG"]  # type: ignore[return-value]
+
+
+def get_environments() -> list[dict]:
+    """``local`` plus the project's own environments."""
+    if "ENVIRONMENTS" in globals():
+        return globals()["ENVIRONMENTS"]
+    return [LOCAL_ENV] + get_project_config()["environments"]
+
+
+def config_loaded() -> bool:
+    """True when a project config file was found and merged on top of the defaults."""
+    get_project_config()
+    return bool(_LAZY_CACHE.get("loaded"))
+
+
+def __getattr__(name: str) -> object:
+    """Lazy ``PROJECT_CONFIG`` / ``KUBE_ENVS`` / ``ENVIRONMENTS`` (PEP 562)."""
+    if name == "PROJECT_CONFIG":
+        return get_project_config()
+    if name == "KUBE_ENVS":
+        return get_project_config()["environments"]
+    if name == "ENVIRONMENTS":
+        return get_environments()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 # ── Noise filter ───────────────────────────────────────────────────────────────
 _NOISE_EXACT = {
