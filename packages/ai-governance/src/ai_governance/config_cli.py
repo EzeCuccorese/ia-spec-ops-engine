@@ -8,21 +8,16 @@ from ._config_core import ConfigError, Value, render_show
 from .settings import effective, repo_root
 
 
-def _taskflow_controls() -> dict[str, Value]:
-    """Judges, checks and risk rules in force, with who set them (user, default or a repo)."""
+def _taskflow_rows() -> dict[str, Value]:
+    """Exactly what ``taskflow.config.load_config`` resolves, with the origin of each value."""
     from pathlib import Path
 
-    from .taskflow.config import load_config
+    from .taskflow.config import describe_config
 
-    origins: dict[str, tuple[str, str]] = {}
-    root = repo_root() or Path.cwd()
     try:
-        load_config([root], origins=origins)
+        return describe_config([repo_root() or Path.cwd()])
     except (ConfigError, ValueError, OSError):
         return {}
-    return {
-        key: Value(state, state.split(" ")[0], source) for key, (state, source) in origins.items()
-    }
 
 
 def main(argv: list[str]) -> int:
@@ -37,6 +32,6 @@ def main(argv: list[str]) -> int:
     except ConfigError as exc:
         print(f"Error: {exc}")
         return 1
-    values.update(_taskflow_controls())
+    values.update(_taskflow_rows())
     print(render_show(values, origin=args.origin, as_json=args.json))
     return 0

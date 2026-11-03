@@ -213,6 +213,11 @@ def _judge_commands(sub: Subparsers) -> None:
     item = add("digest", cli.cmd_digest, "Compact context of the open tasks", task="none")
     item.add_argument("--id", dest="task_id")
     item.add_argument("--max-chars", type=int, default=1600)
+    item = add(
+        "trust", cli.cmd_trust, "Approve the check commands a repository defines", task="none"
+    )
+    item.add_argument("--repo", default=".")
+    item.add_argument("--yes", action="store_true", help="Do not ask (outside agent mode)")
     add("config", cli.cmd_config, "Show and validate the taskflow config", task="none")
 
 

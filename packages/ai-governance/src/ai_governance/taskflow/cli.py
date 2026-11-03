@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from ..output import emit_json, emit_kv, emit_rows, emit_status, emit_text
+from ..output import emit_json, emit_kv, emit_rows, emit_status, emit_text, is_agent_mode
 from . import tdd
 from .approvals import (
     RISKY_ACTIONS,
@@ -23,7 +23,7 @@ from .approvals import (
     request_tag,
     valid_approval,
 )
-from .config import FlowConfig, load_config
+from .config import FlowConfig, load_config, record_trust
 from .digest import digest
 from .gates import (
     NEXT_COMMAND,
@@ -80,11 +80,14 @@ def _refresh(
     if task.repos:
         stamp = code_stamp(task.repos, config.policy_digest, check_remote=remote)
         current = policy_summary(config)
-        stamp["policy_reduced"] = policy_reductions(task.policy or current, current)
+        # A task starts from the user's own policy, so what a repository switches off before
+        # the first stamp is a reduction like any later one.
+        accepted = task.policy or config.baseline_policy or current
+        stamp["policy_reduced"] = policy_reductions(accepted, current)
 
         def save(t: Task) -> None:
             t.code_stamp = stamp
-            t.policy = t.policy or current
+            t.policy = t.policy or accepted
 
         task = store.mutate(task.id, save)
     paths: list[str] = []
@@ -368,6 +371,9 @@ def cmd_status(args: argparse.Namespace) -> int:
         ("Expired approvals", ", ".join(_expired_approvals(task)) or "none"),
         ("Next", NEXT_COMMAND.get(task.phase, "-")),
     ]
+    waiting = _warn_pending_trust(config) if not args.json else []
+    if args.json or waiting:
+        pairs.insert(-1, ("Pending trust", "; ".join(waiting) or "none"))
     if args.json:
         emit_json(dict(pairs))
     else:
@@ -634,6 +640,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
     if errors:
         raise ValueError("Invalid taskflow config: " + "; ".join(errors))
     task, risk = _refresh(store, task, config)
+    _warn_pending_trust(config)
     if task.workflow == "manual":
         raise ValueError("Manual tasks have no judges")
     missing = judge_unmet(task, task.stamp_key) + policy_unmet(task, task.stamp_key)
@@ -722,8 +729,48 @@ def cmd_digest(args: argparse.Namespace) -> int:
     return 0
 
 
+def _warn_pending_trust(config: FlowConfig) -> list[str]:
+    notes = [
+        f"repo checks pending trust: {p.repo} ({len(p.commands)} command(s), not run). "
+        f"Review and approve with `ai-governance taskflow trust --repo {p.repo}`"
+        for p in config.pending_trust
+    ]
+    for note in notes:
+        emit_status("warn", note)
+    return notes
+
+
+def cmd_trust(args: argparse.Namespace) -> int:
+    """Shows the check commands a repository defines and, after the user confirms, remembers
+    that exact set (a changed set is pending again)."""
+    repo = Path(args.repo).expanduser().resolve()
+    pending = [p for p in load_config([repo]).pending_trust if p.repo == str(repo)]
+    if not pending:
+        emit_status("ok", f"No repo checks pending trust in {repo}")
+        return 0
+    for command in pending[0].commands:
+        print(f"  $ {command}")
+    if is_agent_mode() or not (args.yes or sys.stdin.isatty()):
+        emit_status(
+            "error",
+            "These commands run with your permissions: approve them yourself in a terminal "
+            f"(ai-governance taskflow trust --repo {repo})",
+        )
+        return 1
+    if (
+        not args.yes
+        and input("Run these checks for this repository? [y/N] ").strip().lower() != "y"
+    ):
+        emit_status("warn", "Not trusted")
+        return 1
+    digest_ = record_trust(repo, pending[0].commands)
+    emit_status("ok", f"Trusted {len(pending[0].commands)} command(s) for {repo} ({digest_})")
+    return 0
+
+
 def cmd_config(args: argparse.Namespace) -> int:
     config = load_config([Path.cwd()])
+    _warn_pending_trust(config)
     errors = config.validate()
     emit_kv(
         [

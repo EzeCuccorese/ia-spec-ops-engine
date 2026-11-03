@@ -280,7 +280,21 @@ checks = ["ws check --changed"] # check commands, verbatim
 risk = ["migrations"]           # risk rule names
 ```
 
-A replaced judge keeps the user's `agent` and `model`. `ai-governance config show --origin`
+Every judge a repository adds or replaces runs with the user's agent and model
+(`taskflow.judge_agent` / `taskflow.judge_model`); `agent`, `model`, `binary` and `command`
+fields in the repository file are ignored with a warning.
+
+**Repository checks need your approval.** Check commands run through a shell with your
+permissions, so the commands a repository introduces (its `[checks] commands` and the
+`checks` of its risk rules, except commands the user already defines) do not run until you
+approve that exact set, like direnv: `ai-governance taskflow trust [--repo PATH]` shows
+the commands and, after you confirm in a terminal, stores a hash of the set in
+`~/.local/state/ai-governance/taskflow/trust.json`. It refuses to run in agent mode. A new
+or changed command set is pending again; until then `taskflow status`, `config` and
+`judge` report `repo checks pending trust` and skip those commands.
+
+A task's first approval starts from the user's own policy, so whatever a repository
+disables before the first stamp is listed as a policy reduction too. `ai-governance config show --origin`
 lists them as `taskflow.judge.<focus>`, `taskflow.check.<command>` and `taskflow.risk.<name>`
 with `user`, `default` or `repo (added|replaced|disabled)`. Removing controls counts as a
 policy reduction for `taskflow` approvals. Of its scalars only `timeout_seconds` follows the precedence above; `workflow` and the

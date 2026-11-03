@@ -2,26 +2,14 @@
 
 from __future__ import annotations
 
-from .config import FlowConfig
+from .config import FlowConfig, summarize
 from .models import JsonDict
 
 
 def policy_summary(config: FlowConfig) -> JsonDict:
     """The controls a task accepted, rule by rule; weakening any of them later is a
     reduction that needs the user's D3 ``policy-downgrade`` approval."""
-    return {
-        "judges": sorted(str(j.get("focus")) for j in config.judges),
-        "checks": sorted(config.checks),
-        "rules": {
-            r.name: {
-                "paths": sorted(r.paths),
-                "judges": sorted(r.judges),
-                "checks": sorted(r.checks),
-                "restaging": r.restaging,
-            }
-            for r in config.risk_rules
-        },
-    }
+    return summarize(config.judges, config.checks, config.risk_rules)
 
 
 def _rule_reductions(name: str, rule: JsonDict, now: JsonDict | None) -> list[str]:
