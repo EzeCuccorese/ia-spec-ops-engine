@@ -777,7 +777,12 @@ def _user_confirms(repo: Path, assume_yes: bool) -> bool:
         return False
     if assume_yes:
         return True
-    if input("Run these checks for this repository? [y/N] ").strip().lower() == "y":
+    try:
+        answer = input("Run these checks for this repository? [y/N] ")
+    except (EOFError, KeyboardInterrupt):
+        print()  # the terminal closed or the user hit Ctrl-C: that is a refusal, not a crash
+        answer = ""
+    if answer.strip().lower() == "y":
         return True
     emit_status("warn", "Not trusted")
     return False
@@ -787,7 +792,7 @@ def cmd_trust(args: argparse.Namespace) -> int:
     """Shows the check commands a repository defines and, after the user confirms, remembers
     that exact set (a changed set is pending again)."""
     repo = Path(args.repo).expanduser().resolve()
-    pending = [p for p in load_config([repo]).pending_trust if p.repo == str(repo)]
+    pending = [p for p in load_config([repo]).pending_trust if Path(p.repo).resolve() == repo]
     if not pending:
         emit_status("ok", f"No repo config pending trust in {repo}")
         return 0

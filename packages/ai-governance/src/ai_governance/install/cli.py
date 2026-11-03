@@ -126,9 +126,7 @@ def _user_report(args: argparse.Namespace, agents: list[str]) -> Report:
             corporate.packs(only=names)
         except ValueError as exc:
             raise SystemExit(f"Error: {exc}") from exc
-        return install_user(
-            agents, dry_run=args.dry_run, force=args.force, corporate_names=names or None
-        )
+        return install_user(agents, dry_run=args.dry_run, force=args.force, corporate_names=names)
     return uninstall_user(agents, dry_run=args.dry_run)
 
 

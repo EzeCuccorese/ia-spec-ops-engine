@@ -28,9 +28,16 @@ SETTINGS: tuple[Setting, ...] = (
         DEFAULT_PROTECTED,
         "QG_PROTECTED",
         "Regex of branches the gate refuses to push to directly",
+        empty_env_is_unset=True,  # the hook script reads ${QG_PROTECTED:-default}
     ),
     Setting("gate.timeout_seconds", 900, "QG_TIMEOUT", "Timeout of each gate step"),
-    Setting("gate.commit_style", "", "QG_COMMIT_STYLE", "Set to `conventional` to enforce it"),
+    Setting(
+        "gate.commit_style",
+        "",
+        "QG_COMMIT_STYLE",
+        "Set to `conventional` to enforce it",
+        empty_env_is_unset=True,  # the hook scripts read ${QG_COMMIT_STYLE:-...}
+    ),
     Setting(
         "logs.retention_days",
         7,

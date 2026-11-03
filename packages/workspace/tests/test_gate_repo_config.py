@@ -170,3 +170,20 @@ def test_without_ws_anywhere_the_hooks_fall_back_silently(repo: Path, tmp_path: 
 def test_every_hook_looks_for_ws_before_loading_the_config(hook: str) -> None:
     script = (HOOKS / hook).read_text(encoding="utf-8")
     assert script.index('"$HOME/.local/bin"') < script.index("ws hooks gate-config")
+
+
+def test_gate_env_values_keep_the_shell_semantics_of_the_hooks() -> None:
+    from workspace_engine._config_core import Layers, resolve
+    from workspace_engine.settings import SETTINGS
+
+    def resolved(key: str, value: str):
+        setting = next(s for s in SETTINGS if s.key == key)
+        return resolve([setting], Layers({}, {}, {}, {}), environ={setting.env: value})[key]
+
+    # ${QG_PROTECTED:-default}, ${QG_COMMIT_STYLE:-...} and the timeout: "" means unset ...
+    for key in ("gate.protected_branches", "gate.commit_style", "gate.timeout_seconds"):
+        assert resolved(key, "").origin == "default", key
+    assert resolved("gate.commit_style", "conventional").value == "conventional"
+    # ... while a defined-but-empty QG_SKIP is an explicit "skip nothing".
+    skip = resolved("gate.skip", "")
+    assert (skip.value, skip.origin) == ([], "env")

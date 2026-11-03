@@ -265,7 +265,8 @@ Files are TOML (`[frugality]` / `threshold_chars = 4000`). Older JSON files keep
 Role, agent-binary and model settings (`taskflow.<role>_agent|_model`, `agents.*`) are read from
 the user level only: a repository cannot swap the agents that run with full permissions.
 `ai-governance install --scope user --corporate acme,globex` (or `corporate.packs`) installs
-only those company packs; an unknown name is an error that lists the packs present.
+only those company packs; an unknown name is an error that lists the packs present. `--corporate ""` (or `AI_GOVERNANCE_CORPORATE=`) installs no pack; choosing nothing installs every pack present.
+An environment variable that is set but empty counts as an empty value (empty list, empty text, false); for numeric settings an empty value is treated as unset.
 `hooks.gate_command` is split like a shell line and its first word looked up on `PATH`.
 
 `taskflow.toml` keeps roles, judges, checks and risk rules. The repository's

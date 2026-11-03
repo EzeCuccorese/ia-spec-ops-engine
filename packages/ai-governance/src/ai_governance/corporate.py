@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .settings import get as setting
+from .settings import effective
 
 CORPORATE_DIR = "corporate-rules"
 
@@ -63,23 +63,32 @@ def available(root: Path | None = None) -> list[str]:
 
 
 def packs(root: Path | None = None, only: Sequence[str] | None = None) -> list[CorporatePack]:
-    """The packs present on disk, or just ``only`` (default: ``corporate.packs``, empty = all).
+    """The packs present on disk, or exactly the ones chosen.
 
-    A name that is not a folder of the corporate root raises ``ValueError`` listing the
-    available packs, so a typo never silently installs nothing.
+    ``only`` (``--corporate``) wins; otherwise ``corporate.packs`` / ``AI_GOVERNANCE_CORPORATE``
+    when set. An explicit empty choice selects no pack; nothing chosen at all installs every
+    pack present. A name that is not a folder of the corporate root raises ``ValueError``
+    listing the available packs, so a typo never silently installs nothing.
     """
     base = root or corporate_root()
     present = available(base)
-    wanted = list(only) if only is not None else list(selected_names())
-    unknown = [name for name in wanted if name not in present]
+    wanted = list(only) if only is not None else selected_names()
+    unknown = [name for name in wanted or [] if name not in present]
     if unknown:
         raise ValueError(
             f"Unknown corporate pack(s): {', '.join(unknown)}. Available: {', '.join(present) or '(none)'}"
         )
-    return [CorporatePack(name, base / name) for name in (wanted or present)]
+    return [CorporatePack(name, base / name) for name in (present if wanted is None else wanted)]
 
 
-def selected_names(flag: str | None = None) -> list[str]:
-    """``--corporate`` > ``AI_GOVERNANCE_CORPORATE`` > ``[corporate] packs`` > every pack."""
-    chosen = setting("corporate.packs", flags={"corporate.packs": flag} if flag else None)
-    return [str(name) for name in chosen]  # type: ignore[attr-defined]
+def selected_names(flag: str | None = None) -> list[str] | None:
+    """``--corporate`` > ``AI_GOVERNANCE_CORPORATE`` > ``[corporate] packs``.
+
+    None means nothing was chosen (every pack); an empty list means "no pack" because the
+    flag, variable or file said so explicitly.
+    """
+    flags = {"corporate.packs": flag} if flag is not None else None
+    chosen = effective(flags=flags)["corporate.packs"]
+    if chosen.origin == "default":
+        return None
+    return [str(name) for name in chosen.value]  # type: ignore[attr-defined]

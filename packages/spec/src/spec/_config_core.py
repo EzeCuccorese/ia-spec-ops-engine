@@ -81,6 +81,9 @@ class Setting:
     default: object
     env: str | None = None
     help: str = ""
+    # True when the variable is read by a shell that treats an empty value as unset
+    # (``${VAR:-default}``); numbers also treat "" as unset since "" is not a number.
+    empty_env_is_unset: bool = False
 
 
 @dataclass(frozen=True)
@@ -218,6 +221,16 @@ def load_layers(
     return Layers(user, repo, user_files, repo_files)
 
 
+def _env_value(setting: Setting, env: Mapping[str, str]) -> str | None:
+    """The variable's value; set-but-empty counts (an empty list, text or false) except where
+    "" means unset: numbers, and settings flagged ``empty_env_is_unset``."""
+    raw = env.get(setting.env) if setting.env else None
+    if raw != "":
+        return raw
+    numeric = isinstance(setting.default, int | float) and not isinstance(setting.default, bool)
+    return None if numeric or setting.empty_env_is_unset else raw
+
+
 def resolve(
     settings: Sequence[Setting],
     layers: Layers,
@@ -236,8 +249,9 @@ def resolve(
             found = Value(coerce(layers.user[key], like, key), "user", str(layers.user_files[key]))
         if key in layers.repo:
             found = Value(coerce(layers.repo[key], like, key), "repo", str(layers.repo_files[key]))
-        if setting.env and env.get(setting.env):
-            found = Value(coerce(env[setting.env], like, key), "env", setting.env)
+        from_env = _env_value(setting, env)
+        if from_env is not None:
+            found = Value(coerce(from_env, like, key), "env", setting.env or "")
         if given.get(key) is not None:
             found = Value(coerce(given[key], like, key), "flag", f"--{key}")
         resolved[key] = found
