@@ -14,15 +14,15 @@ from pathlib import Path
 
 from workspace_engine.run_local import constants
 from workspace_engine.run_local.constants import (
-    _CONFIG_LOADED,
     BOLD,
     CYAN,
     DIM,
     GREEN,
     LOGS_DIR,
-    PROJECT_CONFIG,
     RED,
     RESET,
+    config_loaded,
+    get_project_config,
 )
 from workspace_engine.run_local.discovery import (
     _ensure_config,
@@ -53,7 +53,9 @@ from workspace_engine.run_local.tui import (
     _run_selection_tui,
 )
 
-_PROJECT_URL_RE = re.compile(PROJECT_CONFIG["url_pattern"])
+
+def _project_url_re() -> re.Pattern[str]:
+    return re.compile(get_project_config()["url_pattern"])
 
 
 def _open_browser(url: str) -> None:
@@ -75,11 +77,11 @@ def _dependents_to_rewire(results: list, launch_configs: list, new_names: set[st
         env = fetch_env_for(cfg, cfg.get("base_env", "local"))
         for v in env.values():
             sv = str(v)
-            if PROJECT_CONFIG["domain"] not in sv:
+            if get_project_config()["domain"] not in sv:
                 continue
             hit = any(
                 any(n in _service_name_from_subdomain(m.group(1)) for n in new_names)
-                for m in _PROJECT_URL_RE.finditer(sv)
+                for m in _project_url_re().finditer(sv)
             )
             if hit:
                 cands.append(r["name"])
@@ -161,7 +163,7 @@ def _resolve_sources(dir_arg: str | None) -> tuple[list, Path | None]:
         return sources, force_repos_dir
     start = Path(dir_arg).expanduser().resolve() if dir_arg else Path.cwd()
     root = find_project_root(start)
-    workspaces_dir = PROJECT_CONFIG["workspaces_dir_name"]
+    workspaces_dir = get_project_config()["workspaces_dir_name"]
     if root is None:
         print(
             f"{RED}Error: no project found with repositories/ or {workspaces_dir}/ from {start}.{RESET}"
@@ -320,7 +322,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.stop:  # stopping reads only the PID files, no configuration needed
         stop_all()
         return
-    if not _CONFIG_LOADED and "pytest" not in sys.modules:
+    if not config_loaded() and "pytest" not in sys.modules:
         _exit_without_config()
 
     db_cfg = _ensure_config()

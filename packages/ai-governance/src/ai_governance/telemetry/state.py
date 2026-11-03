@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from dataclasses import asdict, dataclass
 from datetime import date
@@ -65,6 +66,11 @@ class UsageConfig:
                 data[field_name] = tuple(int(value) for value in data[field_name])
         if "holiday_dates" in data:
             data["holiday_dates"] = tuple(str(value) for value in data["holiday_dates"])
+        ignored = sorted(set(data) - set(cls.__dataclass_fields__))
+        if ignored:
+            print(
+                f"warning: ignoring unknown key(s) in {path}: {', '.join(ignored)}", file=sys.stderr
+            )
         config = cls(
             **{key: value for key, value in data.items() if key in cls.__dataclass_fields__}
         )

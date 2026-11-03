@@ -394,3 +394,11 @@ def test_judge_refuses_a_dirty_tree_and_keeps_edits_out(
     (repo / "dirty.txt").write_text("uncommitted\n")
     assert cli_run("judge", "ONB-1") != 0
     assert cli_run("judge", "ONB-1", "--focus", "nope") != 0
+
+
+def test_split_cli_modules_keep_their_public_paths() -> None:
+    from ai_governance.taskflow import cli
+
+    assert cli.GUIDE.startswith("Flow") and callable(cli.digest)
+    assert callable(cli.policy_summary) and callable(cli.policy_reductions)
+    assert cli._parser().prog.endswith("taskflow") or cli._parser().prog
