@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -25,7 +26,7 @@ from .approvals import (
     request_tag,
     valid_approval,
 )
-from .config import FlowConfig, load_config, record_trust
+from .config import REPO_CONFIG, FlowConfig, load_config, record_trust
 from .digest import digest
 from .gates import (
     NEXT_COMMAND,
@@ -760,11 +761,11 @@ def cmd_trust(args: argparse.Namespace) -> int:
     if not pending:
         emit_status("ok", f"No repo checks pending trust in {repo}")
         return 0
-    print("Execution plan, in the order it runs (* = introduced by this repository):")
-    for step in pending[0].plan:
-        mark = "*" if step[-1] in pending[0].commands else " "
-        scope = f" [rule {step[1]}]" if step[0] == "rule" else ""
-        print(f" {mark} $ {step[-1]}{scope}")
+    print(f"Control config of {repo / REPO_CONFIG} that you are approving (everything in it):")
+    print(json.dumps(pending[0].config, indent=2, sort_keys=True, ensure_ascii=False))
+    print("Commands it introduces, which will run with your permissions:")
+    for command in pending[0].commands:
+        print(f"  $ {command}")
     if _agent_markers() or not (sys.stdin.isatty() and sys.stdout.isatty()):
         emit_status(
             "error",
@@ -779,7 +780,7 @@ def cmd_trust(args: argparse.Namespace) -> int:
     ):
         emit_status("warn", "Not trusted")
         return 1
-    digest_ = record_trust(repo, pending[0].plan)
+    digest_ = record_trust(repo, pending[0].config or {})
     emit_status("ok", f"Trusted {len(pending[0].commands)} command(s) for {repo} ({digest_})")
     return 0
 

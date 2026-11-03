@@ -285,13 +285,21 @@ Every judge a repository adds or replaces runs with the user's agent and model
 fields in the repository file are ignored with a warning.
 
 **Repository checks need your approval.** Check commands run through a shell with your
-permissions, so the commands a repository introduces (its `[checks] commands` and the
-`checks` of its risk rules, except commands the user already defines) do not run until you
-approve that exact set, like direnv: `ai-governance taskflow trust [--repo PATH]` shows
-the commands and, after you confirm in a terminal, stores a hash of the set in
-`~/.local/state/ai-governance/taskflow/trust.json` (a canonical JSON hash of the ordered execution plan, checks first and then each risk rule's commands exactly as they run, with no sorting or de-duplication, so reordering or moving a command needs a new approval; `trust` prints that same ordered list; hashes of older versions are simply pending again). It needs stdin and stdout on a terminal even with `--yes` and refuses when an agent variable (`CLAUDECODE`, `CODEX_*`, `CLAUDE_CODE_*`, ...) is present, whatever `AI_GOVERNANCE_AGENT` says. A new
-or changed command set is pending again; until then `taskflow status`, `config` and
-`judge` report `repo checks pending trust` and skip those commands.
+permissions, so a repository's controls are trusted per repository, like direnv. The trust
+is a hash (`v4:`) of that repository's whole parsed `.ai-governance/taskflow.toml`: checks,
+risk rules with their `paths` and `checks`, judges and `[disable]`, with keys sorted and list
+order kept. Any change to that file (a command, a rule's paths, the order of a list) makes the
+repository pending again: until you approve it, the commands it introduces (its `[checks]`
+and its rules' `checks`, except commands the user already defines) do not run, and
+`taskflow status`, `config` and `judge` report `repo checks pending trust`.
+`ai-governance taskflow trust [--repo PATH]` prints the whole control config it approves and
+the commands it introduces and, after you confirm in a terminal, stores the hash in
+`~/.local/state/ai-governance/taskflow/trust.json`. Each repository is trusted on its own,
+independent of other repositories and of the user's config (the user's commands are trusted
+by definition), so a task bound to several repositories runs all the approved ones. It needs
+stdin and stdout on a terminal even with `--yes` and refuses when an agent variable
+(`CLAUDECODE`, `CODEX_*`, `CLAUDE_CODE_*`, ...) is present, whatever `AI_GOVERNANCE_AGENT`
+says. Entries of older schemes (`v1`-`v3`) are simply pending again.
 
 A task's first approval starts from the user's own policy, so whatever a repository
 disables before the first stamp is listed as a policy reduction too. `ai-governance config show --origin`

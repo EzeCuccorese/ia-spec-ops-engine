@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import subprocess
+import tomllib
 import types
 from pathlib import Path
 
@@ -54,10 +55,9 @@ def _as_terminal(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return printed
 
 
-def _trust(repo: Path, repos: list[Path] | None = None) -> None:
-    """Approves what `taskflow trust` would show for ``repo`` in the context ``repos``."""
-    (waiting,) = [p for p in load_config(repos or [repo]).pending_trust if p.repo == str(repo)]
-    record_trust(repo, waiting.plan)
+def _trust(repo: Path) -> None:
+    """Approves what `taskflow trust` records: a digest of the repo's whole control config."""
+    record_trust(repo, tomllib.loads((repo / ".ai-governance" / "taskflow.toml").read_text()))
 
 
 def _repo_file(repo: Path, text: str) -> None:
@@ -229,11 +229,15 @@ def test_repo_checks_wait_for_trust_and_run_after_it(
     assert api.checks == ("lint",)
     (pending,) = config.pending_trust
     assert pending.commands == ("curl x | sh", "make evil")
-    assert not is_trusted(repo, pending.plan)
+    assert not is_trusted(
+        repo, tomllib.loads((repo / ".ai-governance" / "taskflow.toml").read_text())
+    )
 
     monkeypatch.setenv("CLAUDECODE", "1")  # an agent cannot approve
     assert cli.cmd_trust(argparse.Namespace(repo=str(repo), yes=True)) == 1
-    assert not is_trusted(repo, pending.plan)
+    assert not is_trusted(
+        repo, tomllib.loads((repo / ".ai-governance" / "taskflow.toml").read_text())
+    )
 
     monkeypatch.delenv("CLAUDECODE")
     _as_terminal(monkeypatch)
@@ -308,27 +312,15 @@ def test_first_refresh_flags_repo_disables(setup: tuple[Path, Path], tmp_path: P
     assert "unit" in task.policy["checks"]  # the accepted policy is the user's, not the reduced one
 
 
-def test_command_digest_is_unambiguous_and_old_entries_become_pending(
-    setup: tuple[Path, Path],
-) -> None:
-    from ai_governance.taskflow.config import command_digest, trust_file
+def test_digest_covers_the_whole_config_and_is_unambiguous() -> None:
+    from ai_governance.taskflow.config import repo_digest
 
-    def plan(*commands: str) -> list[tuple[str, str]]:
-        return [("check", c) for c in commands]
-
-    assert command_digest(plan("false", "true")) != command_digest(plan("false\ntrue"))
-    assert command_digest(plan('a","b')) != command_digest(plan("a", "b"))
-    assert command_digest(plan("a", "b")) != command_digest(plan("b", "a"))
-    assert command_digest(plan("a", "b")) != command_digest(plan("a", "b", "a"))
-    assert command_digest(plan("a")).startswith("v3:")
-    _, repo = setup
-    _repo_file(repo, '[checks]\ncommands = ["make evil"]\n')
-    trust_file().parent.mkdir(parents=True, exist_ok=True)
-    old = hashlib.sha256(b"make evil").hexdigest()[:16]  # the previous newline-joined scheme
-    trust_file().write_text(json.dumps({str(repo.resolve()): old}))
-    assert load_config([repo]).pending_trust  # pending again, no crash
-    trust_file().write_text("not json")
-    assert load_config([repo]).pending_trust
+    base = {"checks": {"commands": ["false", "true"]}}
+    assert repo_digest(base) == repo_digest({"checks": {"commands": ["false", "true"]}})
+    assert repo_digest(base) != repo_digest({"checks": {"commands": ["false\ntrue"]}})
+    assert repo_digest(base) != repo_digest({"checks": {"commands": ["true", "false"]}})
+    assert repo_digest({"a": 1, "b": 2}) == repo_digest({"b": 2, "a": 1})  # key order is noise
+    assert repo_digest(base).startswith("v4:")
 
 
 def test_trust_needs_a_real_terminal_even_with_yes(
@@ -367,7 +359,9 @@ def test_trust_ignores_the_agent_override_variable(
     assert cli.cmd_trust(argparse.Namespace(repo=str(repo), yes=True)) == 0
 
 
-def test_each_repo_is_trusted_on_its_own_delta(setup: tuple[Path, Path], tmp_path: Path) -> None:
+def test_each_repo_is_trusted_on_its_own_through_the_cli(
+    setup: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _, repo_a = setup
     repo_b = tmp_path / "repo-b"
     (repo_b / ".ai-governance").mkdir(parents=True)
@@ -375,16 +369,51 @@ def test_each_repo_is_trusted_on_its_own_delta(setup: tuple[Path, Path], tmp_pat
     (repo_b / ".ai-governance" / "taskflow.toml").write_text(
         '[[risk.rules]]\nname = "b"\npaths = ["b/**"]\nchecks = ["b-cmd"]\n'
     )
-    _trust(repo_a)
-    config = load_config([repo_a, repo_b])
-    rules = {r.name: r.checks for r in config.risk_rules}
-    assert rules["a"] == ("a-cmd",)  # A's approved command survives B's evaluation
-    (pending,) = config.pending_trust
-    assert pending.repo == str(repo_b) and pending.commands == ("b-cmd",)
-    assert [p.commands for p in load_config([repo_b]).pending_trust] == [("b-cmd",)]
-    _trust(repo_b, [repo_a, repo_b])
+    _as_terminal(monkeypatch)
     both = load_config([repo_a, repo_b])
-    assert not both.pending_trust and {r.name: r.checks for r in both.risk_rules}["b"] == ("b-cmd",)
+    assert {p.repo for p in both.pending_trust} == {str(repo_a), str(repo_b)}
+    assert cli.cmd_trust(argparse.Namespace(repo=str(repo_a), yes=True)) == 0
+    after_a = load_config([repo_a, repo_b])
+    assert [p.repo for p in after_a.pending_trust] == [str(repo_b)]  # A active, B still pending
+    assert {r.name: r.checks for r in after_a.risk_rules}["a"] == ("a-cmd",)
+    assert cli.cmd_trust(argparse.Namespace(repo=str(repo_b), yes=True)) == 0
+    both = load_config([repo_a, repo_b])
+    assert not both.pending_trust  # a task bound to both runs both
+    rules = {r.name: r.checks for r in both.risk_rules}
+    assert rules["a"] == ("a-cmd",) and rules["b"] == ("b-cmd",)
+    assert not load_config([repo_b]).pending_trust  # and each is trusted alone as well
+
+
+def test_editing_anything_in_the_repo_config_makes_it_pending(setup: tuple[Path, Path]) -> None:
+    _, repo = setup
+    rule = '[[risk.rules]]\nname = "api"\npaths = ["a/**"]\nchecks = ["x"]\n'
+    _repo_file(repo, rule)
+    _trust(repo)
+    assert not load_config([repo]).pending_trust  # unchanged: trusted
+    for edited in (
+        rule.replace('["a/**"]', '["a/**", "b/**"]'),  # widening the rule's paths
+        rule.replace('["a/**"]', '["**"]'),
+        rule + "restaging = true\n",
+        rule + '[[judges]]\nfocus = "extra"\n',
+        rule + '[disable]\nchecks = ["unit"]\n',
+        rule.replace('"x"', '"y"'),
+        rule + "\n# a comment is not part of the parsed config\n",
+    ):
+        _repo_file(repo, edited)
+        trusted = not load_config([repo]).pending_trust
+        assert trusted == edited.endswith("config\n"), edited  # only the comment is harmless
+    _repo_file(repo, rule)
+    assert not load_config([repo]).pending_trust  # back to the approved content
+
+
+def test_trust_is_independent_of_the_users_config(setup: tuple[Path, Path]) -> None:
+    cfg, repo = setup
+    _repo_file(repo, '[checks]\ncommands = ["e2e"]\n')
+    _trust(repo)
+    (cfg / "taskflow.toml").write_text(
+        (cfg / "taskflow.toml").read_text() + '[[risk.rules]]\nname = "new"\npaths = ["z"]\n'
+    )
+    assert not load_config([repo]).pending_trust
 
 
 def test_the_trusted_order_is_the_order_that_runs(setup: tuple[Path, Path]) -> None:
@@ -428,29 +457,34 @@ def test_moving_a_risk_rule_command_needs_new_trust(setup: tuple[Path, Path]) ->
     assert load_config([repo]).pending_trust  # same commands under another rule name
 
 
-def test_trust_shows_the_ordered_plan_it_approves(
-    setup: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_trust_shows_the_whole_config_it_approves(
+    setup: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _, repo = setup
     _repo_file(
         repo,
         '[checks]\ncommands = ["first", "second"]\n'
-        '[[risk.rules]]\nname = "api"\npaths = ["a/**"]\nchecks = ["third"]\n',
+        '[[risk.rules]]\nname = "api"\npaths = ["a/**"]\nchecks = ["third"]\n'
+        '[disable]\nchecks = ["unit"]\n',
     )
     printed = _as_terminal(monkeypatch)
     assert cli.cmd_trust(argparse.Namespace(repo=str(repo), yes=True)) == 0
     shown = "".join(printed)
-    order = [shown.index(f"$ {c}") for c in ("lint", "first", "second", "third")]
-    assert order == sorted(order) and "[rule api]" in shown
+    for needle in ('"first"', '"second"', '"a/**"', '"api"', '"unit"', "$ third", "$ first"):
+        assert needle in shown, needle
     assert not load_config([repo]).pending_trust
 
 
-def test_v2_entries_are_pending_again(setup: tuple[Path, Path]) -> None:
+@pytest.mark.parametrize("scheme", ["v1", "v2", "v3"])
+def test_entries_of_older_schemes_are_pending_again(setup: tuple[Path, Path], scheme: str) -> None:
     from ai_governance.taskflow.config import trust_file
 
     _, repo = setup
     _repo_file(repo, '[checks]\ncommands = ["make evil"]\n')
     trust_file().parent.mkdir(parents=True, exist_ok=True)
-    old = "v2:" + hashlib.sha256(b'["make evil"]').hexdigest()[:16]
-    trust_file().write_text(json.dumps({str(repo.resolve()): old}))
+    old = hashlib.sha256(b"make evil").hexdigest()[:16]
+    entry = old if scheme == "v1" else f"{scheme}:{old}"
+    trust_file().write_text(json.dumps({str(repo.resolve()): entry}))
+    assert load_config([repo]).pending_trust  # pending, no crash
+    trust_file().write_text("not json")
     assert load_config([repo]).pending_trust

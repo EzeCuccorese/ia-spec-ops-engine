@@ -199,44 +199,39 @@ class PendingTrust:
     repo: str
     digest: str
     commands: tuple[str, ...]  # what this repository introduced
-    plan: tuple[tuple[str, ...], ...] = ()  # the whole ordered execution plan that is approved
+    config: JsonDict | None = None  # the whole repo control config that gets approved
 
 
 def trust_file() -> Path:
     return state_dir() / "taskflow" / "trust.json"
 
 
-def execution_plan(checks: Iterable[str], rules: Iterable[RiskRule]) -> tuple[tuple[str, ...], ...]:
-    """The commands in the order ``run_checks`` runs them: the checks, then each risk rule's
-    commands under its rule name. No sorting and no de-duplication: order is behavior."""
-    return (
-        *(("check", c) for c in checks),
-        *(("rule", r.name, c) for r in rules for c in r.checks),
-    )
+def repo_digest(local: JsonDict) -> str:
+    """Hash of a repository's WHOLE parsed taskflow.toml (keys sorted, list order kept).
+
+    Any edit (a command, a rule's paths, a judge, ``[disable]``, ...) changes it, and it does
+    not depend on other repositories or on the user's own config (older schemes never match).
+    """
+    canonical = json.dumps(local, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return "v4:" + hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
 
-def command_digest(plan: Iterable[Iterable[str]]) -> str:
-    """Hash of the ordered plan as canonical JSON (entries of older schemes never match)."""
-    canonical = json.dumps([list(step) for step in plan], separators=(",", ":"), ensure_ascii=False)
-    return "v3:" + hashlib.sha256(canonical.encode()).hexdigest()[:16]
-
-
-def is_trusted(repo: Path, commands: Iterable[Iterable[str]]) -> bool:
+def is_trusted(repo: Path, local: JsonDict) -> bool:
     try:
         known = json.loads(trust_file().read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
-    return isinstance(known, dict) and known.get(str(repo.resolve())) == command_digest(commands)
+    return isinstance(known, dict) and known.get(str(repo.resolve())) == repo_digest(local)
 
 
-def record_trust(repo: Path, plan: Iterable[Iterable[str]]) -> str:
-    """Remembers that the user approved exactly this ordered plan for ``repo``."""
+def record_trust(repo: Path, local: JsonDict) -> str:
+    """Remembers that the user approved exactly this control config of ``repo``."""
     path = trust_file()
     try:
         known = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         known = {}
-    digest = command_digest(plan)
+    digest = repo_digest(local)
     known[str(repo.resolve())] = digest
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(known, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -309,6 +304,7 @@ def _merge_local(
 
 def _untrusted(
     repo: Path,
+    local: JsonDict,
     user_commands: set[str],
     checks: list[str],
     rules: list[RiskRule],
@@ -324,10 +320,9 @@ def _untrusted(
     earlier = {*old_checks, *(c for r in old_rules for c in r.checks), *user_commands}
     introduced = {c for c in checks if c not in earlier}
     introduced |= {c for r in rules for c in r.checks if c not in earlier}
-    plan = execution_plan(checks, rules)
-    if not introduced or is_trusted(repo, plan):
+    if not introduced or is_trusted(repo, local):
         return None, checks, rules
-    pending = PendingTrust(str(repo), command_digest(plan), tuple(sorted(introduced)), plan)
+    pending = PendingTrust(str(repo), repo_digest(local), tuple(sorted(introduced)), local)
     kept_checks = [c for c in checks if c not in introduced]
     kept_rules = [
         RiskRule(
@@ -401,10 +396,9 @@ def _build(
             marks[f"taskflow.{key}"] = (f"repo ({state})", source)
 
         before = (list(checks), list(rules))
-        _merge_local(
-            _read_toml(repo / REPO_CONFIG), judges, checks, rules, mark, trusted_runner, source
-        )
-        waiting, checks, rules = _untrusted(repo, user_commands, checks, rules, before)
+        local = _read_toml(repo / REPO_CONFIG)
+        _merge_local(local, judges, checks, rules, mark, trusted_runner, source)
+        waiting, checks, rules = _untrusted(repo, local, user_commands, checks, rules, before)
         if waiting is not None:
             pending.append(waiting)
             for command in waiting.commands:
