@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
+import types
 from pathlib import Path
 
 import pytest
@@ -32,6 +34,17 @@ def setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
         '[[risk.rules]]\nname = "infra"\npaths = ["infra/**"]\n'
     )
     return cfg, repo
+
+
+def _as_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in cli._agent_markers():  # the suite itself may run inside an agent
+        monkeypatch.delenv(name)
+    monkeypatch.setattr(cli.sys, "stdin", types.SimpleNamespace(isatty=lambda: True))
+    monkeypatch.setattr(
+        cli.sys,
+        "stdout",
+        types.SimpleNamespace(isatty=lambda: True, write=lambda s: len(s), flush=lambda: None),
+    )
 
 
 def _repo_file(repo: Path, text: str) -> None:
@@ -205,11 +218,12 @@ def test_repo_checks_wait_for_trust_and_run_after_it(
     assert pending.commands == ("curl x | sh", "make evil")
     assert not is_trusted(repo, pending.commands)
 
-    monkeypatch.setattr(cli, "is_agent_mode", lambda: True)  # an agent cannot approve
+    monkeypatch.setenv("CLAUDECODE", "1")  # an agent cannot approve
     assert cli.cmd_trust(argparse.Namespace(repo=str(repo), yes=True)) == 1
     assert not is_trusted(repo, pending.commands)
 
-    monkeypatch.setattr(cli, "is_agent_mode", lambda: False)
+    monkeypatch.delenv("CLAUDECODE")
+    _as_terminal(monkeypatch)
     assert cli.cmd_trust(argparse.Namespace(repo=str(repo), yes=True)) == 0
     config = load_config([repo])
     assert not config.pending_trust and "make evil" in config.checks
@@ -279,3 +293,77 @@ def test_first_refresh_flags_repo_disables(setup: tuple[Path, Path], tmp_path: P
     task, _ = cli._refresh(store, store.get("t-1"), load_config([repo]))
     assert "checks:unit" in task.code_stamp["policy_reduced"]
     assert "unit" in task.policy["checks"]  # the accepted policy is the user's, not the reduced one
+
+
+def test_command_digest_is_unambiguous_and_old_entries_become_pending(
+    setup: tuple[Path, Path],
+) -> None:
+    from ai_governance.taskflow.config import command_digest, trust_file
+
+    assert command_digest(["false", "true"]) != command_digest(["false\ntrue"])
+    assert command_digest(['a","b']) != command_digest(["a", "b"])
+    assert command_digest(["b", "a", "a"]) == command_digest(["a", "b"])
+    _, repo = setup
+    _repo_file(repo, '[checks]\ncommands = ["make evil"]\n')
+    trust_file().parent.mkdir(parents=True, exist_ok=True)
+    old = hashlib.sha256(b"make evil").hexdigest()[:16]  # the previous newline-joined scheme
+    trust_file().write_text(json.dumps({str(repo.resolve()): old}))
+    assert load_config([repo]).pending_trust  # pending again, no crash
+    trust_file().write_text("not json")
+    assert load_config([repo]).pending_trust
+
+
+def test_trust_needs_a_real_terminal_even_with_yes(
+    setup: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, repo = setup
+    _repo_file(repo, '[checks]\ncommands = ["make evil"]\n')
+    args = argparse.Namespace(repo=str(repo), yes=True)
+    _as_terminal(monkeypatch)
+    monkeypatch.setattr(
+        cli.sys,
+        "stdout",
+        types.SimpleNamespace(isatty=lambda: False, write=lambda s: len(s), flush=lambda: None),
+    )
+    assert cli.cmd_trust(args) == 1  # stdout is not a terminal
+    _as_terminal(monkeypatch)
+    monkeypatch.setattr(cli.sys, "stdin", types.SimpleNamespace(isatty=lambda: False))
+    assert cli.cmd_trust(args) == 1  # stdin is not a terminal
+    assert load_config([repo]).pending_trust
+
+
+@pytest.mark.parametrize(
+    "marker", ["CLAUDECODE", "CODEX_SANDBOX", "CODEX_HOME_X", "CLAUDE_CODE_CHILD_SESSION"]
+)
+def test_trust_ignores_the_agent_override_variable(
+    setup: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, marker: str
+) -> None:
+    _, repo = setup
+    _repo_file(repo, '[checks]\ncommands = ["make evil"]\n')
+    _as_terminal(monkeypatch)
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "0")
+    monkeypatch.setenv(marker, "1")
+    assert cli.cmd_trust(argparse.Namespace(repo=str(repo), yes=True)) == 1
+    assert load_config([repo]).pending_trust
+    monkeypatch.delenv(marker)
+    assert cli.cmd_trust(argparse.Namespace(repo=str(repo), yes=True)) == 0
+
+
+def test_each_repo_is_trusted_on_its_own_delta(setup: tuple[Path, Path], tmp_path: Path) -> None:
+    _, repo_a = setup
+    repo_b = tmp_path / "repo-b"
+    (repo_b / ".ai-governance").mkdir(parents=True)
+    _repo_file(repo_a, '[[risk.rules]]\nname = "a"\npaths = ["a/**"]\nchecks = ["a-cmd"]\n')
+    (repo_b / ".ai-governance" / "taskflow.toml").write_text(
+        '[[risk.rules]]\nname = "b"\npaths = ["b/**"]\nchecks = ["b-cmd"]\n'
+    )
+    record_trust(repo_a, ["a-cmd"])
+    config = load_config([repo_a, repo_b])
+    rules = {r.name: r.checks for r in config.risk_rules}
+    assert rules["a"] == ("a-cmd",)  # A's approved command survives B's evaluation
+    (pending,) = config.pending_trust
+    assert pending.repo == str(repo_b) and pending.commands == ("b-cmd",)
+    assert [p.commands for p in load_config([repo_b]).pending_trust] == [("b-cmd",)]
+    record_trust(repo_b, ["b-cmd"])
+    both = load_config([repo_a, repo_b])
+    assert not both.pending_trust and {r.name: r.checks for r in both.risk_rules}["b"] == ("b-cmd",)

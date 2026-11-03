@@ -206,7 +206,10 @@ def trust_file() -> Path:
 
 
 def command_digest(commands: Iterable[str]) -> str:
-    return hashlib.sha256("\n".join(sorted(set(commands))).encode()).hexdigest()[:16]
+    """Hash of the command set as a canonical JSON array: commands that contain newlines or
+    quotes cannot collide with a different set (entries from the older scheme never match)."""
+    canonical = json.dumps(sorted(set(commands)), separators=(",", ":"), ensure_ascii=False)
+    return "v2:" + hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
 
 def is_trusted(repo: Path, commands: Iterable[str]) -> bool:
@@ -307,9 +310,11 @@ def _untrusted(
     A command the user already defines (user checks or user rules) needs no approval.
     """
     old_checks, old_rules = before
-    introduced = {c for c in checks if c not in old_checks}
-    introduced |= {c for r in rules for c in r.checks if c not in user_commands}
-    introduced -= user_commands
+    # Only what THIS repository brought: commands already present before it (the user's, or
+    # an earlier repository's, which that repository's own approval covers) are not its own.
+    earlier = {*old_checks, *(c for r in old_rules for c in r.checks), *user_commands}
+    introduced = {c for c in checks if c not in earlier}
+    introduced |= {c for r in rules for c in r.checks if c not in earlier}
     if not introduced or is_trusted(repo, introduced):
         return None, checks, rules
     pending = PendingTrust(str(repo), command_digest(introduced), tuple(sorted(introduced)))

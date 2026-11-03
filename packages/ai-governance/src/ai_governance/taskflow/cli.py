@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from collections.abc import Callable
@@ -11,7 +12,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from ..output import emit_json, emit_kv, emit_rows, emit_status, emit_text, is_agent_mode
+from .._config_core import AGENT_ENV_MARKERS
+from ..output import emit_json, emit_kv, emit_rows, emit_status, emit_text
 from . import tdd
 from .approvals import (
     RISKY_ACTIONS,
@@ -740,6 +742,16 @@ def _warn_pending_trust(config: FlowConfig) -> list[str]:
     return notes
 
 
+def _agent_markers() -> list[str]:
+    """Agent variables actually present: the AI_GOVERNANCE_AGENT output override is ignored,
+    so setting it to 0 cannot turn an agent into a human for an approval."""
+    return sorted(
+        name
+        for name, value in os.environ.items()
+        if value and (name in AGENT_ENV_MARKERS or name.startswith(("CODEX_", "CLAUDE_CODE_")))
+    )
+
+
 def cmd_trust(args: argparse.Namespace) -> int:
     """Shows the check commands a repository defines and, after the user confirms, remembers
     that exact set (a changed set is pending again)."""
@@ -750,10 +762,11 @@ def cmd_trust(args: argparse.Namespace) -> int:
         return 0
     for command in pending[0].commands:
         print(f"  $ {command}")
-    if is_agent_mode() or not (args.yes or sys.stdin.isatty()):
+    if _agent_markers() or not (sys.stdin.isatty() and sys.stdout.isatty()):
         emit_status(
             "error",
-            "These commands run with your permissions: approve them yourself in a terminal "
+            "These commands run with your permissions: approve them yourself in an interactive "
+            "terminal "
             f"(ai-governance taskflow trust --repo {repo})",
         )
         return 1
