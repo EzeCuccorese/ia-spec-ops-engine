@@ -289,7 +289,7 @@ permissions, so the commands a repository introduces (its `[checks] commands` an
 `checks` of its risk rules, except commands the user already defines) do not run until you
 approve that exact set, like direnv: `ai-governance taskflow trust [--repo PATH]` shows
 the commands and, after you confirm in a terminal, stores a hash of the set in
-`~/.local/state/ai-governance/taskflow/trust.json` (a canonical JSON hash of the sorted command set; hashes of older versions are simply pending again). It needs stdin and stdout on a terminal even with `--yes` and refuses when an agent variable (`CLAUDECODE`, `CODEX_*`, `CLAUDE_CODE_*`, ...) is present, whatever `AI_GOVERNANCE_AGENT` says. A new
+`~/.local/state/ai-governance/taskflow/trust.json` (a canonical JSON hash of the ordered execution plan, checks first and then each risk rule's commands exactly as they run, with no sorting or de-duplication, so reordering or moving a command needs a new approval; `trust` prints that same ordered list; hashes of older versions are simply pending again). It needs stdin and stdout on a terminal even with `--yes` and refuses when an agent variable (`CLAUDECODE`, `CODEX_*`, `CLAUDE_CODE_*`, ...) is present, whatever `AI_GOVERNANCE_AGENT` says. A new
 or changed command set is pending again; until then `taskflow status`, `config` and
 `judge` report `repo checks pending trust` and skip those commands.
 

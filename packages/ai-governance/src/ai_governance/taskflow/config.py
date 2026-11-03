@@ -198,21 +198,30 @@ class PendingTrust:
 
     repo: str
     digest: str
-    commands: tuple[str, ...]
+    commands: tuple[str, ...]  # what this repository introduced
+    plan: tuple[tuple[str, ...], ...] = ()  # the whole ordered execution plan that is approved
 
 
 def trust_file() -> Path:
     return state_dir() / "taskflow" / "trust.json"
 
 
-def command_digest(commands: Iterable[str]) -> str:
-    """Hash of the command set as a canonical JSON array: commands that contain newlines or
-    quotes cannot collide with a different set (entries from the older scheme never match)."""
-    canonical = json.dumps(sorted(set(commands)), separators=(",", ":"), ensure_ascii=False)
-    return "v2:" + hashlib.sha256(canonical.encode()).hexdigest()[:16]
+def execution_plan(checks: Iterable[str], rules: Iterable[RiskRule]) -> tuple[tuple[str, ...], ...]:
+    """The commands in the order ``run_checks`` runs them: the checks, then each risk rule's
+    commands under its rule name. No sorting and no de-duplication: order is behavior."""
+    return (
+        *(("check", c) for c in checks),
+        *(("rule", r.name, c) for r in rules for c in r.checks),
+    )
 
 
-def is_trusted(repo: Path, commands: Iterable[str]) -> bool:
+def command_digest(plan: Iterable[Iterable[str]]) -> str:
+    """Hash of the ordered plan as canonical JSON (entries of older schemes never match)."""
+    canonical = json.dumps([list(step) for step in plan], separators=(",", ":"), ensure_ascii=False)
+    return "v3:" + hashlib.sha256(canonical.encode()).hexdigest()[:16]
+
+
+def is_trusted(repo: Path, commands: Iterable[Iterable[str]]) -> bool:
     try:
         known = json.loads(trust_file().read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -220,14 +229,14 @@ def is_trusted(repo: Path, commands: Iterable[str]) -> bool:
     return isinstance(known, dict) and known.get(str(repo.resolve())) == command_digest(commands)
 
 
-def record_trust(repo: Path, commands: Iterable[str]) -> str:
-    """Remembers that the user approved exactly this command set for ``repo``."""
+def record_trust(repo: Path, plan: Iterable[Iterable[str]]) -> str:
+    """Remembers that the user approved exactly this ordered plan for ``repo``."""
     path = trust_file()
     try:
         known = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         known = {}
-    digest = command_digest(commands)
+    digest = command_digest(plan)
     known[str(repo.resolve())] = digest
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(known, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -315,9 +324,10 @@ def _untrusted(
     earlier = {*old_checks, *(c for r in old_rules for c in r.checks), *user_commands}
     introduced = {c for c in checks if c not in earlier}
     introduced |= {c for r in rules for c in r.checks if c not in earlier}
-    if not introduced or is_trusted(repo, introduced):
+    plan = execution_plan(checks, rules)
+    if not introduced or is_trusted(repo, plan):
         return None, checks, rules
-    pending = PendingTrust(str(repo), command_digest(introduced), tuple(sorted(introduced)))
+    pending = PendingTrust(str(repo), command_digest(plan), tuple(sorted(introduced)), plan)
     kept_checks = [c for c in checks if c not in introduced]
     kept_rules = [
         RiskRule(

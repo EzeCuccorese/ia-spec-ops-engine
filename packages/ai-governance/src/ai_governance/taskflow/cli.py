@@ -760,8 +760,11 @@ def cmd_trust(args: argparse.Namespace) -> int:
     if not pending:
         emit_status("ok", f"No repo checks pending trust in {repo}")
         return 0
-    for command in pending[0].commands:
-        print(f"  $ {command}")
+    print("Execution plan, in the order it runs (* = introduced by this repository):")
+    for step in pending[0].plan:
+        mark = "*" if step[-1] in pending[0].commands else " "
+        scope = f" [rule {step[1]}]" if step[0] == "rule" else ""
+        print(f" {mark} $ {step[-1]}{scope}")
     if _agent_markers() or not (sys.stdin.isatty() and sys.stdout.isatty()):
         emit_status(
             "error",
@@ -776,7 +779,7 @@ def cmd_trust(args: argparse.Namespace) -> int:
     ):
         emit_status("warn", "Not trusted")
         return 1
-    digest_ = record_trust(repo, pending[0].commands)
+    digest_ = record_trust(repo, pending[0].plan)
     emit_status("ok", f"Trusted {len(pending[0].commands)} command(s) for {repo} ({digest_})")
     return 0
 

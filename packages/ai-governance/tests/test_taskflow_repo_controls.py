@@ -36,15 +36,28 @@ def setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
     return cfg, repo
 
 
-def _as_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+def _as_terminal(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Fakes an interactive terminal; returns the list that collects what is printed."""
     for name in cli._agent_markers():  # the suite itself may run inside an agent
         monkeypatch.delenv(name)
+    printed: list[str] = []
     monkeypatch.setattr(cli.sys, "stdin", types.SimpleNamespace(isatty=lambda: True))
     monkeypatch.setattr(
         cli.sys,
         "stdout",
-        types.SimpleNamespace(isatty=lambda: True, write=lambda s: len(s), flush=lambda: None),
+        types.SimpleNamespace(
+            isatty=lambda: True,
+            write=lambda text: printed.append(text) or len(text),
+            flush=lambda: None,
+        ),
     )
+    return printed
+
+
+def _trust(repo: Path, repos: list[Path] | None = None) -> None:
+    """Approves what `taskflow trust` would show for ``repo`` in the context ``repos``."""
+    (waiting,) = [p for p in load_config(repos or [repo]).pending_trust if p.repo == str(repo)]
+    record_trust(repo, waiting.plan)
 
 
 def _repo_file(repo: Path, text: str) -> None:
@@ -57,7 +70,7 @@ def test_repo_adds_controls(setup: tuple[Path, Path]) -> None:
         repo,
         '[checks]\ncommands = ["e2e"]\n[[risk.rules]]\nname = "api"\npaths = ["api/**"]\n',
     )
-    record_trust(repo, ["e2e"])
+    _trust(repo)
     config = load_config([repo])
     assert config.checks == ("lint", "unit", "e2e")
     assert [r.name for r in config.risk_rules] == ["migrations", "infra", "api"]
@@ -125,7 +138,7 @@ def test_config_show_reports_who_set_each_control(
         '[checks]\ncommands = ["e2e"]\n[[risk.rules]]\nname = "migrations"\npaths = ["x"]\n'
         '[disable]\nchecks = ["unit"]\n',
     )
-    record_trust(repo, ["e2e"])
+    _trust(repo)
     monkeypatch.chdir(repo)
     assert config_main(["show", "--origin", "--json"]) == 0
     shown = json.loads(capsys.readouterr().out)
@@ -216,11 +229,11 @@ def test_repo_checks_wait_for_trust_and_run_after_it(
     assert api.checks == ("lint",)
     (pending,) = config.pending_trust
     assert pending.commands == ("curl x | sh", "make evil")
-    assert not is_trusted(repo, pending.commands)
+    assert not is_trusted(repo, pending.plan)
 
     monkeypatch.setenv("CLAUDECODE", "1")  # an agent cannot approve
     assert cli.cmd_trust(argparse.Namespace(repo=str(repo), yes=True)) == 1
-    assert not is_trusted(repo, pending.commands)
+    assert not is_trusted(repo, pending.plan)
 
     monkeypatch.delenv("CLAUDECODE")
     _as_terminal(monkeypatch)
@@ -300,9 +313,14 @@ def test_command_digest_is_unambiguous_and_old_entries_become_pending(
 ) -> None:
     from ai_governance.taskflow.config import command_digest, trust_file
 
-    assert command_digest(["false", "true"]) != command_digest(["false\ntrue"])
-    assert command_digest(['a","b']) != command_digest(["a", "b"])
-    assert command_digest(["b", "a", "a"]) == command_digest(["a", "b"])
+    def plan(*commands: str) -> list[tuple[str, str]]:
+        return [("check", c) for c in commands]
+
+    assert command_digest(plan("false", "true")) != command_digest(plan("false\ntrue"))
+    assert command_digest(plan('a","b')) != command_digest(plan("a", "b"))
+    assert command_digest(plan("a", "b")) != command_digest(plan("b", "a"))
+    assert command_digest(plan("a", "b")) != command_digest(plan("a", "b", "a"))
+    assert command_digest(plan("a")).startswith("v3:")
     _, repo = setup
     _repo_file(repo, '[checks]\ncommands = ["make evil"]\n')
     trust_file().parent.mkdir(parents=True, exist_ok=True)
@@ -357,13 +375,82 @@ def test_each_repo_is_trusted_on_its_own_delta(setup: tuple[Path, Path], tmp_pat
     (repo_b / ".ai-governance" / "taskflow.toml").write_text(
         '[[risk.rules]]\nname = "b"\npaths = ["b/**"]\nchecks = ["b-cmd"]\n'
     )
-    record_trust(repo_a, ["a-cmd"])
+    _trust(repo_a)
     config = load_config([repo_a, repo_b])
     rules = {r.name: r.checks for r in config.risk_rules}
     assert rules["a"] == ("a-cmd",)  # A's approved command survives B's evaluation
     (pending,) = config.pending_trust
     assert pending.repo == str(repo_b) and pending.commands == ("b-cmd",)
     assert [p.commands for p in load_config([repo_b]).pending_trust] == [("b-cmd",)]
-    record_trust(repo_b, ["b-cmd"])
+    _trust(repo_b, [repo_a, repo_b])
     both = load_config([repo_a, repo_b])
     assert not both.pending_trust and {r.name: r.checks for r in both.risk_rules}["b"] == ("b-cmd",)
+
+
+def test_the_trusted_order_is_the_order_that_runs(setup: tuple[Path, Path]) -> None:
+    _, repo = setup
+    _repo_file(repo, '[checks]\ncommands = ["printf true > payload.sh", "sh payload.sh"]\n')
+    assert load_config([repo]).pending_trust
+    _trust(repo)
+    config = load_config([repo])
+    assert not config.pending_trust  # same order: trusted
+    assert config.checks[-2:] == ("printf true > payload.sh", "sh payload.sh")
+
+    _repo_file(repo, '[checks]\ncommands = ["sh payload.sh", "printf true > payload.sh"]\n')
+    reordered = load_config([repo])
+    assert reordered.pending_trust  # same commands, other order: approve again
+    assert (
+        "sh payload.sh" not in reordered.checks
+        and "printf true > payload.sh" not in reordered.checks
+    )
+
+    _repo_file(repo, '[checks]\ncommands = ["printf true > payload.sh", "sh payload.sh"]\n')
+    assert not load_config([repo]).pending_trust  # back to the approved order
+
+
+def test_moving_a_risk_rule_command_needs_new_trust(setup: tuple[Path, Path]) -> None:
+    _, repo = setup
+    rule = '[[risk.rules]]\nname = "api"\npaths = ["a/**"]\nchecks = ["x", "y"]\n'
+    _repo_file(repo, '[checks]\ncommands = ["c1"]\n' + rule)
+    _trust(repo)
+    assert not load_config([repo]).pending_trust
+
+    swapped = rule.replace('["x", "y"]', '["y", "x"]')
+    _repo_file(repo, '[checks]\ncommands = ["c1"]\n' + swapped)
+    assert load_config([repo]).pending_trust  # order inside the rule
+
+    interleaved = '[checks]\ncommands = ["c1", "x"]\n' + rule.replace('["x", "y"]', '["y"]')
+    _repo_file(repo, interleaved)  # x moved from the rule into the checks
+    assert load_config([repo]).pending_trust
+
+    other_rule = rule.replace('name = "api"', 'name = "other"')
+    _repo_file(repo, '[checks]\ncommands = ["c1"]\n' + other_rule)
+    assert load_config([repo]).pending_trust  # same commands under another rule name
+
+
+def test_trust_shows_the_ordered_plan_it_approves(
+    setup: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _, repo = setup
+    _repo_file(
+        repo,
+        '[checks]\ncommands = ["first", "second"]\n'
+        '[[risk.rules]]\nname = "api"\npaths = ["a/**"]\nchecks = ["third"]\n',
+    )
+    printed = _as_terminal(monkeypatch)
+    assert cli.cmd_trust(argparse.Namespace(repo=str(repo), yes=True)) == 0
+    shown = "".join(printed)
+    order = [shown.index(f"$ {c}") for c in ("lint", "first", "second", "third")]
+    assert order == sorted(order) and "[rule api]" in shown
+    assert not load_config([repo]).pending_trust
+
+
+def test_v2_entries_are_pending_again(setup: tuple[Path, Path]) -> None:
+    from ai_governance.taskflow.config import trust_file
+
+    _, repo = setup
+    _repo_file(repo, '[checks]\ncommands = ["make evil"]\n')
+    trust_file().parent.mkdir(parents=True, exist_ok=True)
+    old = "v2:" + hashlib.sha256(b'["make evil"]').hexdigest()[:16]
+    trust_file().write_text(json.dumps({str(repo.resolve()): old}))
+    assert load_config([repo]).pending_trust
