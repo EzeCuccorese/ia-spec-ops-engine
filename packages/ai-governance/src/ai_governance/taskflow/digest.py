@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .models import Task
+from .prs.board import summary_for
 from .store import TaskStore
 
 
@@ -26,6 +27,8 @@ def digest(store: TaskStore, focus_id: str | None = None, max_chars: int = 1600)
     lines = [f"TASKFLOW ({len(tasks)} open) — `ai-governance taskflow --help` explains the flow"]
     if focus:
         lines += _focus_lines(focus)
+        if prs := summary_for(store, focus.id):
+            lines.append(f"  {prs}")
     others = [t.id for t in tasks if focus is None or t.id != focus.id]
     if others:
         lines.append("  others: " + ", ".join(others[:8]))

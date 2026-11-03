@@ -47,6 +47,7 @@ from .models import PHASES, Task, now_iso
 from .policy import _rule_reductions as _rule_reductions
 from .policy import policy_reductions as policy_reductions
 from .policy import policy_summary
+from .prs import board as pr_board
 from .refresh import legacy_notice, refresh
 from .repos import begin_invocation, first_live, on_live
 from .resolver import TaskResolver
@@ -110,7 +111,10 @@ def cmd_show(args: argparse.Namespace) -> int:
             data["log"] = store.read_log(task.id)
         emit_json(data)
         return 0
-    emit_kv(_show_pairs(task), title=f"Task: {task.id} — {task.title}", full=args.full)
+    pairs = _show_pairs(task)
+    if line := pr_board.summary_for(store, task.id):
+        pairs.append(("PRs", line))
+    emit_kv(pairs, title=f"Task: {task.id} — {task.title}", full=args.full)
     if args.full:
         emit_text(store.read_log(task.id), full=True)
     return 0

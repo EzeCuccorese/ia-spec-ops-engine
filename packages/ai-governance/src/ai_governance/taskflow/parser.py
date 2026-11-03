@@ -8,7 +8,7 @@ import argparse
 from collections.abc import Callable
 from typing import TypeAlias
 
-from . import cli
+from . import cli, pr_cli
 from .approvals import ACTIONS
 from .guide import GUIDE
 from .models import EXIT_PHASES, PHASES, ROLES, VERDICTS, WORKFLOWS, now_iso
@@ -265,6 +265,31 @@ def _judge_commands(sub: Subparsers) -> None:
     add("config", cli.cmd_config, "Show and validate the taskflow config", task="none")
 
 
+def _pr_commands(sub: Subparsers) -> None:
+    group = sub.add_parser(
+        "pr",
+        help="Pull requests of a task: register once, status read from GitHub by code",
+        description="Pull requests of a task and its subtasks. CI, review, open threads, "
+        "conflicts and stacking are read from GitHub (read-only) and classified by fixed rules.",
+    )
+    add = _adder(group.add_subparsers(dest="pr_cmd", required=True))
+    refs_help = "URL, owner/name#N or #N (needs --repo or a bound GitHub repo); '-' reads stdin"
+    for name, handler, text in (
+        ("add", pr_cli.cmd_pr_add, "Register PRs (idempotent); '-' reads pasted text from stdin"),
+        ("rm", pr_cli.cmd_pr_rm, "Stop tracking PRs"),
+    ):
+        item = add(name, handler, text)
+        item.add_argument("refs", nargs="+", help=refs_help)
+        item.add_argument("--repo", default="", help="owner/name for bare #N references")
+        if name == "add":
+            item.add_argument("--group", default="", help="Free-text label to group the board")
+    add("sync", pr_cli.cmd_pr_sync, "Refresh PR status from GitHub (read-only)", task="optional")
+    item = add("list", pr_cli.cmd_pr_list, "Board of PRs with what blocks each", task="optional")
+    item.add_argument("--sync", action="store_true", help="Refresh from GitHub first")
+    item.add_argument("--blocked", action="store_true", help="Only PRs that cannot merge yet")
+    item.add_argument("--json", action="store_true")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ai-governance taskflow",
@@ -276,6 +301,7 @@ def build_parser() -> argparse.ArgumentParser:
     _task_commands(sub)
     _content_commands(sub)
     _reference_commands(sub)
+    _pr_commands(sub)
     _lifecycle_commands(sub)
     _approval_round_commands(sub)
     _round_commands(sub)

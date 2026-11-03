@@ -53,6 +53,11 @@ Never launch agent CLIs yourself. A judge is a reader: the engine runs the check
 The worker writes a receipt (round token + its dispatch id) and its answer under runs/N/;
 collect accepts only the dispatch id that matches that receipt.
 
+Pull requests: register each one once (`taskflow pr add <ID> <url | owner/name#N>`; `-` reads
+pasted text from stdin; Claude's `gh pr create` registers it by itself). CI, review, open threads,
+conflicts and stacking are read from GitHub by code (`taskflow pr sync`, `pr list [--blocked]`);
+never copy PR status by hand into facts or notes. A parent task also shows its subtasks' PRs.
+
 One worktree per task: tasks sharing a worktree make `here` ambiguous and reviewers mix
 contexts. `round dispatch` already prepends the task context (goal, plan path, decisions, facts,
 repos), so a prompt only needs the specific question.
