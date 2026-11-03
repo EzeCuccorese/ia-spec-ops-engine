@@ -247,6 +247,8 @@ def _read_toml(path: Path) -> JsonDict:
         if os.path.lexists(path):
             raise ValueError(f"{path}: dangling link, cannot read it") from None
         return {}
+    except tomllib.TOMLDecodeError as exc:
+        raise ValueError(f"{path}: {exc}") from exc
     except OSError as exc:
         raise ValueError(f"{path}: cannot read it ({exc})") from exc
 

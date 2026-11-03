@@ -16,7 +16,7 @@ from ai_governance.settings import SETTINGS
 from ai_governance.taskflow import gates
 from ai_governance.taskflow.agents import DEFAULT_MODELS, provider
 from ai_governance.taskflow.config import FlowConfig, load_config
-from ai_governance.taskflow.judge import JudgeError, _independent_judges, builders
+from ai_governance.taskflow.judge import JudgeError, builders, independent_judges
 from ai_governance.taskflow.models import Task
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -330,7 +330,7 @@ def test_judge_independence_uses_providers() -> None:
     assert builders(task, _config("claude")) == {"claude", "codex"}
     config = _config("claude")
     with pytest.raises(JudgeError):
-        _independent_judges(task, config, "", ["correctness"])
+        independent_judges(task, config, "", ["correctness"])
 
 
 # --- a restriction file that exists but cannot be read never lifts the restriction ---------
@@ -373,7 +373,11 @@ def test_unreadable_restriction_blocks_every_agent(tmp_path: Path, break_it) -> 
     repo = _repo(tmp_path, "broken", None)
     break_it(repo)
     try:
-        config = load_config([repo])
+        try:
+            config = load_config([repo])
+        except ValueError as exc:  # Linux fails the repo's taskflow.toml read loudly (ELOOP)
+            assert ".ai-governance" in str(exc)
+            return
         assert not config.allowed.permits("claude") and not config.allowed.permits("codex")
         assert any(".ai-governance" in e for e in config.validate())
         assert config.agent_error("claude") is not None

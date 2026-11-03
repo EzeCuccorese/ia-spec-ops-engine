@@ -64,6 +64,12 @@ def _bind(*paths: Path, integration: str = "") -> None:
         assert main(["bind", TASK, "--repo", str(path), *extra]) == 0
 
 
+@pytest.fixture(autouse=True)
+def _installed_agents(fake_agents: Path) -> Path:
+    """`judge` checks the configured agents exist; CI has none of agy, codex or claude."""
+    return fake_agents
+
+
 def _use(monkeypatch: pytest.MonkeyPatch, config_for: ConfigFor) -> None:
     monkeypatch.setattr(cli, "_config", config_for)
 

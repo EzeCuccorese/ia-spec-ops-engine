@@ -340,7 +340,7 @@ def _install_bin(base: Path, real_git: str) -> Path:
     _script(
         bin_dir / "git",
         'printf \'%s\\n\' "$*" >> "$FAKE_GIT_LOG"\n'
-        f'case "$1" in {"|".join(GIT_ALLOWED.split())}) exec "$FAKE_REAL_GIT" "$@";; esac\n'
+        f'case "$1" in {"|".join(GIT_ALLOWED.split())}) PATH="$FAKE_SYSTEM_PATH" exec "$FAKE_REAL_GIT" "$@";; esac\n'
         'printf \'DENIED %s\\n\' "$*" >> "$FAKE_GIT_LOG"\nexit 97\n',
     )
     return bin_dir
@@ -380,6 +380,7 @@ def make_world(
     repo_name, state_in_repo = opts.get("repo_name", "repo"), opts.get("state_in_repo", False)
     real_git = shutil.which("git")
     assert real_git, "git is required"
+    system_path = os.environ.get("PATH", "/usr/bin:/bin")  # only the real git process sees it
     base = tmp_path / "world"
     base.mkdir()
     bin_dir = _install_bin(base, real_git)
@@ -390,7 +391,10 @@ def make_world(
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
     for key, value in {
-        "FAKE_REAL_GIT": real_git, "FAKE_GIT_LOG": str(base / "git.log"),
+        "FAKE_REAL_GIT": real_git, "FAKE_SYSTEM_PATH": system_path,
+        "GIT_AUTHOR_NAME": "T", "GIT_AUTHOR_EMAIL": "t@example.com",
+        "GIT_COMMITTER_NAME": "T", "GIT_COMMITTER_EMAIL": "t@example.com",
+        "FAKE_GIT_LOG": str(base / "git.log"),
         "FAKE_ORCA": str(base / "scenario.json"), "FAKE_ORCA_LOG": str(base / "orca.log"),
         "ORCA_CLI_COMMAND": "orca-fake", "AI_GOVERNANCE_STATE_DIR": str(state),
         "XDG_CONFIG_HOME": str(tmp_path / "config"), "AI_GOVERNANCE_AGENT": "1",
