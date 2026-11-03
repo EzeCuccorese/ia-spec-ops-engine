@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import secrets
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,6 +26,7 @@ from .approvals import valid_approval
 from .config import FlowConfig
 from .context import round_header
 from .control import (
+    CheckedBaseline,
     DispatchError,
     UsageRefusal,
     baseline,
@@ -48,6 +50,7 @@ class DispatchRequest:
     focus: str
     prompt: str
     agent: JsonDict  # {"agent": ..., "model": ...}
+    expected: CheckedBaseline | None = None  # judge rounds: the state the checks ran on
 
 
 @dataclass(frozen=True)
@@ -55,6 +58,7 @@ class Dispatched:
     n: int
     argv: list[str]
     spec: Path
+    focus: str = ""
 
 
 def run_dir(store: TaskStore, task_id: str, number: int) -> Path:
@@ -75,7 +79,8 @@ def refuse_role(task: Task, role: str) -> None:
 
 def check_dispatchable(task: Task, config: FlowConfig, request: DispatchRequest) -> None:
     role, name = request.role, str(request.agent.get("agent", ""))
-    refuse_role(task, role)
+    if role != "judge":  # judges come from `taskflow judge`, which has run the checks first
+        refuse_role(task, role)
     if task.workflow == "manual":
         raise DispatchError("Manual tasks have no agent rounds")
     if task.blocked:
@@ -86,6 +91,11 @@ def check_dispatchable(task: Task, config: FlowConfig, request: DispatchRequest)
         raise DispatchError(f"{role}: a human cannot run as a worker; use `round {task.id} record`")
     if refusal := config.agent_error(name):
         raise DispatchError(f"{role}: {refusal}")
+    _check_provider(task, config, request)
+
+
+def _check_provider(task: Task, config: FlowConfig, request: DispatchRequest) -> None:
+    role, name = request.role, str(request.agent.get("agent", ""))
     builder = str(config.roles.get("builder", {}).get("agent", ""))
     tri = task.workflow == "tri-agent" and not valid_approval(
         task.approvals, "workflow", "", task.id
@@ -109,6 +119,21 @@ def _snapshot_repos(task: Task) -> list[JsonDict]:
             {"path": str(p), "head": head_sha(p), "fingerprint": tree_fingerprint(p)} for p in paths
         ],
     )
+
+
+def _triples(repos: Iterable[JsonDict]) -> list[tuple[str, str, str]]:
+    return sorted((str(r["path"]), str(r["head"]), str(r["fingerprint"])) for r in repos)
+
+
+def _require_baseline(expected: CheckedBaseline | None, repos: list[JsonDict]) -> None:
+    """The real checkouts must still be exactly what the engine's checks ran on."""
+    if expected is None or not expected.repos:
+        return
+    if _triples(repos) != _triples(expected.repos):
+        raise DispatchError(
+            "the code changed after the checks ran: nothing was dispatched; "
+            "run `taskflow judge` again"
+        )
 
 
 def _footer(task_id: str, answer: Path, receipt: Path, nonce: str) -> str:
@@ -157,6 +182,12 @@ class _Publisher:
 
     def __call__(self, locked: Task, number: int, round_file: Path) -> None:
         directory = round_file.parent.parent
+        want = self.request.expected
+        if want is not None and locked.stamp_key != want.stamp:
+            raise DispatchError(
+                "the code stamp changed after the checks ran: nothing was dispatched; "
+                "run `taskflow judge` again"
+            )
         if (twin := _pending_duplicate(locked, directory, self.request)) is not None:
             raise DispatchError(
                 f"round {twin:03d} ({self.request.role}) is already dispatched and not settled: "
@@ -230,11 +261,12 @@ def plan_dispatch(
     check_dispatchable(task, config, request)
     orca.require_orca()
     repos = _snapshot_repos(task)
+    _require_baseline(request.expected, repos)
     publisher = _Publisher(store, request, repos)
     agent = str(request.agent.get("agent", ""))
     store.reserve_round(task.id, RoundSlot(request.phase, request.role, agent), publisher)
     made = publisher.made
-    return Dispatched(int(made["n"]), list(made["argv"]), Path(made["spec"]))
+    return Dispatched(int(made["n"]), list(made["argv"]), Path(made["spec"]), request.focus)
 
 
 def read_dispatch(store: TaskStore, task_id: str, number: int) -> JsonDict:

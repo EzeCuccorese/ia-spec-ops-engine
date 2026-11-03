@@ -17,6 +17,7 @@ from test_taskflow import (
     _red_green_commit,
     cli_run,
     fake_agents,
+    judge_orca,
     outside_claude,
     repo,
     state,
@@ -366,12 +367,16 @@ def test_manual_and_unbound_tasks_report_what_is_missing(
 
 
 def test_reports_after_a_judged_flow_include_the_judge_answer(
-    state: TaskStore, cli_run: Run, repo: Path, capsys: pytest.CaptureFixture[str]
+    state: TaskStore, cli_run: Run, judge_orca, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    repo = judge_orca.repo
     _plan_and_approve(cli_run)
     _red_green_commit(cli_run, repo)
     assert cli_run("phase", "ONB-1", "judge") == 0
-    assert cli_run("judge", "ONB-1") == 0
+    printed = judge_orca.judge()
+    assert (
+        printed.code == 0 and judge_orca.settle_judge(judge_orca.worker_lines(printed)[0]).code == 0
+    )
     out = repo.parent / "findings.md"
     capsys.readouterr()
     assert cli_run("findings", "ONB-1", "--out", str(out)) == 0
@@ -386,7 +391,7 @@ def test_reports_after_a_judged_flow_include_the_judge_answer(
 
 
 def test_judge_refuses_a_dirty_tree_and_keeps_edits_out(
-    state: TaskStore, cli_run: Run, repo: Path
+    state: TaskStore, cli_run: Run, judge_orca, repo: Path
 ) -> None:
     _plan_and_approve(cli_run)
     _red_green_commit(cli_run, repo)

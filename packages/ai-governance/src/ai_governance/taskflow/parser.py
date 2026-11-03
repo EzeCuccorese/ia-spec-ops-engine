@@ -226,7 +226,7 @@ def _judge_commands(sub: Subparsers) -> None:
     item = add(
         "judge",
         cli.cmd_judge,
-        "Judge the committed code on an isolated copy (checks + every required judge)",
+        "Run the checks on the committed code, then print the Orca line of every required judge",
     )
     item.add_argument("--focus", default="", help="Run only this focus (the gate still needs all)")
     item = add("deploy", cli.cmd_deploy, "Record a deployment the user made (never deploys)")

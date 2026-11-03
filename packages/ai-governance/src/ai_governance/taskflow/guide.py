@@ -17,7 +17,9 @@ Flow (one task or subtask at a time):
   4. work:      taskflow tdd <ID> red --cmd "<test>"   (before the change; must fail)
                 implement, then taskflow tdd <ID> green --cmd "<same test>"; commit
                 taskflow phase <ID> judge
-  5. judge:     taskflow judge <ID>   (isolated copy of HEAD, checks + every required judge)
+  5. judge:     taskflow judge <ID>   (the engine runs the checks on a throwaway copy of HEAD, then
+                PRINTS one `orchestration worker-start` line per required judge: run it, end your
+                turn, then `taskflow round <ID> collect --round N --dispatch-id <ID>`)
                 block/concerns -> taskflow phase <ID> work, fix, judge again
   6. staging:   optional unless a risk rule asks for it. The USER deploys and approves.
                 taskflow deploy <ID> --env staging --repo <path> --sha <sha> --provenance ci
@@ -33,7 +35,7 @@ policy-downgrade, restaging) need --consequence (what breaks if it goes wrong, p
 and a reply that names the action and the target, typed by the user; "ok"/"dale" is
 refused. Production actions are refused after 16:00, and on Friday after 13:00.
 
-Orca-run readers (planner, validator; judges follow in a later change). The builder is you:
+Orca-run readers (planner, validator, judges). The builder is you:
   taskflow round <ID> dispatch --role validator --prompt-file review.md
       reserves the round and PRINTS an `orchestration worker-start` line; run it yourself
   taskflow round <ID> collect --round N --dispatch-id <the id Orca gave you>

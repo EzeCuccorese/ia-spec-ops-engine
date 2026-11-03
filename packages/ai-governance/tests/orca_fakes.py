@@ -40,7 +40,7 @@ from ai_governance.taskflow.store import TaskStore
 
 GIT_ALLOWED = (
     "init config add commit rev-parse branch status diff submodule checkout log show "
-    "merge-base symbolic-ref ls-files"
+    "merge-base symbolic-ref ls-files worktree"
 )
 TASK = "ONB-1"
 
@@ -266,6 +266,32 @@ class OrcaWorld:
         done = [proc.communicate(timeout=120) for proc in procs]
         return [(proc.returncode, out + err) for proc, (out, err) in zip(procs, done, strict=True)]
 
+    # -- judge rounds -----------------------------------------------------------------------
+    def ready_for_judge(self) -> None:
+        """Phase judge on committed code with the TDD skip a user would have approved."""
+
+        def change(task: Task) -> None:
+            task.phase = "judge"
+            task.tdd = {"skip": {"reason": "user"}}
+            task.approvals.append({"action": "plan", "target": TASK, "stamp": ""})
+
+        self.store.mutate(TASK, change)
+
+    def judge(self, *extra: str) -> Result:
+        return self.run("judge", TASK, *extra)
+
+    @staticmethod
+    def worker_lines(result: Result) -> list[list[str]]:
+        """The printed worker-start lines, one argv each."""
+        return [shlex.split(line) for line in result.out.splitlines() if "worker-start" in line]
+
+    def settle_judge(self, line: list[str], verdict: str = "pass", agent: str = "codex") -> Result:
+        """Play the worker of a printed judge line and collect it (dispatch id ``J<n>``)."""
+        number = int(flag(line, "--task-title").split()[2])
+        answer = f"review done\nVERDICT: {verdict}\n"
+        self.finish(number, f"J{number}", answer=answer, agent=agent)
+        return self.collect(number, f"J{number}")
+
     # -- hermeticity ------------------------------------------------------------------------
     def assert_hermetic(self) -> None:
         names = {Path(call[0]).name for call in self.calls}
@@ -296,14 +322,21 @@ def _git(repo: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
 
 
-def _install_bin(base: Path, real_git: str) -> Path:
-    bin_dir = base / "bin"
-    bin_dir.mkdir(parents=True)
+def _install_orca(bin_dir: Path) -> None:
+    bin_dir.mkdir(parents=True, exist_ok=True)
     (bin_dir / "orca_fake_impl.py").write_text(_ORCA_IMPL, encoding="utf-8")
     _script(
         bin_dir / "orca-fake",
         f'exec {shlex.quote(sys.executable)} {shlex.quote(str(bin_dir / "orca_fake_impl.py"))} "$@"\n',
     )
+
+
+def _install_bin(base: Path, real_git: str) -> Path:
+    bin_dir = base / "bin"
+    bin_dir.mkdir(parents=True)
+    _install_orca(bin_dir)
+    for agent in ("agy", "claude", "codex"):  # `judge` still checks the configured agents exist
+        _script(bin_dir / agent, "exit 0\n")
     _script(
         bin_dir / "git",
         'printf \'%s\\n\' "$*" >> "$FAKE_GIT_LOG"\n'
@@ -388,6 +421,18 @@ def _guard_processes(monkeypatch: pytest.MonkeyPatch, world: OrcaWorld) -> None:
 
     monkeypatch.setattr(subprocess.Popen, "__init__", guarded)
     monkeypatch.setattr(socket.socket, "connect", no_network)
+
+
+def attach_orca(base: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fake Orca CLI in front of the real PATH, for tests that keep their own fixtures."""
+    base.mkdir()
+    _install_orca(base / "bin")
+    monkeypatch.setenv("PATH", f"{base / 'bin'}{os.pathsep}{os.environ['PATH']}")
+    for key, value in {
+        "FAKE_ORCA": str(base / "scenario.json"), "FAKE_ORCA_LOG": str(base / "orca.log"),
+        "ORCA_CLI_COMMAND": "orca-fake",
+    }.items():  # fmt: skip
+        monkeypatch.setenv(key, value)
 
 
 @pytest.fixture

@@ -25,13 +25,15 @@ from ai_governance.taskflow.approvals import (
 from ai_governance.taskflow.cli import main
 from ai_governance.taskflow.config import FlowConfig, RiskRule, load_config
 from ai_governance.taskflow.handoff import scrub
-from ai_governance.taskflow.judge import JudgeError, judge_task
+from ai_governance.taskflow.judge import JudgeError, JudgeScope
+from ai_governance.taskflow.judge_flow import JudgeJob, judge_flow
 from ai_governance.taskflow.models import Task
 from ai_governance.taskflow.resolver import TaskResolver
 from ai_governance.taskflow.risk import assess
 from ai_governance.taskflow.rounds import LeaseError, RoundRequest, run_round, writer_lease
 from ai_governance.taskflow.stamp import code_stamp, remote_sha
 from ai_governance.taskflow.store import RoundSlot, TaskStore
+from orca_fakes import OrcaWorld, attach_orca
 
 WEEKDAY_MORNING = datetime(2026, 10, 28, 10, 0)  # Wednesday
 FRIDAY_AFTERNOON = datetime(2026, 10, 30, 14, 0)
@@ -699,8 +701,9 @@ def test_invalid_configs_are_reported(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_a_judge_on_an_agent_that_built_the_task_is_refused(state: TaskStore, repo: Path) -> None:
     task = _ready("judge")
     task.rounds.append({"n": 1, "role": "builder", "agent": "codex"})
+    ctx = gates.GateContext(FlowConfig(), assess(FlowConfig(), []), "k1")
     with pytest.raises(JudgeError, match="not independent"):
-        judge_task(state, task, gates.GateContext(FlowConfig(), assess(FlowConfig(), []), "k1"))
+        list(judge_flow(JudgeJob(state, task, ctx, JudgeScope()), lambda: "k1"))
 
 
 # -- adapters and rounds -------------------------------------------------------------------
@@ -790,6 +793,22 @@ def cli_run(repo: Path, fake_agents: Path, tmp_path: Path, monkeypatch):
     return lambda *argv: main(list(argv))
 
 
+@pytest.fixture
+def orca_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_agents: Path) -> Path:
+    """The fake Orca CLI on PATH (and fake agent binaries, which `judge` still checks for)."""
+    base = tmp_path / "orca-world"
+    attach_orca(base, monkeypatch)
+    return base
+
+
+@pytest.fixture
+def judge_orca(
+    orca_path: Path, state: TaskStore, repo: Path, capsys: pytest.CaptureFixture[str]
+) -> OrcaWorld:
+    """The flows where `judge` prints a worker line to run: play the worker through this."""
+    return OrcaWorld(orca_path, repo, state, capsys)
+
+
 def _plan_and_approve(run) -> None:
     assert run("new", "ONB-1", "--title", "Restore status", "--summary", "goal") == 0
     assert run("bind", "ONB-1", "--repo", str(Path.cwd())) == 0
@@ -817,12 +836,16 @@ def _red_green_commit(run, repo: Path) -> None:
     assert run("tdd", "ONB-1", "green", "--cmd", "sh test_app.sh") == 0
 
 
-def test_full_flow_through_the_cli(state: TaskStore, repo: Path, cli_run, capsys) -> None:
-    run = cli_run
+def test_full_flow_through_the_cli(
+    state: TaskStore, cli_run, judge_orca: OrcaWorld, capsys
+) -> None:
+    run, repo = cli_run, judge_orca.repo
     _plan_and_approve(run)
     _red_green_commit(run, repo)
     assert run("phase", "ONB-1", "judge") == 0
-    assert run("judge", "ONB-1") == 0
+    printed = judge_orca.judge()
+    assert printed.code == 0, printed.text
+    assert judge_orca.settle_judge(judge_orca.worker_lines(printed)[0]).code == 0
     assert run("phase", "ONB-1", "review") == 0
     assert run("phase", "ONB-1", "done") == 1  # production not confirmed
     capsys.readouterr()
@@ -832,7 +855,7 @@ def test_full_flow_through_the_cli(state: TaskStore, repo: Path, cli_run, capsys
     task = state.get("ONB-1")
     assert [r["role"] for r in task.rounds] == ["planner", "validator", "judge"]
     assert list(state.evidence_dir("ONB-1").glob("checks-repo@*.txt"))
-    assert _git(repo, "worktree", "list").count("\n") == 1  # untouched judge copy removed
+    assert _git(repo, "worktree", "list").count("\n") == 1  # the checks' throwaway copy is removed
     (repo / "app.py").write_text("x = 3\n")
     capsys.readouterr()
     run("status", "ONB-1", "--json")
@@ -840,23 +863,24 @@ def test_full_flow_through_the_cli(state: TaskStore, repo: Path, cli_run, capsys
 
 
 def test_judge_block_verdict_sends_the_task_back_to_work(
-    state: TaskStore, repo: Path, fake_agents: Path, monkeypatch
+    state: TaskStore, repo: Path, judge_orca: OrcaWorld
 ) -> None:
-    monkeypatch.setenv("VERDICT", "block")
     state.create(
         Task(
-            id="T",
+            id="ONB-1",
             title="t",
             phase="judge",
             tdd={"skip": {"reason": "user"}},
             repos=[{"path": str(repo)}],
-            approvals=[{"action": "plan", "target": "T", "stamp": ""}],
+            approvals=[{"action": "plan", "target": "ONB-1", "stamp": ""}],
         )
     )
-    assert main(["judge", "T"]) == 1
-    assert main(["phase", "T", "review"]) == 1
-    assert main(["phase", "T", "work"]) == 0
-    assert main(["phase", "T", "findings"]) == 0
+    printed = judge_orca.judge()
+    assert printed.code == 0, printed.text  # dispatched: the verdict comes with collect
+    assert judge_orca.settle_judge(judge_orca.worker_lines(printed)[0], "block").code == 0
+    assert main(["phase", "ONB-1", "review"]) == 1
+    assert main(["phase", "ONB-1", "work"]) == 0
+    assert main(["phase", "ONB-1", "findings"]) == 0
 
 
 def test_help_explains_the_flow_and_the_human_gates(capsys) -> None:
@@ -1050,20 +1074,25 @@ def test_round_header_uses_the_highest_engine_plan_capped_and_scrubbed(state: Ta
     assert "hunter2" not in header and token not in header
 
 
-def test_judge_prompt_does_not_repeat_the_round_header_or_the_builder_checkout(
+def test_judge_prompt_is_for_a_reader_of_the_real_checkout_and_repeats_no_header(
     state: TaskStore, repo: Path
 ) -> None:
     from ai_governance.taskflow.context import round_header
-    from ai_governance.taskflow.judge import JudgedCopy, judge_prompt
+    from ai_governance.taskflow.judge import CheckRun, JudgedCopy, judge_prompt
 
     task = Task(id="T", title="t", summary="goal", repos=[{"path": str(repo), "branch": "b"}])
     task.steps += [{"text": f"step {i}"} for i in range(30)]
     state.create(task)
     copy = JudgedCopy(repo, repo / "copy", "a" * 40, "", "f")
-    prompt = judge_prompt(task, "security", [copy], [{"passed": True, "path": "p"}])
+    run = CheckRun((copy,), ({"passed": True, "path": "p"},), ())
+    prompt = judge_prompt(task, "security", run)
     assert "Goal:" not in prompt and "step 29" in prompt and "step 0" not in prompt
     header = round_header(state, "T", "judge")
-    assert "Goal: goal" in header and f"Repository {repo}" not in header
+    assert "Goal: goal" in header and f"Repository {repo}" in header  # the real checkout
+    assert f"Repository {repo.name} at {repo} (commit {'a' * 40}, clean tree)" in prompt
+    assert "Engine-run checks passed: p" in prompt
+    assert "copy" not in prompt.lower() and "Run any test" not in prompt
+    assert "do not run builds, tests" in prompt
 
 
 def _request_of(round_file: str) -> str:
@@ -1099,24 +1128,26 @@ def test_tasks_sharing_a_repo_only_see_their_own_plan(cli_run, state: TaskStore)
 
 
 # -- review fixes ----------------------------------------------------------------------------
-def test_checks_that_write_files_do_not_count_as_a_judge_edit(
-    state: TaskStore, repo: Path, fake_agents: Path, tmp_path: Path
+def test_checks_that_write_files_run_in_a_copy_and_leave_the_checkout_alone(
+    state: TaskStore, repo: Path, tmp_path: Path
 ) -> None:
     from ai_governance.taskflow.gates import GateContext
+    from ai_governance.taskflow.judge import run_engine_checks
 
     cfg = FlowConfig(roles={"builder": {"agent": "claude"}})
     task = Task(id="T", title="t", repos=[{"path": str(repo)}])
     state.create(task)
     risk = assess(cfg, [])
     risk = type(risk)(**{**risk.__dict__, "checks": ("echo built > artifact.txt",)})
-    ctx = GateContext(cfg, risk, "stamp")
-    records, kept = judge_task(state, task, ctx)
-    assert records and kept == []
+    run = run_engine_checks(state, task, GateContext(cfg, risk, "stamp"), task.repos)
+    assert [e["kind"] for e in run.evidence] == ["checks"] and run.evidence[0]["passed"]
+    assert run.evidence[0]["sha"] == _git(repo, "rev-parse", "HEAD").strip()
+    assert not (repo / "artifact.txt").exists()  # the check wrote into the throwaway copy
     assert not list(tmp_path.glob("taskflow-judge-*"))
     assert "judge-" not in _git(repo, "worktree", "list")
 
 
-def test_scratch_and_worktrees_are_removed_when_judging_raises(
+def test_scratch_and_worktrees_are_removed_when_the_checks_raise(
     state: TaskStore, repo: Path, monkeypatch
 ) -> None:
     from ai_governance.taskflow import judge as judge_module
@@ -1129,9 +1160,11 @@ def test_scratch_and_worktrees_are_removed_when_judging_raises(
     def boom(*_a: object, **_k: object) -> None:
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(judge_module, "run_round", boom)
+    monkeypatch.setattr(judge_module, "verify_unchanged", boom)
     with pytest.raises(RuntimeError):
-        judge_task(state, task, GateContext(cfg, assess(cfg, []), "s"))
+        judge_module.run_engine_checks(
+            state, task, GateContext(cfg, assess(cfg, []), "s"), task.repos
+        )
     assert len(_git(repo, "worktree", "list").strip().splitlines()) == 1
 
 

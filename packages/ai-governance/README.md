@@ -199,7 +199,7 @@ verdicts and approvals are stale, and the next command.
 | `stamp <id> [--remote]` | Code stamp of the bound repositories (HEAD + every changed path) and risk by path |
 | `round <id> run --role planner\|validator\|builder` / `round <id> record` | Run an agent headless and log it / log a round run elsewhere (context only) |
 | `tdd <id> red\|green --cmd "..."`, `tdd <id> skip` | Mandatory test-first evidence; skipping needs the user's approval |
-| `judge <id> [--focus F]` | Checks and every required judge on an isolated `git worktree` of HEAD |
+| `judge <id> [--focus F]` | Runs the checks on a throwaway `git worktree` of HEAD, then prints the Orca worker line of every required judge (a reader of the real checkout; settle with `round collect`) |
 | `phase <id> <phase>`, `block`/`unblock`, `close [--abandon]` | Move through the gates |
 | `approve <id> --action A --target T --user-reply "..." [--consequence "..."]` | Record an approval the user gave in the chat |
 | `deploy <id> ...`, `evidence <id> ...` | Record a deployment the user made and evidence bound to its SHA |

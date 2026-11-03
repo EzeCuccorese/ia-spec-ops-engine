@@ -20,7 +20,8 @@ from ai_governance import hooks
 from ai_governance.taskflow import cli, gates, judge, repos, rounds, stamp, tdd
 from ai_governance.taskflow.cli import main
 from ai_governance.taskflow.config import FlowConfig, RiskRule
-from ai_governance.taskflow.judge import judge_task
+from ai_governance.taskflow.judge import JudgeScope
+from ai_governance.taskflow.judge_flow import JudgeJob, judge_flow
 from ai_governance.taskflow.models import Task
 from ai_governance.taskflow.risk import assess, merge
 from ai_governance.taskflow.store import TaskStore
@@ -497,7 +498,7 @@ def test_guard_reraises_when_the_path_still_exists(tmp_path: Path) -> None:
     assert repos.guard({"path": str(gone)}, enoent) is None
 
 
-def test_judge_task_without_any_live_repo_is_refused(
+def test_judge_flow_without_any_live_repo_is_refused(
     state: TaskStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = _new_repo(tmp_path, "a")
@@ -508,7 +509,8 @@ def test_judge_task_without_any_live_repo_is_refused(
 
     config = _flat()
     with pytest.raises(ValueError, match=GONE):
-        judge_task(state, task, GateContext(config, assess(config, []), "k"))
+        ctx = GateContext(config, assess(config, []), "k")
+        list(judge_flow(JudgeJob(state, task, ctx, JudgeScope()), lambda: "k"))
 
 
 def test_merge_only_adds_obligations() -> None:

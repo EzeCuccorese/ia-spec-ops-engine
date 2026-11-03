@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import sys
 from collections.abc import Callable
@@ -42,13 +43,14 @@ from .gates import (
 )
 from .guide import GUIDE as GUIDE
 from .handoff import findings, handoff, scrub, ticket_draft
-from .judge import JudgeError, JudgeScope, judge_task
+from .judge import JudgeError, JudgeScope
+from .judge_flow import JudgeJob, judge_flow
 from .models import PHASES, READER_ROLES, Task, now_iso
 from .policy import _rule_reductions as _rule_reductions
 from .policy import policy_reductions as policy_reductions
 from .policy import policy_summary
 from .refresh import legacy_notice, refresh
-from .repos import begin_invocation, first_live, on_live, partition
+from .repos import begin_invocation, first_live, on_live
 from .resolver import TaskResolver
 from .risk import RiskAssessment
 from .rounds import LeaseError, RoundRequest, record_manual, run_round
@@ -590,7 +592,7 @@ def _record_manual_round(store: TaskStore, task: Task, args: argparse.Namespace)
 
 def _check_round_allowed(task: Task, role: str) -> None:
     if role == "judge":
-        raise ValueError("Judges run through `taskflow judge`, on an isolated copy")
+        raise ValueError("Judges run through `taskflow judge`")
     if task.workflow == "manual":
         raise ValueError("Manual tasks have no agent rounds")
     if role == "builder" and (missing := work_unmet(task)):
@@ -654,18 +656,19 @@ def cmd_judge(args: argparse.Namespace) -> int:
     missing = judge_unmet(task, task.stamp_key) + policy_unmet(task, task.stamp_key)
     if missing:
         raise ValueError("Not ready to judge: " + "; ".join(missing))
-    records, kept = judge_task(
-        store,
-        task,
-        GateContext(config, risk, task.stamp_key),
-        JudgeScope(args.focus, partition(task.repos).live),
-    )
-    for record in records:
-        _report_round(record)
-    for path in kept:
-        emit_status("warn", f"A judge modified its copy; kept for review: {path}")
+    job = JudgeJob(store, task, GateContext(config, risk, task.stamp_key), JudgeScope(args.focus))
+    waiting: set[str] = set()
+    for plan in judge_flow(job, lambda: _refresh(store, store.get(task.id), config)[0].stamp_key):
+        print(shlex.join(plan.argv))
+        waiting.add(plan.focus)
+        print(
+            f"Round {plan.n:03d} reserved (judge '{plan.focus}'). Run the line above, end your turn, "
+            f"then: taskflow round {task.id} collect --round {plan.n} --dispatch-id <ID from Orca>",
+            file=sys.stderr,
+        )
     task = store.get(task.id)
     pending = checks_unmet(task, task.stamp_key) + judges_unmet(task, risk, config, task.stamp_key)
+    pending = [p for p in pending if not any(p.startswith(f"judge '{f}':") for f in waiting)]
     for item in pending:
         emit_status("warn", item)
     return 0 if not pending else 1

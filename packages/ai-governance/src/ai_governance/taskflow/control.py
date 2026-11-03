@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 from .models import JsonDict, Task
@@ -33,6 +34,15 @@ class DispatchError(ValueError):
 
 class UsageRefusal(DispatchError):
     """A request that can never work as written (exit code 2), not a state to wait out."""
+
+
+@dataclass(frozen=True)
+class CheckedBaseline:
+    """What the engine's checks ran against: the code stamp and, for every real checkout, its
+    path, HEAD and tree fingerprint. A judge round is dispatched only against this exact state."""
+
+    stamp: str
+    repos: tuple[JsonDict, ...]
 
 
 def digest_text(text: str) -> str:
