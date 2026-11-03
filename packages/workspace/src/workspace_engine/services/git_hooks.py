@@ -22,6 +22,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
+from workspace_engine._config_core import xdg_dir
 from workspace_engine.common import run_command_safe
 
 HOOK_NAME = "workspace-gate"
@@ -42,8 +43,7 @@ def generate_canonical_pre_push_script() -> str:
 
 
 def global_hook_path() -> Path:
-    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
-    return Path(base) / "workspace" / "hooks" / HOOK_EVENT
+    return xdg_dir("config", "workspace") / "hooks" / HOOK_EVENT
 
 
 def local_hook_path(root: Path) -> Path:

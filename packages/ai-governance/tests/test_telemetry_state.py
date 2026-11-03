@@ -184,3 +184,12 @@ def test_notify_macos_handles_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     assert notify_macos("Title", "Message") is False
+
+
+def test_unknown_telemetry_config_keys_are_reported_not_silently_dropped(tmp_path, capsys):
+    import json
+
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"monthly_budget_usd": 10, "bogus": 1}), encoding="utf-8")
+    assert UsageConfig.load(path).monthly_budget_usd == 10
+    assert "bogus" in capsys.readouterr().err

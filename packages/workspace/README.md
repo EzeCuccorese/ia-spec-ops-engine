@@ -509,6 +509,16 @@ entry per Kubernetes environment it should be able to read variables from:
 
 ## ⚙️ Configuration & Environment Variables
 
+### Configuration layers
+
+Settings resolve as **default < user (`~/.config/workspace/config.toml`) < repo (`<repo>/.workspace/config.toml`) < environment variable < CLI flag**.
+`ws config show [--origin] [--json]` prints the effective values and where each came from;
+the `run-local` project file (`.workspace/config.json`, written by `ws config init`) appears
+there as `project.*`. The `[design]` table also has a user layer
+(`~/.config/workspace/config.toml`) under the repo's `.ai-governance/config.toml`.
+Config, state and data directories follow XDG and accept `WORKSPACE_CONFIG_DIR` /
+`WORKSPACE_STATE_DIR` / `WORKSPACE_DATA_DIR` (and `RUN_LOCAL_*` for `run-local`).
+
 | Variable | Used by | Description | Default |
 | --- | --- | --- | --- |
 | `AI_REPOSITORIES_DIR` | `ws generate`, `ws edit` | Directory containing local project repositories used when wiring up a new/edited workspace. | none (falls back to values already present in the workspace's `.env`) |

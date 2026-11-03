@@ -14,7 +14,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+from .._config_core import ConfigError
 from ..paths import state_dir
+from ..settings import effective
 from .agents import Artifact, FileArtifact
 
 LABEL = "com.ai-governance.prices-update"  # neutral default; override with LABEL_ENV
@@ -25,8 +27,11 @@ LAUNCH_AGENTS_ENV = "AI_GOVERNANCE_LAUNCH_AGENTS_DIR"
 
 
 def label() -> str:
-    """Launch agent label: ``$AI_GOVERNANCE_SCHEDULE_LABEL`` or the neutral default."""
-    return os.environ.get(LABEL_ENV, "").strip() or LABEL
+    """Launch agent label: ``$AI_GOVERNANCE_SCHEDULE_LABEL``, ``[schedule] label``, or the default."""
+    try:
+        return str(effective()["schedule.label"].value).strip() or LABEL
+    except ConfigError:
+        return LABEL
 
 
 def _retired_labels() -> list[str]:

@@ -9,13 +9,14 @@ import re
 import time
 from pathlib import Path
 
+from workspace_engine._config_core import xdg_dir
+
 RETENTION_DAYS = 7
 MAX_LOGS = 200
 
 
 def logs_dir() -> Path:
-    base = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
-    return Path(os.environ.get("WORKSPACE_LOG_DIR") or Path(base) / "workspace" / "logs")
+    return Path(os.environ.get("WORKSPACE_LOG_DIR") or xdg_dir("state", "workspace") / "logs")
 
 
 def save(text: str, command: str) -> str:

@@ -219,3 +219,13 @@ def test_timeout_is_read_at_call_time(monkeypatch):
     assert atlassian_common.atlassian_timeout() == 7.5
     monkeypatch.setenv("ATLASSIAN_TIMEOUT", "junk")
     assert atlassian_common.atlassian_timeout() == 30.0
+
+
+def test_legacy_profiles_file_is_still_read(monkeypatch, tmp_path):
+    from ai_governance.tools import atlassian_common
+
+    _without_credentials(monkeypatch, tmp_path)
+    legacy = tmp_path / ".config" / "atlassian"
+    legacy.mkdir(parents=True)
+    (legacy / "profiles.json").write_text('{"old": {"email": "o", "token": "t", "url": "u/"}}')
+    assert atlassian_common.load_profile_config("old") == {"email": "o", "token": "t", "url": "u"}

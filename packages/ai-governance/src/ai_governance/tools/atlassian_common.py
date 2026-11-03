@@ -14,7 +14,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from .._config_core import ConfigError
 from ..paths import config_dir
+from ..settings import effective
 
 DEFAULT_TIMEOUT_SECONDS = 30.0
 
@@ -24,11 +26,10 @@ class UnknownProfileError(LookupError):
 
 
 def atlassian_timeout() -> float:
-    """HTTP timeout in seconds, read at call time from ``ATLASSIAN_TIMEOUT``."""
-    raw = os.environ.get("ATLASSIAN_TIMEOUT", "")
+    """HTTP timeout in seconds: ``$ATLASSIAN_TIMEOUT``, ``[atlassian] timeout_seconds``, 30."""
     try:
-        return float(raw) if raw else DEFAULT_TIMEOUT_SECONDS
-    except ValueError:
+        return float(effective()["atlassian.timeout_seconds"].value)
+    except (ConfigError, ValueError):
         return DEFAULT_TIMEOUT_SECONDS
 
 

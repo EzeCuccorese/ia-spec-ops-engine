@@ -14,13 +14,15 @@ pipe (``| grep``) is NOT agent mode, so humans and scripts get full output.
 from __future__ import annotations
 
 import json
-import os
 import sys
 from collections.abc import Sequence
 from typing import Any, Literal
 
 from rich.console import Console
 from rich.table import Table
+
+from ._config_core import AGENT_ENV_MARKERS as AGENT_ENV_MARKERS
+from ._config_core import is_agent_mode as core_is_agent_mode
 
 DEFAULT_MAX_LINES = 20
 DEFAULT_MAX_CHARS = 1500
@@ -30,23 +32,9 @@ DEFAULT_MAX_CHARS = 1500
 _console = Console()
 
 
-# Environment variables set by supported agents for the commands they spawn.
-AGENT_ENV_MARKERS: tuple[str, ...] = (
-    "CLAUDE_CODE_CHILD_SESSION",  # Claude Code (tool and hook subprocesses)
-    "CLAUDECODE",  # Claude Code (any subprocess)
-    "CODEX_SANDBOX",  # OpenAI Codex (spawned commands; experimental upstream)
-    "ANTIGRAVITY_AGENT",  # Google Antigravity agent terminal
-)
-
-
 def is_agent_mode() -> bool:
     """Returns True when output should be compact/plain for an AI agent."""
-    forced = os.environ.get("AI_GOVERNANCE_AGENT")
-    if forced == "1":
-        return True
-    if forced == "0":
-        return False
-    return any(os.environ.get(name) for name in AGENT_ENV_MARKERS)
+    return core_is_agent_mode("ai-governance")
 
 
 def truncate(

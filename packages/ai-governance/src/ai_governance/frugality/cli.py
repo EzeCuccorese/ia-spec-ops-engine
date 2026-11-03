@@ -6,7 +6,6 @@ agent execution.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 import re
@@ -15,11 +14,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-from ..paths import config_dir, state_dir
+from .._config_core import ConfigError
+from ..paths import state_dir
+from ..settings import SETTINGS, effective
 from .pre_check import PreCheck, replacement_patterns
 
 # Condense outputs above threshold_chars down to budget_chars (~600 tokens).
-DEFAULT_CONFIG = {"threshold_chars": 4000, "budget_chars": 2500}
+DEFAULT_CONFIG = {
+    s.key.split(".", 1)[1]: s.default for s in SETTINGS if s.key.startswith("frugality.")
+}
 
 
 def get_runtime_dir() -> Path:
@@ -29,12 +32,12 @@ def get_runtime_dir() -> Path:
 
 
 def load_config() -> dict:
-    cfg = dict(DEFAULT_CONFIG)
-    cfg_file = config_dir() / "frugal.json"
-    if cfg_file.exists():
-        with contextlib.suppress(json.JSONDecodeError, UnicodeDecodeError, OSError):
-            cfg.update(json.loads(cfg_file.read_text(encoding="utf-8")))
-    return cfg
+    """Condense thresholds (``[frugality]``); fail-open: a broken file keeps the defaults."""
+    try:
+        values = effective()
+    except ConfigError:
+        return dict(DEFAULT_CONFIG)
+    return {name: values[f"frugality.{name}"].value for name in DEFAULT_CONFIG}
 
 
 def run_pre_bash(cfg: dict) -> None:

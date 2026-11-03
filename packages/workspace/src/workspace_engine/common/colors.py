@@ -10,13 +10,15 @@ must not depend on the `ai-governance` package.
 
 from __future__ import annotations
 
-import os
 import sys
 from collections.abc import Sequence
 from typing import TextIO
 
 from rich.console import Console
 from rich.table import Table
+
+from workspace_engine._config_core import AGENT_ENV_MARKERS as AGENT_ENV_MARKERS
+from workspace_engine._config_core import is_agent_mode as core_is_agent_mode
 
 # Shared Rich Console instance
 console = Console()
@@ -26,16 +28,6 @@ DEFAULT_MAX_LINES = 20
 DEFAULT_MAX_CHARS = 1500
 
 
-# Environment variables set by supported agents for the commands they spawn.
-# Kept identical to ai_governance.output.AGENT_ENV_MARKERS (contract test at repo root).
-AGENT_ENV_MARKERS: tuple[str, ...] = (
-    "CLAUDE_CODE_CHILD_SESSION",
-    "CLAUDECODE",
-    "CODEX_SANDBOX",
-    "ANTIGRAVITY_AGENT",
-)
-
-
 def is_agent_mode() -> bool:
     """Returns True when output should be compact/plain for an AI agent.
 
@@ -43,12 +35,7 @@ def is_agent_mode() -> bool:
     off. Otherwise agent mode is on when an agent env marker is present; a plain
     pipe keeps full human output.
     """
-    forced = os.environ.get("WORKSPACE_AGENT")
-    if forced == "1":
-        return True
-    if forced == "0":
-        return False
-    return any(os.environ.get(name) for name in AGENT_ENV_MARKERS)
+    return core_is_agent_mode("workspace")
 
 
 def truncate(

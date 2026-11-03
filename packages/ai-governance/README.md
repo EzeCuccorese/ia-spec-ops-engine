@@ -223,8 +223,28 @@ controls in `.ai-governance/taskflow.toml`. Gates the engine enforces:
 ## Configuration and environment
 
 State: `~/.local/state/ai-governance/` (ledger `installed.json`, `taskflow/`, `telemetry/`,
-`probe/`, `frugal/`). Data: `~/.local/share/ai-governance/` (`zsh/` completions). Config: `~/.config/ai-governance/` (`frugal.json` with `threshold_chars`
-and `budget_chars`; `atlassian.json` with named Atlassian profiles).
+`probe/`, `frugal/`). Data: `~/.local/share/ai-governance/` (`zsh/` completions). Config: `~/.config/ai-governance/`.
+
+### Configuration layers
+
+Every setting resolves the same way, lowest to highest priority:
+**default < user (`~/.config/ai-governance/config.toml`) < repo (`<repo>/.ai-governance/config.toml`) < environment variable < CLI flag**.
+Files are TOML (`[frugality]` / `threshold_chars = 4000`). Older JSON files keep working
+(`config.json`, `frugal.json`; a one-line notice is printed on a terminal, never in agent mode).
+`ai-governance config show [--origin] [--json]` prints the effective values and the layer
+(plus file or variable) each one came from.
+
+| Key | Env var | Default | Meaning |
+|---|---|---|---|
+| `frugality.threshold_chars` | `AI_GOVERNANCE_FRUGAL_THRESHOLD_CHARS` | `4000` | Shell output longer than this is condensed |
+| `frugality.budget_chars` | `AI_GOVERNANCE_FRUGAL_BUDGET_CHARS` | `2500` | Size the condensed output is cut down to |
+| `taskflow.timeout_seconds` | `AI_GOVERNANCE_CHECK_TIMEOUT_SECONDS` | `1800` | Timeout of checks, judges and TDD commands |
+| `atlassian.timeout_seconds` | `ATLASSIAN_TIMEOUT` | `30` | HTTP timeout of Jira and Confluence calls |
+| `schedule.label` | `AI_GOVERNANCE_SCHEDULE_LABEL` | `com.ai-governance.prices-update` | launchd label of the price-refresh agent; older labels are retired on uninstall |
+
+`taskflow.toml` keeps roles, judges, checks and risk rules: a repository can only add to
+them. Of its scalars only `timeout_seconds` follows the precedence above; `workflow` and the
+roles stay user-owned. An unknown `--profile` for Jira/Confluence is now an error that lists the known profiles.
 
 | Variable | Effect |
 |---|---|

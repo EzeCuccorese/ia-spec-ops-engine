@@ -9,6 +9,7 @@ import os
 import re
 from pathlib import Path
 
+from workspace_engine._config_core import xdg_dir
 from workspace_engine.common import Color
 
 # ── ANSI Colors ───────────────────────────────────────────────────────────────
@@ -21,8 +22,8 @@ DIM = Color.DIM
 RESET = Color.RESET
 
 # ── Directories and Files ─────────────────────────────────────────────────────
-CONFIG_DIR = Path.home() / ".config" / "run-local"
-DATA_DIR = Path.home() / ".local" / "share" / "run-local"
+CONFIG_DIR = xdg_dir("config", "run-local")
+DATA_DIR = xdg_dir("data", "run-local")
 LOGS_DIR = DATA_DIR / "logs"
 PIDS_DIR = DATA_DIR / "pids"
 ENVS_DIR = DATA_DIR / "envs"
@@ -98,12 +99,30 @@ def find_project_root(
 
 def config_candidates(root: Path) -> list[Path]:
     """Config files searched for ``root``, in order; the first that exists is used."""
-    candidate_paths = [root / ".workspace" / "config.json"]
-    if os.environ.get("XDG_CONFIG_HOME"):  # empty means unset (XDG spec)
-        candidate_paths.append(Path(os.environ["XDG_CONFIG_HOME"]) / "workspace" / "config.json")
-    candidate_paths.append(Path.home() / ".config" / "workspace" / "config.json")
-    candidate_paths.append(root / "config.json")
+    candidate_paths = [
+        root / ".workspace" / "config.json",
+        xdg_dir("config", "workspace") / "config.json",
+        Path.home() / ".config" / "workspace" / "config.json",  # XDG_CONFIG_HOME elsewhere
+        root / "config.json",  # listed by the "no configuration found" message
+    ]
     return list(dict.fromkeys(candidate_paths))  # XDG_CONFIG_HOME may be ~/.config
+
+
+def project_config_origins(start_dir: Path | None = None) -> dict[str, tuple[object, str, str]]:
+    """Each project key as ``(value, origin, source)``: default, or the file it was read from
+    (``repo`` under ``<root>/.workspace``, otherwise ``user``)."""
+    config = load_project_config(start_dir)
+    root = find_project_root(start_dir)
+    target = next((p for p in config_candidates(root) if p.exists()), None)
+    try:
+        in_file = set(json.loads(target.read_text(encoding="utf-8"))) if target else set()
+    except (OSError, ValueError, TypeError):
+        in_file = set()
+    origin = "repo" if target is not None and target.is_relative_to(root) else "user"
+    return {
+        key: (value, origin, str(target)) if key in in_file else (value, "default", "")
+        for key, value in config.items()
+    }
 
 
 def load_project_config(

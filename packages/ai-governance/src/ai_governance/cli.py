@@ -20,6 +20,7 @@ COMMANDS: dict[str, str] = {
     "telemetry": "Claude spend estimates (claude-usage), prices and threshold alerts",
     "jira": "Jira issues and transitions in Markdown",
     "confluence": "Confluence pages in Markdown",
+    "config": "Show the effective configuration and where each value came from",
     "completion": "Print the zsh <TAB> completion of ai-governance, ws or spec",
     "hook": "Agent hook entry point (used by installed hooks)",
 }
@@ -39,6 +40,7 @@ _SUBCOMMAND_MODULES: dict[str, str] = {
     "telemetry": "ai_governance.telemetry.cli",
     "jira": "ai_governance.tools.jira",
     "confluence": "ai_governance.tools.confluence",
+    "config": "ai_governance.config_cli",
     "completion": "ai_governance.completion",
     "hook": "ai_governance.hooks",
 }

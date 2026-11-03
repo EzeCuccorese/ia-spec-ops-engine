@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..paths import config_dir
+from ..settings import effective
 from .models import WORKFLOWS, JsonDict
 
 CONFIG_NAME = "taskflow.toml"
@@ -145,7 +146,8 @@ def _merge_local(
 def load_config(repos: list[Path] | None = None, user_file: Path | None = None) -> FlowConfig:
     """User config plus the additions of every bound repository (TDD is not configurable:
     only the user's ``tdd-skip`` approval replaces it)."""
-    user = _read_toml(user_file or config_dir() / CONFIG_NAME)
+    user_path = user_file or config_dir() / CONFIG_NAME
+    user = _read_toml(user_path)
     roles = dict(DEFAULT_ROLES)
     roles.update({k: dict(v) for k, v in user.get("roles", {}).items() if k != "judges"})
     judges = _judge_entries(user) or [dict(j) for j in DEFAULT_JUDGES]
@@ -159,5 +161,19 @@ def load_config(repos: list[Path] | None = None, user_file: Path | None = None) 
         judges=tuple(judges),
         checks=tuple(checks),
         risk_rules=tuple(rules),
-        timeout_seconds=int(user.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS)),
+        timeout_seconds=_timeout(user_path, repos or []),
     )
+
+
+def _timeout(user_path: Path, repos: list[Path]) -> int:
+    """``taskflow.timeout_seconds`` through the shared precedence (default < user < repo < env).
+
+    ``timeout_seconds`` in either taskflow.toml counts as that layer's value when
+    ``config.toml`` does not set it. Roles, workflow, judges and checks stay user-owned
+    (a repository can add controls, never replace them): only this scalar is overridable.
+    """
+    repo_extra = {repo / REPO_CONFIG: "taskflow" for repo in repos}
+    found = effective(
+        repos[0] if repos else None, user_extra={user_path: "taskflow"}, repo_extra=repo_extra
+    )
+    return int(found["taskflow.timeout_seconds"].value)
