@@ -87,6 +87,8 @@ class FlowConfig:
     # The user's own policy (no repository applied): where a task's first approval starts from.
     baseline_policy: JsonDict | None = None
     pending_trust: tuple[PendingTrust, ...] = ()
+    # Controls a trusted repository removed or weakened relative to what was in force before it.
+    repo_reductions: tuple[str, ...] = ()
 
     def role(self, name: str) -> JsonDict:
         if name == "judge":
@@ -168,6 +170,33 @@ def _rules(raw: list[JsonDict]) -> list[RiskRule]:
 def _judge_entries(raw: JsonDict) -> list[JsonDict]:
     """Judges from ``[[judges]]`` or ``[[roles.judges]]``: both files accept both spellings."""
     return [dict(j) for j in [*raw.get("judges", []), *raw.get("roles", {}).get("judges", [])]]
+
+
+def _rule_reductions(name: str, rule: JsonDict, now: JsonDict | None) -> list[str]:
+    if now is None:
+        return [f"rule:{name}"]
+    lost = [
+        f"rule:{name}:{kind}:{item}"
+        for kind in ("paths", "judges", "checks")
+        for item in rule.get(kind, [])
+        if item not in now.get(kind, [])
+    ]
+    if rule.get("restaging") and not now.get("restaging"):
+        lost.append(f"rule:{name}:restaging")
+    return lost
+
+
+def policy_reductions(baseline: JsonDict, current: JsonDict) -> list[str]:
+    """Every accepted control that is gone or weaker now (adding controls is never one)."""
+    lost = [
+        f"{kind}:{item}"
+        for kind in ("judges", "checks")
+        for item in baseline.get(kind, [])
+        if item not in current.get(kind, [])
+    ]
+    for name, rule in baseline.get("rules", {}).items():
+        lost += _rule_reductions(name, rule, current.get("rules", {}).get(name))
+    return sorted(lost)
 
 
 UNTRUSTED_RUNNER_FIELDS = ("agent", "model", "binary", "command")
@@ -302,39 +331,31 @@ def _merge_local(
         mark(f"risk.{name}", "disabled")
 
 
-def _untrusted(
-    repo: Path,
-    local: JsonDict,
-    user_commands: set[str],
-    checks: list[str],
-    rules: list[RiskRule],
-    before: tuple[list[str], list[RiskRule]],
-) -> tuple[PendingTrust | None, list[str], list[RiskRule]]:
-    """Strips the commands this repository introduced unless the user approved that set.
+def _control_ids(local: JsonDict) -> list[str]:
+    ids = [f"judge.{j.get('focus')}" for j in _judge_entries(local)]
+    ids += [f"check.{c}" for c in local.get("checks", {}).get("commands", [])]
+    ids += [f"risk.{r.name}" for r in _rules(local.get("risk", {}).get("rules", []))]
+    off = local.get("disable", {})
+    ids += [f"judge.{x}" for x in off.get("judges", [])]
+    ids += [f"check.{x}" for x in off.get("checks", [])]
+    ids += [f"risk.{x}" for x in off.get("risk", [])]
+    return ids
 
-    A command the user already defines (user checks or user rules) needs no approval.
-    """
-    old_checks, old_rules = before
-    # Only what THIS repository brought: commands already present before it (the user's, or
-    # an earlier repository's, which that repository's own approval covers) are not its own.
-    earlier = {*old_checks, *(c for r in old_rules for c in r.checks), *user_commands}
-    introduced = {c for c in checks if c not in earlier}
-    introduced |= {c for r in rules for c in r.checks if c not in earlier}
-    if not introduced or is_trusted(repo, local):
-        return None, checks, rules
-    pending = PendingTrust(str(repo), repo_digest(local), tuple(sorted(introduced)), local)
-    kept_checks = [c for c in checks if c not in introduced]
-    kept_rules = [
-        RiskRule(
-            r.name,
-            r.paths,
-            r.judges,
-            tuple(c for c in r.checks if c not in introduced),
-            r.restaging,
-        )
-        for r in rules
-    ]
-    return pending, kept_checks, kept_rules
+
+def _has_content(node: object) -> bool:
+    """True when a parsed taskflow.toml says anything: empty tables and lists do not count."""
+    if isinstance(node, dict):
+        return any(_has_content(v) for v in node.values())
+    if isinstance(node, list):
+        return any(_has_content(v) for v in node)
+    return node not in (None, "")
+
+
+def _defined_commands(local: JsonDict) -> tuple[str, ...]:
+    """Every command a repository config would run (for the trust prompt)."""
+    rules = _rules(local.get("risk", {}).get("rules", []))
+    found = [*local.get("checks", {}).get("commands", []), *(c for r in rules for c in r.checks)]
+    return tuple(dict.fromkeys(found))
 
 
 def load_config(
@@ -364,7 +385,9 @@ def _build(
     user_path = user_file or config_dir() / CONFIG_NAME
     user = _read_toml(user_path)
     legacy_roles = {k: dict(v) for k, v in user.get("roles", {}).items() if k != "judges"}
-    found = _settings(user_path, repos, legacy_roles)
+    locals_ = {repo: _read_toml(repo / REPO_CONFIG) for repo in repos}
+    active = [r for r in repos if _has_content(locals_[r]) and is_trusted(r, locals_[r])]
+    found = _settings(user_path, active, legacy_roles)
     roles = {**legacy_roles, **default_roles(found)}
     for name, legacy in legacy_roles.items():
         if name in roles:
@@ -375,7 +398,6 @@ def _build(
     checks = list(user.get("checks", {}).get("commands", DEFAULT_CHECKS))
     rules = _rules(user.get("risk", {}).get("rules", []))
     baseline = summarize(judges, checks, rules)  # the user's own policy, before any repository
-    user_commands = set(checks) | {c for r in rules for c in r.checks}
     owner = "user" if user_path.is_file() else "default"
     marks = origins if origins is not None else {}
     for j in judges:
@@ -389,20 +411,29 @@ def _build(
         "model": found["taskflow.judge_model"].value,
     }
     pending: list[PendingTrust] = []
+    repo_reductions: set[str] = set()
     for repo in repos:
         source = str(repo / REPO_CONFIG)
+        local = locals_[repo]
+        if not _has_content(local):
+            continue
+        if repo not in active:
+            # Pure direnv rule: until the user approves this file it is ignored entirely
+            # (no adds, replaces or disables), not just its commands.
+            pending.append(
+                PendingTrust(str(repo), repo_digest(local), _defined_commands(local), local)
+            )
+            marks[f"taskflow.repo[{repo}]"] = ("repo (pending trust)", source)
+            for key in _control_ids(local):
+                marks.setdefault(f"taskflow.{key}", ("repo (pending trust)", source))
+            continue
 
         def mark(key: str, state: object, source: str = source) -> None:
             marks[f"taskflow.{key}"] = (f"repo ({state})", source)
 
-        before = (list(checks), list(rules))
-        local = _read_toml(repo / REPO_CONFIG)
+        before = summarize(judges, checks, rules)  # user + earlier trusted repositories
         _merge_local(local, judges, checks, rules, mark, trusted_runner, source)
-        waiting, checks, rules = _untrusted(repo, local, user_commands, checks, rules, before)
-        if waiting is not None:
-            pending.append(waiting)
-            for command in waiting.commands:
-                marks[f"taskflow.check.{command}"] = ("repo (pending trust)", source)
+        repo_reductions.update(policy_reductions(before, summarize(judges, checks, rules)))
     config = FlowConfig(
         workflow=str(user.get("workflow", "tri-agent")),
         roles=roles,
@@ -412,6 +443,7 @@ def _build(
         timeout_seconds=int(found["taskflow.timeout_seconds"].value),
         baseline_policy=baseline,
         pending_trust=tuple(pending),
+        repo_reductions=tuple(sorted(repo_reductions)),
     )
     return config, _rows(config, found, marks, pending)
 
@@ -435,14 +467,13 @@ def _rows(
         found["taskflow.timeout_seconds"].origin,
         found["taskflow.timeout_seconds"].source,
     )
-    waiting = {c for p in pending for c in p.commands}
     values: dict[str, object] = {}
     for j in config.judges:
         values[f"taskflow.judge.{j.get('focus')}"] = {
             "agent": j.get("agent"),
             "model": j.get("model"),
         }
-    for command in (*config.checks, *waiting):
+    for command in config.checks:
         values[f"taskflow.check.{command}"] = command
     for r in config.risk_rules:
         values[f"taskflow.risk.{r.name}"] = {
@@ -452,7 +483,16 @@ def _rows(
             "restaging": r.restaging,
         }
     for key, (origin, source) in marks.items():
-        value = values.get(key, "disabled" if "disabled" in origin else None)
+        fallback = (
+            "disabled"
+            if "disabled" in origin
+            else "ignored until trusted"
+            if "pending" in origin
+            else None
+        )
+        value = values.get(key, fallback)
+        if "pending" in origin:
+            value = fallback  # nothing of an untrusted repository is in force
         if value is not None:
             rows[key] = Value(value, origin, source)
     return rows

@@ -284,25 +284,29 @@ Every judge a repository adds or replaces runs with the user's agent and model
 (`taskflow.judge_agent` / `taskflow.judge_model`); `agent`, `model`, `binary` and `command`
 fields in the repository file are ignored with a warning.
 
-**Repository checks need your approval.** Check commands run through a shell with your
-permissions, so a repository's controls are trusted per repository, like direnv. The trust
-is a hash (`v4:`) of that repository's whole parsed `.ai-governance/taskflow.toml`: checks,
-risk rules with their `paths` and `checks`, judges and `[disable]`, with keys sorted and list
-order kept. Any change to that file (a command, a rule's paths, the order of a list) makes the
-repository pending again: until you approve it, the commands it introduces (its `[checks]`
-and its rules' `checks`, except commands the user already defines) do not run, and
-`taskflow status`, `config` and `judge` report `repo checks pending trust`.
-`ai-governance taskflow trust [--repo PATH]` prints the whole control config it approves and
-the commands it introduces and, after you confirm in a terminal, stores the hash in
+**A repository's controls need your approval.** Check commands run through a shell with your
+permissions, so a repository's `.ai-governance/taskflow.toml` is trusted per repository, like
+direnv. The trust is a hash (`v4:`) of that repository's whole parsed file: checks, risk rules
+with their `paths` and `checks`, judges, `[disable]` and `timeout_seconds`, with keys sorted and
+list order kept. Any file with content (anything beyond empty tables and comments) is **ignored
+entirely while it is not trusted**: no adds, no replacements, no `[disable]`, no commands, no
+timeout. An untrusted repository therefore cannot remove another repository's control either.
+`taskflow status`, `config` and `judge` report `repo config pending trust`, and
+`ai-governance config show --origin` lists its controls as `repo (pending trust)`. Any change to
+the file (a command, a rule's paths, the order of a list) makes it pending again.
+`ai-governance taskflow trust [--repo PATH]` prints the whole control config it approves and the
+commands it would run and, after you confirm in a terminal, stores the hash in
 `~/.local/state/ai-governance/taskflow/trust.json`. Each repository is trusted on its own,
-independent of other repositories and of the user's config (the user's commands are trusted
-by definition), so a task bound to several repositories runs all the approved ones. It needs
-stdin and stdout on a terminal even with `--yes` and refuses when an agent variable
-(`CLAUDECODE`, `CODEX_*`, `CLAUDE_CODE_*`, ...) is present, whatever `AI_GOVERNANCE_AGENT`
-says. Entries of older schemes (`v1`-`v3`) are simply pending again.
+independent of other repositories and of the user's config, so a task bound to several
+repositories applies all the approved ones. It needs stdin and stdout on a terminal even with
+`--yes` and refuses when an agent variable (`CLAUDECODE`, `CODEX_*`, `CLAUDE_CODE_*`, ...) is
+present, whatever `AI_GOVERNANCE_AGENT` says. Entries of older schemes (`v1`-`v3`) are simply
+pending again.
 
 A task's first approval starts from the user's own policy, so whatever a repository
-disables before the first stamp is listed as a policy reduction too. `ai-governance config show --origin`
+disables before the first stamp is listed as a policy reduction too; what a trusted repository
+disables or weakens relative to the user's policy plus the repositories before it is a
+reduction as well, until a `policy-downgrade` approval acknowledges it. `ai-governance config show --origin`
 lists them as `taskflow.judge.<focus>`, `taskflow.check.<command>` and `taskflow.risk.<name>`
 with `user`, `default` or `repo (added|replaced|disabled)`. Removing controls counts as a
 policy reduction for `taskflow` approvals. Of its scalars only `timeout_seconds` follows the precedence above; `workflow` and the

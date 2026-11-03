@@ -121,6 +121,7 @@ def test_config_show_reports_the_origin_of_each_value(
 def test_frugal_json_and_taskflow_toml_feed_the_same_layers(
     home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
     from ai_governance.frugality import cli as frugal
     from ai_governance.taskflow.config import load_config
 
@@ -133,5 +134,8 @@ def test_frugal_json_and_taskflow_toml_feed_the_same_layers(
     _write(home / "taskflow.toml", "timeout_seconds = 100\n")
     assert load_config([repo]).timeout_seconds == 100
     _write(repo / ".ai-governance" / "taskflow.toml", "timeout_seconds = 200\n")
+    from ai_governance.taskflow.config import record_trust
+
+    record_trust(repo, {"timeout_seconds": 200})  # a repo file is ignored until trusted
     assert load_config([repo]).timeout_seconds == 200
     assert settings.get("taskflow.timeout_seconds", repo) in (200, 1800)

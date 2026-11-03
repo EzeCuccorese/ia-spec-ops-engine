@@ -60,13 +60,19 @@ def _trust(repo: Path) -> None:
     record_trust(repo, tomllib.loads((repo / ".ai-governance" / "taskflow.toml").read_text()))
 
 
+def _active(repo: Path, text: str) -> None:
+    """Writes the repo's taskflow.toml and trusts exactly that content."""
+    _repo_file(repo, text)
+    _trust(repo)
+
+
 def _repo_file(repo: Path, text: str) -> None:
     (repo / ".ai-governance" / "taskflow.toml").write_text(text)
 
 
 def test_repo_adds_controls(setup: tuple[Path, Path]) -> None:
     _, repo = setup
-    _repo_file(
+    _active(
         repo,
         '[checks]\ncommands = ["e2e"]\n[[risk.rules]]\nname = "api"\npaths = ["api/**"]\n',
     )
@@ -78,7 +84,7 @@ def test_repo_adds_controls(setup: tuple[Path, Path]) -> None:
 
 def test_repo_replaces_a_rule_and_a_judge_but_not_who_runs_it(setup: tuple[Path, Path]) -> None:
     _, repo = setup
-    _repo_file(
+    _active(
         repo,
         '[[risk.rules]]\nname = "migrations"\npaths = ["db/**", "sql/**"]\nrestaging = true\n'
         '[[judges]]\nfocus = "security"\nagent = "claude"\nmodel = "evil"\n',
@@ -93,7 +99,7 @@ def test_repo_replaces_a_rule_and_a_judge_but_not_who_runs_it(setup: tuple[Path,
 
 def test_repo_disables_controls(setup: tuple[Path, Path]) -> None:
     _, repo = setup
-    _repo_file(
+    _active(
         repo,
         '[disable]\njudges = ["security"]\nchecks = ["unit"]\nrisk = ["infra"]\n',
     )
@@ -106,13 +112,13 @@ def test_repo_disables_controls(setup: tuple[Path, Path]) -> None:
 def test_disabling_is_a_policy_reduction_needing_approval(setup: tuple[Path, Path]) -> None:
     _, repo = setup
     before = policy_summary(load_config([]))
-    _repo_file(repo, '[disable]\nchecks = ["unit"]\n')
+    _active(repo, '[disable]\nchecks = ["unit"]\n')
     assert "checks:unit" in policy_reductions(before, policy_summary(load_config([repo])))
 
 
 def test_user_only_keys_are_still_ignored_from_the_repo(setup: tuple[Path, Path]) -> None:
     _, repo = setup
-    _repo_file(repo, 'workflow = "single-agent"\n[roles.builder]\nagent = "codex"\nmodel = "x"\n')
+    _active(repo, 'workflow = "single-agent"\n[roles.builder]\nagent = "codex"\nmodel = "x"\n')
     (repo / ".ai-governance" / "config.toml").write_text(
         '[taskflow]\nbuilder_agent = "codex"\n[hooks]\ngate_command = "evil"\n'
         '[agents]\nclaude_binary = "evil"\n[corporate]\npacks = ["x"]\n'
@@ -133,7 +139,7 @@ def test_config_show_reports_who_set_each_control(
     setup: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _, repo = setup
-    _repo_file(
+    _active(
         repo,
         '[checks]\ncommands = ["e2e"]\n[[risk.rules]]\nname = "migrations"\npaths = ["x"]\n'
         '[disable]\nchecks = ["unit"]\n',
@@ -188,7 +194,7 @@ def test_repo_judge_with_a_new_focus_runs_with_the_users_agent(
     setup: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
 ) -> None:
     _, repo = setup
-    _repo_file(
+    _active(
         repo,
         '[disable]\njudges = ["security"]\n'
         '[[judges]]\nfocus = "security2"\nagent = "claude"\nmodel = "evil"\nbinary = "/tmp/x"\n'
@@ -206,7 +212,7 @@ def test_repo_judge_with_a_new_focus_runs_with_the_users_agent(
 
 def test_disable_then_readd_cannot_swap_the_runner(setup: tuple[Path, Path]) -> None:
     _, repo = setup
-    _repo_file(
+    _active(
         repo,
         '[[judges]]\nfocus = "security"\nagent = "claude"\nmodel = "evil"\n'
         '[disable]\njudges = ["security"]\n',
@@ -224,11 +230,10 @@ def test_repo_checks_wait_for_trust_and_run_after_it(
         '[[risk.rules]]\nname = "api"\npaths = ["api/**"]\nchecks = ["curl x | sh", "lint"]\n',
     )
     config = load_config([repo])
-    assert config.checks == ("lint", "unit")  # "unit" is the user's own: no trust needed
-    api = next(r for r in config.risk_rules if r.name == "api")
-    assert api.checks == ("lint",)
+    assert config.checks == ("lint", "unit")  # the user's own checks only
+    assert all(r.name != "api" for r in config.risk_rules)  # the whole file is ignored
     (pending,) = config.pending_trust
-    assert pending.commands == ("curl x | sh", "make evil")
+    assert set(pending.commands) == {"make evil", "unit", "curl x | sh", "lint"}
     assert not is_trusted(
         repo, tomllib.loads((repo / ".ai-governance" / "taskflow.toml").read_text())
     )
@@ -250,12 +255,14 @@ def test_repo_checks_wait_for_trust_and_run_after_it(
     assert load_config([repo]).pending_trust and "make evil" not in load_config([repo]).checks
 
 
-def test_references_to_the_users_checks_need_no_trust(setup: tuple[Path, Path]) -> None:
+def test_referencing_a_users_check_still_needs_trust_and_is_ignored_until_then(
+    setup: tuple[Path, Path],
+) -> None:
     _, repo = setup
     _repo_file(repo, '[[risk.rules]]\nname = "api"\npaths = ["a/**"]\nchecks = ["lint"]\n')
     config = load_config([repo])
-    assert not config.pending_trust
-    assert next(r for r in config.risk_rules if r.name == "api").checks == ("lint",)
+    assert [p.repo for p in config.pending_trust] == [str(repo)]
+    assert all(r.name != "api" for r in config.risk_rules)  # the whole file is ignored
 
 
 def test_pending_trust_is_reported_by_config_and_status_notices(
@@ -264,16 +271,16 @@ def test_pending_trust_is_reported_by_config_and_status_notices(
     _, repo = setup
     _repo_file(repo, '[checks]\ncommands = ["make evil"]\n')
     notes = cli._warn_pending_trust(load_config([repo]))
-    assert "repo checks pending trust" in notes[0] and "taskflow trust --repo" in notes[0]
+    assert "repo config pending trust" in notes[0] and "taskflow trust --repo" in notes[0]
     shown = capsys.readouterr()
-    assert "repo checks pending trust" in shown.out + shown.err
+    assert "repo config pending trust" in shown.out + shown.err
 
 
 def test_repo_disables_before_the_first_stamp_are_policy_reductions(
     setup: tuple[Path, Path],
 ) -> None:
     _, repo = setup
-    _repo_file(repo, '[disable]\nchecks = ["unit"]\njudges = ["security"]\nrisk = ["infra"]\n')
+    _active(repo, '[disable]\nchecks = ["unit"]\njudges = ["security"]\nrisk = ["infra"]\n')
     config = load_config([repo])
     assert config.baseline_policy is not None
     reduced = policy_reductions(config.baseline_policy, policy_summary(config))
@@ -286,7 +293,7 @@ def test_first_refresh_flags_repo_disables(setup: tuple[Path, Path], tmp_path: P
     from ai_governance.taskflow.store import TaskStore
 
     _, repo = setup
-    _repo_file(repo, '[disable]\nchecks = ["unit"]\n')
+    _active(repo, '[disable]\nchecks = ["unit"]\n')
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
     subprocess.run(
         [
@@ -488,3 +495,132 @@ def test_entries_of_older_schemes_are_pending_again(setup: tuple[Path, Path], sc
     assert load_config([repo]).pending_trust  # pending, no crash
     trust_file().write_text("not json")
     assert load_config([repo]).pending_trust
+
+
+def _write_sanitizer_scenario(cfg: Path, repo_a: Path, repo_b: Path) -> None:
+    """A defines a sanitizer rule next to its payload rule; B only tries to disable it."""
+    _repo_file(
+        repo_a,
+        '[[risk.rules]]\nname = "sanitize"\npaths = ["**"]\nchecks = ["sanitize.sh"]\n'
+        '[[risk.rules]]\nname = "payload"\npaths = ["**"]\nchecks = ["payload.sh"]\n',
+    )
+    (repo_b / ".ai-governance").mkdir(parents=True, exist_ok=True)
+    (repo_b / ".ai-governance" / "taskflow.toml").write_text('[disable]\nrisk = ["sanitize"]\n')
+
+
+def _names(config) -> list[str]:
+    return [r.name for r in config.risk_rules]
+
+
+def test_an_untrusted_repo_cannot_disable_a_trusted_repos_control(
+    setup: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ai_governance.taskflow import judge
+    from ai_governance.taskflow.risk import assess
+
+    cfg, repo_a = setup
+    repo_b = tmp_path / "repo-b"
+    _write_sanitizer_scenario(cfg, repo_a, repo_b)
+    _as_terminal(monkeypatch)
+    assert cli.cmd_trust(argparse.Namespace(repo=str(repo_a), yes=True)) == 0  # public path
+
+    config = load_config([repo_a, repo_b])
+    assert [p.repo for p in config.pending_trust] == [str(repo_b)]  # B has content: pending
+    assert _names(config) == ["migrations", "infra", "sanitize", "payload"]  # B changed nothing
+    assert config.repo_reductions == ()
+
+    copy = tmp_path / "copy"
+    copy.mkdir()
+    ran: list[str] = []
+    monkeypatch.setattr(
+        judge,
+        "_run_check",
+        lambda command, cwd: ran.append(command) or {"cmd": command, "exit": 0, "tail": ""},
+    )
+    monkeypatch.setattr(judge, "atomic_write_text", lambda *a, **k: None)
+    risk = assess(config, ["anything.py"])
+    judge.run_checks(
+        types.SimpleNamespace(path=copy, source=copy, head="abcdef123"), risk.checks, tmp_path
+    )
+    assert ran == ["lint", "unit", "sanitize.sh", "payload.sh"]  # the sanitizer still runs
+
+    notes = cli._warn_pending_trust(config)
+    assert "ignored entirely" in notes[0] and str(repo_b) in notes[0]
+
+
+def test_a_trusted_repo_disabling_an_earlier_repos_control_is_a_reduction(
+    setup: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ai_governance.taskflow.models import Task
+    from ai_governance.taskflow.store import TaskStore
+
+    cfg, repo_a = setup
+    repo_b = tmp_path / "repo-b"
+    _write_sanitizer_scenario(cfg, repo_a, repo_b)
+    _as_terminal(monkeypatch)
+    for repo in (repo_a, repo_b):
+        assert cli.cmd_trust(argparse.Namespace(repo=str(repo), yes=True)) == 0
+    config = load_config([repo_a, repo_b])
+    assert not config.pending_trust
+    assert "sanitize" not in _names(config) and "payload" in _names(config)  # the disable applies
+    assert "rule:sanitize" in config.repo_reductions  # relative to user + earlier trusted repos
+
+    for repo in (repo_a, repo_b):
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo),
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "init",
+            ],
+            check=True,
+        )
+    store = TaskStore()
+    store.create(Task(id="t-9", title="t", repos=[{"path": str(repo_a)}, {"path": str(repo_b)}]))
+    task, _ = cli._refresh(store, store.get("t-9"), config)
+    assert "rule:sanitize" in task.code_stamp["policy_reduced"]  # needs a policy-downgrade approval
+
+    task = store.mutate(task.id, lambda t: setattr(t, "policy", cli.policy_summary(config)))
+    task, _ = cli._refresh(store, task, config)
+    assert task.code_stamp["policy_reduced"] == []  # acknowledged by the approval
+
+
+def test_empty_or_comment_only_repo_files_are_not_pending(setup: tuple[Path, Path]) -> None:
+    _, repo = setup
+    for text in ("", "# nothing to see\n\n", "[checks]\ncommands = []\n[disable]\n"):
+        _repo_file(repo, text)
+        assert not load_config([repo]).pending_trust, text
+
+
+def test_an_untrusted_repo_timeout_is_ignored_too(setup: tuple[Path, Path]) -> None:
+    _, repo = setup
+    _repo_file(repo, "timeout_seconds = 5\n")
+    assert load_config([repo]).timeout_seconds == 1800
+    _trust(repo)
+    assert load_config([repo]).timeout_seconds == 5
+
+
+def test_config_show_marks_an_untrusted_repo(
+    setup: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _, repo = setup
+    _repo_file(repo, '[disable]\nchecks = ["unit"]\n[checks]\ncommands = ["e2e"]\n')
+    monkeypatch.chdir(repo)
+    assert config_main(["show", "--origin", "--json"]) == 0
+    shown = json.loads(capsys.readouterr().out)
+    assert shown["taskflow.check.unit"]["origin"] == "user"  # the user's check is untouched
+    assert shown["taskflow.check.e2e"] == {
+        "value": "ignored until trusted",
+        "origin": "repo (pending trust)",
+        "source": str(repo / ".ai-governance" / "taskflow.toml"),
+    }
+    assert shown[f"taskflow.repo[{repo}]"]["origin"] == "repo (pending trust)"

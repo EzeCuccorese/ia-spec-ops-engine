@@ -86,7 +86,10 @@ def _refresh(
         # A task starts from the user's own policy, so what a repository switches off before
         # the first stamp is a reduction like any later one.
         accepted = task.policy or config.baseline_policy or current
-        stamp["policy_reduced"] = policy_reductions(accepted, current)
+        acknowledged = set(accepted.get("acknowledged_repo_reductions", []))
+        stamp["policy_reduced"] = sorted(
+            {*policy_reductions(accepted, current), *config.repo_reductions} - acknowledged
+        )
 
         def save(t: Task) -> None:
             t.code_stamp = stamp
@@ -734,8 +737,9 @@ def cmd_digest(args: argparse.Namespace) -> int:
 
 def _warn_pending_trust(config: FlowConfig) -> list[str]:
     notes = [
-        f"repo checks pending trust: {p.repo} ({len(p.commands)} command(s), not run). "
-        f"Review and approve with `ai-governance taskflow trust --repo {p.repo}`"
+        f"repo config pending trust: {p.repo} is ignored entirely (no adds, replaces or "
+        f"disables) until approved. Review and approve with "
+        f"`ai-governance taskflow trust --repo {p.repo}`"
         for p in config.pending_trust
     ]
     for note in notes:
@@ -759,13 +763,14 @@ def cmd_trust(args: argparse.Namespace) -> int:
     repo = Path(args.repo).expanduser().resolve()
     pending = [p for p in load_config([repo]).pending_trust if p.repo == str(repo)]
     if not pending:
-        emit_status("ok", f"No repo checks pending trust in {repo}")
+        emit_status("ok", f"No repo config pending trust in {repo}")
         return 0
     print(f"Control config of {repo / REPO_CONFIG} that you are approving (everything in it):")
     print(json.dumps(pending[0].config, indent=2, sort_keys=True, ensure_ascii=False))
-    print("Commands it introduces, which will run with your permissions:")
-    for command in pending[0].commands:
-        print(f"  $ {command}")
+    if pending[0].commands:
+        print("Commands it would run with your permissions:")
+        for command in pending[0].commands:
+            print(f"  $ {command}")
     if _agent_markers() or not (sys.stdin.isatty() and sys.stdout.isatty()):
         emit_status(
             "error",
