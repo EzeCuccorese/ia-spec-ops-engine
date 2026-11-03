@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -118,13 +119,18 @@ def _run_check(command: str, cwd: Path) -> JsonDict:
 
 
 def run_checks(copy: JudgedCopy, commands: tuple[str, ...], evidence: Path) -> JsonDict:
-    results = []
-    for command in commands:
-        results.append(_run_check(command, copy.path))
+    """Run the commands; the report is returned with its final, unique path and written only
+    by ``CheckRun.publish`` once the baseline held (a drifted or retried run never leaves or
+    overwrites a file)."""
+    results = [_run_check(command, copy.path) for command in commands]
     report = "\n\n".join(f"$ {r['cmd']}\nexit {r['exit']}\n{r['tail']}" for r in results)
-    path = evidence / f"checks-{copy.source.name}@{copy.head[:8]}.txt"
-    atomic_write_text(path, report)
-    return {"path": str(path), "passed": all(r["exit"] == 0 for r in results), "results": results}
+    path = evidence / f"checks-{copy.source.name}@{copy.head[:8]}-{uuid.uuid4().hex[:8]}.txt"
+    return {
+        "path": str(path),
+        "passed": all(r["exit"] == 0 for r in results),
+        "results": results,
+        "report": report,
+    }
 
 
 def judge_prompt(task: Task, focus: str, run: CheckRun) -> str:
@@ -219,6 +225,11 @@ class CheckRun:
     copies: tuple[JudgedCopy, ...]
     checks: tuple[JsonDict, ...]
     evidence: tuple[JsonDict, ...]
+
+    def publish(self) -> None:
+        """Write the reports to their unique evidence paths (after every drift check)."""
+        for check in self.checks:
+            atomic_write_text(Path(str(check["path"])), str(check["report"]))
 
     def baseline(self, stamp: str) -> CheckedBaseline:
         repos = tuple(

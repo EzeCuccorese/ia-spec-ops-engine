@@ -116,7 +116,8 @@ def test_help_of_round_lists_no_run_action(capsys: pytest.CaptureFixture[str]) -
         main(["round", "ONB-1", "--help"])
     shown = capsys.readouterr().out
     assert "dispatch" in shown and "collect" in shown and "abort" in shown
-    assert not re.search(r"\brun\b", shown)
+    assert not re.search(r"\brun\b", shown)  # no run action, no ==SUPPRESS== entry
+    assert "SUPPRESS" not in shown
 
 
 def test_guide_and_skill_say_agents_never_run_from_the_engine() -> None:

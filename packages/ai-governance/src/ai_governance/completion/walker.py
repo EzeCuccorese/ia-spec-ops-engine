@@ -36,12 +36,13 @@ def _stop(self: argparse.ArgumentParser, *_args: Any, **_kwargs: Any) -> Any:
 
 
 def _visible(action: argparse._SubParsersAction) -> dict[str, tuple[Any, str]]:
-    """The subcommands of one subparsers action; ``help=SUPPRESS`` marks a hidden one."""
+    """The subcommands of one subparsers action. A hidden one has ``help=SUPPRESS`` or a parser
+    with ``set_defaults(hidden_command=True)`` (the latter also keeps it out of ``--help``)."""
     helps = {choice.dest: choice.help or "" for choice in action._choices_actions}
     return {
         name: (sub, helps.get(name, ""))
         for name, sub in action.choices.items()
-        if helps.get(name) != argparse.SUPPRESS
+        if helps.get(name) != argparse.SUPPRESS and not sub.get_default("hidden_command")
     }
 
 

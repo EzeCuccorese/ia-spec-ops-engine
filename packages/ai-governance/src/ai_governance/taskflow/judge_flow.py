@@ -89,5 +89,6 @@ def judge_flow(job: JudgeJob, restamp: Callable[[], str]) -> Iterator[Dispatched
             f"the code changed while the checks ran (stamp {ctx.stamp_key[:12]} -> {now[:12]}): "
             f"nothing was recorded or dispatched; run `taskflow judge {task.id}` again"
         )
+    run.publish()
     job.store.mutate(task.id, lambda t: t.evidence.extend(run.evidence))
     yield from _dispatch_all(job, judges, run, run.baseline(ctx.stamp_key))

@@ -19,6 +19,7 @@ executable:
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import shlex
@@ -45,17 +46,52 @@ GIT_ALLOWED = (
 TASK = "ONB-1"
 
 _ORCA_IMPL = r"""
-import json, os, sys
+import base64, json, os, sys
 
 argv = sys.argv[1:]
 with open(os.environ["FAKE_ORCA_LOG"], "a", encoding="utf-8") as log:
     log.write(json.dumps(argv) + "\n")
 scenario = json.load(open(os.environ["FAKE_ORCA"], encoding="utf-8"))
+WORKSPACE = "ws_fake::/work/repo"
 
 
 def die(code, message):
     sys.stderr.write(message + "\n")
     sys.exit(code)
+
+
+def cursor_for(index):
+    return base64.urlsafe_b64encode(json.dumps({"v": 2, "after": index}).encode()).decode().rstrip("=")
+
+
+def index_of(cursor):
+    raw = cursor + "=" * (-len(cursor) % 4)
+    return json.loads(base64.urlsafe_b64decode(raw))["after"]
+
+
+def common(entry):
+    row = {"dispatchId": entry["dispatchId"], "taskId": "task_" + entry["dispatchId"]}
+    for key in ("state", "liveness"):
+        if key in entry:
+            row[key] = entry[key]
+    released = entry.get("liveness") == "exited"
+    row.update(terminal="term_" + entry["dispatchId"], workspace=WORKSPACE,
+               terminalState="released" if released else "reclaimable")
+    return row
+
+
+def show_result(entry):
+    row = common(entry)
+    row.update(runId="run_fake", stage="settled")  # worker-show never reports the agent
+    return row
+
+
+def list_row(entry):
+    row = common(entry)
+    row["host"] = "local"
+    if "agent" in entry:
+        row["agent"] = entry["agent"]
+    return row
 
 
 if argv[:2] == ["orchestration", "worker-show"] and len(argv) == 5:
@@ -64,8 +100,13 @@ if argv[:2] == ["orchestration", "worker-show"] and len(argv) == 5:
     entry = scenario.get("show", {}).get(argv[3])
     if entry is None or "exit" in entry:
         die((entry or {}).get("exit", 1), "no such dispatch")
-    print(entry["raw"] if "raw" in entry else json.dumps(entry))
+    if "raw" in entry:
+        print(entry["raw"])
+    else:
+        print(json.dumps({"ok": True, "result": show_result(entry)}))
 elif argv[:2] == ["orchestration", "worker-list"]:
+    if scenario.get("list_exit"):
+        die(scenario["list_exit"], "list failed")
     flags, rest = {}, argv[2:]
     while rest:
         if rest[0] == "--json":
@@ -78,11 +119,14 @@ elif argv[:2] == ["orchestration", "worker-list"]:
             die(3, "unsupported")
     if "json" not in flags:
         die(3, "unsupported")
-    pages = scenario.get("pages", [])
-    index = int(flags.get("--cursor", "p0")[1:])
+    pages = scenario.get("pages") or [[e for e in scenario.get("show", {}).values() if "dispatchId" in e]]
+    index = index_of(flags["--cursor"]) if "--cursor" in flags else 0
     rows = pages[index] if index < len(pages) else []
-    following = "p%d" % (index + 1) if index + 1 < len(pages) else None
-    print(json.dumps({"workers": rows, "nextCursor": following}))
+    result = {"workers": [list_row(e) for e in rows], "scope": {"run": "run_fake", "source": "bound"}}
+    if index + 1 < len(pages):
+        result["nextCursor"] = cursor_for(index + 1)
+        result["warnings"] = ["Showing %d Dispatches, newest first; more are on later pages." % len(rows)]
+    print(json.dumps({"ok": True, "result": result}))
 else:
     die(3, "unsupported")
 """
@@ -104,6 +148,12 @@ class Dispatched:
     n: int
     argv: list[str]
     result: Result
+
+
+def decode_cursor(value: str) -> int:
+    """The page index inside the fake's opaque, base64 ``nextCursor`` (like Orca's)."""
+    raw = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+    return int(json.loads(raw)["after"])
 
 
 def flag(argv: list[str], name: str) -> str:
@@ -140,13 +190,23 @@ class OrcaWorld:
         dispatch_id: str,
         state: str = "succeeded",
         agent: str | None = "claude",
-        liveness: str = "released",
+        liveness: str | None = None,
     ) -> None:
-        """Make ``worker-show`` answer for ``dispatch_id``; ``agent=None`` is a released worker."""
-        row: dict[str, str] = {"dispatchId": dispatch_id, "state": state, "liveness": liveness}
+        """Register a worker for ``worker-show`` and ``worker-list`` (which alone report the
+        agent). ``agent=None`` is a released worker: no agent, liveness ``exited``."""
+        row: dict[str, str] = {
+            "dispatchId": dispatch_id,
+            "state": state,
+            "liveness": liveness or ("live" if agent is not None else "exited"),
+        }
         if agent is not None:
             row["agent"] = agent
         self.scenario["show"][dispatch_id] = row  # type: ignore[index]
+        self.save()
+
+    def list_fails(self, code: int = 2) -> None:
+        """``worker-list`` exits non-zero (``worker-show`` is unaffected)."""
+        self.scenario["list_exit"] = code
         self.save()
 
     def raw_show(self, dispatch_id: str, entry: dict[str, object]) -> None:
@@ -362,6 +422,11 @@ def _install_bin(base: Path, real_git: str) -> Path:
     return bin_dir
 
 
+def _empty_dir(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def _make_repo(path: Path, ignore: str = "") -> None:
     path.mkdir(parents=True)
     _git(path, "init", "-q", "-b", "feat/ONB-1-x")
@@ -374,13 +439,18 @@ def _make_repo(path: Path, ignore: str = "") -> None:
     _git(path, "commit", "-qm", "init")
 
 
+# Everything Git (and the credential helpers it starts) would read from the caller: cleared
+# before the scenario sets its own values, so no inherited config, hook path, template, ssh
+# command or token reaches a child process.
+_CLEARED_PREFIXES = ("ORCA_", "AI_GOVERNANCE_", "FAKE_", "GIT_", "GH_", "GITHUB_")
+_CLEARED_NAMES = ("SSH_AUTH_SOCK", "SSH_ASKPASS", "ASKPASS")
+GIT_SYSTEM_PATH = "/usr/bin:/bin"  # the only PATH real Git (and its helpers) ever sees
+
+
 def _clear_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """Clear the real account/runtime environment BEFORE any scenario variable is set."""
     for name in list(os.environ):
-        if name.startswith(("ORCA_", "AI_GOVERNANCE_", "FAKE_")) or name in (
-            "GH_TOKEN",
-            "GITHUB_TOKEN",
-        ):
+        if name.startswith(_CLEARED_PREFIXES) or name in _CLEARED_NAMES:
             monkeypatch.delenv(name)
     for name in ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID"):
         monkeypatch.delenv(name, raising=False)
@@ -396,7 +466,7 @@ def make_world(
     repo_name, state_in_repo = opts.get("repo_name", "repo"), opts.get("state_in_repo", False)
     real_git = shutil.which("git")
     assert real_git, "git is required"
-    system_path = os.environ.get("PATH", "/usr/bin:/bin")  # only the real git process sees it
+    system_path = GIT_SYSTEM_PATH  # fixed: never the caller's PATH
     base = tmp_path / "world"
     base.mkdir()
     bin_dir = _install_bin(base, real_git)
@@ -408,7 +478,8 @@ def make_world(
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
     for key, value in {
         "FAKE_REAL_GIT": real_git, "FAKE_SYSTEM_PATH": system_path,
-        "GIT_AUTHOR_NAME": "T", "GIT_AUTHOR_EMAIL": "t@example.com",
+        "GIT_TEMPLATE_DIR": str(_empty_dir(base / "git-templates")),
+        "GIT_TERMINAL_PROMPT": "0", "GIT_AUTHOR_NAME": "T", "GIT_AUTHOR_EMAIL": "t@example.com",
         "GIT_COMMITTER_NAME": "T", "GIT_COMMITTER_EMAIL": "t@example.com",
         "FAKE_GIT_LOG": str(base / "git.log"),
         "FAKE_ORCA": str(base / "scenario.json"), "FAKE_ORCA_LOG": str(base / "orca.log"),

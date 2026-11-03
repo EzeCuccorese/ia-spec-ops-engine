@@ -15,7 +15,7 @@ import shlex
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 ALLOWED_VERBS = frozenset({"worker-show", "worker-list"})
 FAILED_STATES = frozenset({"failed", "cancelled", "canceled", "stopped", "abandoned", "timed_out"})
@@ -24,9 +24,6 @@ REQUIRED_KEYS = ("dispatchId", "state", "liveness")
 ORCA_TIMEOUT = 30
 LIST_LIMIT = 100
 LIST_PAGES = 5
-_WRAPPERS = ("worker", "dispatch", "result")
-_LISTS = ("workers", "items", "rows", "results")
-_CURSORS = ("nextCursor", "next_cursor", "next")
 
 
 class OrcaError(ValueError):
@@ -138,12 +135,15 @@ def _run(args: list[str]) -> object:
         raise OrcaError(f"{argv[0]} {args[1]} did not print JSON") from exc
 
 
+def _result(data: object, verb: str) -> dict[str, object]:
+    """The ``result`` of Orca's ``{"ok": true, "result": {...}}`` envelope; anything else fails."""
+    result = data.get("result") if isinstance(data, dict) else None
+    if not isinstance(data, dict) or data.get("ok") is not True or not isinstance(result, dict):
+        raise OrcaError(f"Orca's {verb} answer is not an {{ok, result}} envelope (shape changed?)")
+    return result
+
+
 def _row(raw: object) -> WorkerRow:
-    if isinstance(raw, dict):
-        for key in _WRAPPERS:
-            if "dispatchId" not in raw and isinstance(raw.get(key), dict):
-                raw = raw[key]
-                break
     if not isinstance(raw, dict):
         raise OrcaError("Orca answered with something that is not a worker row")
     missing = [key for key in REQUIRED_KEYS if key not in raw]
@@ -159,22 +159,21 @@ def _row(raw: object) -> WorkerRow:
 
 
 def _show(dispatch_id: str) -> WorkerRow:
-    row = _row(_run(["orchestration", "worker-show", "--dispatch", dispatch_id, "--json"]))
+    args = ["orchestration", "worker-show", "--dispatch", dispatch_id, "--json"]
+    row = _row(_result(_run(args), "worker-show"))
     if row.dispatch_id != dispatch_id:
         raise OrcaError(f"Orca answered for dispatch {row.dispatch_id}, not {dispatch_id}")
     return row
 
 
 def _page(cursor: str) -> tuple[list[object], str]:
+    """One page of ``result.workers`` and the opaque ``result.nextCursor`` ("" on the last)."""
     args = ["orchestration", "worker-list", "--json", "--limit", str(LIST_LIMIT)]
-    data = _run([*args, "--cursor", cursor] if cursor else args)
-    rows: object = data
-    if isinstance(data, dict):
-        rows = next((data[key] for key in _LISTS if isinstance(data.get(key), list)), None)
-    if not isinstance(rows, list):
-        raise OrcaError("Orca's worker list has an unexpected shape")
-    following = next((str(data[k]) for k in _CURSORS if isinstance(data, dict) and data.get(k)), "")
-    return rows, following
+    result = _result(_run([*args, "--cursor", cursor] if cursor else args), "worker-list")
+    rows, following = result.get("workers"), result.get("nextCursor")
+    if not isinstance(rows, list) or not (following is None or isinstance(following, str)):
+        raise OrcaError("Orca's worker list has an unexpected shape (no result.workers list)")
+    return rows, following or ""
 
 
 def _listed(dispatch_id: str) -> WorkerRow:
@@ -189,12 +188,23 @@ def _listed(dispatch_id: str) -> WorkerRow:
     raise OrcaError(f"dispatch {dispatch_id} is not in Orca's worker list")
 
 
-def worker_status(dispatch_id: str) -> WorkerRow:
-    """The worker of ``dispatch_id``: ``worker-show``, else a bounded scan of ``worker-list``."""
+def _with_listed_agent(row: WorkerRow) -> WorkerRow:
+    """``worker-show`` has no ``agent``; the list row of the same dispatch may (read-only)."""
     try:
-        return _show(dispatch_id)
+        listed = _listed(row.dispatch_id)
+    except OrcaError:
+        return row  # the provider stays unverified; the rest of the answer is still valid
+    return replace(row, agent=listed.agent) if listed.agent else row
+
+
+def worker_status(dispatch_id: str) -> WorkerRow:
+    """The worker of ``dispatch_id``: ``worker-show`` (plus the provider from ``worker-list``
+    when show has none), else a bounded scan of ``worker-list``."""
+    try:
+        row = _show(dispatch_id)
     except OrcaError as shown:
         try:
             return _listed(dispatch_id)
         except OrcaError as listed:
             raise OrcaError(f"{shown}; {listed}") from listed
+    return row if row.agent else _with_listed_agent(row)

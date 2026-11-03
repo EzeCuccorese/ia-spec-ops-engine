@@ -2,7 +2,7 @@
 
 A reader runs with the user's permissions, and the taskflow store is writable by it. The
 repository fingerprints cover the code; this module covers the files that make a round
-authoritative: ``state.json`` (rounds, code stamp, approvals, evidence), earlier round
+authoritative: ``state.json`` (rounds, the whole code stamp the gates read, approvals, evidence), earlier round
 markdown, check evidence and the round's own ``dispatch.json``.
 
 At dispatch the coordinator records a baseline of those files inside ``dispatch.json`` and
@@ -60,10 +60,30 @@ def digest_file(path: str | Path) -> str:
         return "missing"
 
 
+VOLATILE_STAMP_KEYS = frozenset({"at"})  # when the stamp was computed
+VOLATILE_REPO_KEYS = frozenset({"integration_sha", "remote_status"})  # network-only, not hashed
+
+
+def stamp_projection(stamp: JsonDict) -> JsonDict:
+    """The code stamp the gates read (key, repos, policy, obligations, reductions), without
+    the fields a harmless refresh changes: when it was computed and the network-only SHA."""
+    kept = {k: v for k, v in stamp.items() if k not in VOLATILE_STAMP_KEYS}
+    repos = stamp.get("repos")
+    if isinstance(repos, list):
+        kept["repos"] = [
+            {k: v for k, v in r.items() if k not in VOLATILE_REPO_KEYS}
+            if isinstance(r, dict)
+            else r
+            for r in repos
+        ]
+    return kept
+
+
 def baseline(task: Task) -> JsonDict:
     """What a reader must not change, as seen now by the coordinator."""
     return {
         "stamp_key": task.stamp_key,
+        "stamp": digest_json(stamp_projection(task.code_stamp)),
         "rounds": {str(r.get("n")): digest_json(r) for r in task.rounds},
         "round_files": {
             str(r["file"]): digest_file(r["file"]) for r in task.rounds if r.get("file")
@@ -82,11 +102,17 @@ def _prefix_changes(label: str, old: list[str], new: list[str]) -> list[str]:
     return [f"{label} #{i + 1}" for i, digest in enumerate(old) if new[i] != digest]
 
 
+def _stamp_changed(now: JsonDict, base: JsonDict) -> bool:
+    """Whole projection when the baseline has one (older dispatch records: the key only)."""
+    name = "stamp" if "stamp" in base else "stamp_key"
+    return bool(now[name] != base.get(name))
+
+
 def drift(task: Task, base: JsonDict) -> list[str]:
     """Items of ``base`` that differ now; appended rounds, approvals and evidence do not count."""
     now = baseline(task)
     changed: list[str] = []
-    if now["stamp_key"] != base.get("stamp_key"):
+    if _stamp_changed(now, base):
         changed.append("task.code_stamp")
     for number, value in dict(base.get("rounds", {})).items():
         if now["rounds"].get(number) != value:

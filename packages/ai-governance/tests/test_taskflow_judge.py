@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import shutil
 import subprocess
+import types
 from collections.abc import Callable
 from pathlib import Path
 
@@ -80,9 +81,25 @@ def _check_evidence(world: OrcaWorld) -> list[dict]:
 
 def _nothing_published(world: OrcaWorld) -> None:
     assert _check_evidence(world) == []
+    assert not list(world.store.evidence_dir(TASK).glob("checks-*"))  # no orphan report either
     assert world.task().rounds == []
     assert not (world.store.task_dir(TASK) / "runs").exists()
     assert world.orca_calls() == []
+
+
+def test_check_reports_have_unique_paths_and_are_written_only_on_publish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(judge, "_run_check", lambda c, cwd: {"cmd": c, "exit": 0, "tail": "t"})
+    copy = types.SimpleNamespace(path=tmp_path, source=tmp_path / "repo", head="abcdef123456")
+    first = judge.run_checks(copy, ("x",), tmp_path)  # type: ignore[arg-type]
+    retry = judge.run_checks(copy, ("x",), tmp_path)  # type: ignore[arg-type]
+    assert first["path"] != retry["path"] and not list(tmp_path.glob("checks-*"))
+    judge.CheckRun((), (first,), ()).publish()
+    kept = Path(str(first["path"])).read_text(encoding="utf-8")
+    judge.CheckRun((), (retry,), ()).publish()  # the retry cannot touch the earlier report
+    assert Path(str(first["path"])).read_text(encoding="utf-8") == kept
+    assert "exit 0" in kept and len(list(tmp_path.glob("checks-*"))) == 2
 
 
 # -- the happy path ------------------------------------------------------------------------------

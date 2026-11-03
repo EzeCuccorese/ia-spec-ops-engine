@@ -192,7 +192,8 @@ class _Publisher:
             raise DispatchError(
                 f"round {twin:03d} ({self.request.role}) is already dispatched and not settled: "
                 f"collect it with `round {locked.id} collect --round {twin} --dispatch-id <ID>`, "
-                f"or abort it with `round {locked.id} abort --round {twin} --reason ...`"
+                f"or abort it with `round {locked.id} abort --round {twin} --reason ... "
+                "(--dispatch-id <ID> | --never-started)`"
             )
         record, text = self._record(locked, number, round_file)
         _write_sealed(self.store, record, text)

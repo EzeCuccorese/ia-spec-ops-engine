@@ -16,6 +16,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from ai_governance.taskflow import orca
 from ai_governance.taskflow import store as store_module
 from ai_governance.taskflow.collect import RoundRef, abort_round, collect_round
 from ai_governance.taskflow.control import DispatchError
@@ -25,7 +26,8 @@ from ai_governance.taskflow.orca import OrcaError, _run, orca_command
 from ai_governance.taskflow.parser import build_parser
 from ai_governance.taskflow.prompts import READ_ONLY_LIMIT, VERDICT_INSTRUCTION
 from ai_governance.taskflow.store import TaskStore
-from orca_fakes import TASK, OrcaWorld, _make_repo, flag, make_world, world
+from orca_fakes import TASK, OrcaWorld, _make_repo, decode_cursor, flag, make_world, world
+from orca_real_samples import REAL_LIST, REAL_SHOW_LIVE, REAL_SHOW_RELEASED
 
 WAIT = "orca-fake orchestration check --wait --types worker_done --timeout-ms 600000"
 PLANNER = ["round", TASK, "dispatch", "--role", "planner", "--agent", "claude", "--prompt", "p"]
@@ -181,7 +183,7 @@ def test_released_worker_without_agent_records_provider_unverified(world: OrcaWo
 
 
 def _row(dispatch_id: str, agent: str = "claude") -> dict[str, str]:
-    return {"dispatchId": dispatch_id, "state": "succeeded", "liveness": "released", "agent": agent}
+    return {"dispatchId": dispatch_id, "state": "succeeded", "liveness": "live", "agent": agent}
 
 
 def test_worker_list_fallback_pages(world: OrcaWorld) -> None:
@@ -191,7 +193,121 @@ def test_worker_list_fallback_pages(world: OrcaWorld) -> None:
     assert world.collect(1, "D1").code == 0
     calls = world.orca_calls()
     assert [call[1] for call in calls] == ["worker-show", "worker-list", "worker-list"]
-    assert calls[2][-2:] == ["--cursor", "p1"]
+    assert calls[2][-2] == "--cursor" and decode_cursor(calls[2][-1]) == 1  # Orca's opaque cursor
+    assert world.record(1)["provider_verified"] is True  # the list row carried the agent
+
+
+def _calls(world: OrcaWorld) -> list[str]:
+    return [call[1] for call in world.orca_calls()]
+
+
+def test_show_without_agent_takes_the_provider_from_the_list_row(world: OrcaWorld) -> None:
+    world.dispatch()
+    world.finish(1, "D1", agent="claude")
+    assert world.collect(1, "D1").code == 0
+    assert _calls(world) == ["worker-show", "worker-list"]
+    assert world.record(1)["provider_verified"] is True
+
+
+def test_show_with_its_own_agent_needs_no_list(world: OrcaWorld) -> None:
+    world.dispatch()
+    world.finish(1, "D1", register=False)
+    shown = {"ok": True, "result": {**_show_result("D1"), "agent": "claude/some-model"}}
+    world.raw_show("D1", {"raw": json.dumps(shown)})
+    assert world.collect(1, "D1").code == 0
+    assert _calls(world) == ["worker-show"]
+    assert world.record(1)["provider_verified"] is True
+
+
+def _show_result(dispatch_id: str) -> dict[str, str]:
+    return {
+        "dispatchId": dispatch_id,
+        "state": "succeeded",
+        "liveness": "live",
+        "taskId": "t",
+        "runId": "r",
+        "stage": "settled",
+    }
+
+
+def test_list_failing_during_enrichment_leaves_the_provider_unverified(world: OrcaWorld) -> None:
+    world.dispatch()
+    world.finish(1, "D1", agent="claude")
+    world.list_fails()
+    assert world.collect(1, "D1").code == 0
+    assert world.record(1)["provider_verified"] is False
+    assert _calls(world) == ["worker-show", "worker-list"]
+
+
+def test_list_row_with_another_provider_refuses_even_when_show_has_none(world: OrcaWorld) -> None:
+    world.dispatch()
+    world.finish(1, "D1", agent="codex/gpt-6.1-sol")
+    res = world.collect(1, "D1")
+    assert res.code == 1 and "not as the dispatched provider 'claude'" in res.text
+
+
+def test_fake_orca_replays_the_documented_real_envelopes(world: OrcaWorld) -> None:
+    world.worker("D1", "succeeded", "codex/gpt-6.1-sol")
+    world.worker("D2", "succeeded", None)
+    released_row = {"dispatchId": "D2", "state": "succeeded", "liveness": "exited"}
+    world.pages([_row("D1", "codex/gpt-6.1-sol")], [released_row])
+    listed = _fake("worker-list", "--json")
+    shown = _fake("worker-show", "--dispatch", "D1", "--json")
+    released = _fake("worker-show", "--dispatch", "D2", "--json")
+    assert set(listed) == set(REAL_LIST) == {"ok", "result"} and listed["ok"] is True
+    real = REAL_LIST["result"]
+    got = listed["result"]
+    assert set(got) == set(real)  # workers, scope, nextCursor, warnings
+    assert set(got["scope"]) == set(real["scope"])
+    assert isinstance(got["nextCursor"], str) and isinstance(got["warnings"][0], str)
+    row_keys = set().union(*(set(r) for r in real["workers"]))
+    needed = set(real["workers"][1])  # the smallest real row: a released worker
+    assert needed <= set(got["workers"][0]) <= row_keys
+    last = _fake("worker-list", "--json", "--cursor", got["nextCursor"])["result"]
+    assert "nextCursor" not in last and "agent" not in last["workers"][0]
+    for answer in (shown, released):
+        assert set(answer) == {"ok", "result"} and answer["ok"] is True
+        keys = set(answer["result"])
+        assert set(REAL_SHOW_LIVE["result"]) - {"autoReleaseAt"} <= keys | {"waitingOnHuman"}
+        assert keys <= set(REAL_SHOW_LIVE["result"]) | set(REAL_SHOW_RELEASED["result"])
+        assert "agent" not in keys  # worker-show never reports the agent
+        assert answer["result"]["dispatchId"] in ("D1", "D2")
+
+
+def _fake(*args: str) -> dict:
+    done = subprocess.run(["orca-fake", "orchestration", *args], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        {"workers": []},  # the old, unwrapped guess
+        {"ok": False, "result": {"workers": []}},
+        {"ok": True},
+        {"ok": True, "result": []},
+        {"ok": True, "result": {"workers": "x"}},
+        {"ok": True, "result": {"workers": [], "nextCursor": 5}},
+        [],
+    ],
+)
+def test_other_list_shapes_fail_closed(answer: object, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(orca, "_run", lambda args: answer)
+    with pytest.raises(OrcaError):
+        orca._page("")
+
+
+def test_real_samples_parse_and_unknown_show_shapes_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(orca, "_run", lambda args: REAL_LIST)
+    rows, following = orca._page("")
+    assert following == REAL_LIST["result"]["nextCursor"] and len(rows) == 2
+    assert [orca._row(r).agent for r in rows] == ["codex/gpt-6.1-sol", ""]
+    for sample in (REAL_SHOW_LIVE, REAL_SHOW_RELEASED):
+        row = orca._row(orca._result(sample, "worker-show"))
+        assert row.state == "succeeded" and row.agent == "" and row.running is False
+    with pytest.raises(OrcaError):
+        orca._result(REAL_SHOW_LIVE["result"], "worker-show")  # a bare row is not an envelope
 
 
 def test_worker_list_scan_is_bounded_to_five_pages(world: OrcaWorld) -> None:
@@ -632,6 +748,14 @@ def _approval_mutation(w: OrcaWorld, evidence: Path) -> None:
 CONTROL_CASES: dict[str, tuple[Callable[[OrcaWorld, Path], None], str]] = {
     "stamp": (
         lambda w, e: w.edit_state(lambda d: d["code_stamp"].update(key="evil")),
+        "task.code_stamp",
+    ),
+    "stamp-nested": (  # same key, a nested field the gates read
+        lambda w, e: w.edit_state(lambda d: d["code_stamp"]["repos"][0].update(head="b" * 40)),
+        "task.code_stamp",
+    ),
+    "stamp-obligations": (
+        lambda w, e: w.edit_state(lambda d: d["code_stamp"].update(policy_reduced=["judges:x"])),
         "task.code_stamp",
     ),
     "round-record": (

@@ -81,6 +81,7 @@ def _hidden_cli() -> None:
     sub.add_parser("legacy", help=argparse.SUPPRESS)
     sub.add_parser("silent", help="")
     sub.add_parser("bare")
+    sub.add_parser("stub").set_defaults(hidden_command=True)
     parser.parse_args(sys.argv[1:])
 
 
@@ -89,7 +90,8 @@ def test_walker_omits_suppressed_subcommands_but_keeps_ordinary_ones(
 ) -> None:
     names = [s["name"] for s in _walk(monkeypatch, _hidden_cli)["subcommands"]]
     assert names == ["visible", "silent", "bare"]
-    assert "legacy" not in render(_walk(monkeypatch, _hidden_cli))
+    shown = render(_walk(monkeypatch, _hidden_cli))
+    assert "legacy" not in shown and "stub" not in shown
 
 
 def _taskflow_cli() -> None:
