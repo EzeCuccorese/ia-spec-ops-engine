@@ -13,6 +13,14 @@ from workspace_engine.services.tui_utils import read_key as _read_key
 from workspace_engine.services.tui_utils import write_tty as _w
 
 
+def _append_printable(buf: str, key: bytes, max_len: int) -> str:
+    try:
+        ch = key.decode("utf-8") if key else ""
+    except UnicodeDecodeError:
+        return buf  # not text (a partial escape sequence): the key is ignored
+    return buf + ch if ch.isprintable() and len(buf) < max_len else buf
+
+
 def _read_line(tty_fd: Any, prompt: str, max_len: int = 40) -> str | None:
     buf = ""
     while True:
@@ -21,61 +29,90 @@ def _read_line(tty_fd: Any, prompt: str, max_len: int = 40) -> str | None:
         key = _read_key(tty_fd)
         if key in (b"\r", b"\n", b""):
             return buf if buf else None
-        elif key == b"\x1b":
+        if key == b"\x1b":
             return None
-        elif key == b"\x03":
+        if key == b"\x03":
             sys.exit(130)
-        elif key in (b"\x7f", b"\x08"):
-            buf = buf[:-1]
-        else:
-            try:
-                ch = key.decode("utf-8") if key else ""
-                if ch.isprintable() and len(buf) < max_len:
-                    buf += ch
-            except (UnicodeDecodeError, ValueError):
-                pass
+        buf = buf[:-1] if key in (b"\x7f", b"\x08") else _append_printable(buf, key, max_len)
+
+
+def _source_line(src: dict, is_cur: bool) -> str:
+    mark = f"{BOLD}{CYAN}▶{RESET}" if is_cur else " "
+    nc = BOLD if is_cur else ""
+    kind_col = CYAN if src["kind"] == "repos" else DIM
+    kind_lbl = "repositories" if src["kind"] == "repos" else "workspace"
+    label = src["label"]
+    if len(label) > 39:
+        label = label[:36] + "..."
+    return f"  {mark} {nc}{label:<40}{RESET} {kind_col}{kind_lbl}{RESET}\r\n"
+
+
+def _source_screen(sources: list, cursor: int, cols: int) -> str:
+    out = ["\033[H\033[J"]
+    out.append(_sep(cols) + "\r\n")
+    out.append(f"{BOLD}  ws run-local — Select source{RESET}\r\n")
+    out.append(_sep(cols) + "\r\n")
+    out.append(f"  {DIM}up/down navigate   Enter select   ESC exit{RESET}\r\n\r\n")
+    out.append(f"  {DIM}{'':2} {'Source':<40} {'Type'}{RESET}\r\n")
+    out.append(_sep(cols, "─", bold=False) + "\r\n")
+    out.extend(_source_line(src, i == cursor) for i, src in enumerate(sources))
+    out.append(_sep(cols, "─", bold=False) + "\r\n")
+    out.append(f"\r\n  {DIM}{sources[cursor]['path']}{RESET}\r\n")
+    return "".join(out)
 
 
 def panel_source_picker(tty_fd: Any, sources: list) -> dict | None:
     cursor = 0
     while True:
         cols, rows = shutil.get_terminal_size(fallback=(80, 24))
-        cols = max(80, cols)
-
-        out = ["\033[H\033[J"]
-        out.append(_sep(cols) + "\r\n")
-        out.append(f"{BOLD}  ws run-local — Select source{RESET}\r\n")
-        out.append(_sep(cols) + "\r\n")
-        out.append(f"  {DIM}up/down navigate   Enter select   ESC exit{RESET}\r\n\r\n")
-        out.append(f"  {DIM}{'':2} {'Source':<40} {'Type'}{RESET}\r\n")
-        out.append(_sep(cols, "─", bold=False) + "\r\n")
-
-        for i, src in enumerate(sources):
-            is_cur = i == cursor
-            mark = f"{BOLD}{CYAN}▶{RESET}" if is_cur else " "
-            nc = BOLD if is_cur else ""
-            kind_col = CYAN if src["kind"] == "repos" else DIM
-            kind_lbl = "repositories" if src["kind"] == "repos" else "workspace"
-            label = src["label"]
-            if len(label) > 39:
-                label = label[:36] + "..."
-            out.append(f"  {mark} {nc}{label:<40}{RESET} {kind_col}{kind_lbl}{RESET}\r\n")
-
-        out.append(_sep(cols, "─", bold=False) + "\r\n")
-        out.append(f"\r\n  {DIM}{sources[cursor]['path']}{RESET}\r\n")
-        _w(tty_fd, "".join(out))
+        _w(tty_fd, _source_screen(sources, cursor, max(80, cols)))
 
         key = _read_key(tty_fd)
         if key == b"\x1b":
             return None
-        elif key == b"\x03":
+        if key == b"\x03":
             sys.exit(130)
-        elif key == b"\x1b[A":
+        if key == b"\x1b[A":
             cursor = max(0, cursor - 1)
         elif key == b"\x1b[B":
             cursor = min(len(sources) - 1, cursor + 1)
         elif key in (b"\r", b"\n", b""):
             return sources[cursor]
+
+
+def _profile_line(name: str, profiles: dict, is_cur: bool) -> str:
+    count = len(profiles[name].get("services", []))
+    mark = f"{BOLD}{CYAN}▶{RESET}" if is_cur else " "
+    nc = BOLD if is_cur else ""
+    return f"  {mark} {nc}{name:<30}{RESET}  {DIM}{count} service(s){RESET}\r\n"
+
+
+def _profiles_screen(profiles: dict, cursor: int, msg: str, cols: int) -> str:
+    names = list(profiles.keys())
+    out = ["\033[H\033[J"]
+    out.append(_sep(cols) + "\r\n")
+    out.append(f"{BOLD}  Saved profiles{RESET}\r\n")
+    out.append(_sep(cols) + "\r\n")
+    out.append(f"  {DIM}up/down navigate   Enter load   x delete   ESC back{RESET}\r\n\r\n")
+    if not names:
+        out.append(
+            f"  {DIM}No profiles. In the selection, use g (with an empty filter) to save one.{RESET}\r\n"
+        )
+    out.extend(_profile_line(name, profiles, i == cursor) for i, name in enumerate(names))
+    out.append(_sep(cols, "─", bold=False) + "\r\n")
+    if msg:
+        out.append(f"\r\n  {YELLOW}{msg}{RESET}\r\n")
+    return "".join(out)
+
+
+def _delete_profile(tty_fd: Any, profiles: dict, name: str, cursor: int) -> tuple[int, str]:
+    """Asks for confirmation; returns the new cursor and the message to show."""
+    _w(tty_fd, f'\r\n  {YELLOW}Delete "{name}"? [y/N] {RESET}')
+    if _read_key(tty_fd) not in (b"y", b"Y"):
+        return cursor, ""
+    del profiles[name]
+    save_profiles(profiles)
+    return min(cursor, max(0, len(profiles) - 1)), f'Profile "{name}" deleted.'
 
 
 def panel_profiles(tty_fd: Any) -> dict | None:
@@ -86,53 +123,23 @@ def panel_profiles(tty_fd: Any) -> dict | None:
         profiles = load_profiles()
         names = list(profiles.keys())
         cols, _ = shutil.get_terminal_size(fallback=(80, 24))
-        cols = max(80, cols)
         cursor = min(cursor, max(0, len(names) - 1))
-
-        out = ["\033[H\033[J"]
-        out.append(_sep(cols) + "\r\n")
-        out.append(f"{BOLD}  Saved profiles{RESET}\r\n")
-        out.append(_sep(cols) + "\r\n")
-        out.append(f"  {DIM}up/down navigate   Enter load   x delete   ESC back{RESET}\r\n\r\n")
-
-        if not names:
-            out.append(
-                f"  {DIM}No profiles. In the selection, use g (with an empty filter) to save one.{RESET}\r\n"
-            )
-        else:
-            for i, name in enumerate(names):
-                is_cur = i == cursor
-                count = len(profiles[name].get("services", []))
-                mark = f"{BOLD}{CYAN}▶{RESET}" if is_cur else " "
-                nc = BOLD if is_cur else ""
-                out.append(f"  {mark} {nc}{name:<30}{RESET}  {DIM}{count} service(s){RESET}\r\n")
-
-        out.append(_sep(cols, "─", bold=False) + "\r\n")
-        if msg:
-            out.append(f"\r\n  {YELLOW}{msg}{RESET}\r\n")
-            msg = ""
-        _w(tty_fd, "".join(out))
+        _w(tty_fd, _profiles_screen(profiles, cursor, msg, max(80, cols)))
+        msg = ""
 
         key = _read_key(tty_fd)
         if key == b"\x1b":
             return None
-        elif key == b"\x03":
+        if key == b"\x03":
             sys.exit(130)
-        elif key == b"\x1b[A":
+        if key == b"\x1b[A":
             cursor = max(0, cursor - 1)
         elif key == b"\x1b[B":
             cursor = min(max(0, len(names) - 1), cursor + 1)
         elif key in (b"\r", b"\n", b"") and names:
             return profiles[names[cursor]]
         elif key in (b"x", b"X") and names:
-            name_to_del = names[cursor]
-            _w(tty_fd, f'\r\n  {YELLOW}Delete "{name_to_del}"? [y/N] {RESET}')
-            confirm = _read_key(tty_fd)
-            if confirm in (b"y", b"Y"):
-                del profiles[name_to_del]
-                save_profiles(profiles)
-                cursor = min(cursor, max(0, len(profiles) - 1))
-                msg = f'Profile "{name_to_del}" deleted.'
+            cursor, msg = _delete_profile(tty_fd, profiles, names[cursor], cursor)
 
 
 def panel_confirm(tty_fd: Any, configs: list) -> bool:

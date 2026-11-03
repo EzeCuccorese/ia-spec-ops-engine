@@ -140,21 +140,29 @@ def merge_tables(*tables: Mapping[str, object]) -> dict[str, object]:
     return merged
 
 
+def _split_items(raw: object) -> list[str]:
+    items = raw.split(",") if isinstance(raw, str) else list(raw)  # type: ignore[call-overload]
+    return [str(item).strip() for item in items if str(item).strip()]
+
+
+def _convert(raw: object, like: object) -> object:
+    if isinstance(like, bool):
+        return _to_bool(raw)
+    if isinstance(like, int):
+        return raw if isinstance(raw, int) else int(str(raw))
+    if isinstance(like, float):
+        return float(str(raw))
+    if isinstance(like, list | tuple):
+        return _split_items(raw)
+    return raw if like is None else str(raw)
+
+
 def coerce(raw: object, like: object, key: str) -> object:
     """Converts a file or environment value to the type of the setting's default."""
     try:
-        if isinstance(like, bool):
-            return _to_bool(raw)
-        if isinstance(like, int):
-            return raw if isinstance(raw, int) else int(str(raw))
-        if isinstance(like, float):
-            return float(str(raw))
-        if isinstance(like, list | tuple):
-            items = raw.split(",") if isinstance(raw, str) else list(raw)  # type: ignore[call-overload]
-            return [str(item).strip() for item in items if str(item).strip()]
+        return _convert(raw, like)
     except (TypeError, ValueError) as exc:
         raise ConfigError(f"Invalid value for {key}: {raw!r}") from exc
-    return raw if like is None else str(raw)
 
 
 def _to_bool(raw: object) -> bool:

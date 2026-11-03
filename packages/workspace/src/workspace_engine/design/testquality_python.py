@@ -172,17 +172,24 @@ def _py_is_sleep(node: ast.Call, imported: bool) -> bool:
     return named and not zero
 
 
-def _py_sleeps(tree: ast.Module) -> list[tuple[int, str]]:
-    imported = any(
+def _imports_sleep(tree: ast.Module) -> bool:
+    return any(
         isinstance(n, ast.ImportFrom)
         and n.module == "time"
         and any(a.name == "sleep" for a in n.names)
         for n in ast.walk(tree)
     )
-    # A sleep inside a `while` loop is polling with a deadline, which the rule recommends.
-    polling = {
-        id(n) for loop in ast.walk(tree) if isinstance(loop, ast.While) for n in ast.walk(loop)
-    }
+
+
+def _inside_while(tree: ast.Module) -> set[int]:
+    """Ids of every node inside a `while` loop: a sleep there is polling with a deadline,
+    which the rule recommends."""
+    return {id(n) for loop in ast.walk(tree) if isinstance(loop, ast.While) for n in ast.walk(loop)}
+
+
+def _py_sleeps(tree: ast.Module) -> list[tuple[int, str]]:
+    imported = _imports_sleep(tree)
+    polling = _inside_while(tree)
     return [
         (node.lineno, "time.sleep")
         for node in ast.walk(tree)

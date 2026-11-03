@@ -26,7 +26,7 @@ from .approvals import (
     request_tag,
     valid_approval,
 )
-from .config import REPO_CONFIG, FlowConfig, load_config, record_trust
+from .config import REPO_CONFIG, FlowConfig, PendingTrust, load_config, record_trust
 from .digest import digest
 from .gates import (
     NEXT_COMMAND,
@@ -757,6 +757,32 @@ def _agent_markers() -> list[str]:
     )
 
 
+def _show_pending(repo: Path, pending: PendingTrust) -> None:
+    print(f"Control config of {repo / REPO_CONFIG} that you are approving (everything in it):")
+    print(json.dumps(pending.config, indent=2, sort_keys=True, ensure_ascii=False))
+    if pending.commands:
+        print("Commands it would run with your permissions:")
+        for command in pending.commands:
+            print(f"  $ {command}")
+
+
+def _user_confirms(repo: Path, assume_yes: bool) -> bool:
+    """Approval needs a person at a terminal: --yes only skips the question."""
+    if _agent_markers() or not (sys.stdin.isatty() and sys.stdout.isatty()):
+        emit_status(
+            "error",
+            "These commands run with your permissions: approve them yourself in an interactive "
+            f"terminal (ai-governance taskflow trust --repo {repo})",
+        )
+        return False
+    if assume_yes:
+        return True
+    if input("Run these checks for this repository? [y/N] ").strip().lower() == "y":
+        return True
+    emit_status("warn", "Not trusted")
+    return False
+
+
 def cmd_trust(args: argparse.Namespace) -> int:
     """Shows the check commands a repository defines and, after the user confirms, remembers
     that exact set (a changed set is pending again)."""
@@ -765,25 +791,8 @@ def cmd_trust(args: argparse.Namespace) -> int:
     if not pending:
         emit_status("ok", f"No repo config pending trust in {repo}")
         return 0
-    print(f"Control config of {repo / REPO_CONFIG} that you are approving (everything in it):")
-    print(json.dumps(pending[0].config, indent=2, sort_keys=True, ensure_ascii=False))
-    if pending[0].commands:
-        print("Commands it would run with your permissions:")
-        for command in pending[0].commands:
-            print(f"  $ {command}")
-    if _agent_markers() or not (sys.stdin.isatty() and sys.stdout.isatty()):
-        emit_status(
-            "error",
-            "These commands run with your permissions: approve them yourself in an interactive "
-            "terminal "
-            f"(ai-governance taskflow trust --repo {repo})",
-        )
-        return 1
-    if (
-        not args.yes
-        and input("Run these checks for this repository? [y/N] ").strip().lower() != "y"
-    ):
-        emit_status("warn", "Not trusted")
+    _show_pending(repo, pending[0])
+    if not _user_confirms(repo, args.yes):
         return 1
     digest_ = record_trust(repo, pending[0].config or {})
     emit_status("ok", f"Trusted {len(pending[0].commands)} command(s) for {repo} ({digest_})")

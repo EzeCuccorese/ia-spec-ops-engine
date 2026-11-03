@@ -46,6 +46,23 @@ def _limit(key: str, fallback: int) -> int:
         return fallback
 
 
+def _limit_or(value: int | None, key: str, fallback: int) -> int:
+    return value if value is not None else _limit(key, fallback)
+
+
+def _fit_lines(lines: list[str], budget: int) -> list[str]:
+    """The leading lines whose joined length stays within ``budget``."""
+    kept: list[str] = []
+    total = 0
+    for line in lines:
+        add = len(line) + (1 if kept else 0)
+        if total + add > budget:
+            break
+        kept.append(line)
+        total += add
+    return kept
+
+
 def truncate(
     text: str,
     *,
@@ -59,12 +76,8 @@ def truncate(
     the last returned line is exactly ``more: <more_hint>`` (or just
     ``more:`` when `more_hint` is empty).
     """
-    max_lines = (
-        max_lines if max_lines is not None else _limit("output.max_lines", DEFAULT_MAX_LINES)
-    )
-    max_chars = (
-        max_chars if max_chars is not None else _limit("output.max_chars", DEFAULT_MAX_CHARS)
-    )
+    max_lines = _limit_or(max_lines, "output.max_lines", DEFAULT_MAX_LINES)
+    max_chars = _limit_or(max_chars, "output.max_chars", DEFAULT_MAX_CHARS)
     all_lines = text.splitlines()
     hint_line = "more:" + (f" {more_hint}" if more_hint else "")
 
@@ -73,16 +86,7 @@ def truncate(
 
     needs_char_cut = len("\n".join(candidate_lines)) > max_chars
     if needs_char_cut:
-        budget = max_chars - len(hint_line) - 1
-        kept: list[str] = []
-        total = 0
-        for line in candidate_lines:
-            add = len(line) + (1 if kept else 0)
-            if total + add > budget:
-                break
-            kept.append(line)
-            total += add
-        candidate_lines = kept
+        candidate_lines = _fit_lines(candidate_lines, max_chars - len(hint_line) - 1)
 
     if needs_line_cut or needs_char_cut:
         candidate_lines.append(hint_line)

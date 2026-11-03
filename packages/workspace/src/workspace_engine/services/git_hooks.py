@@ -18,6 +18,7 @@ import shutil
 import stat
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -219,50 +220,60 @@ def _resolve_hook_to_run(root: Path) -> tuple[Path, Path | None]:
     return temp_hook, temp_hook
 
 
-def run_quality_gate(
-    target_dir: str | Path | None = None,
-    scope: str = "all",
-    skip: str | None = None,
-    timeout: int | None = None,
-    commit_style: str | None = None,
-    output: str = "errors",
-    capture: list[str] | None = None,
-) -> int:
-    """
-    Runs the Git Hooks Quality Gate on demand in the given repository.
-    Returns the pre-push script's exit code. When ``capture`` is a list, the
-    combined output is appended to it instead of being streamed.
-    """
-    root = Path(target_dir).resolve() if target_dir else Path.cwd().resolve()
-    hook_to_run, temp_hook = _resolve_hook_to_run(root)
+@dataclass
+class GateOptions:
+    """What ``run_quality_gate`` passes to the hook script (None: the script's own default)."""
 
+    scope: str = "all"
+    skip: str | None = None
+    timeout: int | None = None
+    commit_style: str | None = None
+    output: str = "errors"
+    capture: list[str] | None = None
+
+
+def _gate_environment(options: GateOptions) -> dict[str, str]:
+    env = os.environ.copy()
+    env.update(QG_SCOPE=options.scope, QG_OUTPUT=options.output)
+    if options.timeout is not None:
+        env["QG_TIMEOUT"] = str(options.timeout)
+    if options.skip:
+        env["QG_SKIP"] = options.skip
+    if options.commit_style:
+        env["QG_COMMIT_STYLE"] = options.commit_style
+    return env
+
+
+def _push_ref_line(root: Path) -> str:
     _, head_sha, _ = run_command_safe("git rev-parse HEAD", cwd=root)
     head_sha = head_sha.strip() or "0000000000000000000000000000000000000000"
     _, prev_sha, _ = run_command_safe("git rev-parse HEAD~1", cwd=root)
     prev_sha = prev_sha.strip() or "0000000000000000000000000000000000000000"
-    ref_line = f"refs/heads/current {head_sha} refs/heads/current {prev_sha}\n"
+    return f"refs/heads/current {head_sha} refs/heads/current {prev_sha}\n"
 
-    env = os.environ.copy()
-    env.update(QG_SCOPE=scope, QG_OUTPUT=output)
-    if timeout is not None:
-        env["QG_TIMEOUT"] = str(timeout)
-    if skip:
-        env["QG_SKIP"] = skip
-    if commit_style:
-        env["QG_COMMIT_STYLE"] = commit_style
 
+def run_quality_gate(target_dir: str | Path | None = None, **options: object) -> int:
+    """
+    Runs the Git Hooks Quality Gate on demand in the given repository.
+    Options (see ``GateOptions``): scope, skip, timeout, commit_style, output, capture.
+    Returns the pre-push script's exit code. When ``capture`` is a list, the
+    combined output is appended to it instead of being streamed.
+    """
+    gate = GateOptions(**options)  # type: ignore[arg-type]
+    root = Path(target_dir).resolve() if target_dir else Path.cwd().resolve()
+    hook_to_run, temp_hook = _resolve_hook_to_run(root)
     try:
         proc = subprocess.run(
             [str(hook_to_run), "origin"],
             cwd=root,
-            input=ref_line,
+            input=_push_ref_line(root),
             text=True,
-            env=env,
-            capture_output=capture is not None,
+            env=_gate_environment(gate),
+            capture_output=gate.capture is not None,
             errors="replace",
         )
-        if capture is not None:
-            capture.append(proc.stdout + proc.stderr)
+        if gate.capture is not None:
+            gate.capture.append(proc.stdout + proc.stderr)
         return proc.returncode
     finally:
         if temp_hook and temp_hook.exists():

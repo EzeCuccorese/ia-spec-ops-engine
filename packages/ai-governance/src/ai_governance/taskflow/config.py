@@ -280,55 +280,84 @@ def _runner_of(entry: JsonDict, trusted: JsonDict, where: str) -> JsonDict:
     return {**kept, "agent": trusted["agent"], "model": trusted["model"]}
 
 
-def _merge_local(
-    local: JsonDict,
-    judges: list[JsonDict],
-    checks: list[str],
-    rules: list[RiskRule],
-    mark: Callable[[str, object], None] = lambda key, value: None,
-    trusted_runner: JsonDict | None = None,
-    where: str = "",
-) -> None:
+@dataclass
+class _Controls:
+    """The judges, checks and risk rules in force while the layers are applied in order."""
+
+    judges: list[JsonDict]
+    checks: list[str]
+    rules: list[RiskRule]
+
+    def summary(self) -> JsonDict:
+        return summarize(self.judges, self.checks, self.rules)
+
+
+@dataclass
+class _Overlay:
+    """How one repository's file is applied: who runs its judges and how changes are noted."""
+
+    trusted_runner: JsonDict
+    where: str
+    mark: Callable[[str, object], None] = lambda key, value: None
+
+
+def _position(items: list, key: Callable[[object], object], wanted: object) -> int | None:
+    return next((i for i, item in enumerate(items) if key(item) == wanted), None)
+
+
+def _apply_judges(local: JsonDict, controls: _Controls, overlay: _Overlay) -> None:
+    for entry in _judge_entries(local):
+        position = _position(controls.judges, lambda j: j.get("focus"), entry.get("focus"))
+        if position is None:
+            controls.judges.append(_runner_of(entry, overlay.trusted_runner, overlay.where))
+        else:
+            old = controls.judges[position]
+            keep = {"agent": old.get("agent"), "model": old.get("model")}
+            controls.judges[position] = _runner_of(entry, keep, overlay.where)
+        overlay.mark(f"judge.{entry.get('focus')}", "replaced" if position is not None else "added")
+
+
+def _apply_checks(local: JsonDict, controls: _Controls, overlay: _Overlay) -> None:
+    for command in local.get("checks", {}).get("commands", []):
+        if command not in controls.checks:
+            controls.checks.append(command)
+            overlay.mark(f"check.{command}", "added")
+
+
+def _apply_rules(local: JsonDict, controls: _Controls, overlay: _Overlay) -> None:
+    for rule in _rules(local.get("risk", {}).get("rules", [])):
+        position = _position(controls.rules, lambda r: r.name, rule.name)
+        if position is None:
+            controls.rules.append(rule)
+        else:
+            controls.rules[position] = rule
+        overlay.mark(f"risk.{rule.name}", "replaced" if position is not None else "added")
+
+
+def _apply_disables(local: JsonDict, controls: _Controls, overlay: _Overlay) -> None:
+    off = local.get("disable", {})
+    for focus in off.get("judges", []):
+        controls.judges[:] = [j for j in controls.judges if j.get("focus") != focus]
+        overlay.mark(f"judge.{focus}", "disabled")
+    for command in off.get("checks", []):
+        controls.checks[:] = [c for c in controls.checks if c != command]
+        overlay.mark(f"check.{command}", "disabled")
+    for name in off.get("risk", []):
+        controls.rules[:] = [r for r in controls.rules if r.name != name]
+        overlay.mark(f"risk.{name}", "disabled")
+
+
+def _merge_local(local: JsonDict, controls: _Controls, overlay: _Overlay) -> None:
     """Applies one repository's ``taskflow.toml`` on top of the user's controls.
 
     A repository may add a control, replace one with the same id (judge ``focus``, risk rule
     ``name``) and switch one off through ``[disable]`` (``judges`` / ``checks`` / ``risk``
     lists of ids). Every judge it adds or replaces runs with the user's agent and model.
     """
-    runner = trusted_runner or {"agent": "", "model": ""}
-    for entry in _judge_entries(local):
-        position = next(
-            (i for i, j in enumerate(judges) if j.get("focus") == entry.get("focus")), None
-        )
-        if position is None:
-            judges.append(_runner_of(entry, runner, where))
-        else:
-            old = judges[position]
-            judges[position] = _runner_of(
-                entry, {"agent": old.get("agent"), "model": old.get("model")}, where
-            )
-        mark(f"judge.{entry.get('focus')}", "replaced" if position is not None else "added")
-    for command in local.get("checks", {}).get("commands", []):
-        if command not in checks:
-            checks.append(command)
-            mark(f"check.{command}", "added")
-    for rule in _rules(local.get("risk", {}).get("rules", [])):
-        position = next((i for i, r in enumerate(rules) if r.name == rule.name), None)
-        if position is None:
-            rules.append(rule)
-        else:
-            rules[position] = rule
-        mark(f"risk.{rule.name}", "replaced" if position is not None else "added")
-    off = local.get("disable", {})
-    for focus in off.get("judges", []):
-        judges[:] = [j for j in judges if j.get("focus") != focus]
-        mark(f"judge.{focus}", "disabled")
-    for command in off.get("checks", []):
-        checks[:] = [c for c in checks if c != command]
-        mark(f"check.{command}", "disabled")
-    for name in off.get("risk", []):
-        rules[:] = [r for r in rules if r.name != name]
-        mark(f"risk.{name}", "disabled")
+    _apply_judges(local, controls, overlay)
+    _apply_checks(local, controls, overlay)
+    _apply_rules(local, controls, overlay)
+    _apply_disables(local, controls, overlay)
 
 
 def _control_ids(local: JsonDict) -> list[str]:
@@ -377,6 +406,89 @@ def describe_config(repos: list[Path], user_file: Path | None = None) -> dict[st
     return _build(repos, user_file, None)[1]
 
 
+def _merged_roles(legacy_roles: dict[str, JsonDict], found: dict) -> dict[str, JsonDict]:
+    roles = {**legacy_roles, **default_roles(found)}
+    for name, legacy in legacy_roles.items():
+        if name in roles:
+            roles[name] = {**legacy, **roles[name]}
+    return roles
+
+
+def _user_controls(user: JsonDict, found: dict) -> _Controls:
+    judges = [_with_configured_judge(j, found) for j in _judge_entries(user)]
+    return _Controls(
+        judges or default_judges(found),
+        list(user.get("checks", {}).get("commands", DEFAULT_CHECKS)),
+        _rules(user.get("risk", {}).get("rules", [])),
+    )
+
+
+def _mark_user_controls(controls: _Controls, marks: dict, owner: tuple[str, str]) -> None:
+    for j in controls.judges:
+        marks[f"taskflow.judge.{j.get('focus')}"] = owner
+    for command in controls.checks:
+        marks[f"taskflow.check.{command}"] = owner
+    for rule in controls.rules:
+        marks[f"taskflow.risk.{rule.name}"] = owner
+
+
+def _mark_pending(repo: Path, local: JsonDict, marks: dict) -> None:
+    source = str(repo / REPO_CONFIG)
+    marks[f"taskflow.repo[{repo}]"] = ("repo (pending trust)", source)
+    for key in _control_ids(local):
+        marks.setdefault(f"taskflow.{key}", ("repo (pending trust)", source))
+
+
+@dataclass
+class _RepoLayers:
+    """What applying the repositories produced: pending files and reductions by trusted ones."""
+
+    pending: list[PendingTrust]
+    reductions: set[str]
+
+
+def _apply_repos(
+    files: list[tuple[Path, JsonDict, bool]], controls: _Controls, runner: tuple[JsonDict, dict]
+) -> _RepoLayers:
+    """``files``: each repository with its parsed taskflow.toml and whether it is trusted."""
+    trusted_runner, marks = runner
+    layers = _RepoLayers([], set())
+    for repo, local, trusted in files:
+        if not _has_content(local):
+            continue
+        if not trusted:
+            # Pure direnv rule: until the user approves this file it is ignored entirely
+            # (no adds, replaces or disables), not just its commands.
+            layers.pending.append(
+                PendingTrust(str(repo), repo_digest(local), _defined_commands(local), local)
+            )
+            _mark_pending(repo, local, marks)
+            continue
+        source = str(repo / REPO_CONFIG)
+
+        def mark(key: str, state: object, source: str = source) -> None:
+            marks[f"taskflow.{key}"] = (f"repo ({state})", source)
+
+        before = controls.summary()  # user + earlier trusted repositories
+        _merge_local(local, controls, _Overlay(trusted_runner, source, mark))
+        layers.reductions.update(policy_reductions(before, controls.summary()))
+    return layers
+
+
+def _trusted_repos(locals_: dict[Path, JsonDict]) -> list[Path]:
+    return [r for r, local in locals_.items() if _has_content(local) and is_trusted(r, local)]
+
+
+def _repo_files(
+    locals_: dict[Path, JsonDict], active: list[Path]
+) -> list[tuple[Path, JsonDict, bool]]:
+    return [(repo, local, repo in active) for repo, local in locals_.items()]
+
+
+def _owner(user_path: Path) -> tuple[str, str]:
+    return ("user" if user_path.is_file() else "default", str(user_path))
+
+
 def _build(
     repos: list[Path],
     user_file: Path | None,
@@ -386,75 +498,33 @@ def _build(
     user = _read_toml(user_path)
     legacy_roles = {k: dict(v) for k, v in user.get("roles", {}).items() if k != "judges"}
     locals_ = {repo: _read_toml(repo / REPO_CONFIG) for repo in repos}
-    active = [r for r in repos if _has_content(locals_[r]) and is_trusted(r, locals_[r])]
+    active = _trusted_repos(locals_)
     found = _settings(user_path, active, legacy_roles)
-    roles = {**legacy_roles, **default_roles(found)}
-    for name, legacy in legacy_roles.items():
-        if name in roles:
-            roles[name] = {**legacy, **roles[name]}
-    judges = [_with_configured_judge(j, found) for j in _judge_entries(user)] or default_judges(
-        found
-    )
-    checks = list(user.get("checks", {}).get("commands", DEFAULT_CHECKS))
-    rules = _rules(user.get("risk", {}).get("rules", []))
-    baseline = summarize(judges, checks, rules)  # the user's own policy, before any repository
-    owner = "user" if user_path.is_file() else "default"
+    controls = _user_controls(user, found)
+    baseline = controls.summary()  # the user's own policy, before any repository
     marks = origins if origins is not None else {}
-    for j in judges:
-        marks[f"taskflow.judge.{j.get('focus')}"] = (owner, str(user_path))
-    for command in checks:
-        marks[f"taskflow.check.{command}"] = (owner, str(user_path))
-    for rule in rules:
-        marks[f"taskflow.risk.{rule.name}"] = (owner, str(user_path))
+    owner = _owner(user_path)
+    _mark_user_controls(controls, marks, owner)
     trusted_runner = {
         "agent": found["taskflow.judge_agent"].value,
         "model": found["taskflow.judge_model"].value,
     }
-    pending: list[PendingTrust] = []
-    repo_reductions: set[str] = set()
-    for repo in repos:
-        source = str(repo / REPO_CONFIG)
-        local = locals_[repo]
-        if not _has_content(local):
-            continue
-        if repo not in active:
-            # Pure direnv rule: until the user approves this file it is ignored entirely
-            # (no adds, replaces or disables), not just its commands.
-            pending.append(
-                PendingTrust(str(repo), repo_digest(local), _defined_commands(local), local)
-            )
-            marks[f"taskflow.repo[{repo}]"] = ("repo (pending trust)", source)
-            for key in _control_ids(local):
-                marks.setdefault(f"taskflow.{key}", ("repo (pending trust)", source))
-            continue
-
-        def mark(key: str, state: object, source: str = source) -> None:
-            marks[f"taskflow.{key}"] = (f"repo ({state})", source)
-
-        before = summarize(judges, checks, rules)  # user + earlier trusted repositories
-        _merge_local(local, judges, checks, rules, mark, trusted_runner, source)
-        repo_reductions.update(policy_reductions(before, summarize(judges, checks, rules)))
+    layers = _apply_repos(_repo_files(locals_, active), controls, (trusted_runner, marks))
     config = FlowConfig(
         workflow=str(user.get("workflow", "tri-agent")),
-        roles=roles,
-        judges=tuple(judges),
-        checks=tuple(checks),
-        risk_rules=tuple(rules),
+        roles=_merged_roles(legacy_roles, found),
+        judges=tuple(controls.judges),
+        checks=tuple(controls.checks),
+        risk_rules=tuple(controls.rules),
         timeout_seconds=int(found["taskflow.timeout_seconds"].value),
         baseline_policy=baseline,
-        pending_trust=tuple(pending),
-        repo_reductions=tuple(sorted(repo_reductions)),
+        pending_trust=tuple(layers.pending),
+        repo_reductions=tuple(sorted(layers.reductions)),
     )
-    return config, _rows(config, found, marks, pending)
+    return config, _rows(config, found, marks)
 
 
-def _rows(
-    config: FlowConfig,
-    found: dict,
-    marks: dict[str, tuple[str, str]],
-    pending: list[PendingTrust],
-) -> dict[str, Value]:
-    """``config show`` rows, all taken from the resolved ``config`` itself."""
+def _setting_rows(config: FlowConfig, found: dict) -> dict[str, Value]:
     rows: dict[str, Value] = {}
     for role in ROLE_NAMES:
         for attribute in ("agent", "model"):
@@ -462,11 +532,12 @@ def _rows(
             rows[f"taskflow.{role}_{attribute}"] = Value(
                 config.roles[role][attribute], got.origin, got.source
             )
-    rows["taskflow.timeout_seconds"] = Value(
-        config.timeout_seconds,
-        found["taskflow.timeout_seconds"].origin,
-        found["taskflow.timeout_seconds"].source,
-    )
+    timeout = found["taskflow.timeout_seconds"]
+    rows["taskflow.timeout_seconds"] = Value(config.timeout_seconds, timeout.origin, timeout.source)
+    return rows
+
+
+def _control_values(config: FlowConfig) -> dict[str, object]:
     values: dict[str, object] = {}
     for j in config.judges:
         values[f"taskflow.judge.{j.get('focus')}"] = {
@@ -482,17 +553,24 @@ def _rows(
             "checks": list(r.checks),
             "restaging": r.restaging,
         }
+    return values
+
+
+def _row_value(origin: str, in_force: object) -> object:
+    """Nothing of an untrusted repository is in force; a disabled control has no value."""
+    if "pending" in origin:
+        return "ignored until trusted"
+    if in_force is None and "disabled" in origin:
+        return "disabled"
+    return in_force
+
+
+def _rows(config: FlowConfig, found: dict, marks: dict[str, tuple[str, str]]) -> dict[str, Value]:
+    """``config show`` rows, all taken from the resolved ``config`` itself."""
+    rows = _setting_rows(config, found)
+    values = _control_values(config)
     for key, (origin, source) in marks.items():
-        fallback = (
-            "disabled"
-            if "disabled" in origin
-            else "ignored until trusted"
-            if "pending" in origin
-            else None
-        )
-        value = values.get(key, fallback)
-        if "pending" in origin:
-            value = fallback  # nothing of an untrusted repository is in force
+        value = _row_value(origin, values.get(key))
         if value is not None:
             rows[key] = Value(value, origin, source)
     return rows

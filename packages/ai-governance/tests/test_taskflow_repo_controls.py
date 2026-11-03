@@ -548,6 +548,15 @@ def test_an_untrusted_repo_cannot_disable_a_trusted_repos_control(
     assert "ignored entirely" in notes[0] and str(repo_b) in notes[0]
 
 
+def _git_repos(*repos: Path) -> None:
+    """Gives each directory a git history with one empty commit."""
+    for repo in repos:
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        identity = ["-c", "user.name=t", "-c", "user.email=t@t"]
+        commit = ["commit", "-q", "--allow-empty", "-m", "init"]
+        subprocess.run(["git", "-C", str(repo), *identity, *commit], check=True)
+
+
 def test_a_trusted_repo_disabling_an_earlier_repos_control_is_a_reduction(
     setup: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -565,25 +574,7 @@ def test_a_trusted_repo_disabling_an_earlier_repos_control_is_a_reduction(
     assert "sanitize" not in _names(config) and "payload" in _names(config)  # the disable applies
     assert "rule:sanitize" in config.repo_reductions  # relative to user + earlier trusted repos
 
-    for repo in (repo_a, repo_b):
-        subprocess.run(["git", "init", "-q", str(repo)], check=True)
-        subprocess.run(
-            [
-                "git",
-                "-C",
-                str(repo),
-                "-c",
-                "user.name=t",
-                "-c",
-                "user.email=t@t",
-                "commit",
-                "-q",
-                "--allow-empty",
-                "-m",
-                "init",
-            ],
-            check=True,
-        )
+    _git_repos(repo_a, repo_b)
     store = TaskStore()
     store.create(Task(id="t-9", title="t", repos=[{"path": str(repo_a)}, {"path": str(repo_b)}]))
     task, _ = cli._refresh(store, store.get("t-9"), config)

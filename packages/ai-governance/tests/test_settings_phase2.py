@@ -216,22 +216,18 @@ def test_env_judge_overrides_legacy_judge_fields(
     assert (judge["agent"], judge["model"]) == ("antigravity", "env-judge")
 
 
-@pytest.mark.parametrize(
-    ("field", "legacy", "configured", "env_name", "from_env"),
-    [
-        ("agent", "antigravity", "claude", "AI_GOVERNANCE_JUDGE_AGENT", "codex"),
-        ("model", "old", "new", "AI_GOVERNANCE_JUDGE_MODEL", "env-model"),
-    ],
-)
+JUDGE_FIELD_CASES = [
+    # field, legacy value, config.toml value, env variable, env value
+    ("agent", "antigravity", "claude", "AI_GOVERNANCE_JUDGE_AGENT", "codex"),
+    ("model", "old", "new", "AI_GOVERNANCE_JUDGE_MODEL", "env-model"),
+]
+
+
+@pytest.mark.parametrize("case", JUDGE_FIELD_CASES, ids=["agent", "model"])
 def test_legacy_judge_fields_follow_config_precedence(
-    isolated: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    field: str,
-    legacy: str,
-    configured: str,
-    env_name: str,
-    from_env: str,
+    isolated: Path, monkeypatch: pytest.MonkeyPatch, case: tuple[str, str, str, str, str]
 ) -> None:
+    field, legacy, configured, env_name, from_env = case
     isolated.mkdir(parents=True)
     (isolated / "taskflow.toml").write_text(
         '[[judges]]\nfocus = "security"\nagent = "antigravity"\nmodel = "old"\n'

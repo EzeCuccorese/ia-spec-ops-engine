@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 import sys
+from dataclasses import dataclass
 from typing import Any
 
 from workspace_engine.run_local.constants import (
@@ -29,25 +30,25 @@ from workspace_engine.services.tui_utils import write_tty as _w
 
 from .tui_panels import _read_line, panel_profiles
 
+_STAY = object()  # the key was handled and the screen keeps running
 
-def panel_run_config(tty_fd: Any, repos: list, db_cfg: dict) -> list | None:
-    env_ids = [e["id"] for e in get_environments()]
-    kubectl_ok = _kubectl_available() and bool(_get_kubectl_contexts())
 
-    def _cycle_env(idx: int, step: int) -> int:
-        for _ in range(len(get_environments())):
-            idx = (idx + step) % len(get_environments())
-            if get_environments()[idx]["cluster"] is not None and not kubectl_ok:
-                continue
-            return idx
+def _cycle_env(idx: int, step: int, kubectl_ok: bool) -> int:
+    for _ in range(len(get_environments())):
+        idx = (idx + step) % len(get_environments())
+        if get_environments()[idx]["cluster"] is not None and not kubectl_ok:
+            continue
         return idx
+    return idx
 
+
+def _idx(lst: list, val: object, default: int = 0) -> int:
+    return lst.index(val) if val in lst else default
+
+
+def _initial_state(repos: list, env_ids: list) -> dict:
     _rres, _rlcs = load_state()
     running_cfgs = {c["name"]: c for c in _rlcs}
-
-    def _idx(lst: list, val: object, default: int = 0) -> int:
-        return lst.index(val) if val in lst else default
-
     all_state: dict = {}
     for r in repos:
         rc = running_cfgs.get(r["name"])
@@ -59,319 +60,357 @@ def panel_run_config(tty_fd: Any, repos: list, db_cfg: dict) -> list | None:
             "ms_local": (rc.get("up_mode") == "auto") if rc else True,
             "has_set_env": resolve_local_env(r["path"], r["name"]) is not None,
         }
+    return all_state
 
-    glob = {"env_idx": 0, "db_local": True, "ms_local": True}
 
-    cursor = 0
-    scroll = 0
-    error = ""
-    filt = ""
+def _cell(text: str, width: int, color: str = "") -> str:
+    pad = " " * max(0, width - len(text))
+    return (f"{color}{text}{RESET}" if color else text) + pad
 
-    def _apply_global(field: str) -> None:
-        for s in all_state.values():
-            s[field] = glob[field]
 
-    while True:
-        view = [s for s in all_state.values() if not filt or filt.lower() in s["name"].lower()]
-        nrows = len(view) + 1
+def _chk(b: object) -> str:
+    return "[x]" if b else "[ ]"
 
-        cols, rows = shutil.get_terminal_size(fallback=(80, 24))
-        cols = max(96, cols)
-        lh = max(4, rows - 18)
 
-        cursor = max(0, min(cursor, nrows - 1))
-        svc_cur = max(0, cursor - 1)
-        if svc_cur < scroll:
-            scroll = svc_cur
-        elif svc_cur >= scroll + lh:
-            scroll = svc_cur - lh + 1
+@dataclass(frozen=True)
+class _Row:
+    """One table row: each column is a (text, color) pair."""
 
-        def cell(text: str, width: int, color: str = "") -> str:
-            pad = " " * max(0, width - len(text))
-            return (f"{color}{text}{RESET}" if color else text) + pad
+    mark: tuple[str, str]
+    check: tuple[str, str]
+    name: tuple[str, str]
+    env: tuple[str, str]
+    db: tuple[str, str]
+    ms: tuple[str, str]
+    port: str
+    typ: str
+    warn: str = ""
 
-        def make_row(
-            markchar,
-            mcolor,
-            chktext,
-            ccolor,
-            name,
-            ncolor,
-            env,
-            ecolor,
-            db,
-            dcolor,
-            ms,
-            mscolor,
-            port,
-            typ,
-            warn="",
-        ):
-            return (
-                "  "
-                + cell(markchar, 1, mcolor)
-                + " "
-                + cell(chktext, 3, ccolor)
-                + " "
-                + cell(name, 28, ncolor)
-                + " "
-                + cell(env, 14, ecolor)
-                + " "
-                + cell(db, 10, dcolor)
-                + " "
-                + cell(ms, 11, mscolor)
-                + " "
-                + cell(port, 7, DIM)
-                + " "
-                + f"{DIM}{typ}{RESET}{warn}\r\n"
-            )
-
-        out = ["\033[H\033[J"]
-        out.append(_sep(cols) + "\r\n")
-        out.append(f"{BOLD}  ws run-local — Configure services{RESET}\r\n")
-        out.append(_sep(cols) + "\r\n")
-        out.append(
-            f"  {DIM}up/down navigate   left/right Env   d Local DB   m Local MS   SPACE toggle   Enter   ESC{RESET}\r\n"
-        )
-        out.append(f"  {DIM}p  profiles   g  save profile  (only with an empty filter){RESET}\r\n")
-        out.append(
-            f"  {DIM}Env = where all config comes from   ·   Local DB = uses your local mongo{RESET}\r\n"
-        )
-        out.append(
-            f"  {DIM}Local MS = wires to the microservices you started (otherwise, to the environment){RESET}\r\n"
-        )
-        if not kubectl_ok:
-            out.append(f'  {YELLOW}⚠ kubectl not available — "local" environment only{RESET}\r\n')
-
-        filt_display = filt if filt else f"{DIM}type to filter…{RESET}"
-        out.append(f"  {DIM}Filtro:{RESET} {filt_display}{'█' if filt else ''}\r\n\r\n")
-        out.append(
+    def render(self) -> str:
+        return (
             "  "
-            + cell("", 1)
+            + _cell(self.mark[0], 1, self.mark[1])
             + " "
-            + cell("", 3)
+            + _cell(self.check[0], 3, self.check[1])
             + " "
-            + cell("Service", 28, DIM)
+            + _cell(self.name[0], 28, self.name[1])
             + " "
-            + cell("Env", 14, DIM)
+            + _cell(self.env[0], 14, self.env[1])
             + " "
-            + cell("Local DB", 10, DIM)
+            + _cell(self.db[0], 10, self.db[1])
             + " "
-            + cell("Local MS", 11, DIM)
+            + _cell(self.ms[0], 11, self.ms[1])
             + " "
-            + cell("Port", 7, DIM)
+            + _cell(self.port, 7, DIM)
             + " "
-            + f"{DIM}Type{RESET}\r\n"
+            + f"{DIM}{self.typ}{RESET}{self.warn}\r\n"
         )
-        out.append(_sep(cols, "─", bold=False) + "\r\n")
 
-        def chk(b: object) -> str:
-            return "[x]" if b else "[ ]"
 
-        gcur = cursor == 0
-        out.append(
-            make_row(
-                "▶" if gcur else " ",
-                CYAN if gcur else "",
-                "···",
-                DIM,
-                "(all)",
-                BOLD if gcur else DIM,
-                env_ids[glob["env_idx"]],
-                CYAN,
-                chk(glob["db_local"]),
-                CYAN,
-                chk(glob["ms_local"]),
-                CYAN,
-                "",
-                "",
-            )
-        )
+_HELP_LINES = (
+    "up/down navigate   left/right Env   d Local DB   m Local MS   SPACE toggle   Enter   ESC",
+    "p  profiles   g  save profile  (only with an empty filter)",
+    "Env = where all config comes from   ·   Local DB = uses your local mongo",
+    "Local MS = wires to the microservices you started (otherwise, to the environment)",
+)
+
+
+class _RunConfigScreen:
+    """State and key handling of the "Configure services" screen."""
+
+    def __init__(self, tty_fd: Any, repos: list) -> None:
+        self.tty_fd = tty_fd
+        self.env_ids = [e["id"] for e in get_environments()]
+        self.kubectl_ok = _kubectl_available() and bool(_get_kubectl_contexts())
+        self.all_state = _initial_state(repos, self.env_ids)
+        self.glob = {"env_idx": 0, "db_local": True, "ms_local": True}
+        self.cursor = 0
+        self.scroll = 0
+        self.error = ""
+        self.filt = ""
+        self.view: list = []
+        self.nrows = 0
+        self.cols = 96
+        self.lh = 4
+
+    def run(self) -> list | None:
+        while True:
+            self._layout()
+            _w(self.tty_fd, self._screen())
+            self.error = ""
+            outcome = self._handle(_read_key(self.tty_fd))
+            if outcome is not _STAY:
+                return outcome  # type: ignore[return-value]
+
+    # -- layout and drawing ------------------------------------------------------------
+    def _layout(self) -> None:
+        needle = self.filt.lower()
+        self.view = [
+            s for s in self.all_state.values() if not needle or needle in s["name"].lower()
+        ]
+        self.nrows = len(self.view) + 1
+        cols, rows = shutil.get_terminal_size(fallback=(80, 24))
+        self.cols = max(96, cols)
+        self.lh = max(4, rows - 18)
+        self.cursor = max(0, min(self.cursor, self.nrows - 1))
+        svc_cur = max(0, self.cursor - 1)
+        if svc_cur < self.scroll:
+            self.scroll = svc_cur
+        elif svc_cur >= self.scroll + self.lh:
+            self.scroll = svc_cur - self.lh + 1
+
+    def _screen(self) -> str:
+        out = ["\033[H\033[J", *self._header(), *self._table(), *self._footer()]
+        return "".join(out)
+
+    def _header(self) -> list[str]:
+        out = [_sep(self.cols) + "\r\n"]
+        out.append(f"{BOLD}  ws run-local — Configure services{RESET}\r\n")
+        out.append(_sep(self.cols) + "\r\n")
+        out.extend(f"  {DIM}{line}{RESET}\r\n" for line in _HELP_LINES)
+        if not self.kubectl_ok:
+            out.append(f'  {YELLOW}⚠ kubectl not available — "local" environment only{RESET}\r\n')
+        filt_display = self.filt if self.filt else f"{DIM}type to filter…{RESET}"
+        out.append(f"  {DIM}Filtro:{RESET} {filt_display}{'█' if self.filt else ''}\r\n\r\n")
+        return out
+
+    def _table(self) -> list[str]:
+        out = [self._column_titles(), _sep(self.cols, "─", bold=False) + "\r\n"]
+        out.append(self._global_row())
         out.append(f"  {DIM}{'─' * 30}{RESET}\r\n")
-
-        if not view:
-            out.append(f'  {DIM}No results for "{filt}"{RESET}\r\n')
+        if not self.view:
+            out.append(f'  {DIM}No results for "{self.filt}"{RESET}\r\n')
         else:
-            for j, s in enumerate(view[scroll : scroll + lh]):
-                abs_i = scroll + j
-                is_cur = (abs_i + 1) == cursor
-                env_id = env_ids[s["env_idx"]]
-                missing_sh = env_id == "local" and not s["has_set_env"]
-                if s["enabled"]:
-                    mc, ccolor, ncolor = "[✔]", GREEN, (GREEN if is_cur else "")
-                    ecolor = YELLOW if missing_sh else CYAN
-                    dcolor = mscolor = CYAN
-                    port_s = f":{s['port']}"
-                else:
-                    mc, ccolor, ncolor = "[ ]", DIM, DIM
-                    ecolor = dcolor = mscolor = DIM
-                    port_s = ""
-                warn = f" {YELLOW}⚠{RESET}" if missing_sh and s["enabled"] else ""
-                out.append(
-                    make_row(
-                        "▶" if is_cur else " ",
-                        CYAN if is_cur else "",
-                        mc,
-                        ccolor,
-                        s["name"][:27],
-                        ncolor,
-                        env_id,
-                        ecolor,
-                        chk(s["db_local"]),
-                        dcolor,
-                        chk(s["ms_local"]),
-                        mscolor,
-                        port_s,
-                        s["type"],
-                        warn,
-                    )
-                )
+            visible = self.view[self.scroll : self.scroll + self.lh]
+            for j, s in enumerate(visible):
+                out.append(self._service_row(s, (self.scroll + j + 1) == self.cursor))
+        out.append(_sep(self.cols, "─", bold=False) + "\r\n")
+        return out
 
-        out.append(_sep(cols, "─", bold=False) + "\r\n")
+    @staticmethod
+    def _column_titles() -> str:
+        titles = (("", 1, ""), ("", 3, ""), ("Service", 28, DIM), ("Env", 14, DIM))
+        titles += (("Local DB", 10, DIM), ("Local MS", 11, DIM), ("Port", 7, DIM))
+        return "  " + " ".join(_cell(*t) for t in titles) + f" {DIM}Type{RESET}\r\n"
 
-        enabled = [s["name"] for s in all_state.values() if s["enabled"]]
-        total = len(all_state)
+    def _global_row(self) -> str:
+        gcur = self.cursor == 0
+        return _Row(
+            ("▶" if gcur else " ", CYAN if gcur else ""),
+            ("···", DIM),
+            ("(all)", BOLD if gcur else DIM),
+            (self.env_ids[self.glob["env_idx"]], CYAN),
+            (_chk(self.glob["db_local"]), CYAN),
+            (_chk(self.glob["ms_local"]), CYAN),
+            "",
+            "",
+        ).render()
+
+    def _service_row(self, s: dict, is_cur: bool) -> str:
+        env_id = self.env_ids[s["env_idx"]]
+        missing_sh = env_id == "local" and not s["has_set_env"]
+        if s["enabled"]:
+            mc, ccolor, ncolor = "[✔]", GREEN, (GREEN if is_cur else "")
+            ecolor = YELLOW if missing_sh else CYAN
+            dcolor = mscolor = CYAN
+            port_s = f":{s['port']}"
+        else:
+            mc, ccolor, ncolor = "[ ]", DIM, DIM
+            ecolor = dcolor = mscolor = DIM
+            port_s = ""
+        warn = f" {YELLOW}⚠{RESET}" if missing_sh and s["enabled"] else ""
+        return _Row(
+            ("▶" if is_cur else " ", CYAN if is_cur else ""),
+            (mc, ccolor),
+            (s["name"][:27], ncolor),
+            (env_id, ecolor),
+            (_chk(s["db_local"]), dcolor),
+            (_chk(s["ms_local"]), mscolor),
+            port_s,
+            s["type"],
+            warn,
+        ).render()
+
+    def _footer(self) -> list[str]:
+        enabled = [s["name"] for s in self.all_state.values() if s["enabled"]]
         footer = f"Selected: {len(enabled)}"
-        if filt:
-            footer += f"  |  Showing {len(view)}/{total}"
+        if self.filt:
+            footer += f"  |  Showing {len(self.view)}/{len(self.all_state)}"
         if enabled:
-            out.append(
-                f"\r\n  {BOLD}{footer}{RESET}  {GREEN}{', '.join(enabled[:5])}{'…' if len(enabled) > 5 else ''}{RESET}\r\n"
-            )
+            names = f"{', '.join(enabled[:5])}{'…' if len(enabled) > 5 else ''}"
+            out = [f"\r\n  {BOLD}{footer}{RESET}  {GREEN}{names}{RESET}\r\n"]
         else:
-            out.append(f"\r\n  {DIM}{footer}{RESET}\r\n")
+            out = [f"\r\n  {DIM}{footer}{RESET}\r\n"]
+        if self.error:
+            out.append(f"\r\n  {RED}{self.error}{RESET}\r\n")
+        return out
 
-        if error:
-            out.append(f"\r\n  {RED}{error}{RESET}\r\n")
-            error = ""
+    # -- keys --------------------------------------------------------------------------
+    def _target(self) -> dict | None:
+        return None if self.cursor == 0 else self.view[self.cursor - 1]
 
-        _w(tty_fd, "".join(out))
-
-        key = _read_key(tty_fd)
-
-        target = None if cursor == 0 else view[cursor - 1]
-
+    def _handle(self, key: bytes) -> object:
         if key == b"\x03":
             sys.exit(130)
-        elif key == b"\x1b":
-            if filt:
-                filt = ""
-                cursor = 0
-                scroll = 0
-            else:
-                return None
-        elif key == b"\x1b[A":
-            cursor = max(0, cursor - 1)
+        if key == b"\x1b":
+            return self._escape()
+        if key in (b"\r", b"\n", b""):
+            return self._submit()
+        if not (self._navigate(key) or self._edit(key)):
+            self._profile_or_filter(key)
+        return _STAY
+
+    def _escape(self) -> object:
+        if not self.filt:
+            return None
+        self.filt = ""
+        self.cursor = 0
+        self.scroll = 0
+        return _STAY
+
+    def _navigate(self, key: bytes) -> bool:
+        if key == b"\x1b[A":
+            self.cursor = max(0, self.cursor - 1)
         elif key == b"\x1b[B":
-            cursor = min(nrows - 1, cursor + 1)
-        elif key in (b"\x1b[C", b"\x1b[D"):
-            step = 1 if key == b"\x1b[C" else -1
-            t = target
-            if t is None:
-                glob["env_idx"] = _cycle_env(glob["env_idx"], step)
-                _apply_global("env_idx")
-            else:
-                t["env_idx"] = _cycle_env(t["env_idx"], step)
-        elif key in (b"d", b"D"):
-            t = target
-            if t is None:
-                glob["db_local"] = not glob["db_local"]
-                _apply_global("db_local")
-            else:
-                t["db_local"] = not t["db_local"]
-        elif key in (b"m", b"M"):
-            t = target
-            if t is None:
-                glob["ms_local"] = not glob["ms_local"]
-                _apply_global("ms_local")
-            else:
-                t["ms_local"] = not t["ms_local"]
-        elif key == b" ":
-            t = target
-            if t is None:
-                newval = not all(s["enabled"] for s in view) if view else True
-                for s in view:
-                    s["enabled"] = newval
-            else:
-                t["enabled"] = not t["enabled"]
-        elif key in (b"\x7f", b"\x08"):
-            filt = filt[:-1]
-            cursor = 0
-            scroll = 0
-        elif key in (b"p", b"P") and not filt:
-            profile = panel_profiles(tty_fd)
-            if profile:
-                for s in all_state.values():
-                    s["enabled"] = False
-                skipped = []
-                for svc_cfg in profile.get("services", []):
-                    s = all_state.get(svc_cfg["name"])
-                    if not s:
-                        skipped.append(svc_cfg["name"])
-                        continue
-                    s["enabled"] = True
-                    base_env = svc_cfg.get("base_env", "local")
-                    s["env_idx"] = env_ids.index(base_env) if base_env in env_ids else 0
-                    db_env = svc_cfg.get("db_env", "local")
-                    s["db_local"] = db_env == "local"
-                    s["ms_local"] = svc_cfg.get("up_mode", "auto") == "auto"
-                error = "✔ Profile loaded." + (f" Skipped: {', '.join(skipped)}" if skipped else "")
-        elif key in (b"g", b"G") and not filt:
-            sel = [s for s in all_state.values() if s["enabled"]]
-            if not sel:
-                error = "❌ Select at least one service to save."
-            else:
-                cols2, rows2 = shutil.get_terminal_size(fallback=(80, 24))
-                _w(tty_fd, f"\033[{rows2};0H  {DIM}Profile name:{RESET} ")
-                pname = _read_line(tty_fd, "")
-                if pname:
-                    profiles = load_profiles()
-                    profiles[pname] = {
-                        "services": [
-                            {
-                                "name": s["name"],
-                                "base_env": env_ids[s["env_idx"]],
-                                "db_env": "local" if s["db_local"] else env_ids[s["env_idx"]],
-                                "up_mode": "auto" if s["ms_local"] else env_ids[s["env_idx"]],
-                            }
-                            for s in sel
-                        ]
-                    }
-                    save_profiles(profiles)
-                    error = f'✔ Profile "{pname}" saved ({len(sel)} services).'
-                else:
-                    error = "Save cancelled."
-        elif key in (b"\r", b"\n", b""):
-            sel = [s for s in all_state.values() if s["enabled"]]
-            if not sel:
-                error = "❌ Select at least one service."
-                continue
-            problems = []
-            for s in sel:
-                env_id = env_ids[s["env_idx"]]
-                if env_id == "local" and not s["has_set_env"]:
-                    problems.append(f"{s['name']}: no set-env (local environment)")
-                elif env_id != "local" and not kubectl_ok:
-                    problems.append(f"{s['name']}: kubectl not avail. ({env_id})")
-            if problems:
-                error = "⚠ " + " | ".join(problems[:2]) + (" …" if len(problems) > 2 else "")
-                continue
-            return [
-                {
-                    **s,
-                    "env": get_environments()[s["env_idx"]],
-                    "base_env": env_ids[s["env_idx"]],
-                    "db_env": "local" if s["db_local"] else env_ids[s["env_idx"]],
-                    "up_mode": "auto" if s["ms_local"] else env_ids[s["env_idx"]],
-                }
-                for s in sel
-            ]
+            self.cursor = min(self.nrows - 1, self.cursor + 1)
         else:
-            try:
-                ch = key.decode("utf-8") if key else ""
-                if ch.isprintable() and len(ch) == 1:
-                    filt += ch
-                    cursor = 0
-                    scroll = 0
-            except (UnicodeDecodeError, ValueError):
-                pass
+            return False
+        return True
+
+    def _toggle(self, field: str) -> None:
+        t = self._target()
+        if t is None:
+            self.glob[field] = not self.glob[field]
+            for s in self.all_state.values():
+                s[field] = self.glob[field]
+        else:
+            t[field] = not t[field]
+
+    def _edit(self, key: bytes) -> bool:
+        if key in (b"\x1b[C", b"\x1b[D"):
+            self._cycle(1 if key == b"\x1b[C" else -1)
+        elif key in (b"d", b"D"):
+            self._toggle("db_local")
+        elif key in (b"m", b"M"):
+            self._toggle("ms_local")
+        elif key == b" ":
+            self._toggle_enabled()
+        else:
+            return False
+        return True
+
+    def _cycle(self, step: int) -> None:
+        t = self._target()
+        if t is None:
+            self.glob["env_idx"] = _cycle_env(self.glob["env_idx"], step, self.kubectl_ok)
+            for s in self.all_state.values():
+                s["env_idx"] = self.glob["env_idx"]
+        else:
+            t["env_idx"] = _cycle_env(t["env_idx"], step, self.kubectl_ok)
+
+    def _toggle_enabled(self) -> None:
+        t = self._target()
+        if t is not None:
+            t["enabled"] = not t["enabled"]
+            return
+        newval = not all(s["enabled"] for s in self.view) if self.view else True
+        for s in self.view:
+            s["enabled"] = newval
+
+    def _profile_or_filter(self, key: bytes) -> None:
+        if key in (b"p", b"P") and not self.filt:
+            self._load_profile()
+        elif key in (b"g", b"G") and not self.filt:
+            self._save_profile()
+        elif key in (b"\x7f", b"\x08"):
+            self.filt = self.filt[:-1]
+            self.cursor = 0
+            self.scroll = 0
+        else:
+            self._type(key)
+
+    def _type(self, key: bytes) -> None:
+        try:
+            ch = key.decode("utf-8") if key else ""
+        except UnicodeDecodeError:
+            return  # not text (a partial escape sequence): ignore the key
+        if ch.isprintable() and len(ch) == 1:
+            self.filt += ch
+            self.cursor = 0
+            self.scroll = 0
+
+    def _load_profile(self) -> None:
+        profile = panel_profiles(self.tty_fd)
+        if not profile:
+            return
+        for s in self.all_state.values():
+            s["enabled"] = False
+        skipped = []
+        for svc_cfg in profile.get("services", []):
+            s = self.all_state.get(svc_cfg["name"])
+            if not s:
+                skipped.append(svc_cfg["name"])
+                continue
+            self._apply_service_profile(s, svc_cfg)
+        self.error = "✔ Profile loaded." + (f" Skipped: {', '.join(skipped)}" if skipped else "")
+
+    def _apply_service_profile(self, s: dict, svc_cfg: dict) -> None:
+        s["enabled"] = True
+        base_env = svc_cfg.get("base_env", "local")
+        s["env_idx"] = self.env_ids.index(base_env) if base_env in self.env_ids else 0
+        s["db_local"] = svc_cfg.get("db_env", "local") == "local"
+        s["ms_local"] = svc_cfg.get("up_mode", "auto") == "auto"
+
+    def _selected(self) -> list:
+        return [s for s in self.all_state.values() if s["enabled"]]
+
+    def _launch_fields(self, s: dict) -> dict:
+        env_id = self.env_ids[s["env_idx"]]
+        return {
+            "base_env": env_id,
+            "db_env": "local" if s["db_local"] else env_id,
+            "up_mode": "auto" if s["ms_local"] else env_id,
+        }
+
+    def _save_profile(self) -> None:
+        sel = self._selected()
+        if not sel:
+            self.error = "❌ Select at least one service to save."
+            return
+        _cols, rows = shutil.get_terminal_size(fallback=(80, 24))
+        _w(self.tty_fd, f"\033[{rows};0H  {DIM}Profile name:{RESET} ")
+        pname = _read_line(self.tty_fd, "")
+        if not pname:
+            self.error = "Save cancelled."
+            return
+        profiles = load_profiles()
+        profiles[pname] = {"services": [{"name": s["name"], **self._launch_fields(s)} for s in sel]}
+        save_profiles(profiles)
+        self.error = f'✔ Profile "{pname}" saved ({len(sel)} services).'
+
+    def _problems(self, sel: list) -> list[str]:
+        problems = []
+        for s in sel:
+            env_id = self.env_ids[s["env_idx"]]
+            if env_id == "local" and not s["has_set_env"]:
+                problems.append(f"{s['name']}: no set-env (local environment)")
+            elif env_id != "local" and not self.kubectl_ok:
+                problems.append(f"{s['name']}: kubectl not avail. ({env_id})")
+        return problems
+
+    def _submit(self) -> object:
+        sel = self._selected()
+        if not sel:
+            self.error = "❌ Select at least one service."
+            return _STAY
+        problems = self._problems(sel)
+        if problems:
+            self.error = "⚠ " + " | ".join(problems[:2]) + (" …" if len(problems) > 2 else "")
+            return _STAY
+        return [
+            {**s, "env": get_environments()[s["env_idx"]], **self._launch_fields(s)} for s in sel
+        ]
+
+
+def panel_run_config(tty_fd: Any, repos: list, db_cfg: dict) -> list | None:
+    return _RunConfigScreen(tty_fd, repos).run()
