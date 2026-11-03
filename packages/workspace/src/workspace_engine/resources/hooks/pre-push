@@ -15,6 +15,8 @@
 #                               (per repo: git config workspace.commitStyle conventional)
 #   QG_PROTECTED="^(main)$"     Regex of protected branches (override)
 #   QG_OUTPUT=errors|verbose    Hide successful output (default: errors)
+# Lower priority than the variables and `git config workspace.*`: the [gate] table of
+# .workspace/config.toml (repo) and ~/.config/workspace/config.toml (user).
 set -uo pipefail
 
 QG_SCOPE="${QG_SCOPE:-all}"
@@ -30,6 +32,13 @@ QG_TIMEOUT="${QG_TIMEOUT:-900}"
 QG_COMMIT_STYLE="${QG_COMMIT_STYLE:-$(git config --get workspace.commitStyle 2>/dev/null || true)}"
 QG_OUTPUT="${QG_OUTPUT:-errors}"
 PROTECTED_BRANCHES="${QG_PROTECTED:-^(main|master|develop|staging)\$}"
+
+# Repo/user config files (.workspace/config.toml, ~/.config/workspace/config.toml) rank below
+# QG_* and git config: ws prints an assignment only for settings those files decide.
+if command -v ws >/dev/null 2>&1; then
+  eval "$(ws hooks gate-config --dir "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" 2>/dev/null)" || true
+  PROTECTED_BRANCHES="${QG_PROTECTED:-$PROTECTED_BRANCHES}"
+fi
 
 ZERO="0000000000000000000000000000000000000000"
 EMPTY_TREE="4b825dc642cb6eb9a060e54bf8d69288fbee4904"

@@ -9,7 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from workspace_engine.common import emit_rows, is_agent_mode, log_error, log_success
+from workspace_engine.common import emit_rows, is_agent_mode, log_error, log_success, log_warning
+from workspace_engine.services.gate_config import repo_gate_settings, shell_assignments
 from workspace_engine.services.git_hooks import (
     QG_STAGES,
     get_hooks_status,
@@ -64,6 +65,19 @@ def render_hooks_status(target_dir: Path | None = None) -> None:
         title="Git Hooks & Quality Gate Status",
         full=True,
     )
+    _warn_inactive_gate(status, target_dir or Path.cwd())
+
+
+def _warn_inactive_gate(status: dict[str, dict[str, object]], target: Path) -> None:
+    """Gate settings in this repo only matter when the gate runs: say so when it does not."""
+    if status["local"]["is_active"] or status["global"]["is_active"]:
+        return
+    configured = repo_gate_settings(Path(target).resolve())
+    if configured:
+        log_warning(
+            "This repo has gate settings (" + ", ".join(configured) + ") but the Quality Gate is "
+            "not active here or globally: they are ignored. Run `ws hooks install`."
+        )
 
 
 def _git(target: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -166,8 +180,8 @@ def main(argv: list[str] | None = None) -> int:
         "--timeout",
         "-t",
         type=int,
-        default=900,
-        help="Timeout in seconds per step (default: 900)",
+        default=None,
+        help="Timeout in seconds per step (default: gate.timeout_seconds, 900)",
     )
     p_run.add_argument(
         "--style",
@@ -191,6 +205,12 @@ def main(argv: list[str] | None = None) -> int:
         "stages", nargs="?", help=f"For 'set': comma-separated ({','.join(QG_STAGES)})"
     )
     p_skip.add_argument("--dir", "-d", help="Repository root directory")
+
+    # gate-config (used by the hook scripts)
+    p_cfg = sub.add_parser(
+        "gate-config", help="Shell assignments for the gate settings the config files decide"
+    )
+    p_cfg.add_argument("--dir", "-d", help="Repository root directory")
 
     # test
     p_test = sub.add_parser("test", help="Test Quality Gate execution in current repository")
@@ -217,6 +237,12 @@ def main(argv: list[str] | None = None) -> int:
     elif args.action == "uninstall":
         res = uninstall_git_hooks(target_dir=target, is_global=args.is_global)
         log_success(res["message"])
+        return 0
+
+    elif args.action == "gate-config":
+        assignments = shell_assignments(target.resolve())
+        if assignments:
+            print(assignments)
         return 0
 
     elif args.action == "skip":

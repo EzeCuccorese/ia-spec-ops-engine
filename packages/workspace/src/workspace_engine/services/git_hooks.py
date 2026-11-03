@@ -223,7 +223,7 @@ def run_quality_gate(
     target_dir: str | Path | None = None,
     scope: str = "all",
     skip: str | None = None,
-    timeout: int = 900,
+    timeout: int | None = None,
     commit_style: str | None = None,
     output: str = "errors",
     capture: list[str] | None = None,
@@ -243,7 +243,9 @@ def run_quality_gate(
     ref_line = f"refs/heads/current {head_sha} refs/heads/current {prev_sha}\n"
 
     env = os.environ.copy()
-    env.update(QG_SCOPE=scope, QG_TIMEOUT=str(timeout), QG_OUTPUT=output)
+    env.update(QG_SCOPE=scope, QG_OUTPUT=output)
+    if timeout is not None:
+        env["QG_TIMEOUT"] = str(timeout)
     if skip:
         env["QG_SKIP"] = skip
     if commit_style:

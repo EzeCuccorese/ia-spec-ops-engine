@@ -5,6 +5,9 @@
 #   git config workspace.commitStyle conventional   (or QG_COMMIT_STYLE=conventional)
 # Skip once with: QG_SKIP=commits git commit ...
 set -uo pipefail
+if command -v ws >/dev/null 2>&1; then  # [gate] of .workspace/config.toml (repo) / user config
+  eval "$(ws hooks gate-config --dir "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" 2>/dev/null)" || true
+fi
 case ",${QG_SKIP:-}," in *,commits,*|*,all,*) exit 0 ;; esac
 style="${QG_COMMIT_STYLE:-$(git config --get workspace.commitStyle 2>/dev/null || true)}"
 [ "$style" = "conventional" ] || exit 0

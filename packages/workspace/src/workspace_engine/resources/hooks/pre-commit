@@ -2,6 +2,9 @@
 # Workspace pre-commit hook: fast secret scan of staged changes (registered as hook.workspace-pre-commit).
 # Skip once with: QG_SKIP=gitleaks git commit ...
 set -uo pipefail
+if command -v ws >/dev/null 2>&1; then  # [gate] of .workspace/config.toml (repo) / user config
+  eval "$(ws hooks gate-config --dir "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" 2>/dev/null)" || true
+fi
 case ",${QG_SKIP:-}," in *,gitleaks,*|*,all,*) exit 0 ;; esac
 command -v gitleaks >/dev/null 2>&1 || exit 0
 if ! out="$(gitleaks protect --staged --redact --no-banner 2>&1)"; then
