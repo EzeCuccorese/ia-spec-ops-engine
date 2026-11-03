@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -11,12 +12,12 @@ from pathlib import Path
 import pytest
 from ai_governance.taskflow.cli import main
 from ai_governance.taskflow.store import TaskStore
+from orca_fakes import flag
 from test_taskflow import (
     _git,
     _plan_and_approve,
     _red_green_commit,
     cli_run,
-    fake_agents,
     judge_orca,
     orca_path,
     outside_claude,
@@ -85,7 +86,7 @@ def test_lifecycle_pause_resume_block_and_close(
 
 
 def test_unbind_and_reports(
-    run: Run, repo: Path, fake_agents: Path, capsys: pytest.CaptureFixture[str]
+    run: Run, repo: Path, orca_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert run("fact", "ONB-1", "token=abc123supersecret") == 0
     capsys.readouterr()
@@ -227,10 +228,19 @@ def test_unresolvable_directory_asks_for_the_task_id(
     assert run("show") != 0
 
 
-def test_round_run_validates_its_inputs(run: Run, repo: Path) -> None:
-    assert run("round", "ONB-1", "run", "--role", "planner") != 0
-    assert run("round", "ONB-1", "run", "--role", "judge", "--prompt", "x") != 0
-    assert run("round", "ONB-1", "run", "--role", "builder", "--prompt", "x") != 0
+def test_round_run_is_a_migration_stub(
+    run: Run, state: TaskStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for role in ("planner", "validator", "builder", "judge"):
+        capsys.readouterr()
+        assert run("round", "ONB-1", "run", "--role", role, "--prompt", "x") == 2
+        err = capsys.readouterr().err
+        assert "was removed" in err and "round <ID> dispatch" in err and "collect" in err
+    assert run("round", "ONB-1", "run") == 2  # even a stale call without any flag
+    assert state.get("ONB-1").rounds == []
+
+
+def test_round_record_and_rounds_validate_their_inputs(run: Run, repo: Path) -> None:
     assert run("round", "ONB-1", "record", "--role", "planner", "--file", str(repo / "gone")) != 0
     assert run("rounds", "ONB-1", "--show", "99") != 0
 
@@ -267,20 +277,33 @@ def test_duplicate_tasks_and_corrupt_state_files(run: Run, state: TaskStore) -> 
     assert state.exists("ONB-1") and not state.exists("BROKEN-1-nope")
 
 
-def test_blocked_tasks_cannot_start_builder_rounds(run: Run) -> None:
-    assert run("block", "ONB-1", "--owner", "dba", "--needs", "a ticket") == 0
-    assert run("round", "ONB-1", "run", "--role", "builder", "--prompt", "x") != 0
-    assert run("unblock", "ONB-1") == 0
-
-
-def test_round_run_reads_prompt_files_and_rejects_unknown_agents(
-    run: Run, repo: Path, fake_agents: Path
+def test_blocked_tasks_cannot_dispatch_rounds(
+    run: Run, orca_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    prompt = repo / "prompt.md"
+    assert run("block", "ONB-1", "--owner", "dba", "--needs", "a ticket") == 0
+    capsys.readouterr()
+    args = ("round", "ONB-1", "dispatch", "--role", "planner", "--agent", "claude", "--prompt", "x")
+    assert run(*args) != 0
+    assert "blocked by dba" in capsys.readouterr().err
+    assert run("unblock", "ONB-1") == 0
+    assert run(*args) == 0
+
+
+def test_dispatch_reads_prompt_files_and_rejects_unknown_agents(
+    run: Run, repo: Path, orca_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    prompt = repo.parent / "prompt.md"
     prompt.write_text("plan it\n")
-    args = ("round", "ONB-1", "run", "--role", "planner")
+    args = ("round", "ONB-1", "dispatch", "--role", "planner", "--agent", "claude")
+    capsys.readouterr()
     assert run(*args, "--prompt-file", str(prompt), "--model", "m1") == 0
-    assert run(*args, "--prompt", "x", "--agent", "nope") != 0
+    line = shlex.split(_out(capsys).strip())
+    assert flag(line, "--model") == "m1"
+    assert "plan it" in Path(flag(line, "--spec-file")).read_text(encoding="utf-8")
+    capsys.readouterr()
+    unknown = ("round", "ONB-1", "dispatch", "--role", "validator", "--agent", "nope")
+    assert run(*unknown, "--prompt", "x") != 0
+    assert "not allowed here" in capsys.readouterr().err
 
 
 def test_tdd_green_needs_a_red_run_and_a_passing_command(run: Run, repo: Path) -> None:
@@ -357,7 +380,8 @@ def test_manual_and_unbound_tasks_report_what_is_missing(
     run: Run, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert run("new", "man-1", "--title", "M", "--workflow", "manual") == 0
-    assert run("round", "man-1", "run", "--role", "planner", "--prompt", "x") != 0
+    args = ("round", "man-1", "dispatch", "--role", "planner", "--agent", "claude", "--prompt", "x")
+    assert run(*args) != 0
     assert run("new", "free-1", "--title", "No repo") == 0
     capsys.readouterr()
     assert run("status", "free-1", "--json") == 0
@@ -371,7 +395,7 @@ def test_reports_after_a_judged_flow_include_the_judge_answer(
     state: TaskStore, cli_run: Run, judge_orca, capsys: pytest.CaptureFixture[str]
 ) -> None:
     repo = judge_orca.repo
-    _plan_and_approve(cli_run)
+    _plan_and_approve(cli_run, judge_orca)
     _red_green_commit(cli_run, repo)
     assert cli_run("phase", "ONB-1", "judge") == 0
     printed = judge_orca.judge()
@@ -394,7 +418,7 @@ def test_reports_after_a_judged_flow_include_the_judge_answer(
 def test_judge_refuses_a_dirty_tree_and_keeps_edits_out(
     state: TaskStore, cli_run: Run, judge_orca, repo: Path
 ) -> None:
-    _plan_and_approve(cli_run)
+    _plan_and_approve(cli_run, judge_orca)
     _red_green_commit(cli_run, repo)
     assert cli_run("phase", "ONB-1", "judge") == 0
     (repo / "dirty.txt").write_text("uncommitted\n")

@@ -63,15 +63,26 @@ def orca_argv() -> list[str]:
         raise OrcaError(f"ORCA_CLI_COMMAND is not a valid command line: {exc}") from exc
 
 
-def require_orca() -> list[str]:
-    """The Orca argv prefix, or an error naming what is missing (no side effects)."""
-    argv = orca_argv()
+def orca_problem() -> str | None:
+    """Why the Orca CLI cannot be used (not on PATH, bad command line), or None. No side effects."""
+    try:
+        argv = orca_argv()
+    except OrcaError as exc:
+        return str(exc)
     if not argv or shutil.which(argv[0]) is None:
-        raise OrcaError(
+        return (
             f"Orca CLI '{orca_command()}' was not found on PATH: install Orca or set "
             "ORCA_CLI_COMMAND to its command"
         )
-    return argv
+    return None
+
+
+def require_orca() -> list[str]:
+    """The Orca argv prefix, or an error naming what is missing (no side effects)."""
+    problem = orca_problem()
+    if problem:
+        raise OrcaError(problem)
+    return orca_argv()
 
 
 @dataclass(frozen=True)

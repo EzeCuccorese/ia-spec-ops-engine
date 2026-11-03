@@ -20,7 +20,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import orca
-from .adapters import READ_ONLY_LIMIT, VERDICT_INSTRUCTION
 from .agents import HUMAN, INDEPENDENT_ROLES, builder_providers, provider
 from .approvals import valid_approval
 from .config import FlowConfig
@@ -36,6 +35,7 @@ from .control import (
 )
 from .gates import work_unmet
 from .models import JsonDict, Task, now_iso
+from .prompts import READ_ONLY_LIMIT, VERDICT_INSTRUCTION
 from .repos import on_live, partition
 from .stamp import head_sha, tree_fingerprint
 from .store import RoundSlot, TaskStore, atomic_write_text

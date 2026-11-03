@@ -180,11 +180,11 @@ def _round_commands(sub: Subparsers) -> None:
     item = add(
         "round",
         cli.cmd_round,
-        "Dispatch a reader round to an Orca worker and collect or abort it, run one, or record one",
+        "Dispatch a reader round to an Orca worker and collect or abort it, or record one",
     )
     actions = item.add_subparsers(dest="action", required=True, metavar="action")
-    run = actions.add_parser("run", help="Run a round as a subprocess (legacy)")
-    run.add_argument("--role", required=True, choices=ROLES)
+    run = actions.add_parser("run", help=argparse.SUPPRESS)  # removed: migration stub
+    run.add_argument("--role", choices=ROLES)
     _round_agent_args(run)
     run.add_argument("--timeout", type=int, default=0)
     record = actions.add_parser("record", help="Record a round that ran elsewhere (context only)")

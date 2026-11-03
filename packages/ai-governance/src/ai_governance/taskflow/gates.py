@@ -19,8 +19,8 @@ from .models import EXIT_PHASES, PHASES, JsonDict, Task
 from .risk import RiskAssessment, decided_by_human
 
 NEXT_COMMAND: dict[str, str] = {
-    "plan": "taskflow round <ID> run --role planner --prompt-file <brief.md>",
-    "validate": "taskflow round <ID> run --role validator --prompt-file <review.md>",
+    "plan": "taskflow round <ID> dispatch --role planner --prompt-file <brief.md>; run the printed line, end the turn, taskflow round <ID> collect ...",
+    "validate": "taskflow round <ID> dispatch --role validator --prompt-file <review.md>; run the printed line, end the turn, taskflow round <ID> collect ...",
     "work": "implement in the bound worktree; taskflow tdd <ID> red/green; commit; taskflow phase <ID> judge",
     "judge": "taskflow judge <ID>",
     "staging": "the user deploys; taskflow deploy <ID> ...; taskflow evidence <ID> --kind staging ...",

@@ -6,6 +6,7 @@ Layers (lowest to highest): default < ``~/.config/ai-governance/config.toml`` <
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import TypedDict, Unpack
 
@@ -84,11 +85,6 @@ SETTINGS: tuple[Setting, ...] = (
         for field, default in (("agent", agent), ("model", model))
     ),
     Setting(
-        "agents.antigravity_binary", "agy", "AI_GOVERNANCE_ANTIGRAVITY_BINARY", "CLI of Antigravity"
-    ),
-    Setting("agents.codex_binary", "codex", "AI_GOVERNANCE_CODEX_BINARY", "CLI of Codex"),
-    Setting("agents.claude_binary", "claude", "AI_GOVERNANCE_CLAUDE_BINARY", "CLI of Claude Code"),
-    Setting(
         "agents.codex_scout_model",
         "gpt-6-luna",
         "AI_GOVERNANCE_CODEX_SCOUT_MODEL",
@@ -121,7 +117,7 @@ SETTINGS: tuple[Setting, ...] = (
     ),
 )
 
-# Role, judge and binary settings decide who runs with full permissions: only the user's own
+# Role and judge settings decide who runs with full permissions: only the user's own
 # files may change them (a repository can add controls, never swap the agents).
 USER_ONLY_PREFIXES = (
     "taskflow.planner_",
@@ -133,6 +129,16 @@ USER_ONLY_PREFIXES = (
     "hooks.",  # hooks.gate_command picks the program the automatic stop hook runs
     "corporate.",  # which company packs get installed
 )
+
+
+# Settings that existed before agents became Orca workers. Old files and variables still load
+# (unknown keys are ignored); ``retired_rows`` lets ``config show`` say they do nothing now.
+RETIRED = {
+    "agents.antigravity_binary": "AI_GOVERNANCE_ANTIGRAVITY_BINARY",
+    "agents.codex_binary": "AI_GOVERNANCE_CODEX_BINARY",
+    "agents.claude_binary": "AI_GOVERNANCE_CLAUDE_BINARY",
+}
+RETIRED_NOTE = "no longer used (agents run as Orca workers; see ORCA_CLI_COMMAND)"
 
 
 def repo_root(start: Path | None = None) -> Path | None:
@@ -208,3 +214,16 @@ def get(
 ) -> object:
     """Effective value of one setting (default < user < repo < env < flag)."""
     return effective(root, flags, **extra)[key].value
+
+
+def retired_rows(root: Path | None = None) -> dict[str, Value]:
+    """One row per retired setting still present in a file or the environment."""
+    found = layers(root)
+    rows: dict[str, Value] = {}
+    for key, variable in RETIRED.items():
+        for layer, files in ((found.user, found.user_files), (found.repo, found.repo_files)):
+            if key in layer:
+                rows[key] = Value(RETIRED_NOTE, "retired", str(files[key]))
+        if variable in os.environ:
+            rows[key] = Value(RETIRED_NOTE, "retired", variable)
+    return rows

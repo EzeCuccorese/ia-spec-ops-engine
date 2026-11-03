@@ -17,15 +17,15 @@ from pathlib import Path
 
 import pytest
 from ai_governance.taskflow import store as store_module
-from ai_governance.taskflow.adapters import READ_ONLY_LIMIT, VERDICT_INSTRUCTION
 from ai_governance.taskflow.collect import RoundRef, abort_round, collect_round
 from ai_governance.taskflow.control import DispatchError
 from ai_governance.taskflow.guide import GUIDE
 from ai_governance.taskflow.models import Task
 from ai_governance.taskflow.orca import OrcaError, _run, orca_command
 from ai_governance.taskflow.parser import build_parser
+from ai_governance.taskflow.prompts import READ_ONLY_LIMIT, VERDICT_INSTRUCTION
 from ai_governance.taskflow.store import TaskStore
-from orca_fakes import TASK, OrcaWorld, flag, make_world, world
+from orca_fakes import TASK, OrcaWorld, _make_repo, flag, make_world, world
 
 WAIT = "orca-fake orchestration check --wait --types worker_done --timeout-ms 600000"
 PLANNER = ["round", TASK, "dispatch", "--role", "planner", "--agent", "claude", "--prompt", "p"]
@@ -372,6 +372,21 @@ def test_reader_that_changed_the_tree_is_invalid_and_kept(world: OrcaWorld) -> N
     record = world.record(1)
     assert record["state"] == "invalid" and "new.txt" in str(record["reason"])
     assert (world.repo / "new.txt").read_text(encoding="utf-8") == "x"
+
+
+def test_reader_changing_another_bound_repository_is_invalid(
+    world: OrcaWorld, tmp_path: Path
+) -> None:
+    other = tmp_path / "other"
+    _make_repo(other)
+    assert world.run("bind", TASK, "--repo", str(other)).code == 0
+    world.dispatch()
+    world.finish(1, "D1")
+    (other / "second.txt").write_text("x", encoding="utf-8")
+    assert world.collect(1, "D1").code == 1
+    record = world.record(1)
+    assert record["state"] == "invalid" and "second.txt" in str(record["reason"])
+    assert str(other) in str(record["reason"])
 
 
 def test_coordinator_commit_during_a_reader_round_invalidates_it(world: OrcaWorld) -> None:
@@ -723,7 +738,7 @@ def test_manual_record_stays_context_only(world: OrcaWorld, tmp_path: Path) -> N
     assert world.record(1)["state"] == "context"
 
 
-def test_parser_keeps_run_and_needs_no_role_for_collect_and_abort() -> None:
+def test_parser_keeps_the_hidden_run_stub_and_needs_no_role_for_collect_and_abort() -> None:
     parser = build_parser()
     assert parser.parse_args(["round", TASK, "run", "--role", "planner"]).action == "run"
     args = parser.parse_args(["round", TASK, "collect", "--round", "1", "--dispatch-id", "D"])

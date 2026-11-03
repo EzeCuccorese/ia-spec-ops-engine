@@ -1,0 +1,133 @@
+"""Agents run only as Orca workers: the subprocess path is gone and every hint says so."""
+
+from __future__ import annotations
+
+import importlib.util
+import re
+from pathlib import Path
+
+import pytest
+from ai_governance.install import content
+from ai_governance.taskflow import config as flow_config
+from ai_governance.taskflow import gates, orca, prompts, rounds
+from ai_governance.taskflow.cli import main
+from ai_governance.taskflow.config import FlowConfig
+from ai_governance.taskflow.guide import GUIDE
+from orca_fakes import attach_orca
+
+README = Path(__file__).resolve().parents[1] / "README.md"
+FORBIDDEN = (
+    "headless",
+    "codex exec",
+    "claude -p",
+    "antigravity --print",
+    "--dangerously-skip-permissions",
+)
+
+
+@pytest.fixture(autouse=True)
+def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AI_GOVERNANCE_CONFIG_DIR", str(tmp_path / "cfg"))
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
+    for name in ("ORCA_CLI_COMMAND", "ORCA_DEV_REPO_ROOT"):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.mark.parametrize(
+    ("platform", "env", "expected"),
+    [
+        ("darwin", {}, "orca"),
+        ("linux", {}, "orca-ide"),
+        ("linux", {"ORCA_DEV_REPO_ROOT": "/src/orca"}, "orca-dev"),
+        ("darwin", {"ORCA_DEV_REPO_ROOT": "/src/orca"}, "orca-dev"),
+        ("linux", {"ORCA_CLI_COMMAND": "my-orca --x", "ORCA_DEV_REPO_ROOT": "/s"}, "my-orca --x"),
+        ("darwin", {"ORCA_CLI_COMMAND": "  "}, "orca"),
+        ("linux", {"ORCA_CLI_COMMAND": "", "ORCA_DEV_REPO_ROOT": " "}, "orca-ide"),
+    ],
+)
+def test_orca_command_rule(
+    monkeypatch: pytest.MonkeyPatch, platform: str, env: dict[str, str], expected: str
+) -> None:
+    monkeypatch.setattr(orca.sys, "platform", platform)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    assert orca.orca_command() == expected
+
+
+def test_validate_reports_a_missing_orca_cli(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PATH", str(tmp_path))
+    problem = orca.orca_problem()
+    assert problem and f"Orca CLI '{orca.orca_command()}'" in problem
+    assert "not found on PATH" in problem and "ORCA_CLI_COMMAND" in problem
+    assert problem in FlowConfig().validate()
+    with pytest.raises(orca.OrcaError) as raised:  # dispatch and judge use the same check
+        orca.require_orca()
+    assert str(raised.value) == problem
+
+
+def test_a_present_orca_cli_or_an_all_human_config_needs_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    humans = FlowConfig(
+        roles={
+            name: {"agent": "human", "model": ""} for name in ("planner", "validator", "builder")
+        },
+        judges=({"focus": "correctness", "agent": "human"},),
+    )
+    monkeypatch.setenv("PATH", str(tmp_path))
+    assert not [e for e in humans.validate() if "Orca CLI" in e]
+    attach_orca(tmp_path / "world", monkeypatch)
+    assert orca.orca_problem() is None
+    assert not [e for e in FlowConfig().validate() if "Orca CLI" in e]
+
+
+def test_the_subprocess_agent_path_is_gone() -> None:
+    assert importlib.util.find_spec("ai_governance.taskflow.adapters") is None
+    for name in ("run_round", "RoundRequest", "_run_reserved", "_abort_round", "_record"):
+        assert not hasattr(rounds, name), name
+    for name in ("run_agent", "build_command", "binary", "AgentRun", "RunResult", "AGENTS"):
+        assert not hasattr(prompts, name), name
+    for name in ("agent_binary", "AGENTS_WITH_BINARY"):
+        assert not hasattr(flow_config, name), name
+    assert not hasattr(FlowConfig, "_missing_binaries")
+    assert {"READ_ONLY_LIMIT", "VERDICT_INSTRUCTION", "parse_verdict"} <= set(dir(prompts))
+
+
+def test_the_writer_lease_and_manual_record_survive() -> None:
+    for name in ("writer_lease", "active_lease", "LeaseError", "record_manual", "LEASE_ENV"):
+        assert hasattr(rounds, name), name
+
+
+def test_no_removed_command_or_launch_in_hints() -> None:
+    hints = [GUIDE, content.TASKFLOW_SKILL, *gates.NEXT_COMMAND.values()]
+    for text in hints:
+        assert not re.search(r"round (<ID>|<id>|\S+) run\b", text), text[:80]
+        assert "round run" not in text
+        for banned in FORBIDDEN:
+            assert banned not in text, banned
+    readme = README.read_text(encoding="utf-8")
+    for banned in FORBIDDEN:
+        assert banned not in readme, banned
+    assert "round <id> dispatch" in readme and "agents.<name>_binary" in readme
+
+
+def test_help_of_round_lists_no_run_action(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        main(["round", "ONB-1", "--help"])
+    shown = capsys.readouterr().out
+    assert "dispatch" in shown and "collect" in shown and "abort" in shown
+    assert not re.search(r"\brun\b", shown)
+
+
+def test_guide_and_skill_say_agents_never_run_from_the_engine() -> None:
+    assert "Agents never run from the engine" in GUIDE
+    assert "Never launch agent CLIs yourself" in GUIDE
+    assert "The builder is YOU (the coordinating session)" in GUIDE
+    assert "different Orca sessions" in GUIDE
+    assert "A judge is a reader" in GUIDE
+    assert "END YOUR TURN" in GUIDE and "worker_done" in GUIDE
+    skill = content.TASKFLOW_SKILL
+    assert "never run from the engine" in skill and "end the turn" in skill
+    assert "You are the builder" in skill and "dispatch" in skill and "collect" in skill

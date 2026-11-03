@@ -52,7 +52,7 @@ def _restricted(tmp_path: Path, *agents: str, name: str = "r") -> Path:
 
 
 def _problems(config: FlowConfig) -> list[str]:
-    return [e for e in config.validate() if "not installed" not in e]
+    return [e for e in config.validate() if "Orca CLI" not in e]
 
 
 def _agents(config: FlowConfig) -> tuple[str, ...]:
@@ -306,7 +306,7 @@ def test_human_judge_unchanged() -> None:
         roles={"builder": {"agent": "claude", "model": ""}},
         judges=({"focus": "correctness", "agent": "human"},),
     )
-    assert config.validate() == [e for e in config.validate() if "not installed" in e]
+    assert config.validate() == [e for e in config.validate() if "Orca CLI" in e]
     assert gates._workflow_unmet(Task(id="T", title="t"), config) == []
 
 

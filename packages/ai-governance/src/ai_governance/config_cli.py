@@ -6,7 +6,7 @@ import argparse
 import sys
 
 from ._config_core import ConfigError, Value, render_show
-from .settings import effective, repo_root
+from .settings import effective, repo_root, retired_rows
 
 
 def _taskflow_rows() -> tuple[dict[str, Value], str]:
@@ -35,6 +35,7 @@ def main(argv: list[str]) -> int:
         print(f"Error: {exc}")
         return 1
     rows, failure = _taskflow_rows()
+    values.update(retired_rows())
     values.update(rows)
     print(render_show(values, origin=args.origin, as_json=args.json))
     if failure:

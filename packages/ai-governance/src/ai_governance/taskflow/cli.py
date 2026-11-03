@@ -12,7 +12,6 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
 
 from .._config_core import AGENT_ENV_MARKERS
 from ..output import emit_json, emit_kv, emit_rows, emit_status, emit_text
@@ -39,13 +38,12 @@ from .gates import (
     judges_unmet,
     plan_round,
     policy_unmet,
-    work_unmet,
 )
 from .guide import GUIDE as GUIDE
 from .handoff import findings, handoff, scrub, ticket_draft
 from .judge import JudgeError, JudgeScope
 from .judge_flow import JudgeJob, judge_flow
-from .models import PHASES, READER_ROLES, Task, now_iso
+from .models import PHASES, Task, now_iso
 from .policy import _rule_reductions as _rule_reductions
 from .policy import policy_reductions as policy_reductions
 from .policy import policy_summary
@@ -53,7 +51,7 @@ from .refresh import legacy_notice, refresh
 from .repos import begin_invocation, first_live, on_live
 from .resolver import TaskResolver
 from .risk import RiskAssessment
-from .rounds import LeaseError, RoundRequest, record_manual, run_round
+from .rounds import LeaseError, record_manual
 from .stamp import GitError
 from .store import FRICTION_FILE, TaskStore
 
@@ -536,43 +534,24 @@ def cmd_tdd(args: argparse.Namespace) -> int:
     return 0
 
 
-def _prompt(args: argparse.Namespace) -> str:
-    if args.prompt_file:
-        return Path(args.prompt_file).read_text(encoding="utf-8")
-    if args.prompt:
-        return str(args.prompt)
-    raise ValueError("Pass --prompt-file or --prompt")
+ROUND_RUN_REMOVED = (
+    "`taskflow round <ID> run` was removed: the engine never launches an agent. Use "
+    "`taskflow round <ID> dispatch --role <role> --prompt-file <file>`, run the Orca "
+    "worker-start line it prints, end your turn, then `taskflow round <ID> collect --round N "
+    "--dispatch-id <id>` (or `abort`). Judges: `taskflow judge <ID>`."
+)
 
 
 def cmd_round(args: argparse.Namespace) -> int:
+    if args.action == "run":  # migration stub: hidden from help and completion
+        emit_status("error", ROUND_RUN_REMOVED)
+        return 2
     if args.action in ("dispatch", "collect", "abort"):
         return round_cli.route(args)
     store = _store()
     task = store.get(args.task_id)
-    config = _config(task)
-    task, _risk = _refresh(store, task, config)
-    if args.action == "record":
-        return _record_manual_round(store, task, args)
-    _check_round_allowed(task, args.role)
-    agent = {"agent": args.agent, "model": args.model} if args.agent else config.role(args.role)
-    if refusal := config.agent_error(str(agent.get("agent", ""))):
-        raise ValueError(f"{args.role}: {refusal}")
-    live = first_live(task.repos)
-    repo, others = live if live else (Path.cwd(), ())
-    watch = others if args.role in READER_ROLES else ()
-    request = RoundRequest(
-        task.id,
-        args.phase or task.phase,
-        args.role,
-        _prompt(args),
-        repo,
-        agent,
-        timeout=args.timeout or config.timeout_seconds,
-        watch=watch,
-    )
-    record = on_live([repo, *others], lambda: run_round(store, request, task.stamp_key))
-    _report_round(record)
-    return 0 if record["state"] == "valid" else 1
+    task, _risk = _refresh(store, task, _config(task))
+    return _record_manual_round(store, task, args)
 
 
 def _record_manual_round(store: TaskStore, task: Task, args: argparse.Namespace) -> int:
@@ -588,29 +567,6 @@ def _record_manual_round(store: TaskStore, task: Task, args: argparse.Namespace)
     record = record_manual(store, task.id, info, scrub(body))
     emit_status("ok", f"Round {record['n']:03d} recorded as context (it never opens a gate)")
     return 0
-
-
-def _check_round_allowed(task: Task, role: str) -> None:
-    if role == "judge":
-        raise ValueError("Judges run through `taskflow judge`")
-    if task.workflow == "manual":
-        raise ValueError("Manual tasks have no agent rounds")
-    if role == "builder" and (missing := work_unmet(task)):
-        raise ValueError("A builder cannot write yet: " + "; ".join(missing))
-    if task.blocked:
-        raise ValueError(
-            f"'{task.id}' is blocked by {task.blocked.get('owner')}: {task.blocked.get('needs')}"
-        )
-
-
-def _report_round(record: dict[str, object]) -> None:
-    level: Literal["ok", "warn"] = "ok" if record["state"] == "valid" else "warn"
-    reason = f" — {record['reason']}" if record.get("reason") else ""
-    emit_status(
-        level,
-        f"Round {int(str(record['n'])):03d} {record['role']}: {record['verdict']} "
-        f"({record['state']}{reason}). Read it: {record['file']}",
-    )
 
 
 def cmd_rounds(args: argparse.Namespace) -> int:

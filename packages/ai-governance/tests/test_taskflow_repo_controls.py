@@ -121,7 +121,7 @@ def test_user_only_keys_are_still_ignored_from_the_repo(setup: tuple[Path, Path]
     _active(repo, 'workflow = "single-agent"\n[roles.builder]\nagent = "codex"\nmodel = "x"\n')
     (repo / ".ai-governance" / "config.toml").write_text(
         '[taskflow]\nbuilder_agent = "codex"\n[hooks]\ngate_command = "evil"\n'
-        '[agents]\nclaude_binary = "evil"\n[corporate]\npacks = ["x"]\n'
+        '[agents]\ncodex_scout_model = "evil"\n[corporate]\npacks = ["x"]\n'
     )
     config = load_config([repo])
     assert config.workflow == "tri-agent" and config.roles["builder"]["agent"] == "claude"
@@ -129,7 +129,7 @@ def test_user_only_keys_are_still_ignored_from_the_repo(setup: tuple[Path, Path]
     for key in (
         "taskflow.builder_agent",
         "hooks.gate_command",
-        "agents.claude_binary",
+        "agents.codex_scout_model",
         "corporate.packs",
     ):
         assert found[key].origin == "default", key

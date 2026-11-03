@@ -105,7 +105,7 @@ description: Resume, record and run multi-session tasks (plan, validate, work, j
 - `ai-governance taskflow here` — task bound to this repository/branch; `status <id>` says what is missing and the next command.
 - `taskflow new <id> --title "..."` (Jira key or slug), `bind <id> --repo <worktree>`.
 - `taskflow step <id> add|done "<text>"`, `fact <id> "<text>"`, `decide <id> "<text>" --why "..."`.
-- Separate planner/validator/judge sessions; builder coordinates. Validator/judge providers differ from builder; planner may share. Repos may narrow allowed agents. `round <id> run --role planner|validator`, `tdd <id> red|green`, `judge <id>`, `phase <id> <next>`.
+- Agents never run from the engine or a shell: planner/validator/judge are Orca workers. `round <id> dispatch --role R`, run the printed line, end the turn, `round <id> collect`; judges via `judge <id>`. You are the builder. Validator/judge providers differ from builder. Also `tdd <id> red|green`, `phase <id> <next>`.
 - Human gates: ask in the chat, then `approve <id> --action <a> --target <t> --user-reply "<their words>"`.
 - `taskflow --help` has the whole flow. Record only what a future session needs.
 """

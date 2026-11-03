@@ -64,6 +64,56 @@ def test_walker_follows_stubs_without_running_commands(tree: dict) -> None:
     assert subs["deploy"]["subcommands"] == [] and RAN == []
 
 
+def _walk(monkeypatch: pytest.MonkeyPatch, entry) -> dict:  # noqa: ANN001
+    for name in walker.STOPPED:
+        monkeypatch.setattr(argparse.ArgumentParser, name, walker._stop)
+    walked = walker.Walker(entry, "tool").tree()
+    monkeypatch.undo()
+    return walked
+
+
+def _hidden_cli() -> None:
+    import sys
+
+    parser = argparse.ArgumentParser(prog="tool")
+    sub = parser.add_subparsers()
+    sub.add_parser("visible", help="An ordinary command")
+    sub.add_parser("legacy", help=argparse.SUPPRESS)
+    sub.add_parser("silent", help="")
+    sub.add_parser("bare")
+    parser.parse_args(sys.argv[1:])
+
+
+def test_walker_omits_suppressed_subcommands_but_keeps_ordinary_ones(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    names = [s["name"] for s in _walk(monkeypatch, _hidden_cli)["subcommands"]]
+    assert names == ["visible", "silent", "bare"]
+    assert "legacy" not in render(_walk(monkeypatch, _hidden_cli))
+
+
+def _taskflow_cli() -> None:
+    import sys
+
+    from ai_governance.taskflow.parser import build_parser
+
+    build_parser().parse_args(sys.argv[1:])
+
+
+def test_removed_round_run_stub_is_absent_from_generated_completion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    walked = _walk(monkeypatch, _taskflow_cli)
+    round_cmd = next(s for s in walked["subcommands"] if s["name"] == "round")
+    assert {s["name"] for s in round_cmd["subcommands"]} == {
+        "record",
+        "dispatch",
+        "collect",
+        "abort",
+    }
+    assert "run" not in [s["name"] for s in round_cmd["subcommands"]]
+
+
 @pytest.mark.skipif(shutil.which("zsh") is None, reason="zsh not installed")
 @pytest.mark.parametrize(
     ("words", "expected"),

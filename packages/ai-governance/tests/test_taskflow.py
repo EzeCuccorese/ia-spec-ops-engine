@@ -1,21 +1,18 @@
 """TriAgentTaskFlow: store, stamps, gates, approvals, TDD, rounds and judges.
 
-Agents are fake executables on PATH; repositories are real temporary git repos, so the
+Agents are played through a fake Orca CLI; repositories are real temporary git repos, so the
 contracts are exercised at the CLI and git boundary without calling any real AI.
 """
 
 from __future__ import annotations
 
 import json
-import os
-import stat
 import subprocess
 from datetime import datetime
 from pathlib import Path
 
 import pytest
 from ai_governance.taskflow import approvals, gates, tdd
-from ai_governance.taskflow.adapters import AgentRun, build_command, parse_verdict
 from ai_governance.taskflow.approvals import (
     ApprovalContext,
     ApprovalError,
@@ -28,9 +25,10 @@ from ai_governance.taskflow.handoff import scrub
 from ai_governance.taskflow.judge import JudgeError, JudgeScope
 from ai_governance.taskflow.judge_flow import JudgeJob, judge_flow
 from ai_governance.taskflow.models import Task
+from ai_governance.taskflow.prompts import parse_verdict
 from ai_governance.taskflow.resolver import TaskResolver
 from ai_governance.taskflow.risk import assess
-from ai_governance.taskflow.rounds import LeaseError, RoundRequest, run_round, writer_lease
+from ai_governance.taskflow.rounds import LeaseError, writer_lease
 from ai_governance.taskflow.stamp import code_stamp, remote_sha
 from ai_governance.taskflow.store import RoundSlot, TaskStore
 from orca_fakes import OrcaWorld, attach_orca
@@ -71,29 +69,6 @@ def state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TaskStore:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     return TaskStore()
-
-
-def _fake_bin(directory: Path, name: str, script: str) -> None:
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / name
-    path.write_text("#!/bin/sh\n" + script)
-    path.chmod(path.stat().st_mode | stat.S_IEXEC)
-
-
-@pytest.fixture
-def fake_agents(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-    """agy and claude answer on stdout; codex writes its -o file with the verdict in $VERDICT."""
-    bins = tmp_path / "bin"
-    _fake_bin(bins, "agy", 'echo "PLAN: change app.py"\n')
-    _fake_bin(bins, "claude", 'echo "built"\n')  # default builder; CI has no real claude
-    _fake_bin(
-        bins,
-        "codex",
-        'out=""; while [ $# -gt 0 ]; do [ "$1" = "-o" ] && out="$2"; shift; done\n'
-        'printf "review done\\nVERDICT: %s\\n" "${VERDICT:-pass}" > "$out"\n',
-    )
-    monkeypatch.setenv("PATH", f"{bins}{os.pathsep}{os.environ['PATH']}")
-    return bins
 
 
 # -- store and tracking ----------------------------------------------------------------------
@@ -604,7 +579,10 @@ def test_builders_write_only_in_work_with_an_approved_plan() -> None:
 def test_manual_tasks_have_no_phases_rounds_or_approvals(state: TaskStore) -> None:
     state.create(Task(id="M", title="m", workflow="manual"))
     assert main(["phase", "M", "validate"]) == 1
-    assert main(["round", "M", "run", "--role", "planner", "--prompt", "x"]) == 1
+    assert (
+        main(["round", "M", "dispatch", "--role", "planner", "--agent", "claude", "--prompt", "x"])
+        == 1
+    )
     assert main(["approve", "M", "--action", "push", "--target", "M", "--user-reply", "ok"]) == 1
     assert main(["close", "M"]) == 0
 
@@ -691,8 +669,9 @@ def test_every_bound_repository_only_adds_controls(
 
 def test_invalid_configs_are_reported(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PATH", "/nonexistent")
+    monkeypatch.delenv("ORCA_CLI_COMMAND", raising=False)
     errors = FlowConfig(judges=({"focus": "correctness", "agent": "claude"},)).validate()
-    assert any("builder" in e for e in errors) and any("not installed" in e for e in errors)
+    assert any("builder" in e for e in errors) and any("not found on PATH" in e for e in errors)
     assert "single-agent" in FlowConfig(workflow="single-agent").validate()[-1] or any(
         "single-agent" in e for e in FlowConfig(workflow="single-agent").validate()
     )
@@ -706,28 +685,7 @@ def test_a_judge_on_an_agent_that_built_the_task_is_refused(state: TaskStore, re
         list(judge_flow(JudgeJob(state, task, ctx, JudgeScope()), lambda: "k1"))
 
 
-# -- adapters and rounds -------------------------------------------------------------------
-def test_adapter_flags_match_each_cli(tmp_path: Path) -> None:
-    def run(writes: bool) -> AgentRun:
-        return AgentRun(tmp_path, writes, tmp_path / "a")
-
-    agy = build_command("antigravity", "m", "hi", run(False))
-    assert agy == [
-        "agy",
-        "--model",
-        "m",
-        "--mode",
-        "plan",
-        "--dangerously-skip-permissions",
-        "--print=hi",
-    ]
-    codex = build_command("codex", "m", "hi", run(True))
-    assert codex[:2] == ["codex", "exec"] and "-o" in codex and "danger-full-access" in codex
-    assert "read-only" in build_command("codex", "m", "hi", run(False))
-    claude = build_command("claude", "", "hi", run(False))
-    assert claude == ["claude", "-p", "--dangerously-skip-permissions", "hi"]
-
-
+# -- verdicts and leases -------------------------------------------------------------------
 @pytest.mark.parametrize(
     ("answer", "verdict"),
     [
@@ -740,35 +698,6 @@ def test_adapter_flags_match_each_cli(tmp_path: Path) -> None:
 )
 def test_parse_verdict(answer: str, verdict: str) -> None:
     assert parse_verdict(answer) == verdict
-
-
-def test_reader_that_changes_the_tree_invalidates_its_round_and_keeps_the_change(
-    state: TaskStore, repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    bins = tmp_path / "bin"
-    _fake_bin(bins, "agy", "echo hacked >> app.py\necho done\n")
-    monkeypatch.setenv("PATH", f"{bins}{os.pathsep}{os.environ['PATH']}")
-    state.create(Task(id="T", title="t"))
-    request = RoundRequest("T", "plan", "planner", "plan it", repo, {"agent": "antigravity"})
-    record = run_round(state, request, "k1")
-    assert record["state"] == "invalid" and "app.py" in record["reason"]
-    assert "hacked" in (repo / "app.py").read_text()
-    assert "Do not modify files" in Path(record["file"]).read_text()
-
-
-def test_round_that_times_out_is_invalid(
-    state: TaskStore, repo: Path, tmp_path: Path, monkeypatch
-) -> None:
-    bins = tmp_path / "bin"
-    _fake_bin(bins, "agy", "sleep 5\n")
-    monkeypatch.setenv("PATH", f"{bins}{os.pathsep}{os.environ['PATH']}")
-    state.create(Task(id="T", title="t"))
-    record = run_round(
-        state,
-        RoundRequest("T", "plan", "planner", "p", repo, {"agent": "antigravity"}, timeout=1),
-        "k1",
-    )
-    assert record["state"] == "invalid" and record["reason"] == "timeout"
 
 
 def test_writer_lease_is_exclusive_while_its_holder_lives(state: TaskStore, repo: Path) -> None:
@@ -785,7 +714,7 @@ def test_handoff_scrubs_secrets() -> None:
 
 # -- end to end through the CLI ------------------------------------------------------------
 @pytest.fixture
-def cli_run(repo: Path, fake_agents: Path, tmp_path: Path, monkeypatch):
+def cli_run(repo: Path, tmp_path: Path, monkeypatch):
     config_dir = tmp_path / "config" / "ai-governance"
     config_dir.mkdir(parents=True)
     (config_dir / "taskflow.toml").write_text('[checks]\ncommands = ["true"]\n')
@@ -794,8 +723,8 @@ def cli_run(repo: Path, fake_agents: Path, tmp_path: Path, monkeypatch):
 
 
 @pytest.fixture
-def orca_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_agents: Path) -> Path:
-    """The fake Orca CLI on PATH (and fake agent binaries, which `judge` still checks for)."""
+def orca_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The fake Orca CLI on PATH (CI has none; `dispatch` and `judge` need one)."""
     base = tmp_path / "orca-world"
     attach_orca(base, monkeypatch)
     return base
@@ -809,12 +738,12 @@ def judge_orca(
     return OrcaWorld(orca_path, repo, state, capsys)
 
 
-def _plan_and_approve(run) -> None:
+def _plan_and_approve(run, orca: OrcaWorld) -> None:
     assert run("new", "ONB-1", "--title", "Restore status", "--summary", "goal") == 0
     assert run("bind", "ONB-1", "--repo", str(Path.cwd())) == 0
-    assert run("round", "ONB-1", "run", "--role", "planner", "--prompt", "plan it") == 0
+    assert orca.cycle("planner", "claude", answer="PLAN: change app.py\n").code == 0
     assert run("phase", "ONB-1", "validate") == 0
-    assert run("round", "ONB-1", "run", "--role", "validator", "--prompt", "check it") == 0
+    assert orca.cycle("validator", "codex", answer="review done\nVERDICT: pass\n").code == 0
     assert run("phase", "ONB-1", "work") == 1  # the user has not approved the plan yet
     assert (
         run("approve", "ONB-1", "--action", "plan", "--target", "ONB-1", "--user-reply", "ok") == 0
@@ -840,7 +769,7 @@ def test_full_flow_through_the_cli(
     state: TaskStore, cli_run, judge_orca: OrcaWorld, capsys
 ) -> None:
     run, repo = cli_run, judge_orca.repo
-    _plan_and_approve(run)
+    _plan_and_approve(run, judge_orca)
     _red_green_commit(run, repo)
     assert run("phase", "ONB-1", "judge") == 0
     printed = judge_orca.judge()
@@ -1095,33 +1024,39 @@ def test_judge_prompt_is_for_a_reader_of_the_real_checkout_and_repeats_no_header
     assert "do not run builds, tests" in prompt
 
 
-def _request_of(round_file: str) -> str:
-    return Path(round_file).read_text().split("## Request", 1)[1].split("## Answer", 1)[0]
+def _spec_of(world: OrcaWorld, number: int) -> str:
+    return (world.run_dir(number) / "spec.md").read_text(encoding="utf-8")
 
 
-def test_round_prompt_names_the_task_and_its_latest_plan(cli_run, state: TaskStore) -> None:
+def test_round_prompt_names_the_task_and_its_latest_plan(
+    cli_run, judge_orca: OrcaWorld, state: TaskStore
+) -> None:
     cli_run("new", "ONB-1", "--title", "Restore status", "--summary", "goal")
     cli_run("bind", "ONB-1", "--repo", str(Path.cwd()))
     cli_run("decide", "ONB-1", "keep it small", "--why", "scope")
-    cli_run("round", "ONB-1", "run", "--role", "planner", "--prompt", "plan it")
+    assert judge_orca.cycle("planner", "claude").code == 0
     plan = state.get("ONB-1").rounds[-1]["file"]
-    cli_run("round", "ONB-1", "run", "--role", "validator", "--prompt", "check it")
-    request = _request_of(state.get("ONB-1").rounds[-1]["file"])
+    judge_orca.dispatch("validator", "codex", "", "--prompt", "check it")
+    request = _spec_of(judge_orca, 2)
     assert "Task ONB-1: Restore status" in request
     assert f"Latest plan (read it first): {plan}" in request
     assert "keep it small" in request
     assert "check it" in request
 
 
-def test_tasks_sharing_a_repo_only_see_their_own_plan(cli_run, state: TaskStore) -> None:
+def test_tasks_sharing_a_repo_only_see_their_own_plan(
+    cli_run, judge_orca: OrcaWorld, state: TaskStore
+) -> None:
     for name in ("AAA-1", "BBB-2"):
         cli_run("new", name, "--title", f"title {name}")
         cli_run("bind", name, "--repo", str(Path.cwd()))
-        cli_run("round", name, "run", "--role", "planner", "--prompt", "plan")
-        cli_run("round", name, "run", "--role", "validator", "--prompt", "check")
+        judge_orca.task_id = name
+        assert judge_orca.cycle("planner", "claude").code == 0
+        judge_orca.dispatch("validator", "codex")
     for mine, other in (("AAA-1", "BBB-2"), ("BBB-2", "AAA-1")):
+        judge_orca.task_id = mine
         task = state.get(mine)
-        request = _request_of(task.rounds[-1]["file"])
+        request = _spec_of(judge_orca, 2)
         assert task.rounds[0]["file"] in request
         assert str(state.rounds_dir(other)) not in request
         assert f"Task {other}" not in request
@@ -1196,20 +1131,6 @@ def test_close_without_a_bound_repo_still_enforces_the_gate(state: TaskStore) ->
     main(["new", "ONB-1", "--title", "Fix"])
     assert main(["close", "ONB-1"]) == 1
     assert main(["close", "ONB-1", "--abandon", "--reason", "dropped"]) == 0
-
-
-def test_readers_watch_every_bound_repository(
-    state: TaskStore, repo: Path, tmp_path: Path, fake_agents: Path
-) -> None:
-    other = tmp_path / "other"
-    other.mkdir()
-    _git(other, "init", "-q", "-b", "main")
-    main(["new", "ONB-1", "--title", "Fix"])
-    main(["bind", "ONB-1", "--repo", str(repo)])
-    main(["bind", "ONB-1", "--repo", str(other)])
-    _fake_bin(fake_agents, "agy", f'echo x > "{other}/new.txt"\necho "PLAN: x"\n')
-    main(["round", "ONB-1", "run", "--role", "planner", "--prompt", "plan"])
-    assert state.get("ONB-1").rounds[-1]["state"] != "valid"
 
 
 def test_judges_load_from_either_spelling_in_either_file(

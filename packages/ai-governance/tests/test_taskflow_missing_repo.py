@@ -25,7 +25,8 @@ from ai_governance.taskflow.judge_flow import JudgeJob, judge_flow
 from ai_governance.taskflow.models import Task
 from ai_governance.taskflow.risk import assess, merge
 from ai_governance.taskflow.store import TaskStore
-from test_taskflow import _git, fake_agents, outside_claude, repo, state  # shared fixtures
+from orca_fakes import attach_orca
+from test_taskflow import _git, outside_claude, repo, state  # shared fixtures
 
 WARNING = "bound repo not found, skipped: {}"
 GONE = "no bound repo exists on disk"
@@ -65,9 +66,10 @@ def _bind(*paths: Path, integration: str = "") -> None:
 
 
 @pytest.fixture(autouse=True)
-def _installed_agents(fake_agents: Path) -> Path:
-    """`judge` checks the configured agents exist; CI has none of agy, codex or claude."""
-    return fake_agents
+def _orca_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """`judge` needs the Orca CLI on PATH; CI has none, so the fake one goes in front."""
+    attach_orca(tmp_path / "orca-world", monkeypatch)
+    return tmp_path / "orca-world"
 
 
 def _use(monkeypatch: pytest.MonkeyPatch, config_for: ConfigFor) -> None:
@@ -147,7 +149,6 @@ ARGV = {
 }
 REFUSED = {
     "tdd": ["tdd", TASK, "red", "--cmd", "true"],
-    "round-run": ["round", TASK, "run", "--role", "planner", "--prompt", "x"],
     "judge": ["judge", TASK],
 }
 
@@ -446,7 +447,7 @@ def test_close_abandon_still_works(
     assert main(["close", TASK, "--abandon", "--reason", "gone"]) == 0
 
 
-def test_tdd_and_old_round_run_use_the_first_live_repo(
+def test_tdd_uses_the_first_live_repo(
     state: TaskStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     first, second = _new_repo(tmp_path, "a"), _new_repo(tmp_path, "b")
@@ -459,15 +460,9 @@ def test_tdd_and_old_round_run_use_the_first_live_repo(
         seen.append(cwd)
         raise ValueError("captured")
 
-    def spy_round(store: TaskStore, request: object, key: str) -> dict:
-        seen.append(request.repo)  # type: ignore[attr-defined]
-        raise ValueError("captured")
-
     monkeypatch.setattr(tdd, "run_test", spy_tdd)
-    monkeypatch.setattr(cli, "run_round", spy_round)
     assert main(["tdd", TASK, "red", "--cmd", "true"]) == 1
-    assert main(["round", TASK, "run", "--role", "planner", "--prompt", "x"]) == 1
-    assert seen == [second, second]
+    assert seen == [second]
 
 
 # -- units ---------------------------------------------------------------------------------------
@@ -651,7 +646,7 @@ def _vanish_after(monkeypatch: pytest.MonkeyPatch, target: str) -> None:
 
 
 @pytest.mark.usefixtures("state")
-@pytest.mark.parametrize("name", ["tdd", "round-run"])
+@pytest.mark.parametrize("name", ["tdd"])
 def test_repo_vanishing_after_selection_is_reported_not_a_traceback(
     name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
@@ -837,36 +832,6 @@ def test_partial_copy_of_a_vanished_linked_source_leaves_no_registration(
     assert list(scratch.iterdir()) == []
     listing = _git(main_repo, "worktree", "list", "--porcelain")
     assert "taskflow-judge" not in listing
-
-
-def test_round_race_before_the_agent_leaves_no_empty_reservation(
-    state: TaskStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    path = _new_repo(tmp_path, "a")
-    _bind(path)
-    _use(monkeypatch, lambda task: _flat(judges=HUMAN))
-    _vanish_after(monkeypatch, "first_live")
-    assert main(REFUSED["round-run"]) == 1
-    folder = state.task_dir(TASK) / "rounds"
-    assert [f for f in folder.glob("*") if f.stat().st_size == 0] == []
-
-
-def test_round_that_loses_its_repo_while_running_is_recorded_as_invalid(
-    state: TaskStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    path = _new_repo(tmp_path, "a")
-    _bind(path)
-    _use(monkeypatch, lambda task: _flat(judges=HUMAN))
-
-    def vanishing_agent(*args: object, **kwargs: object) -> object:
-        shutil.rmtree(path)
-        raise FileNotFoundError(2, "No such file or directory", str(path))
-
-    monkeypatch.setattr(rounds, "run_agent", vanishing_agent)
-    assert main(REFUSED["round-run"]) == 1
-    recorded = state.get(TASK).rounds
-    assert len(recorded) == 1 and recorded[0]["state"] == "invalid"
-    assert Path(recorded[0]["file"]).stat().st_size > 0
 
 
 # -- third review: hook failure during worktree add, prune errors, frozen check execution ------------

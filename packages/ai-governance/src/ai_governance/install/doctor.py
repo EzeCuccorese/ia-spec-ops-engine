@@ -115,12 +115,16 @@ def _project_rows(root: Path) -> list[Row]:
 
 
 def _taskflow_rows(root: Path | None) -> list[Row]:
-    """The configured agent CLIs exist and the judges are independent of the builder."""
+    """The Orca CLI that runs the agents exists and the judges are independent of the builder."""
     from ..taskflow.config import load_config
 
     errors = load_config([root] if root else []).validate()
     return [
-        ("taskflow", WARN if errors else OK, "; ".join(errors) or "roles, judges and agent CLIs OK")
+        (
+            "taskflow",
+            WARN if errors else OK,
+            "; ".join(errors) or "roles, judges and the Orca CLI OK",
+        )
     ]
 
 

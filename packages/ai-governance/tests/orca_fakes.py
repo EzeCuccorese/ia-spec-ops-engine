@@ -122,6 +122,7 @@ class OrcaWorld:
         self, base: Path, repo: Path, store: TaskStore, capsys: pytest.CaptureFixture[str]
     ):
         self.base, self.repo, self.store, self.capsys = base, repo, store, capsys
+        self.task_id = TASK  # the task the helpers act on (tests with several tasks switch it)
         self.bin_dir = base / "bin"
         self.scenario_path = base / "scenario.json"
         self.orca_log = base / "orca.log"
@@ -169,7 +170,17 @@ class OrcaWorld:
     def dispatch(
         self, role: str = "planner", agent: str = "claude", focus: str = "", *extra: str
     ) -> Dispatched:
-        argv = ["round", TASK, "dispatch", "--role", role, "--agent", agent, "--prompt", "do it"]
+        argv = [
+            "round",
+            self.task_id,
+            "dispatch",
+            "--role",
+            role,
+            "--agent",
+            agent,
+            "--prompt",
+            "do it",
+        ]
         result = self.run(*argv, *(["--focus", focus] if focus else []), *extra)
         assert result.code == 0, result.text
         line = [] if "--json" in extra else shlex.split(result.out.strip())
@@ -196,11 +207,18 @@ class OrcaWorld:
 
     def collect(self, n: int, dispatch_id: str, *extra: str) -> Result:
         return self.run(
-            "round", TASK, "collect", "--round", str(n), "--dispatch-id", dispatch_id, *extra
+            "round",
+            self.task_id,
+            "collect",
+            "--round",
+            str(n),
+            "--dispatch-id",
+            dispatch_id,
+            *extra,
         )
 
     def abort(self, n: int, *tail: str) -> Result:
-        return self.run("round", TASK, "abort", "--round", str(n), *tail)
+        return self.run("round", self.task_id, "abort", "--round", str(n), *tail)
 
     def cycle(
         self, role: str = "planner", agent: str = "claude", focus: str = "", **opts
@@ -212,10 +230,10 @@ class OrcaWorld:
 
     # -- reading state ----------------------------------------------------------------------
     def task(self) -> Task:
-        return self.store.get(TASK)
+        return self.store.get(self.task_id)
 
     def run_dir(self, n: int) -> Path:
-        return self.store.task_dir(TASK) / "runs" / f"{n:03d}"
+        return self.store.task_dir(self.task_id) / "runs" / f"{n:03d}"
 
     def dispatch_json(self, n: int) -> dict[str, str]:
         return json.loads((self.run_dir(n) / "dispatch.json").read_text(encoding="utf-8"))
@@ -236,7 +254,7 @@ class OrcaWorld:
 
     def edit_state(self, change) -> None:  # noqa: ANN001
         """Rewrite state.json behind the engine's back (what a misbehaving reader could do)."""
-        path = self.store.task_dir(TASK) / "state.json"
+        path = self.store.task_dir(self.task_id) / "state.json"
         data = json.loads(path.read_text(encoding="utf-8"))
         change(data)
         path.write_text(json.dumps(data), encoding="utf-8")
@@ -273,12 +291,12 @@ class OrcaWorld:
         def change(task: Task) -> None:
             task.phase = "judge"
             task.tdd = {"skip": {"reason": "user"}}
-            task.approvals.append({"action": "plan", "target": TASK, "stamp": ""})
+            task.approvals.append({"action": "plan", "target": self.task_id, "stamp": ""})
 
-        self.store.mutate(TASK, change)
+        self.store.mutate(self.task_id, change)
 
     def judge(self, *extra: str) -> Result:
-        return self.run("judge", TASK, *extra)
+        return self.run("judge", self.task_id, *extra)
 
     @staticmethod
     def worker_lines(result: Result) -> list[list[str]]:
@@ -335,8 +353,6 @@ def _install_bin(base: Path, real_git: str) -> Path:
     bin_dir = base / "bin"
     bin_dir.mkdir(parents=True)
     _install_orca(bin_dir)
-    for agent in ("agy", "claude", "codex"):  # `judge` still checks the configured agents exist
-        _script(bin_dir / agent, "exit 0\n")
     _script(
         bin_dir / "git",
         'printf \'%s\\n\' "$*" >> "$FAKE_GIT_LOG"\n'

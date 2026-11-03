@@ -10,7 +10,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import shutil
 import sys
 import tomllib
 from collections.abc import Callable, Iterable
@@ -21,6 +20,7 @@ from typing import TypeVar
 from .._config_core import Value
 from ..paths import config_dir, state_dir
 from ..settings import effective
+from . import orca
 from .agents import (
     DEFAULT_MODELS,
     HUMAN,
@@ -64,14 +64,6 @@ def default_judges(found: dict | None = None) -> list[JsonDict]:
 
 
 DEFAULT_CHECKS: list[str] = ["ws check --changed"]
-AGENTS_WITH_BINARY = ("antigravity", "codex", "claude")
-
-
-def agent_binary(agent: str) -> str | None:
-    """CLI that runs ``agent`` (``[agents] <agent>_binary``); None for ``human`` or unknown."""
-    if agent not in AGENTS_WITH_BINARY:
-        return None
-    return str(effective()[f"agents.{agent}_binary"].value)
 
 
 def check_timeout_seconds() -> int:
@@ -134,7 +126,7 @@ class FlowConfig:
         errors += self._allowed_errors()
         errors += self._judge_errors()
         errors += self._validator_errors()
-        errors += self._missing_binaries()
+        errors += self._orca_errors()
         return errors
 
     def agent_error(self, agent: str) -> str | None:
@@ -189,16 +181,13 @@ class FlowConfig:
             errors.append("single-agent workflow: every judge must be 'human'")
         return errors
 
-    def _missing_binaries(self) -> list[str]:
-        errors: list[str] = []
-        for name, role in [
-            *self.roles.items(),
-            *((f"judge {j.get('focus')}", j) for j in self.judges),
-        ]:
-            binary = agent_binary(str(role.get("agent", "")))
-            if binary and shutil.which(binary) is None:
-                errors.append(f"{name}: '{binary}' is not installed or not on PATH")
-        return errors
+    def _orca_errors(self) -> list[str]:
+        """Agents run as Orca workers, so any non-human role needs the Orca CLI on PATH."""
+        agents = [str(role.get("agent", "")) for role in [*self.roles.values(), *self.judges]]
+        if not any(agent and agent != HUMAN for agent in agents):
+            return []
+        problem = orca.orca_problem()
+        return [problem] if problem else []
 
 
 def _user_sources(user_path: Path) -> list[Path]:

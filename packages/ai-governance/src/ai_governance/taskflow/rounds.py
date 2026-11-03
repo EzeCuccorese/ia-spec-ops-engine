@@ -1,8 +1,8 @@
-"""One round = one agent call with its prompt, command, code stamp and full answer on disk.
+"""Writer leases and manually recorded rounds.
 
-Reader roles that change the tree invalidate their round; the changes are kept and
-reported, never discarded. A writer round holds a lease on the repository so two agents
-never write the same checkout at once.
+The engine never runs an agent, so a round is either dispatched to an Orca worker (see
+``dispatch`` and ``collect``) or recorded by hand as context (``record_manual``). The
+writer lease stays: it keeps two coordinating sessions from writing one branch at once.
 """
 
 from __future__ import annotations
@@ -10,42 +10,17 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import shlex
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass, field
 from pathlib import Path
 
-from .adapters import (
-    READ_ONLY_LIMIT,
-    VERDICT_INSTRUCTION,
-    AgentRun,
-    RunResult,
-    parse_verdict,
-    run_agent,
-)
-from .config import check_timeout_seconds
-from .context import round_header
-from .models import READER_ROLES, JsonDict, now_iso
-from .stamp import GitError, changed_paths, git, tree_fingerprint
+from .models import JsonDict, now_iso
+from .stamp import GitError, git
 from .store import RoundSlot, TaskStore, atomic_write_text, fcntl
 
 
 class LeaseError(RuntimeError):
     pass
-
-
-@dataclass(frozen=True)
-class RoundRequest:
-    task_id: str
-    phase: str
-    role: str
-    prompt: str
-    repo: Path
-    agent: JsonDict
-    focus: str = ""
-    timeout: int = field(default_factory=check_timeout_seconds)
-    watch: tuple[Path, ...] = ()  # other trees a reader must not change
 
 
 def _alive(pid: int) -> bool:
@@ -103,8 +78,8 @@ def _read_lease(path: Path) -> JsonDict:
 def active_lease(store: TaskStore, repo: Path) -> JsonDict | None:
     """The live writer lease on ``repo``'s branch held by someone else, if any.
 
-    The agent a round launches inherits the holder in ``AI_GOVERNANCE_LEASE_HOLDER``, so
-    its own edits are not refused."""
+    A session that holds the lease exports it in ``AI_GOVERNANCE_LEASE_HOLDER``, so its own
+    edits are not refused."""
     current = _read_lease(_lease_path(store, repo))
     if not current or not _alive(int(current.get("pid", 0))):
         return None
@@ -142,131 +117,14 @@ def writer_lease(store: TaskStore, repo: Path, holder: str) -> Iterator[None]:
             os.environ[LEASE_ENV] = previous
 
 
-def _fingerprints(paths: tuple[Path, ...]) -> dict[Path, str]:
-    return {path: tree_fingerprint(path) for path in paths}
-
-
-def run_round(store: TaskStore, request: RoundRequest, stamp_key: str) -> JsonDict:
-    agent_name = str(request.agent.get("agent", ""))
-    reader = request.role in READER_ROLES
-    header = round_header(store, request.task_id, request.role)
-    prompt = (READ_ONLY_LIMIT if reader else "") + header + request.prompt
-    if request.role in ("validator", "judge"):
-        prompt += VERDICT_INSTRUCTION
-    watched = (request.repo, *request.watch)
-    before = _fingerprints(watched)  # before reserving: a vanished repo burns no round number
-    number, path = store.reserve_round(
-        request.task_id, RoundSlot(request.phase, request.role, agent_name)
-    )
-    try:
-        return _run_reserved(store, request, (number, path, stamp_key), (prompt, before))
-    except LeaseError:
-        raise
-    except (OSError, RuntimeError) as exc:
-        _abort_round(store, request, (number, path, stamp_key), f"aborted: {exc}")
-        raise
-
-
-def _run_reserved(
-    store: TaskStore,
-    request: RoundRequest,
-    slot: tuple[int, Path, str],
-    given: tuple[str, dict[Path, str]],
-) -> JsonDict:
-    number, path, _key = slot
-    prompt, before = given
-    reader = request.role in READER_ROLES
-    watched = (request.repo, *request.watch)
-    workdir = store.task_dir(request.task_id) / "runs" / f"{number:03d}"
-    workdir.mkdir(parents=True, exist_ok=True)
-    holder = f"{request.task_id}#{number:03d}"
-    with writer_lease(store, request.repo, holder) if not reader else _no_lease():
-        # The judge runs tests in its disposable copy, so it gets write access there.
-        writes = not reader or request.role == "judge"
-        run = AgentRun(request.repo, writes, workdir / "answer.txt")
-        result = run_agent(request.agent, prompt, run, request.timeout)
-    atomic_write_text(workdir / "raw.log", result.raw_log)
-    changed = (
-        [p for p, value in _fingerprints(watched).items() if value != before[p]] if reader else []
-    )
-    record = _record(request, slot, result, changed)
-    atomic_write_text(path, _render(record, prompt, result.command, result.answer))
-    store.mutate(request.task_id, lambda task: task.rounds.append(record))
-    return record
-
-
-def _abort_round(
-    store: TaskStore, request: RoundRequest, slot: tuple[int, Path, str], reason: str
-) -> None:
-    """A reserved round that failed is kept as an invalid round with its reason."""
-    number, path, stamp_key = slot
-    record = {
-        "n": number,
-        "at": now_iso(),
-        "phase": request.phase,
-        "role": request.role,
-        "focus": request.focus,
-        "agent": str(request.agent.get("agent", "")),
-        "model": str(request.agent.get("model", "")),
-        "stamp": stamp_key,
-        "verdict": "block",
-        "state": "invalid",
-        "source": "engine",
-        "file": str(path),
-        "reason": reason,
-    }
-    atomic_write_text(path, f"# Round {number:03d} {request.role}: aborted\n\n{reason}\n")
-    store.mutate(request.task_id, lambda task: task.rounds.append(record))
-
-
-def _record(
-    request: RoundRequest, slot: tuple[int, Path, str], result: RunResult, changed: list[Path]
-) -> JsonDict:
-    number, path, stamp_key = slot
-    state = "invalid" if changed or result.timed_out or result.exit_code != 0 else "valid"
-    verdict = parse_verdict(result.answer) if request.role in ("validator", "judge") else "info"
-    return {
-        "n": number,
-        "at": now_iso(),
-        "phase": request.phase,
-        "role": request.role,
-        "focus": request.focus,
-        "agent": str(request.agent.get("agent", "")),
-        "model": str(request.agent.get("model", "")),
-        "stamp": stamp_key,
-        "verdict": verdict if state == "valid" else "block",
-        "state": state,
-        "source": "engine",
-        "file": str(path),
-        "reason": _invalid_reason(result, changed),
-    }
-
-
-@contextmanager
-def _no_lease() -> Iterator[None]:
-    yield
-
-
-def _invalid_reason(result: RunResult, changed: list[Path]) -> str:
-    if result.timed_out:
-        return "timeout"
-    if result.exit_code != 0:
-        return f"exit code {result.exit_code}"
-    if changed:
-        paths = [f"{repo}: {', '.join(changed_paths(repo)[:10])}" for repo in changed]
-        return "reader changed the tree (kept, not discarded) — " + "; ".join(paths)
-    return ""
-
-
-def _render(record: JsonDict, prompt: str, command: list[str], answer: str) -> str:
-    shown = shlex.join([part if len(part) < 200 else "<prompt>" for part in command])
+def _render(record: JsonDict, body: str) -> str:
     focus = f" · {record['focus']}" if record["focus"] else ""
     return (
         f"# Round {record['n']:03d} · {record['phase']} · {record['role']}{focus} · "
         f"{record['agent']} {record['model']}\n\n"
-        f"- Date: {record['at']}\n- Code stamp: {record['stamp']}\n- Command: `{shown}`\n"
-        f"- Verdict: {record['verdict']} ({record['state']}{': ' + record['reason'] if record['reason'] else ''})\n\n"
-        f"## Request\n\n{prompt}\n\n## Answer\n\n{answer}\n"
+        f"- Date: {record['at']}\n- Code stamp: {record['stamp']}\n"
+        f"- Verdict: {record['verdict']} ({record['state']})\n\n"
+        f"## Answer\n\n{body}\n"
     )
 
 
@@ -283,8 +141,6 @@ def record_manual(store: TaskStore, task_id: str, round_info: JsonDict, body: st
         "state": "context",
         "file": str(path),
     }
-    atomic_write_text(
-        path, _render({**record, "focus": round_info.get("focus", ""), "reason": ""}, "", [], body)
-    )
+    atomic_write_text(path, _render({**record, "focus": round_info.get("focus", "")}, body))
     store.mutate(task_id, lambda task: task.rounds.append(record))
     return record

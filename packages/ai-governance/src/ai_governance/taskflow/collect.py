@@ -21,11 +21,11 @@ from datetime import datetime
 from pathlib import Path
 
 from . import orca
-from .adapters import parse_verdict
 from .agents import provider
 from .control import DispatchError, drift
 from .dispatch import read_dispatch, verify_dispatch
 from .models import JsonDict, Task, now_iso
+from .prompts import parse_verdict
 from .repos import guard
 from .stamp import changed_paths, head_sha, tree_fingerprint
 from .store import TaskStore, atomic_write_text
