@@ -13,15 +13,18 @@ gate never shadows project hooks of any type.
 
 from __future__ import annotations
 
+import inspect
 import os
 import shutil
 import stat
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
+from workspace_engine._config_core import xdg_dir
 from workspace_engine.common import run_command_safe
 
 HOOK_NAME = "workspace-gate"
@@ -42,8 +45,7 @@ def generate_canonical_pre_push_script() -> str:
 
 
 def global_hook_path() -> Path:
-    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
-    return Path(base) / "workspace" / "hooks" / HOOK_EVENT
+    return xdg_dir("config", "workspace") / "hooks" / HOOK_EVENT
 
 
 def local_hook_path(root: Path) -> Path:
@@ -219,49 +221,94 @@ def _resolve_hook_to_run(root: Path) -> tuple[Path, Path | None]:
     return temp_hook, temp_hook
 
 
-def run_quality_gate(
-    target_dir: str | Path | None = None,
-    scope: str = "all",
-    skip: str | None = None,
-    timeout: int = 900,
-    commit_style: str | None = None,
-    output: str = "errors",
-    capture: list[str] | None = None,
-) -> int:
-    """
-    Runs the Git Hooks Quality Gate on demand in the given repository.
-    Returns the pre-push script's exit code. When ``capture`` is a list, the
-    combined output is appended to it instead of being streamed.
-    """
-    root = Path(target_dir).resolve() if target_dir else Path.cwd().resolve()
-    hook_to_run, temp_hook = _resolve_hook_to_run(root)
+@dataclass
+class GateOptions:
+    """What ``run_quality_gate`` passes to the hook script (None: the script's own default)."""
 
+    scope: str = "all"
+    skip: str | None = None
+    timeout: int | None = None
+    commit_style: str | None = None
+    output: str = "errors"
+    capture: list[str] | None = None
+
+
+def _gate_environment(options: GateOptions) -> dict[str, str]:
+    env = os.environ.copy()
+    env.update(QG_SCOPE=options.scope, QG_OUTPUT=options.output)
+    if options.timeout is not None:
+        env["QG_TIMEOUT"] = str(options.timeout)
+    if options.skip:
+        env["QG_SKIP"] = options.skip
+    if options.commit_style:
+        env["QG_COMMIT_STYLE"] = options.commit_style
+    return env
+
+
+def _push_ref_line(root: Path) -> str:
     _, head_sha, _ = run_command_safe("git rev-parse HEAD", cwd=root)
     head_sha = head_sha.strip() or "0000000000000000000000000000000000000000"
     _, prev_sha, _ = run_command_safe("git rev-parse HEAD~1", cwd=root)
     prev_sha = prev_sha.strip() or "0000000000000000000000000000000000000000"
-    ref_line = f"refs/heads/current {head_sha} refs/heads/current {prev_sha}\n"
+    return f"refs/heads/current {head_sha} refs/heads/current {prev_sha}\n"
 
-    env = os.environ.copy()
-    env.update(QG_SCOPE=scope, QG_TIMEOUT=str(timeout), QG_OUTPUT=output)
-    if skip:
-        env["QG_SKIP"] = skip
-    if commit_style:
-        env["QG_COMMIT_STYLE"] = commit_style
 
+def _parameters(*specs: tuple[str, object]) -> inspect.Signature:
+    empty = inspect.Parameter.empty
+    return inspect.Signature(
+        [
+            inspect.Parameter(
+                name,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                default=default if default is not empty else empty,
+            )
+            for name, default in specs
+        ]
+    )
+
+
+# The calling convention of ``run_quality_gate`` (positional or keyword, in this order).
+_GATE_SIGNATURE = _parameters(
+    ("target_dir", None),
+    ("scope", "all"),
+    ("skip", None),
+    ("timeout", None),
+    ("commit_style", None),
+    ("output", "errors"),
+    ("capture", None),
+)
+
+
+def run_quality_gate(*args: object, **kwargs: object) -> int:
+    """
+    Runs the Git Hooks Quality Gate on demand in the given repository:
+    ``run_quality_gate(target_dir=None, scope="all", skip=None, timeout=None,
+    commit_style=None, output="errors", capture=None)``, each positional or by keyword.
+    Returns the pre-push script's exit code. When ``capture`` is a list, the
+    combined output is appended to it instead of being streamed.
+    """
+    bound = _GATE_SIGNATURE.bind(*args, **kwargs)
+    bound.apply_defaults()
+    target_dir = bound.arguments.pop("target_dir")
+    gate = GateOptions(**bound.arguments)
+    root = Path(target_dir).resolve() if target_dir else Path.cwd().resolve()
+    hook_to_run, temp_hook = _resolve_hook_to_run(root)
     try:
         proc = subprocess.run(
             [str(hook_to_run), "origin"],
             cwd=root,
-            input=ref_line,
+            input=_push_ref_line(root),
             text=True,
-            env=env,
-            capture_output=capture is not None,
+            env=_gate_environment(gate),
+            capture_output=gate.capture is not None,
             errors="replace",
         )
-        if capture is not None:
-            capture.append(proc.stdout + proc.stderr)
+        if gate.capture is not None:
+            gate.capture.append(proc.stdout + proc.stderr)
         return proc.returncode
     finally:
         if temp_hook and temp_hook.exists():
             shutil.rmtree(temp_hook.parent, ignore_errors=True)
+
+
+run_quality_gate.__signature__ = _GATE_SIGNATURE  # type: ignore[attr-defined]

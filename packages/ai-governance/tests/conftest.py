@@ -11,6 +11,14 @@ def _no_agent_markers(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _reset_atlassian_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``set_profile`` is process-global; an unknown profile now errors, so it must not leak."""
+    from ai_governance.tools import atlassian_common
+
+    monkeypatch.setattr(atlassian_common, "_CURRENT_PROFILE", None)
+
+
+@pytest.fixture(autouse=True)
 def _no_corporate_packs(
     monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
 ) -> None:

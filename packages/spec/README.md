@@ -211,3 +211,10 @@ spec agent uninstall
 spec agent uninstall --apply
 ```
 
+## ⚙️ Configuration
+
+Settings resolve as **default < user (`~/.config/spec/config.toml`) < repo (`<repo>/.spec/config.toml`) < environment variable**.
+
+| Key | Env var | Default | Meaning |
+|---|---|---|---|
+| `verify.timeout_seconds` | `SPEC_VERIFY_TIMEOUT_SECONDS` | `300` | Default timeout of a verification check that sets no `timeout_seconds` of its own |

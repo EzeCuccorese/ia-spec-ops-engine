@@ -7,12 +7,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import re
 import sys
 from pathlib import Path
 
+from workspace_engine._config_core import xdg_dir
 from workspace_engine.common import log_error, log_success, log_warning
+from workspace_engine.run_local.constants import DEFAULT_DOMAIN, url_pattern_for
 
 
 def generate_default_config(project_name: str, domain: str) -> dict:
@@ -25,7 +25,7 @@ def generate_default_config(project_name: str, domain: str) -> dict:
         "local_envs_dir_name": "local-envs",
         "workspaces_dir_name": "workspaces",
         "toolkit_dir_name": "project-toolkit",
-        "url_pattern": rf"https?://([a-z0-9-]+)\.(?:dev|prod)\.{re.escape(domain)}(/[^\s]*)?",
+        "url_pattern": url_pattern_for(domain),
     }
     return cfg
 
@@ -52,10 +52,7 @@ def resolve_config_target(
         return root / ".workspace" / "config.json"
 
     # Default to global configuration unless local was explicitly requested
-    xdg_home = os.environ.get("XDG_CONFIG_HOME")
-    if xdg_home:
-        return Path(xdg_home) / "workspace" / "config.json"
-    return Path.home() / ".config" / "workspace" / "config.json"
+    return xdg_dir("config", "workspace") / "config.json"
 
 
 def init_config(
@@ -101,7 +98,7 @@ def init_config(
 
     # Resolve domain
     if not domain:
-        default_domain = "local.dev"
+        default_domain = DEFAULT_DOMAIN
         if non_interactive or not sys.stdin.isatty():
             domain = default_domain
         else:
@@ -124,6 +121,10 @@ def add_config_arguments(parser: argparse.ArgumentParser) -> None:
     show the actual accepted arguments instead of an opaque REMAINDER blob.
     """
     config_subparsers = parser.add_subparsers(dest="config_command", help="Config subcommands")
+
+    p_show = config_subparsers.add_parser("show", help="Print the effective configuration")
+    p_show.add_argument("--origin", action="store_true", help="Show where each value came from")
+    p_show.add_argument("--json", action="store_true", help="Machine-readable output")
 
     p_init = config_subparsers.add_parser(
         "init",
@@ -174,6 +175,23 @@ def add_config_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _show(args: argparse.Namespace) -> int:
+    """``ws config show``: settings plus the ``run-local`` project keys, with their origin."""
+    from workspace_engine._config_core import ConfigError, Value, render_show
+    from workspace_engine.run_local.constants import project_config_origins
+    from workspace_engine.settings import effective
+
+    try:
+        values = effective()
+        project = project_config_origins()
+    except (ConfigError, ValueError) as exc:
+        log_error(str(exc))
+        return 1
+    values.update({f"project.{k}": Value(*v) for k, v in project.items()})
+    print(render_show(values, origin=args.origin, as_json=args.json))
+    return 0
+
+
 def run_config(args: argparse.Namespace) -> int:
     """Executes the `ws config` command from parsed CLI arguments.
 
@@ -197,6 +215,9 @@ def run_config(args: argparse.Namespace) -> int:
         except (OSError, ValueError) as exc:
             log_error(f"Error initializing configuration: {exc}")
             return 1
+
+    if config_command == "show":
+        return _show(args)
 
     log_error(f"Unknown config subcommand: {config_command}")
     return 1

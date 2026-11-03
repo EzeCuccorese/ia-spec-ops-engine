@@ -656,7 +656,21 @@ def test_blocked_task_cannot_advance_and_findings_need_a_reason() -> None:
 
 
 # -- config --------------------------------------------------------------------------------
-def test_every_bound_repository_only_adds_controls(tmp_path: Path, repo: Path) -> None:
+def _trusted(repo_dir: Path) -> None:
+    """Approves a repository's taskflow.toml the way `taskflow trust` records it."""
+    import tomllib
+
+    from ai_governance.taskflow.config import record_trust
+
+    record_trust(
+        repo_dir, tomllib.loads((repo_dir / ".ai-governance" / "taskflow.toml").read_text())
+    )
+
+
+def test_every_bound_repository_only_adds_controls(
+    tmp_path: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
     user = tmp_path / "user.toml"
     user.write_text('[[risk.rules]]\nname = "ci"\npaths = [".github/*"]\n')
     other = tmp_path / "other"
@@ -665,6 +679,9 @@ def test_every_bound_repository_only_adds_controls(tmp_path: Path, repo: Path) -
         (path / ".ai-governance" / "taskflow.toml").write_text(
             f'[[judges]]\nfocus = "security"\nagent = "antigravity"\n[[risk.rules]]\nname = "{rule}"\npaths = ["x/*"]\n'
         )
+    assert load_config([repo, other], user).pending_trust  # untrusted files are ignored
+    _trusted(repo)
+    _trusted(other)
     config = load_config([repo, other], user)
     assert [r.name for r in config.risk_rules] == ["ci", "db", "infra"]
     assert [j["focus"] for j in config.judges] == ["correctness", "security"]
@@ -1152,7 +1169,10 @@ def test_readers_watch_every_bound_repository(
     assert state.get("ONB-1").rounds[-1]["state"] != "valid"
 
 
-def test_judges_load_from_either_spelling_in_either_file(tmp_path: Path) -> None:
+def test_judges_load_from_either_spelling_in_either_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
     user = tmp_path / "user.toml"
     user.write_text('[[judges]]\nfocus = "a"\nagent = "codex"\n')
     repo_dir = tmp_path / "r"
@@ -1160,6 +1180,7 @@ def test_judges_load_from_either_spelling_in_either_file(tmp_path: Path) -> None
     (repo_dir / ".ai-governance" / "taskflow.toml").write_text(
         '[[roles.judges]]\nfocus = "b"\nagent = "codex"\n'
     )
+    _trusted(repo_dir)
     config = load_config([repo_dir], user)
     assert [j["focus"] for j in config.judges] == ["a", "b"]
     user.write_text('[[roles.judges]]\nfocus = "c"\nagent = "codex"\n')

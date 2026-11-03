@@ -15,6 +15,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from .config import agent_binary
 from .models import JsonDict
 
 READ_ONLY_LIMIT = (
@@ -56,16 +57,20 @@ class AgentRun:
     answer_file: Path
 
 
+def binary(agent: str) -> str:
+    return agent_binary(agent) or agent
+
+
 def build_command(agent: str, model: str, prompt: str, run: AgentRun) -> list[str]:
     if agent == "antigravity":
-        command = ["agy"]
+        command = [binary("antigravity")]
         if model:
             command += ["--model", model]
         mode = "accept-edits" if run.writes else "plan"
         return [*command, "--mode", mode, "--dangerously-skip-permissions", f"--print={prompt}"]
     if agent == "codex":
         command = [
-            "codex",
+            binary("codex"),
             "exec",
             "-C",
             str(run.cwd),
@@ -78,7 +83,7 @@ def build_command(agent: str, model: str, prompt: str, run: AgentRun) -> list[st
             command += ["-m", model]
         return [*command, prompt]
     if agent == "claude":
-        command = ["claude", "-p", "--dangerously-skip-permissions"]
+        command = [binary("claude"), "-p", "--dangerously-skip-permissions"]
         if model:
             command += ["--model", model]
         return [*command, prompt]

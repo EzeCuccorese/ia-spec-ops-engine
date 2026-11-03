@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -18,8 +19,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .settings import effective
+
 SESSION_CONTEXT_CHARS = 400
-GATE_BUDGET_CHARS = 1500
 
 
 def _payload() -> dict[str, Any]:
@@ -247,15 +249,18 @@ def _claude_stop_gate() -> int:
     payload = _payload()
     if payload.get("stop_hook_active"):
         return 0  # already continued once because of this gate: never loop
-    ws = shutil.which("ws")
-    if ws is None:
+    settings = effective()
+    command = shlex.split(str(settings["hooks.gate_command"].value))
+    program = shutil.which(command[0]) if command else None
+    if program is None:
         return 0
+    budget = settings["hooks.gate_budget_chars"].value
     proc = subprocess.run(
-        [ws, "check", "--changed", "--cache", "--json", "--budget", str(GATE_BUDGET_CHARS)],
+        [program, *command[1:], "--budget", str(budget)],
         cwd=_cwd(payload),
         capture_output=True,
         text=True,
-        timeout=900,
+        timeout=float(settings["hooks.gate_timeout_seconds"].value),  # type: ignore[arg-type]
         check=False,
     )
     try:
@@ -265,7 +270,8 @@ def _claude_stop_gate() -> int:
     if result.get("status") != "failed":
         return 0
     log = f"\nFull log: ws log {result['log_id']}" if result.get("log_id") else ""
-    print(f"Quality gate failed (ws check --changed):\n{result['text']}{log}", file=sys.stderr)
+    label = " ".join(a for a in command if a not in ("--cache", "--json"))
+    print(f"Quality gate failed ({label}):\n{result['text']}{log}", file=sys.stderr)
     return 2
 
 

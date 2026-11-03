@@ -208,8 +208,8 @@ verdicts and approvals are stale, and the next command.
 
 Configuration: `~/.config/ai-governance/taskflow.toml` (`[roles.planner|validator|builder]`
 with `agent`/`model`, `[[judges]]` with `focus`/`agent`/`model` (`[[roles.judges]]` is accepted too, in the user and in the repository file), `[checks] commands`,
-`[[risk.rules]]` with `paths`, `judges`, `checks`, `restaging`); a repository can only add
-controls in `.ai-governance/taskflow.toml`. Gates the engine enforces:
+`[[risk.rules]]` with `paths`, `judges`, `checks`, `restaging`); a repository's
+`.ai-governance/taskflow.toml` can add, replace or disable controls (see Configuration layers). Gates the engine enforces:
 
 - A judge must be a different agent than the builder; every required focus must `pass` on
   the current code stamp, and any code change makes verdicts and approvals stale.
@@ -223,8 +223,95 @@ controls in `.ai-governance/taskflow.toml`. Gates the engine enforces:
 ## Configuration and environment
 
 State: `~/.local/state/ai-governance/` (ledger `installed.json`, `taskflow/`, `telemetry/`,
-`probe/`, `frugal/`). Data: `~/.local/share/ai-governance/` (`zsh/` completions). Config: `~/.config/ai-governance/` (`frugal.json` with `threshold_chars`
-and `budget_chars`; `atlassian.json` with named Atlassian profiles).
+`probe/`, `frugal/`). Data: `~/.local/share/ai-governance/` (`zsh/` completions). Config: `~/.config/ai-governance/`.
+
+### Configuration layers
+
+Every setting resolves the same way, lowest to highest priority:
+**default < user (`~/.config/ai-governance/config.toml`) < repo (`<repo>/.ai-governance/config.toml`) < environment variable < CLI flag**.
+Files are TOML (`[frugality]` / `threshold_chars = 4000`). Older JSON files keep working
+(`config.json`, `frugal.json`; a one-line notice is printed on a terminal, never in agent mode).
+`ai-governance config show [--origin] [--json]` prints the effective values and the layer
+(plus file or variable) each one came from.
+
+| Key | Env var | Default | Meaning |
+|---|---|---|---|
+| `frugality.threshold_chars` | `AI_GOVERNANCE_FRUGAL_THRESHOLD_CHARS` | `4000` | Shell output longer than this is condensed |
+| `frugality.budget_chars` | `AI_GOVERNANCE_FRUGAL_BUDGET_CHARS` | `2500` | Size the condensed output is cut down to |
+| `frugality.condense_timeout_seconds` | `AI_GOVERNANCE_FRUGAL_TIMEOUT_SECONDS` | `30` | Timeout of the `ws condense` call |
+| `output.max_lines` | `AI_GOVERNANCE_OUTPUT_MAX_LINES` | `20` | Lines before output is cut |
+| `output.max_chars` | `AI_GOVERNANCE_OUTPUT_MAX_CHARS` | `1500` | Characters before output is cut |
+| `hooks.gate_command` | `AI_GOVERNANCE_GATE_COMMAND` | `ws check --changed --cache --json` | Command of the turn-end quality gate (`--budget N` is appended) |
+| `hooks.gate_budget_chars` | `AI_GOVERNANCE_GATE_BUDGET_CHARS` | `1500` | Size of the failure summary the gate reports |
+| `hooks.gate_timeout_seconds` | `AI_GOVERNANCE_GATE_TIMEOUT_SECONDS` | `900` | Timeout of the turn-end quality gate |
+| `taskflow.timeout_seconds` | `AI_GOVERNANCE_CHECK_TIMEOUT_SECONDS` | `1800` | Timeout of each check, judge and TDD command |
+| `taskflow.planner_agent` | `AI_GOVERNANCE_PLANNER_AGENT` | `antigravity` | Agent of the planner role (user level only: a repo cannot change it) |
+| `taskflow.planner_model` | `AI_GOVERNANCE_PLANNER_MODEL` | `gemini-4-argon-high` | Model of the planner role (user level only: a repo cannot change it) |
+| `taskflow.validator_agent` | `AI_GOVERNANCE_VALIDATOR_AGENT` | `codex` | Agent of the validator role (user level only: a repo cannot change it) |
+| `taskflow.validator_model` | `AI_GOVERNANCE_VALIDATOR_MODEL` | `gpt-6.1-sol` | Model of the validator role (user level only: a repo cannot change it) |
+| `taskflow.builder_agent` | `AI_GOVERNANCE_BUILDER_AGENT` | `claude` | Agent of the builder role (user level only: a repo cannot change it) |
+| `taskflow.builder_model` | `AI_GOVERNANCE_BUILDER_MODEL` | `""` | Model of the builder role (user level only: a repo cannot change it) |
+| `taskflow.judge_agent` | `AI_GOVERNANCE_JUDGE_AGENT` | `codex` | Agent of the judge role (user level only: a repo cannot change it) |
+| `taskflow.judge_model` | `AI_GOVERNANCE_JUDGE_MODEL` | `gpt-6.1-sol` | Model of the judge role (user level only: a repo cannot change it) |
+| `agents.antigravity_binary` | `AI_GOVERNANCE_ANTIGRAVITY_BINARY` | `agy` | CLI of Antigravity |
+| `agents.codex_binary` | `AI_GOVERNANCE_CODEX_BINARY` | `codex` | CLI of Codex |
+| `agents.claude_binary` | `AI_GOVERNANCE_CLAUDE_BINARY` | `claude` | CLI of Claude Code |
+| `agents.codex_scout_model` | `AI_GOVERNANCE_CODEX_SCOUT_MODEL` | `gpt-6-luna` | Model of the Codex scout subagent written at install |
+| `corporate.packs` | `AI_GOVERNANCE_CORPORATE` | `[]` (all) | Company packs to install, comma separated (empty: every pack present) |
+| `atlassian.timeout_seconds` | `ATLASSIAN_TIMEOUT` | `30.0` | HTTP timeout of Jira and Confluence calls |
+| `pricing.timeout_seconds` | `AI_GOVERNANCE_PRICING_TIMEOUT_SECONDS` | `10.0` | Timeout of the price feed download |
+| `schedule.label` | `AI_GOVERNANCE_SCHEDULE_LABEL` | `com.ai-governance.prices-update` | launchd label of the price-refresh agent |
+
+Role, agent-binary and model settings (`taskflow.<role>_agent|_model`, `agents.*`) are read from
+the user level only: a repository cannot swap the agents that run with full permissions.
+`ai-governance install --scope user --corporate acme,globex` (or `corporate.packs`) installs
+only those company packs; an unknown name is an error that lists the packs present. `--corporate ""` (or `AI_GOVERNANCE_CORPORATE=`) installs no pack; choosing nothing installs every pack present.
+An environment variable that is set but empty counts as **unset** (a stray `VAR=` never blanks a command, binary, model or timeout); the only exceptions are selections where "nothing" is a real answer: `corporate.packs` (`AI_GOVERNANCE_CORPORATE=` installs no pack) and the gate's `QG_SKIP=` (skip nothing).
+`hooks.gate_command` is split like a shell line and its first word looked up on `PATH`.
+
+`taskflow.toml` keeps roles, judges, checks and risk rules. The repository's
+`.ai-governance/taskflow.toml` has priority over the user's for these controls: it can add
+one, replace one with the same id (a judge `focus`, a risk rule `name`) and switch one off
+with a `[disable]` table of ids:
+
+```toml
+[disable]
+judges = ["performance"]        # judge focuses
+checks = ["ws check --changed"] # check commands, verbatim
+risk = ["migrations"]           # risk rule names
+```
+
+Every judge a repository adds or replaces runs with the user's agent and model
+(`taskflow.judge_agent` / `taskflow.judge_model`); `agent`, `model`, `binary` and `command`
+fields in the repository file are ignored with a warning.
+
+**A repository's controls need your approval.** Check commands run through a shell with your
+permissions, so a repository's `.ai-governance/taskflow.toml` is trusted per repository, like
+direnv. The trust is a hash (`v4:`) of that repository's whole parsed file: checks, risk rules
+with their `paths` and `checks`, judges, `[disable]` and `timeout_seconds`, with keys sorted and
+list order kept. Any file with content (anything beyond empty tables and comments) is **ignored
+entirely while it is not trusted**: no adds, no replacements, no `[disable]`, no commands, no
+timeout. An untrusted repository therefore cannot remove another repository's control either.
+`taskflow status`, `config` and `judge` report `repo config pending trust`, and
+`ai-governance config show --origin` lists its controls as `repo (pending trust)`. Any change to
+the file (a command, a rule's paths, the order of a list) makes it pending again.
+`ai-governance taskflow trust [--repo PATH]` prints the whole control config it approves and the
+commands it would run and, after you confirm in a terminal, stores the hash in
+`~/.local/state/ai-governance/taskflow/trust.json`. Each repository is trusted on its own,
+independent of other repositories and of the user's config, so a task bound to several
+repositories applies all the approved ones. It needs stdin and stdout on a terminal even with
+`--yes` and refuses when an agent variable (`CLAUDECODE`, `CODEX_*`, `CLAUDE_CODE_*`, ...) is
+present, whatever `AI_GOVERNANCE_AGENT` says. Entries of older schemes (`v1`-`v3`) are simply
+pending again.
+
+A task's first approval starts from the user's own policy, so whatever a repository
+disables before the first stamp is listed as a policy reduction too; what a trusted repository
+disables or weakens relative to the user's policy plus the repositories before it is a
+reduction as well, until a `policy-downgrade` approval acknowledges it. `ai-governance config show --origin`
+lists them as `taskflow.judge.<focus>`, `taskflow.check.<command>` and `taskflow.risk.<name>`
+with `user`, `default` or `repo (added|replaced|disabled)`. Removing controls counts as a
+policy reduction for `taskflow` approvals. Of its scalars only `timeout_seconds` follows the precedence above; `workflow` and the
+roles stay user-owned. An unknown `--profile` for Jira/Confluence is now an error that lists the known profiles.
 
 | Variable | Effect |
 |---|---|

@@ -11,6 +11,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from .config import check_timeout_seconds
 from .models import JsonDict, Task, now_iso
 
 NOT_AN_ASSERTION = re.compile(
@@ -25,7 +26,7 @@ ASSERTION_FAILURE = re.compile(
     re.IGNORECASE,
 )
 OUTPUT_TAIL = 4000
-TEST_TIMEOUT = 1800
+TEST_TIMEOUT: float | None = None  # None: the `taskflow.timeout_seconds` setting (tests override)
 TIMEOUT_EXIT = 124  # same code as coreutils `timeout`
 
 
@@ -34,6 +35,7 @@ class TddError(ValueError):
 
 
 def run_test(command: str, cwd: Path) -> tuple[int, str]:
+    timeout = TEST_TIMEOUT if TEST_TIMEOUT is not None else check_timeout_seconds()
     try:
         proc = subprocess.run(
             command,
@@ -41,11 +43,11 @@ def run_test(command: str, cwd: Path) -> tuple[int, str]:
             cwd=cwd,
             capture_output=True,
             text=True,
-            timeout=TEST_TIMEOUT,
+            timeout=timeout,
             check=False,
         )
     except subprocess.TimeoutExpired:
-        return TIMEOUT_EXIT, f"Timed out after {TEST_TIMEOUT}s"
+        return TIMEOUT_EXIT, f"Timed out after {timeout}s"
     return proc.returncode, (proc.stdout + proc.stderr)[-OUTPUT_TAIL:]
 
 
