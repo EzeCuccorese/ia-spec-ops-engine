@@ -671,7 +671,8 @@ def test_invalid_configs_are_reported(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PATH", "/nonexistent")
     monkeypatch.delenv("ORCA_CLI_COMMAND", raising=False)
     errors = FlowConfig(judges=({"focus": "correctness", "agent": "claude"},)).validate()
-    assert any("builder" in e for e in errors) and any("not found on PATH" in e for e in errors)
+    assert any("builder" in e for e in errors)
+    assert not any("Orca" in e for e in errors)  # the config loads without Orca
     assert "single-agent" in FlowConfig(workflow="single-agent").validate()[-1] or any(
         "single-agent" in e for e in FlowConfig(workflow="single-agent").validate()
     )

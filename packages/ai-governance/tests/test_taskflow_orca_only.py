@@ -29,6 +29,7 @@ FORBIDDEN = (
 def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AI_GOVERNANCE_CONFIG_DIR", str(tmp_path / "cfg"))
     monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     for name in ("ORCA_CLI_COMMAND", "ORCA_DEV_REPO_ROOT"):
         monkeypatch.delenv(name, raising=False)
 
@@ -54,33 +55,30 @@ def test_orca_command_rule(
     assert orca.orca_command() == expected
 
 
-def test_validate_reports_a_missing_orca_cli(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_config_loads_without_orca_and_dispatch_says_why(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setenv("PATH", str(tmp_path))
     problem = orca.orca_problem()
     assert problem and f"Orca CLI '{orca.orca_command()}'" in problem
     assert "not found on PATH" in problem and "ORCA_CLI_COMMAND" in problem
-    assert problem in FlowConfig().validate()
-    with pytest.raises(orca.OrcaError) as raised:  # dispatch and judge use the same check
+    assert not [e for e in FlowConfig().validate() if "Orca" in e]  # loading never needs Orca
+    with pytest.raises(orca.OrcaError) as raised:  # dispatch and judge use this check
         orca.require_orca()
     assert str(raised.value) == problem
+    assert main(["new", "ONB-1", "--title", "t"]) == 0
+    assert main(["config"]) == 0  # a notice line, not an error
+    assert problem in capsys.readouterr().out
+    dispatch = ["round", "ONB-1", "dispatch", "--role", "planner", "--agent", "claude"]
+    assert main([*dispatch, "--prompt", "x"]) == 1
+    assert "not found on PATH" in capsys.readouterr().err
 
 
-def test_a_present_orca_cli_or_an_all_human_config_needs_nothing(
+def test_a_present_orca_cli_clears_the_notice(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    humans = FlowConfig(
-        roles={
-            name: {"agent": "human", "model": ""} for name in ("planner", "validator", "builder")
-        },
-        judges=({"focus": "correctness", "agent": "human"},),
-    )
-    monkeypatch.setenv("PATH", str(tmp_path))
-    assert not [e for e in humans.validate() if "Orca CLI" in e]
     attach_orca(tmp_path / "world", monkeypatch)
     assert orca.orca_problem() is None
-    assert not [e for e in FlowConfig().validate() if "Orca CLI" in e]
 
 
 def test_the_subprocess_agent_path_is_gone() -> None:

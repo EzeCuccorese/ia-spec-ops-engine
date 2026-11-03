@@ -182,7 +182,9 @@ def _round_commands(sub: Subparsers) -> None:
         cli.cmd_round,
         "Dispatch a reader round to an Orca worker and collect or abort it, or record one",
     )
-    actions = item.add_subparsers(dest="action", required=True, metavar="action")
+    actions = item.add_subparsers(
+        dest="action", required=True, metavar="{record,dispatch,collect,abort}"
+    )
     run = actions.add_parser("run", help=argparse.SUPPRESS)  # removed: migration stub
     run.add_argument("--role", choices=ROLES)
     _round_agent_args(run)

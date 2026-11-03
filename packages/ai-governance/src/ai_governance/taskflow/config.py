@@ -20,7 +20,6 @@ from typing import TypeVar
 from .._config_core import Value
 from ..paths import config_dir, state_dir
 from ..settings import effective
-from . import orca
 from .agents import (
     DEFAULT_MODELS,
     HUMAN,
@@ -126,7 +125,6 @@ class FlowConfig:
         errors += self._allowed_errors()
         errors += self._judge_errors()
         errors += self._validator_errors()
-        errors += self._orca_errors()
         return errors
 
     def agent_error(self, agent: str) -> str | None:
@@ -180,14 +178,6 @@ class FlowConfig:
         if self.workflow == "single-agent" and any(j.get("agent") != "human" for j in self.judges):
             errors.append("single-agent workflow: every judge must be 'human'")
         return errors
-
-    def _orca_errors(self) -> list[str]:
-        """Agents run as Orca workers, so any non-human role needs the Orca CLI on PATH."""
-        agents = [str(role.get("agent", "")) for role in [*self.roles.values(), *self.judges]]
-        if not any(agent and agent != HUMAN for agent in agents):
-            return []
-        problem = orca.orca_problem()
-        return [problem] if problem else []
 
 
 def _user_sources(user_path: Path) -> list[Path]:

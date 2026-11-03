@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .._config_core import AGENT_ENV_MARKERS
 from ..output import emit_json, emit_kv, emit_rows, emit_status, emit_text
-from . import round_cli, tdd
+from . import orca, round_cli, tdd
 from .approvals import (
     RISKY_ACTIONS,
     STAMP_FREE_ACTIONS,
@@ -787,6 +787,7 @@ def cmd_config(args: argparse.Namespace) -> int:
             ("checks", "; ".join(config.checks)),
             ("tdd", "mandatory (skip only with the user tdd-skip approval)"),
             ("risk rules", ", ".join(r.name for r in config.risk_rules) or "none"),
+            ("orca cli", orca.orca_problem() or "found (needed only to dispatch workers)"),
             ("errors", "; ".join(errors) or "none"),
         ],
         title="taskflow config",
