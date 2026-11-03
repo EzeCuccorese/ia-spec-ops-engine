@@ -1,8 +1,8 @@
 """``taskflow.toml``: who plays each role, required judges, checks, risk rules and TDD.
 
 User file: ``~/.config/ai-governance/taskflow.toml``. A repository may add
-``.ai-governance/taskflow.toml``: its risk rules, judges and checks are appended, never
-replacing the user's, so a repository can only add controls.
+``.ai-governance/taskflow.toml`` and has priority over the user's controls: it adds, replaces (same judge focus / risk rule name) or
+switches off (``[disable]``) controls, but never changes who runs with full permissions.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ import hashlib
 import json
 import shutil
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -165,17 +166,62 @@ def _judge_entries(raw: JsonDict) -> list[JsonDict]:
 
 
 def _merge_local(
-    local: JsonDict, judges: list[JsonDict], checks: list[str], rules: list[RiskRule]
+    local: JsonDict,
+    judges: list[JsonDict],
+    checks: list[str],
+    rules: list[RiskRule],
+    mark: Callable[[str, object], None] = lambda key, value: None,
 ) -> None:
-    known = {j.get("focus") for j in judges}
-    judges += [j for j in _judge_entries(local) if j.get("focus") not in known]
-    checks += [c for c in local.get("checks", {}).get("commands", []) if c not in checks]
-    rules += _rules(local.get("risk", {}).get("rules", []))
+    """Applies one repository's ``taskflow.toml`` on top of the user's controls.
+
+    A repository may add a control, replace one with the same id (judge ``focus``, risk rule
+    ``name``) and switch one off through ``[disable]`` (``judges`` / ``checks`` / ``risk``
+    lists of ids). A judge's ``agent`` and ``model`` stay the user's: they decide who runs
+    with full permissions.
+    """
+    for entry in _judge_entries(local):
+        position = next(
+            (i for i, j in enumerate(judges) if j.get("focus") == entry.get("focus")), None
+        )
+        if position is None:
+            judges.append(entry)
+        else:
+            old = judges[position]
+            judges[position] = {**entry, "agent": old.get("agent"), "model": old.get("model")}
+        mark(f"judge.{entry.get('focus')}", "replaced" if position is not None else "added")
+    for command in local.get("checks", {}).get("commands", []):
+        if command not in checks:
+            checks.append(command)
+            mark(f"check.{command}", "added")
+    for rule in _rules(local.get("risk", {}).get("rules", [])):
+        position = next((i for i, r in enumerate(rules) if r.name == rule.name), None)
+        if position is None:
+            rules.append(rule)
+        else:
+            rules[position] = rule
+        mark(f"risk.{rule.name}", "replaced" if position is not None else "added")
+    off = local.get("disable", {})
+    for focus in off.get("judges", []):
+        judges[:] = [j for j in judges if j.get("focus") != focus]
+        mark(f"judge.{focus}", "disabled")
+    for command in off.get("checks", []):
+        checks[:] = [c for c in checks if c != command]
+        mark(f"check.{command}", "disabled")
+    for name in off.get("risk", []):
+        rules[:] = [r for r in rules if r.name != name]
+        mark(f"risk.{name}", "disabled")
 
 
-def load_config(repos: list[Path] | None = None, user_file: Path | None = None) -> FlowConfig:
-    """User config plus the additions of every bound repository (TDD is not configurable:
-    only the user's ``tdd-skip`` approval replaces it)."""
+def load_config(
+    repos: list[Path] | None = None,
+    user_file: Path | None = None,
+    origins: dict[str, tuple[str, str]] | None = None,
+) -> FlowConfig:
+    """User config with every bound repository applied on top (add, replace, disable; TDD is
+    not configurable: only the user's ``tdd-skip`` approval replaces it).
+
+    ``origins`` (optional) is filled with ``taskflow.<kind>.<id>`` -> (state, source) for
+    ``config show``: ``default`` / ``user`` or what a repository did (added, replaced, disabled)."""
     user_path = user_file or config_dir() / CONFIG_NAME
     user = _read_toml(user_path)
     legacy_roles = {k: dict(v) for k, v in user.get("roles", {}).items() if k != "judges"}
@@ -189,8 +235,22 @@ def load_config(repos: list[Path] | None = None, user_file: Path | None = None) 
     )
     checks = list(user.get("checks", {}).get("commands", DEFAULT_CHECKS))
     rules = _rules(user.get("risk", {}).get("rules", []))
+    if origins is not None:
+        owner = "user" if user_path.is_file() else "default"
+        for j in judges:
+            origins[f"taskflow.judge.{j.get('focus')}"] = (owner, str(user_path))
+        for command in checks:
+            origins[f"taskflow.check.{command}"] = (owner, str(user_path))
+        for rule in rules:
+            origins[f"taskflow.risk.{rule.name}"] = (owner, str(user_path))
     for repo in repos or []:
-        _merge_local(_read_toml(repo / REPO_CONFIG), judges, checks, rules)
+        source = str(repo / REPO_CONFIG)
+
+        def mark(key: str, state: object, source: str = source) -> None:
+            if origins is not None:
+                origins[f"taskflow.{key}"] = (f"repo ({state})", source)
+
+        _merge_local(_read_toml(repo / REPO_CONFIG), judges, checks, rules, mark)
     return FlowConfig(
         workflow=str(user.get("workflow", "tri-agent")),
         roles=roles,

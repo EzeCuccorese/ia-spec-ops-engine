@@ -208,8 +208,8 @@ verdicts and approvals are stale, and the next command.
 
 Configuration: `~/.config/ai-governance/taskflow.toml` (`[roles.planner|validator|builder]`
 with `agent`/`model`, `[[judges]]` with `focus`/`agent`/`model` (`[[roles.judges]]` is accepted too, in the user and in the repository file), `[checks] commands`,
-`[[risk.rules]]` with `paths`, `judges`, `checks`, `restaging`); a repository can only add
-controls in `.ai-governance/taskflow.toml`. Gates the engine enforces:
+`[[risk.rules]]` with `paths`, `judges`, `checks`, `restaging`); a repository's
+`.ai-governance/taskflow.toml` can add, replace or disable controls (see Configuration layers). Gates the engine enforces:
 
 - A judge must be a different agent than the builder; every required focus must `pass` on
   the current code stamp, and any code change makes verdicts and approvals stale.
@@ -268,8 +268,22 @@ the user level only: a repository cannot swap the agents that run with full perm
 only those company packs; an unknown name is an error that lists the packs present.
 `hooks.gate_command` is split like a shell line and its first word looked up on `PATH`.
 
-`taskflow.toml` keeps roles, judges, checks and risk rules: a repository can only add to
-them. Of its scalars only `timeout_seconds` follows the precedence above; `workflow` and the
+`taskflow.toml` keeps roles, judges, checks and risk rules. The repository's
+`.ai-governance/taskflow.toml` has priority over the user's for these controls: it can add
+one, replace one with the same id (a judge `focus`, a risk rule `name`) and switch one off
+with a `[disable]` table of ids:
+
+```toml
+[disable]
+judges = ["performance"]        # judge focuses
+checks = ["ws check --changed"] # check commands, verbatim
+risk = ["migrations"]           # risk rule names
+```
+
+A replaced judge keeps the user's `agent` and `model`. `ai-governance config show --origin`
+lists them as `taskflow.judge.<focus>`, `taskflow.check.<command>` and `taskflow.risk.<name>`
+with `user`, `default` or `repo (added|replaced|disabled)`. Removing controls counts as a
+policy reduction for `taskflow` approvals. Of its scalars only `timeout_seconds` follows the precedence above; `workflow` and the
 roles stay user-owned. An unknown `--profile` for Jira/Confluence is now an error that lists the known profiles.
 
 | Variable | Effect |

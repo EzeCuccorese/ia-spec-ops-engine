@@ -4,8 +4,25 @@ from __future__ import annotations
 
 import argparse
 
-from ._config_core import ConfigError, render_show
-from .settings import effective
+from ._config_core import ConfigError, Value, render_show
+from .settings import effective, repo_root
+
+
+def _taskflow_controls() -> dict[str, Value]:
+    """Judges, checks and risk rules in force, with who set them (user, default or a repo)."""
+    from pathlib import Path
+
+    from .taskflow.config import load_config
+
+    origins: dict[str, tuple[str, str]] = {}
+    root = repo_root() or Path.cwd()
+    try:
+        load_config([root], origins=origins)
+    except (ConfigError, ValueError, OSError):
+        return {}
+    return {
+        key: Value(state, state.split(" ")[0], source) for key, (state, source) in origins.items()
+    }
 
 
 def main(argv: list[str]) -> int:
@@ -20,5 +37,6 @@ def main(argv: list[str]) -> int:
     except ConfigError as exc:
         print(f"Error: {exc}")
         return 1
+    values.update(_taskflow_controls())
     print(render_show(values, origin=args.origin, as_json=args.json))
     return 0
