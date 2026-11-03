@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import inspect
 import os
 import re
 import shutil
@@ -461,8 +462,33 @@ class _MonitorScreen:
             self._to_raw()
 
 
-def panel_monitor(tty_fd: Any, session: MonitorSession, cooked_attrs: Any = None) -> str:
-    return _MonitorScreen(tty_fd, session, cooked_attrs).run()
+def _monitor_parameters(*names: str) -> inspect.Signature:
+    params = [inspect.Parameter("tty_fd", inspect.Parameter.POSITIONAL_OR_KEYWORD)]
+    for name in names:
+        default = None if name == "cooked_attrs" else inspect.Parameter.empty
+        params.append(
+            inspect.Parameter(name, inspect.Parameter.POSITIONAL_OR_KEYWORD, default=default)
+        )
+    return inspect.Signature(params)
+
+
+# Both calling conventions are public: the original (results, launch_configs, db_cfg) and
+# a ready-made MonitorSession.
+_LEGACY_MONITOR = _monitor_parameters("results", "launch_configs", "db_cfg", "cooked_attrs")
+_SESSION_MONITOR = _monitor_parameters("session", "cooked_attrs")
+
+
+def panel_monitor(*args: Any, **kwargs: Any) -> str:
+    """``panel_monitor(tty_fd, results, launch_configs, db_cfg, cooked_attrs=None)`` or
+    ``panel_monitor(tty_fd, session, cooked_attrs=None)`` with a ``MonitorSession``."""
+    uses_session = (len(args) > 1 and isinstance(args[1], MonitorSession)) or "session" in kwargs
+    bound = (_SESSION_MONITOR if uses_session else _LEGACY_MONITOR).bind(*args, **kwargs)
+    bound.apply_defaults()
+    given = bound.arguments
+    session = given.get("session") or MonitorSession(
+        given["results"], given["launch_configs"], given["db_cfg"]
+    )
+    return _MonitorScreen(given["tty_fd"], session, given["cooked_attrs"]).run()
 
 
 def _run_monitor_tui(results: list, launch_configs: list, db_cfg: dict) -> str:

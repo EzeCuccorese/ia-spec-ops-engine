@@ -13,6 +13,7 @@ gate never shadows project hooks of any type.
 
 from __future__ import annotations
 
+import inspect
 import os
 import shutil
 import stat
@@ -252,14 +253,44 @@ def _push_ref_line(root: Path) -> str:
     return f"refs/heads/current {head_sha} refs/heads/current {prev_sha}\n"
 
 
-def run_quality_gate(target_dir: str | Path | None = None, **options: object) -> int:
+def _parameters(*specs: tuple[str, object]) -> inspect.Signature:
+    empty = inspect.Parameter.empty
+    return inspect.Signature(
+        [
+            inspect.Parameter(
+                name,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                default=default if default is not empty else empty,
+            )
+            for name, default in specs
+        ]
+    )
+
+
+# The calling convention of ``run_quality_gate`` (positional or keyword, in this order).
+_GATE_SIGNATURE = _parameters(
+    ("target_dir", None),
+    ("scope", "all"),
+    ("skip", None),
+    ("timeout", None),
+    ("commit_style", None),
+    ("output", "errors"),
+    ("capture", None),
+)
+
+
+def run_quality_gate(*args: object, **kwargs: object) -> int:
     """
-    Runs the Git Hooks Quality Gate on demand in the given repository.
-    Options (see ``GateOptions``): scope, skip, timeout, commit_style, output, capture.
+    Runs the Git Hooks Quality Gate on demand in the given repository:
+    ``run_quality_gate(target_dir=None, scope="all", skip=None, timeout=None,
+    commit_style=None, output="errors", capture=None)``, each positional or by keyword.
     Returns the pre-push script's exit code. When ``capture`` is a list, the
     combined output is appended to it instead of being streamed.
     """
-    gate = GateOptions(**options)  # type: ignore[arg-type]
+    bound = _GATE_SIGNATURE.bind(*args, **kwargs)
+    bound.apply_defaults()
+    target_dir = bound.arguments.pop("target_dir")
+    gate = GateOptions(**bound.arguments)
     root = Path(target_dir).resolve() if target_dir else Path.cwd().resolve()
     hook_to_run, temp_hook = _resolve_hook_to_run(root)
     try:
@@ -278,3 +309,6 @@ def run_quality_gate(target_dir: str | Path | None = None, **options: object) ->
     finally:
         if temp_hook and temp_hook.exists():
             shutil.rmtree(temp_hook.parent, ignore_errors=True)
+
+
+run_quality_gate.__signature__ = _GATE_SIGNATURE  # type: ignore[attr-defined]
