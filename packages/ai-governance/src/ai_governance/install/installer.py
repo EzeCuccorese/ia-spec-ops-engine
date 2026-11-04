@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .. import __version__, corporate
+from .. import __version__, corporate, personal
 from ..paths import state_dir
 from ..rules.catalog import RuleCatalog, RuleDefinition
 from . import content, schedule
@@ -159,6 +159,11 @@ def _corporate_rules(spec: AgentSpec, packs: list[corporate.CorporatePack]) -> l
     ]
 
 
+def _personal_rules(spec: AgentSpec, rules: list[personal.PersonalRule]) -> list[Owned]:
+    """Every rule in the personal folder, rendered for one agent."""
+    return [Owned(spec.id, artifact) for artifact in spec.personal_artifacts(rules)]
+
+
 def _language_rules(spec: AgentSpec, rules: list[RuleDefinition]) -> list[Owned]:
     """Catalog rules marked ``user_scope``: basic practices per language in every repo."""
     return [Owned(spec.id, artifact) for artifact in spec.catalog_artifacts(rules)]
@@ -253,6 +258,8 @@ def _is_corporate_entry(
         return False
 
     pack = stem.split("-", 1)[0]
+    if pack == "personal":
+        return False
     if cat.get(pack) is not None:
         return False
 
@@ -267,6 +274,64 @@ def _corporate_entries_to_keep(
     cat = catalog or RuleCatalog()
     for entry in ledger.entries:
         if _is_corporate_entry(ledger, entry, cat) and entry.get("agent") in agents:
+            kept.append(
+                Owned(
+                    str(entry["agent"]),
+                    LinkArtifact(ledger.resolve(entry["path"]), str(entry["target"])),
+                )
+            )
+    return kept
+
+
+def _is_personal_target(target: str) -> bool:
+    if not target:
+        return False
+    target_path = Path(target)
+    if personal.PERSONAL_DIR in target_path.parts:
+        return True
+    return target_path.parent.name == "rules"
+
+
+def _is_personal_entry(ledger: Ledger, entry: dict[str, Any]) -> bool:
+    """Personal rules in the global ledger are symlinks pointing into personal rules."""
+    if entry.get("kind") != "link":
+        return False
+    agent = entry.get("agent")
+    path = ledger.resolve(str(entry.get("path", "")))
+    target = str(entry.get("target", ""))
+
+    if agent == "codex":
+        personal_dir = codex_rules_dir() / "personal"
+        if path.parent != personal_dir or not path.name.endswith(".md"):
+            return False
+        return _is_personal_target(target)
+
+    if agent == "claude":
+        expected_dir = Path.home() / ".claude" / "rules"
+    elif agent == "antigravity":
+        expected_dir = Path.home() / ".gemini" / "config" / "rules"
+    else:
+        return False
+
+    if path.parent != expected_dir:
+        return False
+
+    name = path.name
+    if not (name.startswith("ai-governance-personal-") and name.endswith(".md")):
+        return False
+
+    stem = name.removeprefix("ai-governance-personal-").removesuffix(".md")
+    if not stem:
+        return False
+
+    return _is_personal_target(target)
+
+
+def _personal_entries_to_keep(ledger: Ledger, agents: set[str]) -> list[Owned]:
+    """Preserves existing personal links when the personal root directory is missing."""
+    kept: list[Owned] = []
+    for entry in ledger.entries:
+        if _is_personal_entry(ledger, entry) and entry.get("agent") in agents:
             kept.append(
                 Owned(
                     str(entry["agent"]),
@@ -309,6 +374,18 @@ def install_user(
         )
         corporate_scope = {spec.id for spec in specs} | {SCRIPTS_OWNER}
         desired.extend(_corporate_entries_to_keep(ledger, corporate_scope, catalog))
+    p_root = personal.personal_root()
+    if p_root.exists():
+        p_rules = personal.rules(p_root)
+        for spec in specs:
+            desired.extend(_personal_rules(spec, p_rules))
+    else:
+        report.warnings.append(
+            f"Personal directory {p_root} does not exist: keeping previously installed personal entries. "
+            "Set AI_GOVERNANCE_PERSONAL_DIR to point to your personal rules directory."
+        )
+        personal_scope = {spec.id for spec in specs}
+        desired.extend(_personal_entries_to_keep(ledger, personal_scope))
     desired.extend(_completions())
     scope = {spec.id for spec in specs} | {SCRIPTS_OWNER, COMPLETIONS_OWNER, SCHEDULE_OWNER}
     if not dry_run:

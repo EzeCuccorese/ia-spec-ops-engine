@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..corporate import CorporateRule
+from ..personal import PersonalRule
 from ..rules.catalog import RuleDefinition
 from ..settings import get as setting
 from . import content
@@ -147,6 +148,10 @@ class AgentSpec:
         """Always-on company rules at user level."""
         raise NotImplementedError
 
+    def personal_artifacts(self, rules: list[PersonalRule]) -> list[Artifact]:
+        """Always-on personal rules at user level."""
+        raise NotImplementedError
+
     def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
         """Path-scoped catalog rules at user level."""
         raise NotImplementedError
@@ -227,6 +232,13 @@ class ClaudeSpec(AgentSpec):
             LinkArtifact(home / f"ai-governance-{r.pack}-{r.name}.md", str(r.path)) for r in rules
         ]
 
+    def personal_artifacts(self, rules: list[PersonalRule]) -> list[Artifact]:
+        home = Path.home() / ".claude" / "rules"
+        return [
+            LinkArtifact(home / f"ai-governance-personal-{r.name}.md", str(r.path))
+            for r in rules
+        ]
+
     def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
         return _global_catalog_rules(Path.home() / ".claude" / "rules", rules)
 
@@ -286,6 +298,10 @@ class CodexSpec(AgentSpec):
         company = codex_rules_dir() / "company"
         return [LinkArtifact(company / f"{r.pack}-{r.name}.md", str(r.path)) for r in rules]
 
+    def personal_artifacts(self, rules: list[PersonalRule]) -> list[Artifact]:
+        personal = codex_rules_dir() / "personal"
+        return [LinkArtifact(personal / f"{r.name}.md", str(r.path)) for r in rules]
+
     def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
         rules_dir = codex_rules_dir()
         if not rules:
@@ -309,6 +325,13 @@ class AntigravitySpec(AgentSpec):
         home = Path.home() / ".gemini" / "config" / "rules"
         return [
             LinkArtifact(home / f"ai-governance-{r.pack}-{r.name}.md", str(r.path)) for r in rules
+        ]
+
+    def personal_artifacts(self, rules: list[PersonalRule]) -> list[Artifact]:
+        home = Path.home() / ".gemini" / "config" / "rules"
+        return [
+            LinkArtifact(home / f"ai-governance-personal-{r.name}.md", str(r.path))
+            for r in rules
         ]
 
     def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
