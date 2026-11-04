@@ -64,6 +64,35 @@ def test_walker_follows_stubs_without_running_commands(tree: dict) -> None:
     assert subs["deploy"]["subcommands"] == [] and RAN == []
 
 
+def _walk(monkeypatch: pytest.MonkeyPatch, entry) -> dict:  # noqa: ANN001
+    for name in walker.STOPPED:
+        monkeypatch.setattr(argparse.ArgumentParser, name, walker._stop)
+    walked = walker.Walker(entry, "tool").tree()
+    monkeypatch.undo()
+    return walked
+
+
+def _hidden_cli() -> None:
+    import sys
+
+    parser = argparse.ArgumentParser(prog="tool")
+    sub = parser.add_subparsers()
+    sub.add_parser("visible", help="An ordinary command")
+    sub.add_parser("legacy", help=argparse.SUPPRESS)
+    sub.add_parser("silent", help="")
+    sub.add_parser("bare")
+    parser.parse_args(sys.argv[1:])
+
+
+def test_walker_omits_suppressed_subcommands_but_keeps_ordinary_ones(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    names = [s["name"] for s in _walk(monkeypatch, _hidden_cli)["subcommands"]]
+    assert names == ["visible", "silent", "bare"]
+    shown = render(_walk(monkeypatch, _hidden_cli))
+    assert "legacy" not in shown
+
+
 @pytest.mark.skipif(shutil.which("zsh") is None, reason="zsh not installed")
 @pytest.mark.parametrize(
     ("words", "expected"),
