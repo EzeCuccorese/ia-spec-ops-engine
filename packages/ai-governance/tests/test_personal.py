@@ -205,71 +205,45 @@ def test_uninstall_removes_personal_rules_even_when_dir_missing(
     assert _gemini_rules(home)
 
 
-def test_is_personal_entry_edge_cases(home: Path) -> None:
-    ledger = global_ledger()
-
+def test_is_personal_target() -> None:
     assert not _is_personal_target("")
     assert _is_personal_target("/some/path/personal/rules/foo.md")
     assert _is_personal_target("/custom/rules/bar.md")
 
-    assert not _is_personal_entry(ledger, {"kind": "file"})
-    assert not _is_personal_entry(
-        ledger, {"kind": "link", "agent": "unknown", "path": "p", "target": "t"}
-    )
-    assert not _is_personal_entry(
-        ledger,
-        {
-            "kind": "link",
-            "agent": "codex",
-            "path": str(home / ".codex" / "ai-governance" / "company" / "foo.md"),
-            "target": str(home / "personal" / "rules" / "foo.md"),
-        },
-    )
-    assert not _is_personal_entry(
-        ledger,
-        {
-            "kind": "link",
-            "agent": "codex",
-            "path": str(home / ".codex" / "ai-governance" / "personal" / "foo.txt"),
-            "target": str(home / "personal" / "rules" / "foo.txt"),
-        },
-    )
-    assert not _is_personal_entry(
-        ledger,
-        {
-            "kind": "link",
-            "agent": "claude",
-            "path": str(home / ".claude" / "other" / "ai-governance-personal-voice.md"),
-            "target": str(home / "personal" / "rules" / "voice.md"),
-        },
-    )
-    assert not _is_personal_entry(
-        ledger,
-        {
-            "kind": "link",
-            "agent": "claude",
-            "path": str(home / ".claude" / "rules" / "ai-governance-voice.md"),
-            "target": str(home / "personal" / "rules" / "voice.md"),
-        },
-    )
-    assert not _is_personal_entry(
-        ledger,
-        {
-            "kind": "link",
-            "agent": "claude",
-            "path": str(home / ".claude" / "rules" / "ai-governance-personal-.md"),
-            "target": str(home / "personal" / "rules" / "voice.md"),
-        },
-    )
 
+@pytest.mark.parametrize(
+    ("agent", "path", "target"),
+    [
+        ("unknown", "p", "t"),
+        ("codex", ".codex/ai-governance/company/foo.md", "personal/rules/foo.md"),
+        ("codex", ".codex/ai-governance/personal/foo.txt", "personal/rules/foo.txt"),
+        ("claude", ".claude/other/ai-governance-personal-voice.md", "personal/rules/voice.md"),
+        ("claude", ".claude/rules/ai-governance-voice.md", "personal/rules/voice.md"),
+        ("claude", ".claude/rules/ai-governance-personal-.md", "personal/rules/voice.md"),
+    ],
+)
+def test_is_personal_entry_edge_cases(
+    home: Path, agent: str, path: str, target: str
+) -> None:
+    ledger = global_ledger()
+    assert not _is_personal_entry(ledger, {"kind": "file"})
+    entry = {
+        "kind": "link",
+        "agent": agent,
+        "path": str(home / path),
+        "target": str(home / target),
+    }
+    assert not _is_personal_entry(ledger, entry)
+
+
+def test_corporate_entry_rejects_personal_link(home: Path) -> None:
     from ai_governance.install.installer import _is_corporate_entry
 
-    assert not _is_corporate_entry(
-        ledger,
-        {
-            "kind": "link",
-            "agent": "claude",
-            "path": str(home / ".claude" / "rules" / "ai-governance-personal-voice.md"),
-            "target": str(home / "personal" / "rules" / "voice.md"),
-        },
-    )
+    ledger = global_ledger()
+    entry = {
+        "kind": "link",
+        "agent": "claude",
+        "path": str(home / ".claude" / "rules" / "ai-governance-personal-voice.md"),
+        "target": str(home / "personal" / "rules" / "voice.md"),
+    }
+    assert not _is_corporate_entry(ledger, entry)

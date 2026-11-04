@@ -164,7 +164,7 @@ def test_user_rules_cover_every_language_and_tool_rules() -> None:
     assert not any(rule.always_on for rule in language_rules)
 
 
-def test_general_tool_rules_content_semantics() -> None:
+def test_git_branch_and_circleci_rule_content_semantics() -> None:
     catalog = RuleCatalog()
 
     # git-branch-ownership: exact required semantics
@@ -191,6 +191,10 @@ def test_general_tool_rules_content_semantics() -> None:
     assert "approval" in c_content.lower()
     assert "deploy hold" in c_content.lower()
     assert "CIRCLE_TOKEN" in c_content and "CIRCLE_TOKEN_RW" in c_content
+
+
+def test_atlassian_taskflow_and_confidentiality_rule_content_semantics() -> None:
+    catalog = RuleCatalog()
 
     # atlassian: CLI commands, $ATLASSIAN_URL, reads free, writes need approval
     atlassian = catalog.get("13-atlassian")

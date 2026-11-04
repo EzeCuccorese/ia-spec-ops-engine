@@ -346,51 +346,24 @@ def test_non_corporate_agent_link_not_kept_when_dir_missing(
     assert catalog_link.is_file() and not catalog_link.is_symlink()
 
 
-def test_is_corporate_entry_edge_cases(home: Path) -> None:
+@pytest.mark.parametrize(
+    ("agent", "path", "target"),
+    [
+        ("unknown", "p", "t"),
+        ("claude", ".claude/not_rules/file.md", "t"),
+        ("claude", ".claude/rules/no-prefix.md", "t"),
+        ("claude", ".claude/rules/ai-governance-nohyphen.md", "t"),
+        ("claude", ".claude/rules/ai-governance-kotlin-sub.md", "t"),
+    ],
+)
+def test_is_corporate_entry_edge_cases(
+    home: Path, agent: str, path: str, target: str
+) -> None:
     from ai_governance.install.installer import _is_corporate_entry, _is_corporate_target
 
+    assert not _is_corporate_target("")
     ledger = global_ledger()
     catalog = RuleCatalog()
-
-    assert not _is_corporate_target("")
     assert not _is_corporate_entry(ledger, {"kind": "file"})
-    assert not _is_corporate_entry(
-        ledger, {"kind": "link", "agent": "unknown", "path": "p", "target": "t"}
-    )
-    assert not _is_corporate_entry(
-        ledger,
-        {
-            "kind": "link",
-            "agent": "claude",
-            "path": str(home / ".claude" / "not_rules" / "file.md"),
-            "target": "t",
-        },
-    )
-    assert not _is_corporate_entry(
-        ledger,
-        {
-            "kind": "link",
-            "agent": "claude",
-            "path": str(home / ".claude" / "rules" / "no-prefix.md"),
-            "target": "t",
-        },
-    )
-    assert not _is_corporate_entry(
-        ledger,
-        {
-            "kind": "link",
-            "agent": "claude",
-            "path": str(home / ".claude" / "rules" / "ai-governance-nohyphen.md"),
-            "target": "t",
-        },
-    )
-    assert not _is_corporate_entry(
-        ledger,
-        {
-            "kind": "link",
-            "agent": "claude",
-            "path": str(home / ".claude" / "rules" / "ai-governance-kotlin-sub.md"),
-            "target": "t",
-        },
-        catalog=catalog,
-    )
+    entry = {"kind": "link", "agent": agent, "path": str(home / path), "target": target}
+    assert not _is_corporate_entry(ledger, entry, catalog=catalog)

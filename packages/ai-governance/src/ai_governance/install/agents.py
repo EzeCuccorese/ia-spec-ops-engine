@@ -180,6 +180,44 @@ class AgentSpec:
         return [HooksArtifact(path, entries, group)] if shell_hooks_verified(self.id) else []
 
 
+def _claude_subagents(agents_dir: Path) -> list[Artifact]:
+    return [
+        FileArtifact(
+            agents_dir / "scout.md",
+            "---\n"
+            "name: scout\n"
+            f"description: {content.CLAUDE_SCOUT_DESCRIPTION}\n"
+            "tools: Read, Grep, Glob\n"
+            "model: haiku\n"
+            "effort: medium\n"
+            "omitClaudeMd: true\n"
+            "---\n" + content.SCOUT_INSTRUCTIONS,
+        ),
+        FileArtifact(
+            agents_dir / "researcher.md",
+            "---\n"
+            "name: researcher\n"
+            f"description: {content.RESEARCHER_DESCRIPTION}\n"
+            "tools: Read, WebSearch, WebFetch\n"
+            "model: sonnet\n"
+            "effort: medium\n"
+            "omitClaudeMd: true\n"
+            "---\n" + content.RESEARCHER_INSTRUCTIONS,
+        ),
+        FileArtifact(
+            agents_dir / "runner.md",
+            "---\n"
+            "name: runner\n"
+            f"description: {content.RUNNER_DESCRIPTION}\n"
+            "tools: Bash, Read, Grep, Glob\n"
+            "model: haiku\n"
+            "effort: medium\n"
+            "omitClaudeMd: true\n"
+            "---\n" + content.RUNNER_INSTRUCTIONS,
+        ),
+    ]
+
+
 class ClaudeSpec(AgentSpec):
     def global_artifacts(self) -> list[Artifact]:
         home = Path.home() / ".claude"
@@ -188,39 +226,7 @@ class ClaudeSpec(AgentSpec):
             BlockArtifact(home / "AGENTS.md", content.claude_agents_block(home / "rules")),
             BlockArtifact(home / "CLAUDE.md", content.CLAUDE_ENTRY_BLOCK),
             FileArtifact(home / "rules" / "ai-governance.md", content.GLOBAL_INSTRUCTIONS),
-            FileArtifact(
-                home / "agents" / "scout.md",
-                "---\n"
-                "name: scout\n"
-                f"description: {content.CLAUDE_SCOUT_DESCRIPTION}\n"
-                "tools: Read, Grep, Glob\n"
-                "model: haiku\n"
-                "effort: medium\n"
-                "omitClaudeMd: true\n"
-                "---\n" + content.SCOUT_INSTRUCTIONS,
-            ),
-            FileArtifact(
-                home / "agents" / "researcher.md",
-                "---\n"
-                "name: researcher\n"
-                f"description: {content.RESEARCHER_DESCRIPTION}\n"
-                "tools: Read, WebSearch, WebFetch\n"
-                "model: sonnet\n"
-                "effort: medium\n"
-                "omitClaudeMd: true\n"
-                "---\n" + content.RESEARCHER_INSTRUCTIONS,
-            ),
-            FileArtifact(
-                home / "agents" / "runner.md",
-                "---\n"
-                "name: runner\n"
-                f"description: {content.RUNNER_DESCRIPTION}\n"
-                "tools: Bash, Read, Grep, Glob\n"
-                "model: haiku\n"
-                "effort: medium\n"
-                "omitClaudeMd: true\n"
-                "---\n" + content.RUNNER_INSTRUCTIONS,
-            ),
+            *_claude_subagents(home / "agents"),
             *skill_artifacts(home / "skills"),
             HooksArtifact(
                 home / "settings.json",

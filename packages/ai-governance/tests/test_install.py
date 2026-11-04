@@ -9,7 +9,7 @@ import pytest
 from ai_governance.install import installer
 from ai_governance.install.agents import AGENTS, capability_table
 from ai_governance.install.cli import main as install_cli
-from ai_governance.install.doctor import FAIL, check
+from ai_governance.install.doctor import FAIL, Row, check
 from ai_governance.install.engine import Ledger
 from ai_governance.install.installer import (
     ProjectConfig,
@@ -309,9 +309,7 @@ def test_update_check_reports_stale_projects(project: Path, monkeypatch) -> None
     assert install_cli("update", ["--all", "--check"]) == 1
 
 
-def test_claude_user_scope_entry_files_preserve_content_and_doctor_checks(
-    home: Path,
-) -> None:
+def test_claude_user_scope_entry_files_preserve_content(home: Path) -> None:
     claude_dir = home / ".claude"
     claude_dir.mkdir(parents=True)
     existing_agents = "# My notes\nDo not delete me.\n"
@@ -344,35 +342,34 @@ def test_claude_user_scope_entry_files_preserve_content_and_doctor_checks(
     ]
     assert entry_changes == []
 
-    # Doctor check passes with both blocks present
-    rows = check(None)
-    assert not any(s == FAIL and "user:claude" in label for label, s, _ in rows)
-
-    # Doctor flags missing block in CLAUDE.md
-    (claude_dir / "CLAUDE.md").write_text(existing_claude, encoding="utf-8")
-    rows = check(None)
-    assert any(
-        s == FAIL and "missing ai-governance block" in d and "CLAUDE.md" in d
-        for label, s, d in rows
-        if label == "user:claude"
-    )
-
-    # Doctor flags missing block in AGENTS.md
-    (claude_dir / "AGENTS.md").write_text(existing_agents, encoding="utf-8")
-    rows = check(None)
-    assert any(
-        s == FAIL and "missing ai-governance block" in d and "AGENTS.md" in d
-        for label, s, d in rows
-        if label == "user:claude"
-    )
-
-    # Reinstall blocks before testing uninstall
-    install_user(["claude"])
-
     # Uninstall removes only the marker blocks, keeping outside content byte-for-byte
     uninstall_user(["claude"])
     assert (claude_dir / "AGENTS.md").read_text(encoding="utf-8") == existing_agents
     assert (claude_dir / "CLAUDE.md").read_text(encoding="utf-8") == existing_claude
+
+
+def _claude_doctor_failures(rows: list[Row]) -> list[str]:
+    return [d for label, s, d in rows if label == "user:claude" and s == FAIL]
+
+
+def test_claude_user_scope_entry_files_doctor_checks(home: Path) -> None:
+    claude_dir = home / ".claude"
+    claude_dir.mkdir(parents=True)
+    install_user(["claude"])
+
+    # Doctor check passes with both blocks present
+    assert _claude_doctor_failures(check(None)) == []
+
+    # Doctor flags missing block in CLAUDE.md
+    (claude_dir / "CLAUDE.md").write_text("Custom header\n", encoding="utf-8")
+    failures = _claude_doctor_failures(check(None))
+    assert any("missing ai-governance block" in d and "CLAUDE.md" in d for d in failures)
+
+    # Restore CLAUDE.md block and wipe AGENTS.md block
+    install_user(["claude"])
+    (claude_dir / "AGENTS.md").write_text("# Notes\n", encoding="utf-8")
+    failures = _claude_doctor_failures(check(None))
+    assert any("missing ai-governance block" in d and "AGENTS.md" in d for d in failures)
 
 
 def test_claude_entry_files_unlinked_when_no_prior_content(home: Path) -> None:
