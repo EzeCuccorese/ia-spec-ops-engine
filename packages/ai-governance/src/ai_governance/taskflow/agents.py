@@ -91,7 +91,7 @@ def read_regular_text(path: Path) -> str:
     The file is opened without blocking and checked with ``fstat`` before any read, so a FIFO,
     socket, device or directory is rejected (``OSError``) instead of hanging the caller or
     being read; a swap after an earlier check cannot get past the descriptor test."""
-    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOCTTY", 0))
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOCTTY", 0))
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise OSError(errno.EINVAL, "not a regular file", str(path))

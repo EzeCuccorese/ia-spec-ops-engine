@@ -243,7 +243,7 @@ def _claude_session_end() -> int:
             proc = subprocess.run(
                 ["git", *args], cwd=repo, capture_output=True, text=True, timeout=5, check=False
             )
-        except OSError:  # the working directory vanished
+        except (OSError, subprocess.SubprocessError):  # gone directory or a hung git
             return "?"
         return proc.stdout.strip() if proc.returncode == 0 else "?"
 

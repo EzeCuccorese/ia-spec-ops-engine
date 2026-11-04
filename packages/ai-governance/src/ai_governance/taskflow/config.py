@@ -169,7 +169,7 @@ class FlowConfig:
         builder = str(self.roles.get("builder", {}).get("agent", ""))
         for judge in self.judges:
             agent = str(judge.get("agent", ""))
-            if provider(agent) == provider(builder) and provider(agent) != HUMAN:
+            if provider(agent) == provider(builder) and provider(agent) not in (HUMAN, ""):
                 errors.append(
                     f"judge '{judge.get('focus')}' uses the builder's provider ({provider(builder)}): "
                     "a judge must be a different provider or 'human'"
