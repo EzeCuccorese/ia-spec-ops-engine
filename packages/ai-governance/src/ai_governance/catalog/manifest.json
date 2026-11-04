@@ -277,6 +277,71 @@
       "user_scope": true
     },
     {
+      "id": "13-atlassian",
+      "category": "1-core",
+      "file": "1-core/13-atlassian.md",
+      "description": "Atlassian Jira and Confluence integration: read/write permissions and CLI usage",
+      "triggers": {
+        "globs": [
+          "**/*"
+        ]
+      },
+      "stacks": [],
+      "user_scope": true
+    },
+    {
+      "id": "14-taskflow",
+      "category": "1-core",
+      "file": "1-core/14-taskflow.md",
+      "description": "Task registry and taskflow tracking: multi-step work and phase gates",
+      "triggers": {
+        "globs": [
+          "**/*"
+        ]
+      },
+      "stacks": [],
+      "user_scope": true
+    },
+    {
+      "id": "15-tool-confidentiality",
+      "category": "1-core",
+      "file": "1-core/15-tool-confidentiality.md",
+      "description": "Tool confidentiality: engine tooling is never mentioned in external artifacts",
+      "triggers": {
+        "globs": [
+          "**/*"
+        ]
+      },
+      "stacks": [],
+      "user_scope": true
+    },
+    {
+      "id": "16-git-branch-ownership",
+      "category": "1-core",
+      "file": "1-core/16-git-branch-ownership.md",
+      "description": "Git branch ownership and protection: explicit user authorization required on non-owned branches",
+      "triggers": {
+        "globs": [
+          "**/*"
+        ]
+      },
+      "stacks": [],
+      "user_scope": true
+    },
+    {
+      "id": "17-quality-gate",
+      "category": "1-core",
+      "file": "1-core/17-quality-gate.md",
+      "description": "Quality gate and delegation: no hook bypass, own tests always run, bounded subagent output",
+      "triggers": {
+        "globs": [
+          "**/*"
+        ]
+      },
+      "stacks": [],
+      "user_scope": true
+    },
+    {
       "id": "java-spring",
       "category": "2-stacks",
       "file": "2-stacks/java-spring.md",
@@ -575,6 +640,19 @@
         "gitlab-ci",
         "jenkins"
       ]
+    },
+    {
+      "id": "circleci",
+      "category": "3-infrastructure",
+      "file": "3-infrastructure/circleci.md",
+      "description": "CircleCI operations: read-only by default, approval for mutations, token safety",
+      "triggers": {
+        "globs": [
+          "**/*"
+        ]
+      },
+      "stacks": [],
+      "user_scope": true
     },
     {
       "id": "diagrams-and-docs",

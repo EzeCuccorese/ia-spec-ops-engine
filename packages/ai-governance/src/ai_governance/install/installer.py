@@ -13,10 +13,12 @@ import json
 import shutil
 import subprocess
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
-from .. import __version__, corporate
+from .. import __version__, corporate, personal
 from ..paths import state_dir
 from ..rules.catalog import RuleCatalog, RuleDefinition
 from . import content, schedule
@@ -27,7 +29,10 @@ from .agents import (
     BlockArtifact,
     FileArtifact,
     LinkArtifact,
+    antigravity_rules_dir,
     canonical_rule_path,
+    claude_rules_dir,
+    codex_rules_dir,
     render_canonical_rule,
     resolve_agents,
 )
@@ -157,6 +162,11 @@ def _corporate_rules(spec: AgentSpec, packs: list[corporate.CorporatePack]) -> l
     ]
 
 
+def _personal_rules(spec: AgentSpec, rules: list[personal.PersonalRule]) -> list[Owned]:
+    """Every rule in the personal folder, rendered for one agent."""
+    return [Owned(spec.id, artifact) for artifact in spec.personal_artifacts(rules)]
+
+
 def _language_rules(spec: AgentSpec, rules: list[RuleDefinition]) -> list[Owned]:
     """Catalog rules marked ``user_scope``: basic practices per language in every repo."""
     return [Owned(spec.id, artifact) for artifact in spec.catalog_artifacts(rules)]
@@ -202,6 +212,167 @@ def sync_completions(*, dry_run: bool = False) -> Report | None:
     return report
 
 
+def _is_corporate_target(target: str) -> bool:
+    return bool(target) and (
+        corporate.CORPORATE_DIR in Path(target).parts
+        or Path(target).parent.name in ("rules", "scripts")
+    )
+
+
+def _is_personal_target(target: str) -> bool:
+    return bool(target) and (
+        personal.PERSONAL_DIR in Path(target).parts or Path(target).parent.name == "rules"
+    )
+
+
+def _entries_to_keep(
+    ledger: Ledger,
+    agents: set[str],
+    matches: Callable[[str, Path, str], bool],
+) -> list[Owned]:
+    """Preserves symlinks matching a predicate when their source root is missing."""
+    kept: list[Owned] = []
+    for entry in ledger.entries:
+        if entry.get("kind") != "link":
+            continue
+        agent = str(entry.get("agent", ""))
+        if agent not in agents:
+            continue
+        path = ledger.resolve(str(entry.get("path", "")))
+        target = str(entry.get("target", ""))
+        if matches(agent, path, target):
+            kept.append(Owned(agent, LinkArtifact(path, target)))
+    return kept
+
+
+def _user_rules_dir(agent: str) -> Path | None:
+    if agent == "claude":
+        return claude_rules_dir()
+    if agent == "antigravity":
+        return antigravity_rules_dir()
+    return None
+
+
+def _is_corporate_rule_name(name: str, catalog: RuleCatalog | None = None) -> bool:
+    if not (name.startswith("ai-governance-") and name.endswith(".md")):
+        return False
+    stem = name.removeprefix("ai-governance-").removesuffix(".md")
+    if "-" not in stem:
+        return False
+    cat = catalog or RuleCatalog()
+    if cat.get(stem) is not None:
+        return False
+    pack = stem.split("-", 1)[0]
+    return pack != "personal" and cat.get(pack) is None
+
+
+def _is_corporate_link(
+    agent: str, path: Path, target: str = "", catalog: RuleCatalog | None = None
+) -> bool:
+    if not _is_corporate_target(target):
+        return False
+    if agent == SCRIPTS_OWNER:
+        return path.parent == corporate.bin_dir()
+    if agent == "codex":
+        return path.parent == codex_rules_dir() / "company" and path.name.endswith(".md")
+    expected = _user_rules_dir(agent)
+    if expected is None or path.parent != expected:
+        return False
+    return _is_corporate_rule_name(path.name, catalog)
+
+
+def _is_corporate_entry(
+    ledger: Ledger, entry: dict[str, Any], catalog: RuleCatalog | None = None
+) -> bool:
+    if entry.get("kind") != "link":
+        return False
+    return _is_corporate_link(
+        str(entry.get("agent", "")),
+        ledger.resolve(str(entry.get("path", ""))),
+        str(entry.get("target", "")),
+        catalog,
+    )
+
+
+def _corporate_entries_to_keep(
+    ledger: Ledger, agents: set[str], catalog: RuleCatalog | None = None
+) -> list[Owned]:
+    cat = catalog or RuleCatalog()
+    return _entries_to_keep(
+        ledger, agents, lambda agent, path, target: _is_corporate_link(agent, path, target, cat)
+    )
+
+
+def _is_personal_rule_name(name: str) -> bool:
+    prefix = "ai-governance-personal-"
+    suffix = ".md"
+    return (
+        name.startswith(prefix) and name.endswith(suffix) and len(name) > len(prefix) + len(suffix)
+    )
+
+
+def _is_personal_link(agent: str, path: Path, target: str = "") -> bool:
+    if not _is_personal_target(target):
+        return False
+    if agent == "codex":
+        return path.parent == codex_rules_dir() / "personal" and path.name.endswith(".md")
+    expected = _user_rules_dir(agent)
+    if expected is None or path.parent != expected:
+        return False
+    return _is_personal_rule_name(path.name)
+
+
+def _is_personal_entry(ledger: Ledger, entry: dict[str, Any]) -> bool:
+    if entry.get("kind") != "link":
+        return False
+    return _is_personal_link(
+        str(entry.get("agent", "")),
+        ledger.resolve(str(entry.get("path", ""))),
+        str(entry.get("target", "")),
+    )
+
+
+def _personal_entries_to_keep(ledger: Ledger, agents: set[str]) -> list[Owned]:
+    return _entries_to_keep(ledger, agents, _is_personal_link)
+
+
+def _corporate_desired(
+    specs: list[AgentSpec],
+    ledger: Ledger,
+    report: Report,
+    corporate_names: list[str] | None = None,
+) -> list[Owned]:
+    root = corporate.corporate_root()
+    if root.exists():
+        packs = corporate.packs(only=corporate_names)
+        desired = [artifact for spec in specs for artifact in _corporate_rules(spec, packs)]
+        desired.extend(_corporate_scripts(packs, report))
+        return desired
+    corporate_scope = {spec.id for spec in specs} | {SCRIPTS_OWNER}
+    kept = _corporate_entries_to_keep(ledger, corporate_scope, RuleCatalog())
+    if kept:
+        report.warnings.append(
+            f"Corporate directory {root} does not exist: keeping previously installed corporate entries. "
+            "Set AI_GOVERNANCE_CORPORATE_DIR to point to your corporate rules directory."
+        )
+    return kept
+
+
+def _personal_desired(specs: list[AgentSpec], ledger: Ledger, report: Report) -> list[Owned]:
+    root = personal.personal_root()
+    if root.exists():
+        rules = personal.rules(root)
+        return [artifact for spec in specs for artifact in _personal_rules(spec, rules)]
+    scope = {spec.id for spec in specs}
+    kept = _personal_entries_to_keep(ledger, scope)
+    if kept:
+        report.warnings.append(
+            f"Personal directory {root} does not exist: keeping previously installed personal entries. "
+            "Set AI_GOVERNANCE_PERSONAL_DIR to point to your personal rules directory."
+        )
+    return kept
+
+
 def install_user(
     agents: list[str],
     *,
@@ -216,14 +387,14 @@ def install_user(
     """
     specs = resolve_agents(agents)
     ledger = global_ledger()
-    packs = corporate.packs(only=corporate_names)
     report = Report()
     desired = [Owned(spec.id, artifact) for spec in specs for artifact in spec.global_artifacts()]
-    language_rules = RuleCatalog().user_rules()
+    catalog = RuleCatalog()
+    language_rules = catalog.user_rules()
     for spec in specs:
-        desired.extend(_corporate_rules(spec, packs))
         desired.extend(_language_rules(spec, language_rules))
-    desired.extend(_corporate_scripts(packs, report))
+    desired.extend(_corporate_desired(specs, ledger, report, corporate_names))
+    desired.extend(_personal_desired(specs, ledger, report))
     desired.extend(_completions())
     scope = {spec.id for spec in specs} | {SCRIPTS_OWNER, COMPLETIONS_OWNER, SCHEDULE_OWNER}
     if not dry_run:
@@ -242,14 +413,15 @@ def uninstall_user(
     ledger = global_ledger()
     report = Report()
     keep_shared = bool(installed_agents(ledger) - scope)
-    desired = (
-        [
-            *_corporate_scripts(corporate.packs(only=corporate_names), report),
-            *_completions(),
-        ]
-        if keep_shared
-        else []
-    )
+    root = corporate.corporate_root()
+    if keep_shared:
+        if root.exists():
+            scripts = _corporate_scripts(corporate.packs(only=corporate_names), report)
+        else:
+            scripts = _corporate_entries_to_keep(ledger, {SCRIPTS_OWNER})
+        desired = [*scripts, *_completions()]
+    else:
+        desired = []
     shared = {SCRIPTS_OWNER, COMPLETIONS_OWNER, SCHEDULE_OWNER}
     if not dry_run:
         schedule.unload()  # stop a retired agent before its plist is removed

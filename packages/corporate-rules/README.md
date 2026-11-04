@@ -33,8 +33,9 @@ Layout of `<company>/`:
   ```
 
   Old copies made by earlier versions are replaced by links on the next install. If you move
-  or delete the checkout, the links break. Codex has no per-file global rules, so packs are
-  not rendered for it; the install prints one warning naming the skipped packs.
+  or delete the checkout, the links break. Codex receives corporate rules linked into
+  `$CODEX_HOME/ai-governance/company/<company>-<name>.md`; its `AGENTS.md` block instructs
+  Codex to read `company/` once per session.
 - `scripts/*` — files linked into `~/.local/bin` (override with `AI_GOVERNANCE_BIN_DIR`);
   they are removed when the last installed agent is uninstalled. If two packs ship a script
   with the same name, the first pack alphabetically wins and the install warns.
