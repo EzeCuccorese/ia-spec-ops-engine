@@ -100,6 +100,9 @@ def test_user_install_links_personal_rules_for_all_agents(
     assert codex_link.is_symlink()
     assert Path(os.readlink(codex_link)) == (personal_root / "rules" / "voice.md").resolve()
 
+    codex_agents = (home / ".codex" / "AGENTS.md").read_text()
+    assert "once per session read every file in `company/` and `personal/`" in codex_agents
+
     assert not any("Personal directory" in w for w in report.warnings)
 
 
@@ -241,6 +244,18 @@ def test_is_personal_entry_edge_cases(home: Path) -> None:
             "kind": "link",
             "agent": "claude",
             "path": str(home / ".claude" / "rules" / "ai-governance-personal-.md"),
+            "target": str(home / "personal" / "rules" / "voice.md"),
+        },
+    )
+
+    from ai_governance.install.installer import _is_corporate_entry
+
+    assert not _is_corporate_entry(
+        ledger,
+        {
+            "kind": "link",
+            "agent": "claude",
+            "path": str(home / ".claude" / "rules" / "ai-governance-personal-voice.md"),
             "target": str(home / "personal" / "rules" / "voice.md"),
         },
     )

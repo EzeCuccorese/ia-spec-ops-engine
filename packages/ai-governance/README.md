@@ -123,6 +123,47 @@ the previous pack's rules until they are installed again, so pass every agent yo
 (`--agent claude --agent antigravity`). When two packs ship a script with the same name, the
 first pack alphabetically wins and the install warns.
 
+### Personal pack
+
+Personal preferences live outside the repository in `$AI_GOVERNANCE_PERSONAL_DIR` or
+`~/.config/ai-governance/personal/` (honouring `AI_GOVERNANCE_CONFIG_DIR`). Every rule
+in `<root>/rules/*.md` is installed as a symlink for each selected agent:
+
+| Pack content | Installed as |
+|---|---|
+| `rules/<name>.md` | Claude Code: `~/.claude/rules/ai-governance-personal-<name>.md` (symlink to the source file) |
+| | Antigravity: `~/.gemini/config/rules/ai-governance-personal-<name>.md` (symlink; front matter `trigger: always_on` is what Antigravity reads; no global `GEMINI.md` needed) |
+| | Codex: `$CODEX_HOME/ai-governance/personal/<name>.md` (symlink; the `AGENTS.md` block tells Codex to read `personal/` once per session) |
+
+When the personal root directory does not exist, previously installed personal links are kept
+unchanged and a warning is printed explaining how to set `AI_GOVERNANCE_PERSONAL_DIR`.
+An existing directory with an empty `rules` folder removes previous links as normal.
+Uninstalling an agent removes its personal links.
+
+### Generated entry files (Claude Code)
+
+At user scope, Claude Code receives entry files managed via marker blocks:
+
+- `~/.claude/CLAUDE.md`: contains only `@AGENTS.md` (does not @-import individual rules).
+- `~/.claude/AGENTS.md`: short text listing the three layers (engine catalog, corporate, personal) and where their files are installed.
+
+Marker blocks never overwrite existing content: user content outside the markers is preserved
+byte-for-byte upon install, update, and uninstall. Re-running the install is idempotent.
+`ai-governance doctor` checks that both entry blocks are present when Claude is installed at user scope.
+For Antigravity, rules with `trigger: always_on` front matter in `~/.gemini/config/rules/` suffice; no global `GEMINI.md` is needed.
+
+### Rule layers and precedence
+
+The engine renders instructions across four layers:
+
+1. **Repository rules**: committed in `.agents/rules/` and project `AGENTS.md`.
+2. **Personal pack**: personal preferences in `~/.config/ai-governance/personal/rules/*.md`.
+3. **Corporate pack**: company rules in `packages/corporate-rules/<company>/rules/*.md`.
+4. **Engine catalog**: general tool rules and path-scoped language rules from the package.
+
+When rules conflict, the precedence order is:
+`repo rules > personal pack > corporate pack > engine catalog`. Repo rules always win.
+
 ### Project scope — `ai-governance install --scope project --agent <...>`
 
 Team policy, committed to the repository:

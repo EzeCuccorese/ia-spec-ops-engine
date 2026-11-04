@@ -141,7 +141,7 @@ def claude_agents_block(rules_dir: Path) -> str:
         f"- Installed rules live in `{rules_dir}` across three layers:\n"
         "  - Personal preferences: `ai-governance-personal-*.md`\n"
         "  - Company rules: `ai-governance-<company>-*.md`\n"
-        "  - Engine catalog: general tools and path-scoped language rules (`paths:`)\n"
+        "  - Engine catalog: general tools and path-scoped language rules\n"
     )
 
 
@@ -155,6 +155,6 @@ def codex_rules_pointer(rules_dir: Path) -> str:
     """Codex has no per-file rules, so its instructions point to the installed indexes."""
     return (
         f"- Installed rules live in `{rules_dir}`: once per session read every file in "
-        "`company/` (if present); before editing code, open `language-rules.md` and read the "
+        "`company/` and `personal/` (if present); before editing code, open `language-rules.md` and read the "
         "rules whose patterns match the file.\n"
     )
