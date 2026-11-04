@@ -10,7 +10,6 @@ PHASES: tuple[str, ...] = ("plan", "validate", "work", "judge", "staging", "revi
 EXIT_PHASES: tuple[str, ...] = ("findings",)
 STATUSES: tuple[str, ...] = ("active", "paused", "closed")
 ROLES: tuple[str, ...] = ("planner", "validator", "builder", "judge")
-READER_ROLES: frozenset[str] = frozenset({"planner", "validator", "judge"})
 VERDICTS: tuple[str, ...] = ("pass", "concerns", "block", "info")
 WORKFLOWS: tuple[str, ...] = ("tri-agent", "dual-agent", "single-agent", "manual")
 
@@ -48,6 +47,10 @@ class Task:
     approvals: list[JsonDict] = field(default_factory=list)
     deployments: list[JsonDict] = field(default_factory=list)  # {env, repo, sha, provenance, at}
     evidence: list[JsonDict] = field(default_factory=list)  # {kind, path, stamp, deployed_sha}
+    # Registrations only ({repo, number, url, group, added_at, source}); live status is never
+    # stored here but in the store-wide pr-status cache.
+    prs: list[JsonDict] = field(default_factory=list)
+    pr_removed: list[str] = field(default_factory=list)  # keys hiding legacy PR sources
     created_at: str = field(default_factory=now_iso)
     updated_at: str = field(default_factory=now_iso)
 

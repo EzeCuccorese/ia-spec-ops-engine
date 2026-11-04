@@ -1,24 +1,30 @@
-"""Independent judgment on an isolated copy of the exact commit.
+"""The engine's checks for a judge round, run on an isolated copy of the exact commit.
 
-Each bound repository gets ``git worktree add --detach <tmp> HEAD``: real git metadata
-(so diffs and ``ws check`` work), nothing of the builder's checkout. The checks run there
-first and their output is saved as evidence; then every required judge focus runs on that
-copy. A copy a judge modified is kept and reported; untouched copies are removed.
+Each bound repository gets ``git worktree add --detach <tmp> HEAD``: real git metadata (so
+diffs and ``ws check`` work), nothing of the builder's checkout. The engine runs the checks
+there, by code, and the copy is removed at once. The judge itself is a reader: it is
+dispatched through Orca (see ``judge_flow``) to review the real, clean checkout and never
+gets a copy. Before anything is recorded or dispatched, every real checkout is verified to
+be the very commit and tree the checks ran on.
 """
 
 from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 import tempfile
-from dataclasses import dataclass, replace
+import uuid
+from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
+from .agents import builder_providers, provider
 from .config import FlowConfig, check_timeout_seconds
+from .control import CheckedBaseline
 from .gates import GateContext
 from .models import JsonDict, Task
-from .rounds import RoundRequest, run_round
-from .stamp import git, merge_base, tree_fingerprint
+from .stamp import GitError, git, head_sha, merge_base, tree_fingerprint
 from .store import TaskStore, atomic_write_text
 
 # Dependency folders are linked from the source checkout so checks can run without a
@@ -35,11 +41,15 @@ class JudgeError(ValueError):
 
 @dataclass(frozen=True)
 class JudgedCopy:
+    """A throwaway copy of one repository. ``head`` and ``fingerprint`` describe the REAL
+    checkout when the copy was made (clean, committed): they are the baseline of the round."""
+
     source: Path
     path: Path
     head: str
     base: str
     fingerprint: str
+    common: Path | None = None  # git dir that outlives a vanished source
 
 
 def _base(repo: Path, binding: JsonDict) -> str:
@@ -55,11 +65,36 @@ def make_copy(binding: JsonDict, scratch: Path) -> JudgedCopy:
         )
     head = git(source, "rev-parse", "HEAD").strip()
     target = scratch / f"{source.name}-{head[:8]}"
-    git(source, "worktree", "add", "--detach", str(target), head)
-    for name in SHARED_DEPENDENCIES:
-        if (source / name).exists() and not (target / name).exists():
-            (target / name).symlink_to(source / name)
-    return JudgedCopy(source, target, head, _base(source, binding), tree_fingerprint(target))
+    common = _common_dir(source)
+    try:
+        # `worktree add` can register the worktree and still fail (a failing post-checkout hook).
+        git(source, "worktree", "add", "--detach", str(target), head)
+        for name in SHARED_DEPENDENCIES:
+            if (source / name).exists() and not (target / name).exists():
+                (target / name).symlink_to(source / name)
+        return JudgedCopy(
+            source, target, head, _base(source, binding), tree_fingerprint(source), common
+        )
+    except BaseException:
+        _forget_worktree(common, target)
+        raise
+
+
+def _common_dir(source: Path) -> Path:
+    """The repository's git dir, kept apart from the source cwd (a linked worktree can vanish)."""
+    raw = Path(git(source, "rev-parse", "--git-common-dir").strip())
+    return raw if raw.is_absolute() else (source / raw).resolve()
+
+
+def _forget_worktree(common: Path, target: Path) -> None:
+    """Delete a throwaway worktree and unregister it through the surviving git dir."""
+    shutil.rmtree(target, ignore_errors=True)
+    if not common.is_dir():
+        return  # the repository itself is gone: nothing is left to unregister
+    try:
+        git(common, "worktree", "prune")
+    except GitError as exc:  # never hide the original failure, but do not hide this one either
+        print(f"warning: could not prune the judge worktree of {common}: {exc}", file=sys.stderr)
 
 
 def _run_check(command: str, cwd: Path) -> JsonDict:
@@ -84,46 +119,51 @@ def _run_check(command: str, cwd: Path) -> JsonDict:
 
 
 def run_checks(copy: JudgedCopy, commands: tuple[str, ...], evidence: Path) -> JsonDict:
-    results = []
-    for command in commands:
-        results.append(_run_check(command, copy.path))
+    """Run the commands; the report is returned with its final, unique path and written only
+    by ``CheckRun.publish`` once the baseline held (a drifted or retried run never leaves or
+    overwrites a file)."""
+    results = [_run_check(command, copy.path) for command in commands]
     report = "\n\n".join(f"$ {r['cmd']}\nexit {r['exit']}\n{r['tail']}" for r in results)
-    path = evidence / f"checks-{copy.source.name}@{copy.head[:8]}.txt"
-    atomic_write_text(path, report)
-    return {"path": str(path), "passed": all(r["exit"] == 0 for r in results), "results": results}
+    path = evidence / f"checks-{copy.source.name}@{copy.head[:8]}-{uuid.uuid4().hex[:8]}.txt"
+    return {
+        "path": str(path),
+        "passed": all(r["exit"] == 0 for r in results),
+        "results": results,
+        "report": report,
+    }
 
 
-def judge_prompt(task: Task, focus: str, copies: list[JudgedCopy], checks: list[JsonDict]) -> str:
-    # Role, goal and references come from the round header that run_round prepends.
+def judge_prompt(task: Task, focus: str, run: CheckRun) -> str:
+    # Role, goal and references come from the round header that dispatch prepends.
     lines = [f"Focus: '{focus}'."]
     lines += [f"- step: {str(s['text'])[:300]}" for s in task.steps[-10:]]
-    for copy, check in zip(copies, checks, strict=True):
+    for copy, check in zip(run.copies, run.checks, strict=True):
         diff = f"git diff {copy.base}..{copy.head}" if copy.base else f"git show {copy.head}"
         lines.append(
-            f"Repository {copy.source.name}: isolated copy at {copy.path} (commit {copy.head}). "
-            f"Review `{diff}`. Checks {'passed' if check['passed'] else 'FAILED'}: {check['path']}."
+            f"Repository {copy.source.name} at {copy.source} (commit {copy.head}, clean tree). "
+            f"Review `{diff}`. Engine-run checks {'passed' if check['passed'] else 'FAILED'}: "
+            f"{check['path']}."
         )
     lines.append(
-        "Run any test or check you need yourself in the copy; do not trust declared evidence. "
-        "Judge against the goal and the references: correctness, scope, tests, risks. "
-        "Report findings as file:line with the concrete fix."
+        "You are a reader: do not run builds, tests or any command that writes, and do not "
+        "modify any file. Judge against the goal and the references: correctness, scope, "
+        "tests, risks. Report findings as file:line with the concrete fix."
     )
     return "\n".join(lines)
 
 
 def builders(task: Task, config: FlowConfig) -> set[str]:
-    """Every agent that wrote code for the task: the configured builder and any override."""
-    used = {str(r.get("agent")) for r in task.rounds if r.get("role") == "builder"}
-    return {str(config.roles.get("builder", {}).get("agent", "")), *used} - {""}
+    """Every provider that wrote code for the task: the configured builder and any override."""
+    return builder_providers(task, str(config.roles.get("builder", {}).get("agent", "")))
 
 
-def _independent_judges(
+def independent_judges(
     task: Task, config: FlowConfig, focus: str, focuses: list[str]
 ) -> list[JsonDict]:
     writers = builders(task, config)
     judges = [config.judge_for(name) for name in ([focus] if focus else focuses)]
     for judge in judges:
-        if judge.get("agent") in ("", *writers):
+        if not judge.get("agent") or provider(str(judge.get("agent"))) in writers:
             raise JudgeError(
                 f"Judge '{judge.get('focus')}' is not independent of the builder ({', '.join(writers)})"
             )
@@ -131,7 +171,7 @@ def _independent_judges(
 
 
 def _check_evidence(
-    copies: list[JudgedCopy], checks: list[JsonDict], stamp_key: str
+    copies: Sequence[JudgedCopy], checks: Sequence[JsonDict], stamp_key: str
 ) -> list[JsonDict]:
     return [
         {
@@ -146,86 +186,86 @@ def _check_evidence(
     ]
 
 
-def _discard_untouched(copies: list[JudgedCopy]) -> list[str]:
-    kept = []
+def _git_if_present(source: Path | None, *args: str) -> None:
+    """Cleanup of a source that vanished has nothing to undo and must not mask the real error."""
+    if source is None:
+        return
+    try:
+        git(source, *args)
+    except GitError:
+        if source.is_dir():
+            raise
+
+
+def _cleanup(copies: list[JudgedCopy], scratch: Path) -> None:
+    """Runs also after an exception: no worktree registration or scratch dir is left behind."""
     for copy in copies:
-        if tree_fingerprint(copy.path) == copy.fingerprint:
-            git(copy.source, "worktree", "remove", "--force", str(copy.path))
-        else:
-            kept.append(str(copy.path))
-    return kept
+        if copy.source.is_dir() and copy.path.exists():
+            _git_if_present(copy.source, "worktree", "remove", "--force", str(copy.path))
+        elif copy.common is not None:
+            _forget_worktree(copy.common, copy.path)
+    shutil.rmtree(scratch, ignore_errors=True)
+    for copy in copies:
+        _git_if_present(copy.source if copy.source.is_dir() else copy.common, "worktree", "prune")
 
 
 @dataclass(frozen=True)
-class _Session:
-    store: TaskStore
-    task: Task
-    ctx: GateContext
-    judges: list[JsonDict]
+class JudgeScope:
+    """What to judge: one focus (empty for all) and the repos, None meaning the live bindings."""
+
+    focus: str = ""
+    repos: Sequence[JsonDict] | None = None
 
 
-def _cleanup(copies: list[JudgedCopy], scratch: Path, kept: list[str]) -> None:
-    """Runs also after an exception: no worktree registration or scratch dir is left behind."""
-    for copy in copies:
-        if str(copy.path) not in kept and copy.path.exists():
-            git(copy.source, "worktree", "remove", "--force", str(copy.path))
-    if not kept:
-        shutil.rmtree(scratch, ignore_errors=True)
-        for source in {copy.source for copy in copies}:
-            git(source, "worktree", "prune")
+@dataclass(frozen=True)
+class CheckRun:
+    """The engine's checks of one ``taskflow judge``: the (already removed) copies, their
+    results and the evidence entries, which are recorded only once the baseline holds."""
 
+    copies: tuple[JudgedCopy, ...]
+    checks: tuple[JsonDict, ...]
+    evidence: tuple[JsonDict, ...]
 
-def _run_judges(
-    session: _Session, copies: list[JudgedCopy], checks: list[JsonDict]
-) -> list[JsonDict]:
-    config = session.ctx.config
-    records = []
-    for judge in session.judges:
-        if judge.get("agent") == "human":
-            continue  # the user judges in the chat: approve --action review --target <focus>
-        request = RoundRequest(
-            task_id=session.task.id,
-            phase=session.task.phase,
-            role="judge",
-            focus=str(judge["focus"]),
-            prompt=judge_prompt(session.task, str(judge["focus"]), copies, checks),
-            repo=copies[0].path,
-            agent=judge,
-            timeout=config.timeout_seconds,
-            watch=tuple(c.path for c in copies[1:]),
+    def publish(self) -> None:
+        """Write the reports to their unique evidence paths (after every drift check)."""
+        for check in self.checks:
+            atomic_write_text(Path(str(check["path"])), str(check["report"]))
+
+    def baseline(self, stamp: str) -> CheckedBaseline:
+        repos = tuple(
+            {"path": str(c.source), "head": c.head, "fingerprint": c.fingerprint}
+            for c in self.copies
         )
-        records.append(run_round(session.store, request, session.ctx.stamp_key))
-    return records
+        return CheckedBaseline(stamp, repos)
 
 
-def _check_copies(session: _Session, copies: list[JudgedCopy]) -> list[JsonDict]:
-    """Run the checks, then re-take each fingerprint so only the judge's edits count."""
-    evidence_dir = session.store.evidence_dir(session.task.id)
-    checks = []
-    for index, copy in enumerate(copies):
-        checks.append(run_checks(copy, session.ctx.risk.checks, evidence_dir))
-        copies[index] = replace(copy, fingerprint=tree_fingerprint(copy.path))
-    evidence = _check_evidence(copies, checks, session.ctx.stamp_key)
-    session.store.mutate(session.task.id, lambda t: t.evidence.extend(evidence))
-    return checks
+def verify_unchanged(copies: Sequence[JudgedCopy]) -> None:
+    """Every real checkout is still the clean commit the checks ran on (HEAD and tree)."""
+    moved = [
+        str(c.source)
+        for c in copies
+        if (head_sha(c.source), tree_fingerprint(c.source)) != (c.head, c.fingerprint)
+    ]
+    if moved:
+        raise JudgeError(
+            f"{', '.join(moved)} changed while the checks ran: nothing was recorded or "
+            "dispatched; run `taskflow judge` again on the committed code"
+        )
 
 
-def judge_task(
-    store: TaskStore, task: Task, ctx: GateContext, focus: str = ""
-) -> tuple[list[JsonDict], list[str]]:
-    """Run the checks and the judges; returns the rounds and the copies kept because a
-    judge modified them. Check results are stored as evidence that gates read directly,
-    so a failing check blocks whatever a judge answers."""
-    judges = _independent_judges(task, ctx.config, focus, list(ctx.risk.judges))
-    session = _Session(store, task, ctx, judges)
+def run_engine_checks(
+    store: TaskStore, task: Task, ctx: GateContext, bound: Sequence[JsonDict]
+) -> CheckRun:
+    """Run the checks of every bound repo in a throwaway copy, then verify the real checkouts
+    did not move. Nothing is recorded here: the caller does that after its own stamp check."""
     scratch = Path(tempfile.mkdtemp(prefix=f"taskflow-judge-{task.id}-"))
     copies: list[JudgedCopy] = []
-    kept: list[str] = []
     try:
-        copies.extend(make_copy(binding, scratch) for binding in task.repos)
-        checks = _check_copies(session, copies)
-        records = _run_judges(session, copies, checks)
-        kept = _discard_untouched(copies)
+        copies.extend(make_copy(binding, scratch) for binding in bound)
+        evidence_dir = store.evidence_dir(task.id)
+        checks = [run_checks(copy, ctx.risk.checks, evidence_dir) for copy in copies]
+        verify_unchanged(copies)
     finally:
-        _cleanup(copies, scratch, kept)
-    return records, kept
+        _cleanup(copies, scratch)
+    evidence = _check_evidence(copies, checks, ctx.stamp_key)
+    return CheckRun(tuple(copies), tuple(checks), tuple(evidence))

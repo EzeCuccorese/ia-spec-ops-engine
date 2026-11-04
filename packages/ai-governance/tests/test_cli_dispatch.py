@@ -107,7 +107,7 @@ def test_cli_dispatch_hook() -> None:
 
 
 def _subcommand_helps(parser: argparse.ArgumentParser) -> dict[str, str | None]:
-    """Help of every subcommand, nested ones included as ``parent child``."""
+    """Help of every visible subcommand, nested ones included as ``parent child``."""
     helps: dict[str, str | None] = {}
     for action in parser._actions:
         if not isinstance(action, argparse._SubParsersAction):

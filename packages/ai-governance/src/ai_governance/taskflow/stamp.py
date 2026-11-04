@@ -12,9 +12,11 @@ import hashlib
 import os
 import stat
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
 
 from .models import JsonDict, now_iso
+from .repos import guard
 
 GIT_TIMEOUT = 30
 REMOTE_TIMEOUT = 20
@@ -126,16 +128,37 @@ def repo_stamp(repo: Path, *, integration_branch: str = "", check_remote: bool =
     return stamp
 
 
-def code_stamp(repos: list[JsonDict], policy_digest: str, check_remote: bool = False) -> JsonDict:
-    """Stamp of every bound repository; ``key`` changes when any of them or the policy does."""
-    stamps = [
-        repo_stamp(
-            Path(repo["path"]),
-            integration_branch=str(repo.get("integration_branch", "")),
+def _binding_stamp(
+    binding: JsonDict, previous: dict[str, JsonDict], *, check_remote: bool
+) -> JsonDict | None:
+    """Stamp of a live repo; for a vanished one, its last entry re-flagged ``missing`` so the
+    key hashes exactly as before it vanished (None if it was never stamped)."""
+    entry = guard(
+        binding,
+        lambda path: repo_stamp(
+            path,
+            integration_branch=str(binding.get("integration_branch", "")),
             check_remote=check_remote,
-        )
-        for repo in repos
-    ]
+        ),
+    )
+    if entry is not None:
+        return entry
+    old = previous.get(str(Path(binding["path"])))
+    return {**old, "missing": True} if old else None
+
+
+def code_stamp(
+    repos: list[JsonDict],
+    policy_digest: str,
+    check_remote: bool = False,
+    carried: Iterable[JsonDict] = (),
+) -> JsonDict:
+    """Stamp of every bound repository; ``key`` changes when any of them or the policy does.
+
+    ``carried`` are the previous stamp's entries: a repo that vanished keeps its entry."""
+    previous = {str(entry["repo"]): entry for entry in carried}
+    found = (_binding_stamp(b, previous, check_remote=check_remote) for b in repos)
+    stamps = [entry for entry in found if entry is not None]
     hasher = hashlib.sha256(policy_digest.encode())
     for item in stamps:
         # The base is local (merge-base with the fetched integration branch): a rebase or a

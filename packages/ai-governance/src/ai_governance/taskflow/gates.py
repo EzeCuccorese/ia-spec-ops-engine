@@ -12,14 +12,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from . import tdd
+from .agents import builder_providers, provider
 from .approvals import valid_approval
 from .config import FlowConfig
 from .models import EXIT_PHASES, PHASES, JsonDict, Task
-from .risk import RiskAssessment
+from .risk import RiskAssessment, decided_by_human
 
 NEXT_COMMAND: dict[str, str] = {
-    "plan": "taskflow round <ID> run --role planner --prompt-file <brief.md>",
-    "validate": "taskflow round <ID> run --role validator --prompt-file <review.md>",
+    "plan": "taskflow round <ID> dispatch --role planner --prompt-file <brief.md>; run the printed line, end the turn, taskflow round <ID> collect ...",
+    "validate": "taskflow round <ID> dispatch --role validator --prompt-file <review.md>; run the printed line, end the turn, taskflow round <ID> collect ...",
     "work": "implement in the bound worktree; taskflow tdd <ID> red/green; commit; taskflow phase <ID> judge",
     "judge": "taskflow judge <ID>",
     "staging": "the user deploys; taskflow deploy <ID> ...; taskflow evidence <ID> --kind staging ...",
@@ -66,7 +67,7 @@ def judges_unmet(task: Task, risk: RiskAssessment, config: FlowConfig, stamp_key
     missing: list[str] = []
     attempts = _engine_rounds(task, "judge", valid_only=False)
     for focus in risk.judges:
-        if _is_human(config, focus):
+        if decided_by_human(risk, config, focus):
             if not valid_approval(task.approvals, "review", stamp_key, focus):
                 missing.append(f"judge '{focus}' (human): approve --action review --target {focus}")
             continue
@@ -86,10 +87,6 @@ def judges_unmet(task: Task, risk: RiskAssessment, config: FlowConfig, stamp_key
         elif latest.get("verdict") != "pass":
             missing.append(f"judge '{focus}': {latest.get('verdict')} in round {latest['n']:03d}")
     return missing
-
-
-def _is_human(config: FlowConfig, focus: str) -> bool:
-    return any(j.get("focus") == focus and j.get("agent") == "human" for j in config.judges)
 
 
 def plan_round(task: Task) -> int:
@@ -241,35 +238,48 @@ def _forward_unmet(task: Task, target: str, ctx: GateContext) -> list[str]:
     skipping_staging = task.phase == "judge" and target == "review" and not ctx.risk.restaging
     if wanted != current + 1 and not skipping_staging:
         return [f"move one phase at a time: next is '{PHASES[current + 1]}'"]
-    return _workflow_unmet(task) + _requirements(task, target, ctx)
+    return _workflow_unmet(task, ctx.config) + _requirements(task, target, ctx)
 
 
-def _workflow_unmet(task: Task) -> list[str]:
-    """Code tasks run with three agents; fewer only when the user chose it for this task."""
+def _workflow_unmet(task: Task, config: FlowConfig) -> list[str]:
+    """Code tasks run with independent agents; fewer only when the user chose it for this task."""
     if valid_approval(task.approvals, "workflow", "", task.id):
         return []
     if task.workflow == "tri-agent":
-        return _shared_agents(task)
+        return _independence_unmet(task, config)
     return [
         f"workflow '{task.workflow}' needs the user's choice "
         f"(approve {task.id} --action workflow --target {task.id}); the default is tri-agent"
     ]
 
 
-def _shared_agents(task: Task) -> list[str]:
-    """Planner, validator and builder must be three different agents, whatever the label
-    says: a ``--agent`` override or the configuration can make them the same one."""
-    by_agent: dict[str, list[str]] = {}
-    for role in ("planner", "validator", "builder"):
-        rounds = _engine_rounds(task, role)
-        agent = str(max(rounds, key=lambda r: int(r["n"])).get("agent", "")) if rounds else ""
-        if agent:
-            by_agent.setdefault(agent, []).append(role)
+def _latest_judges(task: Task) -> list[JsonDict]:
+    by_focus: dict[str, JsonDict] = {}
+    for r in sorted(_engine_rounds(task, "judge"), key=lambda r: int(r.get("n", 0))):
+        if r.get("stamp", "") == task.stamp_key:
+            by_focus[str(r.get("focus", ""))] = r
+    return list(by_focus.values())
+
+
+def _independence_unmet(task: Task, config: FlowConfig) -> list[str]:
+    """The validator and every judge must be a different provider than the builder.
+
+    Planner, validator and builder are separate sessions; only providers are compared here. The
+    planner may share the builder's provider. The builder is the configured one plus any
+    legacy builder round (``--agent`` overrides included)."""
+    writers = builder_providers(task, str(config.roles.get("builder", {}).get("agent", "")))
+    validators = _engine_rounds(task, "validator")
+    latest = [max(validators, key=lambda r: int(r["n"]))] if validators else []
+    clashes: dict[str, str] = {}
+    for role, rounds in (("validator", latest), ("judge", _latest_judges(task))):
+        for found in rounds:
+            name = provider(str(found.get("agent", "")))
+            if name in writers:
+                clashes.setdefault(role, name)
     return [
-        f"tri-agent needs distinct agents: {' and '.join(roles)} both used '{agent}' "
+        f"tri-agent needs independent agents: {role} and builder both used provider '{name}' "
         f"(or the user's choice: approve {task.id} --action workflow --target {task.id})"
-        for agent, roles in by_agent.items()
-        if len(roles) > 1
+        for role, name in clashes.items()
     ]
 
 
