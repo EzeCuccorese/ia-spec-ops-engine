@@ -20,7 +20,9 @@ uv tool install ./packages/workspace       # CLI: ws (recommended)
 
 Corporate packs are read from the source checkout, so install with
 `uv tool install --editable ./packages/ai-governance` when you use them (or point
-`AI_GOVERNANCE_CORPORATE_DIR` at the packs folder).
+`AI_GOVERNANCE_CORPORATE_DIR` at the packs folder). When the corporate root
+directory does not exist, previously installed corporate rules and scripts are kept
+unchanged and a warning is printed instead of removing them.
 
 ## What gets installed where
 
@@ -102,9 +104,12 @@ to load them. `ai-governance completion zsh [tool]` prints one; skipped without 
 
 Company-specific, always-on rules and scripts live in `packages/corporate-rules/<company>/` of
 the local checkout (gitignored, see [its README](../corporate-rules/README.md)), or wherever
-`AI_GOVERNANCE_CORPORATE_DIR` points. Every pack present is installed by the regular
-`install --scope user --agent ...`, with no extra flag. Removing or swapping the folder and
-installing again removes or swaps its files.
+`AI_GOVERNANCE_CORPORATE_DIR` points. Every pack present is installed by the regular `install --scope user --agent ...`,
+with no extra flag. Removing or swapping the folder and installing again removes
+or swaps its files. When the corporate root directory does not exist, previously
+installed corporate rules and scripts are kept unchanged and the installer prints
+a warning explaining how to set `AI_GOVERNANCE_CORPORATE_DIR`. An existing but empty
+root, or a pack deselected by config, still removes as normal.
 
 | Pack content | Installed as |
 |---|---|

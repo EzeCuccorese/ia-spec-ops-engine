@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+- corporate: preserve previously installed corporate rules and scripts when the corporate root directory does not exist, warning instead of removing them.
+
 ## 1.3.0 - 2026-11-03
 
 ### Features

@@ -205,3 +205,92 @@ def test_codex_installs_no_language_index_without_rules(home: Path) -> None:
     from ai_governance.install.agents import AGENTS
 
     assert AGENTS["codex"].catalog_artifacts([]) == []
+
+
+def test_missing_corporate_dir_keeps_installed_rules_and_scripts_and_warns(
+    home: Path, pack_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_user(["claude"])
+    assert _pack_rules(home) == [
+        "ai-governance-acme-glossary.md",
+        "ai-governance-acme-principles.md",
+    ]
+    assert _script(home).is_symlink()
+
+    missing = pack_root.parent / "nonexistent-corporate-dir"
+    monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(missing))
+
+    report = install_user(["claude"])
+
+    assert _pack_rules(home) == [
+        "ai-governance-acme-glossary.md",
+        "ai-governance-acme-principles.md",
+    ]
+    assert _script(home).is_symlink()
+    assert ("unchanged", str(home / ".claude" / "rules" / "ai-governance-acme-glossary.md")) in report.changes
+    assert ("unchanged", str(_script(home))) in report.changes
+    assert any("AI_GOVERNANCE_CORPORATE_DIR" in w and str(missing) in w for w in report.warnings)
+
+    # Idempotent second run
+    report2 = install_user(["claude"])
+    assert _pack_rules(home) == [
+        "ai-governance-acme-glossary.md",
+        "ai-governance-acme-principles.md",
+    ]
+    assert _script(home).is_symlink()
+    assert any("AI_GOVERNANCE_CORPORATE_DIR" in w and str(missing) in w for w in report2.warnings)
+
+
+def test_empty_corporate_dir_still_removes(home: Path, pack_root: Path) -> None:
+    install_user(["claude"])
+    assert _pack_rules(home)
+    assert _script(home).is_symlink()
+
+    for path in sorted(pack_root.rglob("*"), reverse=True):
+        path.unlink() if path.is_file() else path.rmdir()
+    assert pack_root.is_dir()
+
+    report = install_user(["claude"])
+
+    assert _pack_rules(home) == []
+    assert not _script(home).exists()
+    assert not any("AI_GOVERNANCE_CORPORATE_DIR" in w for w in report.warnings)
+
+
+def test_uninstall_keeps_shared_scripts_when_corporate_dir_missing(
+    home: Path, pack_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_user(["claude", "antigravity"])
+    assert _script(home).is_symlink()
+
+    missing = pack_root.parent / "nonexistent-corporate-dir"
+    monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(missing))
+
+    uninstall_user(["claude"])
+    assert _pack_rules(home) == []
+    assert _script(home).is_symlink()
+
+    uninstall_user(["antigravity"])
+    assert not _script(home).exists()
+
+
+def test_missing_corporate_dir_keeps_all_agents_links(
+    home: Path, pack_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_user(["claude", "antigravity", "codex"])
+    gemini_rule = home / ".gemini" / "config" / "rules" / "ai-governance-acme-glossary.md"
+    codex_rule = home / ".codex" / "ai-governance" / "company" / "acme-glossary.md"
+    assert gemini_rule.is_symlink()
+    assert codex_rule.is_symlink()
+
+    missing = pack_root.parent / "nonexistent-packs"
+    monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(missing))
+
+    report = install_user(["claude", "antigravity", "codex"])
+    assert _pack_rules(home)
+    assert gemini_rule.is_symlink()
+    assert codex_rule.is_symlink()
+    assert _script(home).is_symlink()
+    assert any("AI_GOVERNANCE_CORPORATE_DIR" in w for w in report.warnings)
+
+

@@ -15,6 +15,7 @@ import subprocess
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from .. import __version__, corporate
 from ..paths import state_dir
@@ -202,6 +203,27 @@ def sync_completions(*, dry_run: bool = False) -> Report | None:
     return report
 
 
+def _is_corporate_entry(entry: dict[str, Any]) -> bool:
+    """Corporate rules and scripts in the global ledger are symlinks."""
+    return entry.get("kind") == "link" and (
+        entry.get("agent") == SCRIPTS_OWNER or entry.get("agent") in AGENTS
+    )
+
+
+def _corporate_entries_to_keep(ledger: Ledger, agents: set[str]) -> list[Owned]:
+    """Preserves existing corporate links when the corporate root directory is missing."""
+    kept: list[Owned] = []
+    for entry in ledger.entries:
+        if _is_corporate_entry(entry) and entry.get("agent") in agents:
+            kept.append(
+                Owned(
+                    str(entry["agent"]),
+                    LinkArtifact(ledger.resolve(entry["path"]), str(entry["target"])),
+                )
+            )
+    return kept
+
+
 def install_user(
     agents: list[str],
     *,
@@ -216,14 +238,24 @@ def install_user(
     """
     specs = resolve_agents(agents)
     ledger = global_ledger()
-    packs = corporate.packs(only=corporate_names)
+    root = corporate.corporate_root()
     report = Report()
     desired = [Owned(spec.id, artifact) for spec in specs for artifact in spec.global_artifacts()]
     language_rules = RuleCatalog().user_rules()
     for spec in specs:
-        desired.extend(_corporate_rules(spec, packs))
         desired.extend(_language_rules(spec, language_rules))
-    desired.extend(_corporate_scripts(packs, report))
+    if root.exists():
+        packs = corporate.packs(only=corporate_names)
+        for spec in specs:
+            desired.extend(_corporate_rules(spec, packs))
+        desired.extend(_corporate_scripts(packs, report))
+    else:
+        report.warnings.append(
+            f"Corporate directory {root} does not exist: keeping previously installed corporate entries. "
+            "Set AI_GOVERNANCE_CORPORATE_DIR to point to your corporate rules directory."
+        )
+        corporate_scope = {spec.id for spec in specs} | {SCRIPTS_OWNER}
+        desired.extend(_corporate_entries_to_keep(ledger, corporate_scope))
     desired.extend(_completions())
     scope = {spec.id for spec in specs} | {SCRIPTS_OWNER, COMPLETIONS_OWNER, SCHEDULE_OWNER}
     if not dry_run:
@@ -242,14 +274,15 @@ def uninstall_user(
     ledger = global_ledger()
     report = Report()
     keep_shared = bool(installed_agents(ledger) - scope)
-    desired = (
-        [
-            *_corporate_scripts(corporate.packs(only=corporate_names), report),
-            *_completions(),
-        ]
-        if keep_shared
-        else []
-    )
+    root = corporate.corporate_root()
+    if keep_shared:
+        if root.exists():
+            scripts = _corporate_scripts(corporate.packs(only=corporate_names), report)
+        else:
+            scripts = _corporate_entries_to_keep(ledger, {SCRIPTS_OWNER})
+        desired = [*scripts, *_completions()]
+    else:
+        desired = []
     shared = {SCRIPTS_OWNER, COMPLETIONS_OWNER, SCHEDULE_OWNER}
     if not dry_run:
         schedule.unload()  # stop a retired agent before its plist is removed
