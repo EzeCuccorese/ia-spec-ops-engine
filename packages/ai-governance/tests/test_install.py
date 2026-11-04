@@ -9,7 +9,7 @@ import pytest
 from ai_governance.install import installer
 from ai_governance.install.agents import AGENTS, capability_table
 from ai_governance.install.cli import main as install_cli
-from ai_governance.install.doctor import FAIL, check
+from ai_governance.install.doctor import FAIL, Row, check
 from ai_governance.install.engine import Ledger
 from ai_governance.install.installer import (
     ProjectConfig,
@@ -141,6 +141,61 @@ def test_foreign_file_is_never_overwritten_without_force(home: Path) -> None:
     assert "read-only scout" in scout.read_text()
 
 
+def test_user_scope_install_renders_general_tool_rules(home: Path) -> None:
+    new_rule_ids = [
+        "circleci",
+        "13-atlassian",
+        "14-taskflow",
+        "15-tool-confidentiality",
+        "16-git-branch-ownership",
+        "17-quality-gate",
+    ]
+
+    # Initial install for all three agents
+    report = install_user(["claude", "antigravity", "codex"])
+    assert report.changed
+
+    claude_rules = home / ".claude" / "rules"
+    gemini_rules = home / ".gemini" / "config" / "rules"
+    codex_dir = home / ".codex" / "ai-governance"
+    codex_index = (codex_dir / "language-rules.md").read_text(encoding="utf-8")
+    codex_agents = (home / ".codex" / "AGENTS.md").read_text(encoding="utf-8")
+
+    # Codex AGENTS.md block references the index
+    assert "language-rules.md" in codex_agents
+
+    for rule_id in new_rule_ids:
+        # Claude: always-on front matter and content rendered
+        claude_file = claude_rules / f"ai-governance-{rule_id}.md"
+        assert claude_file.is_file(), f"Claude rule missing: {rule_id}"
+        claude_text = claude_file.read_text(encoding="utf-8")
+        assert claude_text.startswith("---\ntrigger: always_on\n")
+        assert "## Invariants" in claude_text
+
+        # Antigravity: always-on front matter and content rendered
+        gemini_file = gemini_rules / f"ai-governance-{rule_id}.md"
+        assert gemini_file.is_file(), f"Antigravity rule missing: {rule_id}"
+        gemini_text = gemini_file.read_text(encoding="utf-8")
+        assert gemini_text.startswith("---\ntrigger: always_on\n")
+        assert "## Invariants" in gemini_text
+
+        # Codex: file created and referenced in language-rules.md index
+        codex_file = codex_dir / f"ai-governance-{rule_id}.md"
+        assert codex_file.is_file(), f"Codex rule missing: {rule_id}"
+        assert f"ai-governance-{rule_id}.md" in codex_index
+
+    # Idempotency: second install makes zero changes
+    second = install_user(["claude", "antigravity", "codex"])
+    assert not second.changed
+
+    # Uninstall removes all new rules for all agents
+    uninstall_user(["claude", "antigravity", "codex"])
+    for rule_id in new_rule_ids:
+        assert not (claude_rules / f"ai-governance-{rule_id}.md").exists()
+        assert not (gemini_rules / f"ai-governance-{rule_id}.md").exists()
+        assert not (codex_dir / f"ai-governance-{rule_id}.md").exists()
+
+
 # -- project scope ------------------------------------------------------------------
 
 
@@ -253,6 +308,80 @@ def test_update_check_reports_stale_projects(project: Path, monkeypatch) -> None
     assert install_cli("update", ["--root", str(project), "--check"]) == 0
     monkeypatch.setattr(installer, "detect_stacks", lambda root: {"go"})
     assert install_cli("update", ["--all", "--check"]) == 1
+
+
+def test_claude_user_scope_entry_files_preserve_content(home: Path) -> None:
+    claude_dir = home / ".claude"
+    claude_dir.mkdir(parents=True)
+    existing_agents = "# My notes\nDo not delete me.\n"
+    existing_claude = "Custom header\n"
+    (claude_dir / "AGENTS.md").write_text(existing_agents, encoding="utf-8")
+    (claude_dir / "CLAUDE.md").write_text(existing_claude, encoding="utf-8")
+
+    install_user(["claude"])
+
+    agents_text = (claude_dir / "AGENTS.md").read_text(encoding="utf-8")
+    assert agents_text.startswith(existing_agents.rstrip())
+    assert "<!-- ai-governance:start -->" in agents_text
+    assert "<!-- ai-governance:end -->" in agents_text
+    assert "Personal preferences:" in agents_text
+    assert "Company rules:" in agents_text
+    assert "Engine catalog:" in agents_text
+
+    claude_text = (claude_dir / "CLAUDE.md").read_text(encoding="utf-8")
+    assert claude_text.startswith(existing_claude.rstrip())
+    assert "<!-- ai-governance:start -->\n@AGENTS.md\n<!-- ai-governance:end -->" in claude_text
+    assert "@ai-governance" not in claude_text
+    assert "@rules" not in claude_text
+
+    # Reinstall is idempotent
+    second_report = install_user(["claude"])
+    entry_changes = [
+        (action, path)
+        for action, path in second_report.changes
+        if path.endswith(("AGENTS.md", "CLAUDE.md")) and action != "unchanged"
+    ]
+    assert entry_changes == []
+
+    # Uninstall removes only the marker blocks, keeping outside content byte-for-byte
+    uninstall_user(["claude"])
+    assert (claude_dir / "AGENTS.md").read_text(encoding="utf-8") == existing_agents
+    assert (claude_dir / "CLAUDE.md").read_text(encoding="utf-8") == existing_claude
+
+
+def _claude_doctor_failures(rows: list[Row]) -> list[str]:
+    return [d for label, s, d in rows if label == "user:claude" and s == FAIL]
+
+
+def test_claude_user_scope_entry_files_doctor_checks(home: Path) -> None:
+    claude_dir = home / ".claude"
+    claude_dir.mkdir(parents=True)
+    install_user(["claude"])
+
+    # Doctor check passes with both blocks present
+    assert _claude_doctor_failures(check(None)) == []
+
+    # Doctor flags missing block in CLAUDE.md
+    (claude_dir / "CLAUDE.md").write_text("Custom header\n", encoding="utf-8")
+    failures = _claude_doctor_failures(check(None))
+    assert any("missing ai-governance block" in d and "CLAUDE.md" in d for d in failures)
+
+    # Restore CLAUDE.md block and wipe AGENTS.md block
+    install_user(["claude"])
+    (claude_dir / "AGENTS.md").write_text("# Notes\n", encoding="utf-8")
+    failures = _claude_doctor_failures(check(None))
+    assert any("missing ai-governance block" in d and "AGENTS.md" in d for d in failures)
+
+
+def test_claude_entry_files_unlinked_when_no_prior_content(home: Path) -> None:
+    install_user(["claude"])
+    claude_dir = home / ".claude"
+    assert (claude_dir / "AGENTS.md").is_file()
+    assert (claude_dir / "CLAUDE.md").is_file()
+
+    uninstall_user(["claude"])
+    assert not (claude_dir / "AGENTS.md").exists()
+    assert not (claude_dir / "CLAUDE.md").exists()
 
 
 def test_doctor_flags_claude_memory_and_duplicate_hooks(project: Path, home: Path) -> None:

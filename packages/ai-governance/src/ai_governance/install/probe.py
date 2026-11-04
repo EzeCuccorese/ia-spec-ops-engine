@@ -5,6 +5,10 @@ those agents are only installed after a probe proves they work:
 
 1. ``ai-governance probe --agent X`` builds a throwaway project with unique canary
    tokens in every candidate instructions location and recording hooks.
+   (Note: user-scope canaries, such as user-level AGENTS.md loaded via CLAUDE.md in
+   ~/.claude, are not part of probe because probe strictly constructs an isolated,
+   throwaway project in a temporary directory without modifying the user's permanent
+   home directory or global agent configuration).
 2. Open the agent there and send the printed prompt.
 3. ``ai-governance probe --agent X --verify --seen <canaries the agent listed>``
    stores the verified capabilities; ``install --scope user`` then uses them.
@@ -41,6 +45,11 @@ DUAL_RULE = (
 )
 
 
+# User-scope canaries (e.g. ~/.claude/AGENTS.md loaded via ~/.claude/CLAUDE.md) are
+# intentionally omitted: probe design builds a self-contained, disposable project
+# directory in tempfile.mkdtemp. Writing to user-scope paths (~/.claude) would mutate
+# permanent user configurations, leak canary tokens across real sessions, and break
+# probe test isolation.
 def _canaries(agent: str) -> dict[str, tuple[str, str]]:
     """canary -> (relative path, file content)."""
     agents_md = ("AGENTS.md", "# Probe\n- CANARY-AGENTS-MD\n")

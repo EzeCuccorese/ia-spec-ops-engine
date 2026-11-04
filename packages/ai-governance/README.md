@@ -20,7 +20,9 @@ uv tool install ./packages/workspace       # CLI: ws (recommended)
 
 Corporate packs are read from the source checkout, so install with
 `uv tool install --editable ./packages/ai-governance` when you use them (or point
-`AI_GOVERNANCE_CORPORATE_DIR` at the packs folder).
+`AI_GOVERNANCE_CORPORATE_DIR` at the packs folder). When the corporate root
+directory does not exist, previously installed corporate rules and scripts are kept
+unchanged and a warning is printed instead of removing them.
 
 ## What gets installed where
 
@@ -32,11 +34,12 @@ Nothing ever defaults to all agents.
 
 ### User scope — `ai-governance install --scope user --agent <claude|codex|antigravity>`
 
-Personal, project-agnostic harness, plus the language rules: every catalog rule marked
-`user_scope` (all `2-stacks` rules, the code-level core rules and `api-design`) is written to the
-agent's global rules folder with its globs, so it loads per file in any repository without
-committing anything. Codex has no per-file global rules: they are copied to
-`$CODEX_HOME/ai-governance/`, indexed by glob in `language-rules.md`, and the `AGENTS.md` block
+Personal, project-agnostic harness, plus general tool rules and language rules: every catalog rule
+marked `user_scope` (always-on general tool rules such as `circleci`, `13-atlassian`, `14-taskflow`,
+`15-tool-confidentiality`, `16-git-branch-ownership`, `17-quality-gate`, all `2-stacks` rules, the code-level core rules
+and `api-design`) is written to the agent's global rules folder with its globs (or always-on trigger),
+so it loads in any repository without committing anything. Codex has no per-file global rules: they are
+copied to `$CODEX_HOME/ai-governance/`, indexed in `language-rules.md`, and the `AGENTS.md` block
 points to that index.
 
 <!-- agents-table:start -->
@@ -102,9 +105,12 @@ to load them. `ai-governance completion zsh [tool]` prints one; skipped without 
 
 Company-specific, always-on rules and scripts live in `packages/corporate-rules/<company>/` of
 the local checkout (gitignored, see [its README](../corporate-rules/README.md)), or wherever
-`AI_GOVERNANCE_CORPORATE_DIR` points. Every pack present is installed by the regular
-`install --scope user --agent ...`, with no extra flag. Removing or swapping the folder and
-installing again removes or swaps its files.
+`AI_GOVERNANCE_CORPORATE_DIR` points. Every pack present is installed by the regular `install --scope user --agent ...`,
+with no extra flag. Removing or swapping the folder and installing again removes
+or swaps its files. When the corporate root directory does not exist, previously
+installed corporate rules and scripts are kept unchanged and the installer prints
+a warning explaining how to set `AI_GOVERNANCE_CORPORATE_DIR`. An existing but empty
+root, or a pack deselected by config, still removes as normal.
 
 | Pack content | Installed as |
 |---|---|
@@ -117,6 +123,47 @@ Rules are refreshed only for the agents named in that install: other installed a
 the previous pack's rules until they are installed again, so pass every agent you use
 (`--agent claude --agent antigravity`). When two packs ship a script with the same name, the
 first pack alphabetically wins and the install warns.
+
+### Personal pack
+
+Personal preferences live outside the repository in `$AI_GOVERNANCE_PERSONAL_DIR` or
+`~/.config/ai-governance/personal/` (honouring `AI_GOVERNANCE_CONFIG_DIR`). Every rule
+in `<root>/rules/*.md` is installed as a symlink for each selected agent:
+
+| Pack content | Installed as |
+|---|---|
+| `rules/<name>.md` | Claude Code: `~/.claude/rules/ai-governance-personal-<name>.md` (symlink to the source file) |
+| | Antigravity: `~/.gemini/config/rules/ai-governance-personal-<name>.md` (symlink; front matter `trigger: always_on` is what Antigravity reads; no global `GEMINI.md` needed) |
+| | Codex: `$CODEX_HOME/ai-governance/personal/<name>.md` (symlink; the `AGENTS.md` block tells Codex to read `personal/` once per session) |
+
+When the personal root directory does not exist, previously installed personal links are kept
+unchanged and a warning is printed explaining how to set `AI_GOVERNANCE_PERSONAL_DIR`.
+An existing directory with an empty `rules` folder removes previous links as normal.
+Uninstalling an agent removes its personal links.
+
+### Generated entry files (Claude Code)
+
+At user scope, Claude Code receives entry files managed via marker blocks:
+
+- `~/.claude/CLAUDE.md`: contains only `@AGENTS.md` (does not @-import individual rules).
+- `~/.claude/AGENTS.md`: short text listing the three layers (engine catalog, corporate, personal) and where their files are installed.
+
+Marker blocks never overwrite existing content: user content outside the markers is preserved
+byte-for-byte upon install, update, and uninstall. Re-running the install is idempotent.
+`ai-governance doctor` checks that both entry blocks are present when Claude is installed at user scope.
+For Antigravity, rules with `trigger: always_on` front matter in `~/.gemini/config/rules/` suffice; no global `GEMINI.md` is needed.
+
+### Rule layers and precedence
+
+The engine renders instructions across four layers:
+
+1. **Repository rules**: committed in `.agents/rules/` and project `AGENTS.md`.
+2. **Personal pack**: personal preferences in `~/.config/ai-governance/personal/rules/*.md`.
+3. **Corporate pack**: company rules in `packages/corporate-rules/<company>/rules/*.md`.
+4. **Engine catalog**: general tool rules and path-scoped language rules from the package.
+
+When rules conflict, the precedence order is:
+`repo rules > personal pack > corporate pack > engine catalog`. Repo rules always win.
 
 ### Project scope — `ai-governance install --scope project --agent <...>`
 
