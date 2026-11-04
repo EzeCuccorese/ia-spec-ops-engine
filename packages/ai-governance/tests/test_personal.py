@@ -73,6 +73,16 @@ def test_missing_personal_folder_lists_no_rules(tmp_path: Path) -> None:
     assert personal.rules(missing) == []
 
 
+def test_personal_rules_ignores_directory_with_md_extension(tmp_path: Path) -> None:
+    rules_dir = tmp_path / "rules"
+    rules_dir.mkdir()
+    (rules_dir / "valid.md").write_text("# Valid\n", encoding="utf-8")
+    (rules_dir / "subfolder.md").mkdir()
+
+    loaded = personal.rules(tmp_path)
+    assert [r.name for r in loaded] == ["valid"]
+
+
 def test_user_install_links_personal_rules_for_all_agents(home: Path, personal_root: Path) -> None:
     report = install_user(["claude", "antigravity", "codex"])
 

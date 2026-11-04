@@ -37,4 +37,5 @@ def rules(root: Path | None = None) -> list[PersonalRule]:
     return [
         PersonalRule(path.stem, path.read_text(encoding="utf-8"), path.resolve())
         for path in sorted(folder.glob("*.md"))
+        if path.is_file()
     ]

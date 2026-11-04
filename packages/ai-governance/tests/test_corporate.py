@@ -261,6 +261,16 @@ def test_empty_corporate_dir_still_removes(home: Path, pack_root: Path) -> None:
     assert not any("AI_GOVERNANCE_CORPORATE_DIR" in w for w in report.warnings)
 
 
+def test_missing_corporate_dir_without_prior_entries_stays_silent(
+    home: Path, pack_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    missing = pack_root.parent / "nonexistent-corporate-dir"
+    monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(missing))
+
+    report = install_user(["claude"])
+    assert not any("AI_GOVERNANCE_CORPORATE_DIR" in w for w in report.warnings)
+
+
 def test_uninstall_keeps_shared_scripts_when_corporate_dir_missing(
     home: Path, pack_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

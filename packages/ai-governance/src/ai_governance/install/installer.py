@@ -348,12 +348,14 @@ def _corporate_desired(
         desired = [artifact for spec in specs for artifact in _corporate_rules(spec, packs)]
         desired.extend(_corporate_scripts(packs, report))
         return desired
-    report.warnings.append(
-        f"Corporate directory {root} does not exist: keeping previously installed corporate entries. "
-        "Set AI_GOVERNANCE_CORPORATE_DIR to point to your corporate rules directory."
-    )
     corporate_scope = {spec.id for spec in specs} | {SCRIPTS_OWNER}
-    return _corporate_entries_to_keep(ledger, corporate_scope, RuleCatalog())
+    kept = _corporate_entries_to_keep(ledger, corporate_scope, RuleCatalog())
+    if kept:
+        report.warnings.append(
+            f"Corporate directory {root} does not exist: keeping previously installed corporate entries. "
+            "Set AI_GOVERNANCE_CORPORATE_DIR to point to your corporate rules directory."
+        )
+    return kept
 
 
 def _personal_desired(specs: list[AgentSpec], ledger: Ledger, report: Report) -> list[Owned]:
