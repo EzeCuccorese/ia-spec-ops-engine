@@ -234,21 +234,12 @@ def test_fallback_reports_clash_when_explicitly_configured(
     assert any("validator" in e for e in config.validate())
 
 
-def test_allowed_codex_antigravity_swaps_builder_to_codex_and_validator_judge_to_antigravity(
-    tmp_path: Path,
+@pytest.mark.parametrize(("allowed", "builder"), [("codex", "codex"), ("claude", "claude")])
+def test_independent_roles_fall_back_to_antigravity(
+    tmp_path: Path, allowed: str, builder: str
 ) -> None:
-    config = load_config([_restricted(tmp_path, "codex", "antigravity")])
-    assert config.roles["builder"]["agent"] == "codex"
-    assert config.roles["validator"]["agent"] == "antigravity"
-    assert config.judges[0]["agent"] == "antigravity"
-    assert _problems(config) == []
-
-
-def test_allowed_claude_antigravity_keeps_builder_claude_and_swaps_validator_to_antigravity(
-    tmp_path: Path,
-) -> None:
-    config = load_config([_restricted(tmp_path, "claude", "antigravity")])
-    assert config.roles["builder"]["agent"] == "claude"
+    config = load_config([_restricted(tmp_path, allowed, "antigravity")])
+    assert config.roles["builder"]["agent"] == builder
     assert config.roles["validator"]["agent"] == "antigravity"
     assert config.judges[0]["agent"] == "antigravity"
     assert _problems(config) == []

@@ -412,7 +412,7 @@ def test_an_exception_mid_checks_leaves_no_worktree_or_scratch(
     assert _git(ready.repo, "worktree", "list").count("\n") == 1
 
 
-# -- fix 2: dispatch and gates agree on frozen human vs engine ---------------------------------
+# -- dispatch and gates agree on frozen human vs engine ---------------------------------
 def test_judge_flow_agrees_with_gates_when_frozen_engine_overrides_live_human(
     ready: OrcaWorld, checks: Checks
 ) -> None:
@@ -473,70 +473,37 @@ def test_judge_flow_agrees_with_gates_when_frozen_human_overrides_live_engine(
     assert dispatches == []
 
 
-# -- fix 3: latest valid judge round per focus at current stamp for independence ---------------
+def _judge_round(n: int, agent: str, stamp: str) -> dict[str, object]:
+    return {
+        "n": n,
+        "role": "judge",
+        "focus": "correctness",
+        "agent": agent,
+        "state": "valid",
+        "source": "engine",
+        "stamp": stamp,
+    }
+
+
 def test_judge_independence_only_considers_latest_valid_round_at_current_stamp(
     ready: OrcaWorld,
 ) -> None:
-    task = ready.task()
-    current_stamp = task.stamp_key
-    config = cli._config(task)
-    ready.store.mutate(
-        TASK,
-        lambda t: t.rounds.extend(
-            [
-                {
-                    "n": 1,
-                    "role": "judge",
-                    "focus": "correctness",
-                    "agent": "claude",
-                    "state": "valid",
-                    "source": "engine",
-                    "stamp": "stamp_old",
-                },
-                {
-                    "n": 2,
-                    "role": "judge",
-                    "focus": "correctness",
-                    "agent": "claude",
-                    "state": "valid",
-                    "source": "engine",
-                    "stamp": current_stamp,
-                },
-                {
-                    "n": 3,
-                    "role": "judge",
-                    "focus": "correctness",
-                    "agent": "codex",
-                    "state": "valid",
-                    "source": "engine",
-                    "stamp": current_stamp,
-                },
-            ]
-        ),
-    )
-    task = ready.task()
-    assert gates._independence_unmet(task, config) == []
+    stamp = ready.task().stamp_key
+    config = cli._config(ready.task())
+    rounds = [
+        _judge_round(1, "claude", "stamp_old"),
+        _judge_round(2, "claude", stamp),
+        _judge_round(3, "codex", stamp),
+    ]
+    ready.store.mutate(TASK, lambda t: t.rounds.extend(rounds))
+    assert gates._independence_unmet(ready.task(), config) == []
 
-    ready.store.mutate(
-        TASK,
-        lambda t: t.rounds.append(
-            {
-                "n": 4,
-                "role": "judge",
-                "focus": "correctness",
-                "agent": "claude",
-                "state": "valid",
-                "source": "engine",
-                "stamp": current_stamp,
-            }
-        ),
-    )
-    task = ready.task()
-    unmet = gates._independence_unmet(task, config)
+    ready.store.mutate(TASK, lambda t: t.rounds.append(_judge_round(4, "claude", stamp)))
+    unmet = gates._independence_unmet(ready.task(), config)
     assert len(unmet) == 1 and "judge and builder both used provider 'claude'" in unmet[0]
 
 
-# -- fix 8: preflight checks disallowed agent and pending duplicate before checks/evidence -----
+# -- preflight checks disallowed agent and pending duplicate before checks/evidence -----
 def test_disallowed_judge_agent_refused_before_checks_and_evidence(
     ready: OrcaWorld, checks: Checks
 ) -> None:
