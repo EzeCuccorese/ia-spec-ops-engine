@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.5.0 - 2026-11-04
+
+### Features
+- Layered user rules for every agent.
+- General tool rules into engine catalog for Phase A.
+- Add personal rules pack mirrored from corporate.
+- Add user-scope entry files and doctor check for Claude.
+- Add personal and corporate rules pointer and update docs.
+- Complete the tool rules with gotchas, tokens and gate policy.
+
+### Fixes
+- Keep corporate entries and warn when corporate directory is missing.
+- Precisely identify corporate rule links by path and target.
+- Add missing 17-quality-gate rule file.
+- Format codebase with ruff and adjust test limits.
+- Silence corporate warning when no prior entries and filter md files.
+
 ## Unreleased
 
 ### Features
