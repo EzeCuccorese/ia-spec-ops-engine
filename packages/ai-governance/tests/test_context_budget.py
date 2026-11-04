@@ -33,9 +33,16 @@ def test_rule_budget(rule) -> None:
     assert len(rule.content.encode()) <= RULE_MAX, f"{rule.id} exceeds {RULE_MAX} bytes"
 
 
-def test_general_rules_are_path_scoped_except_security() -> None:
+def test_always_on_rules_are_security_and_general_tools() -> None:
     always = {rule.id for rule in RuleCatalog().rules if rule.always_on}
-    assert always == {"06-security-privacy"}
+    assert always == {
+        "06-security-privacy",
+        "13-atlassian",
+        "14-taskflow",
+        "15-tool-confidentiality",
+        "16-git-branch-ownership",
+        "circleci",
+    }
 
 
 def test_fixed_session_cost_for_a_typical_install(monkeypatch, tmp_path: Path) -> None:
@@ -50,10 +57,11 @@ def test_fixed_session_cost_for_a_typical_install(monkeypatch, tmp_path: Path) -
     user = fixed_cost(installer.global_ledger())
     project = fixed_cost(Ledger(root / PROJECT_DIR / "lock.json", base=root))
 
-    assert user["claude"] <= GLOBAL_MAX
-    # The single always-on rule (read by each agent once) plus the shared AGENTS.md block.
-    assert project["claude"] <= RULE_MAX + 300  # symlink to the canonical always-on rule
-    assert project["project"] <= PROJECT_BLOCK_MAX + RULE_MAX + 300
+    # Global instructions plus the 5 always-on tool rules in user scope.
+    assert user["claude"] <= GLOBAL_MAX + 5 * (RULE_MAX + 300)
+    # The 6 always-on rules (read by each agent once) plus the shared AGENTS.md block.
+    assert project["claude"] <= 6 * (RULE_MAX + 300)
+    assert project["project"] <= PROJECT_BLOCK_MAX + 6 * (RULE_MAX + 300)
 
 
 def test_readme_agents_table_is_generated() -> None:

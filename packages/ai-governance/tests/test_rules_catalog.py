@@ -6,7 +6,7 @@ from ai_governance.rules.catalog import SCHEMA_VERSION, RuleCatalog
 
 def test_catalog_loads_all_rules_with_metadata() -> None:
     catalog = RuleCatalog()
-    assert len(catalog.rules) == 30
+    assert len(catalog.rules) == 35
     for rule in catalog.rules:
         assert rule.description and rule.globs and rule.sha256
         assert rule.content.startswith("# ")
@@ -144,13 +144,81 @@ def test_code_design_rules_leave_numeric_limits_to_ws_design() -> None:
         assert not re.search(r"(arity|nesting|parameters?|lines?)\s*(≤|<=)", content, re.I)
 
 
-def test_user_rules_cover_every_language_and_stay_path_scoped() -> None:
+def test_user_rules_cover_every_language_and_tool_rules() -> None:
     catalog = RuleCatalog()
     user_ids = {rule.id for rule in catalog.user_rules()}
     stacks = {rule.id for rule in catalog.rules if rule.category == "2-stacks"}
     assert stacks <= user_ids
     assert "api-design" in user_ids
-    assert not any(rule.always_on for rule in catalog.user_rules())
+    tool_rules = {
+        "circleci",
+        "13-atlassian",
+        "14-taskflow",
+        "15-tool-confidentiality",
+        "16-git-branch-ownership",
+    }
+    assert tool_rules <= user_ids
+    assert {rule.id for rule in catalog.user_rules() if rule.always_on} == tool_rules
+    # language-level rules remain path-scoped
+    language_rules = [r for r in catalog.user_rules() if r.id not in tool_rules]
+    assert not any(rule.always_on for rule in language_rules)
+
+
+def test_general_tool_rules_content_semantics() -> None:
+    catalog = RuleCatalog()
+
+    # git-branch-ownership: exact required semantics
+    branch_rule = catalog.get("16-git-branch-ownership")
+    assert branch_rule is not None
+    assert branch_rule.user_scope is True
+    assert branch_rule.always_on is True
+    content = branch_rule.content
+    assert "user created it or asked the agent to create it" in content
+    assert "never pushes, force-pushes, rebases, resets, deletes or commits" in content
+    assert "exact action and branch" in content
+    assert "user's explicit authorization" in content
+    assert "one authorization covers one action on one branch" in content.lower()
+    assert "unclear ownership means not the user's" in content.lower()
+
+    # circleci: reads free, writes need approval, deploy hold prohibited, tokens named by variable
+    circleci = catalog.get("circleci")
+    assert circleci is not None
+    assert circleci.user_scope is True
+    assert circleci.always_on is True
+    c_content = circleci.content
+    assert "reads" in c_content.lower() and "free" in c_content.lower()
+    assert "POST" in c_content and "DELETE" in c_content
+    assert "approval" in c_content.lower()
+    assert "deploy hold" in c_content.lower()
+    assert "CIRCLE_TOKEN" in c_content and "CIRCLE_TOKEN_RW" in c_content
+
+    # atlassian: CLI commands, $ATLASSIAN_URL, reads free, writes need approval
+    atlassian = catalog.get("13-atlassian")
+    assert atlassian is not None
+    assert atlassian.user_scope is True
+    assert atlassian.always_on is True
+    a_content = atlassian.content
+    assert "ai-governance jira" in a_content and "ai-governance confluence" in a_content
+    assert "$ATLASSIAN_URL" in a_content
+    assert "free" in a_content.lower()
+    assert "approval" in a_content.lower()
+
+    # taskflow: task registry and tracking
+    taskflow = catalog.get("14-taskflow")
+    assert taskflow is not None
+    assert taskflow.user_scope is True
+    assert taskflow.always_on is True
+    t_content = taskflow.content
+    assert "ai-governance taskflow" in t_content
+    assert "here" in t_content and "status" in t_content and "new" in t_content and "bind" in t_content
+
+    # tool-confidentiality: engine tooling never mentioned
+    conf = catalog.get("15-tool-confidentiality")
+    assert conf is not None
+    assert conf.user_scope is True
+    assert conf.always_on is True
+    conf_content = conf.content
+    assert "never mentioned in tickets, PRs, commits, reviews or chat tools" in conf_content
 
 
 def test_every_language_rule_states_how_to_validate_input() -> None:

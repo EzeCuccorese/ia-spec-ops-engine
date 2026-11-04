@@ -141,6 +141,60 @@ def test_foreign_file_is_never_overwritten_without_force(home: Path) -> None:
     assert "read-only scout" in scout.read_text()
 
 
+def test_user_scope_install_renders_general_tool_rules(home: Path) -> None:
+    new_rule_ids = [
+        "circleci",
+        "13-atlassian",
+        "14-taskflow",
+        "15-tool-confidentiality",
+        "16-git-branch-ownership",
+    ]
+
+    # Initial install for all three agents
+    report = install_user(["claude", "antigravity", "codex"])
+    assert report.changed
+
+    claude_rules = home / ".claude" / "rules"
+    gemini_rules = home / ".gemini" / "config" / "rules"
+    codex_dir = home / ".codex" / "ai-governance"
+    codex_index = (codex_dir / "language-rules.md").read_text(encoding="utf-8")
+    codex_agents = (home / ".codex" / "AGENTS.md").read_text(encoding="utf-8")
+
+    # Codex AGENTS.md block references the index
+    assert "language-rules.md" in codex_agents
+
+    for rule_id in new_rule_ids:
+        # Claude: always-on front matter and content rendered
+        claude_file = claude_rules / f"ai-governance-{rule_id}.md"
+        assert claude_file.is_file(), f"Claude rule missing: {rule_id}"
+        claude_text = claude_file.read_text(encoding="utf-8")
+        assert claude_text.startswith("---\ntrigger: always_on\n")
+        assert "## Invariants" in claude_text
+
+        # Antigravity: always-on front matter and content rendered
+        gemini_file = gemini_rules / f"ai-governance-{rule_id}.md"
+        assert gemini_file.is_file(), f"Antigravity rule missing: {rule_id}"
+        gemini_text = gemini_file.read_text(encoding="utf-8")
+        assert gemini_text.startswith("---\ntrigger: always_on\n")
+        assert "## Invariants" in gemini_text
+
+        # Codex: file created and referenced in language-rules.md index
+        codex_file = codex_dir / f"ai-governance-{rule_id}.md"
+        assert codex_file.is_file(), f"Codex rule missing: {rule_id}"
+        assert f"ai-governance-{rule_id}.md" in codex_index
+
+    # Idempotency: second install makes zero changes
+    second = install_user(["claude", "antigravity", "codex"])
+    assert not second.changed
+
+    # Uninstall removes all new rules for all agents
+    uninstall_user(["claude", "antigravity", "codex"])
+    for rule_id in new_rule_ids:
+        assert not (claude_rules / f"ai-governance-{rule_id}.md").exists()
+        assert not (gemini_rules / f"ai-governance-{rule_id}.md").exists()
+        assert not (codex_dir / f"ai-governance-{rule_id}.md").exists()
+
+
 # -- project scope ------------------------------------------------------------------
 
 

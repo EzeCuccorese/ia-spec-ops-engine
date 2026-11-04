@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Features
+- General tool rules into the engine catalog (Phase A): `circleci`, `13-atlassian`, `14-taskflow`, `15-tool-confidentiality`, `16-git-branch-ownership` with user-scope always-on installation for Claude, Antigravity, and Codex.
+
 ## 1.3.0 - 2026-11-03
 
 ### Features
