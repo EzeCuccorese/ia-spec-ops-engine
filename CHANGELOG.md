@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Features
+- General tool rules into the engine catalog (Phase A): `circleci`, `13-atlassian`, `14-taskflow`, `15-tool-confidentiality`, `16-git-branch-ownership` with user-scope always-on installation for Claude, Antigravity, and Codex.
 - personal: add personal preferences pack support (`$AI_GOVERNANCE_PERSONAL_DIR` or `~/.config/ai-governance/personal/`), installed as symlinks for Claude, Antigravity, and Codex, with missing directory safety.
 - install: add Claude user-scope entry files (`~/.claude/CLAUDE.md` and `~/.claude/AGENTS.md`) using marker blocks to preserve existing content outside markers.
 - codex: instruct Codex in its AGENTS.md block to read both `company/` and `personal/` rule directories once per session.

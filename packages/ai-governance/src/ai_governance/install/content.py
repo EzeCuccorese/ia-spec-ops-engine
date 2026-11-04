@@ -13,7 +13,8 @@ GENERATED_NOTE = (
 GLOBAL_INSTRUCTIONS = """\
 # ai-governance
 - Deterministic tools first: `ws run -- <cmd>` (condensed output + `ws log <id>` for more),
-  `ws check --changed`, `ws detect`, `ai-governance jira|confluence`. Never re-run a command just to see more of its output.
+  `ws check --changed` (`QG_SKIP=<stages>`), `ws detect`, `ai-governance jira|confluence`.
+  Never re-run a command just to see more of its output.
 - Frugal reads: `git diff --stat` before `git diff`; `git log --oneline -n 10`; pipe JSON
   through `jq` with a minimal projection; read large files with offset/limit; never print
   lockfiles, bundles or generated files.
