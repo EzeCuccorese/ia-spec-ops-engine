@@ -62,6 +62,12 @@ SETTINGS: tuple[Setting, ...] = (
         "AI_GOVERNANCE_CHECK_TIMEOUT_SECONDS",
         "Timeout of each check, judge and TDD command",
     ),
+    Setting(
+        "taskflow.allowed_agents",
+        ["antigravity", "codex", "claude"],
+        "AI_GOVERNANCE_ALLOWED_AGENTS",
+        "Agents taskflow may use, comma separated (user level; a repo file can only narrow it)",
+    ),
     *(
         Setting(
             f"taskflow.{role}_{field}",
@@ -77,11 +83,6 @@ SETTINGS: tuple[Setting, ...] = (
         )
         for field, default in (("agent", agent), ("model", model))
     ),
-    Setting(
-        "agents.antigravity_binary", "agy", "AI_GOVERNANCE_ANTIGRAVITY_BINARY", "CLI of Antigravity"
-    ),
-    Setting("agents.codex_binary", "codex", "AI_GOVERNANCE_CODEX_BINARY", "CLI of Codex"),
-    Setting("agents.claude_binary", "claude", "AI_GOVERNANCE_CLAUDE_BINARY", "CLI of Claude Code"),
     Setting(
         "agents.codex_scout_model",
         "gpt-6-luna",
@@ -115,13 +116,14 @@ SETTINGS: tuple[Setting, ...] = (
     ),
 )
 
-# Role, judge and binary settings decide who runs with full permissions: only the user's own
+# Role and judge settings decide who runs with full permissions: only the user's own
 # files may change them (a repository can add controls, never swap the agents).
 USER_ONLY_PREFIXES = (
     "taskflow.planner_",
     "taskflow.validator_",
     "taskflow.builder_",
     "taskflow.judge_",
+    "taskflow.allowed_agents",  # a repository narrows it through its own strict reader
     "agents.",
     "hooks.",  # hooks.gate_command picks the program the automatic stop hook runs
     "corporate.",  # which company packs get installed

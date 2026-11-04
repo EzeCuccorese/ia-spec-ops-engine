@@ -5,17 +5,17 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import sys
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
 
 from .._config_core import AGENT_ENV_MARKERS
 from ..output import emit_json, emit_kv, emit_rows, emit_status, emit_text
-from . import tdd
+from . import orca, round_cli, tdd
 from .approvals import (
     RISKY_ACTIONS,
     STAMP_FREE_ACTIONS,
@@ -38,18 +38,20 @@ from .gates import (
     judges_unmet,
     plan_round,
     policy_unmet,
-    work_unmet,
 )
 from .guide import GUIDE as GUIDE
 from .handoff import findings, handoff, scrub, ticket_draft
-from .judge import JudgeError, judge_task
-from .models import PHASES, READER_ROLES, Task, now_iso
-from .policy import _rule_reductions as _rule_reductions
-from .policy import policy_reductions, policy_summary
+from .judge import JudgeError, JudgeScope
+from .judge_flow import JudgeJob, judge_flow
+from .models import PHASES, Task, now_iso
+from .policy import policy_summary
+from .prs import board as pr_board
+from .refresh import legacy_notice, refresh
+from .repos import begin_invocation, first_live, on_live
 from .resolver import TaskResolver
-from .risk import RiskAssessment, assess
-from .rounds import LeaseError, RoundRequest, record_manual, run_round
-from .stamp import GitError, changed_paths, code_stamp, merge_base
+from .risk import RiskAssessment
+from .rounds import LeaseError, record_manual
+from .stamp import GitError
 from .store import FRICTION_FILE, TaskStore
 
 
@@ -80,31 +82,7 @@ def _refresh(
     store: TaskStore, task: Task, config: FlowConfig, remote: bool = False
 ) -> tuple[Task, RiskAssessment]:
     """Recompute the code stamp and the risk of the current changes."""
-    if task.repos:
-        stamp = code_stamp(task.repos, config.policy_digest, check_remote=remote)
-        current = policy_summary(config)
-        # A task starts from the user's own policy, so what a repository switches off before
-        # the first stamp is a reduction like any later one.
-        accepted = task.policy or config.baseline_policy or current
-        acknowledged = set(accepted.get("acknowledged_repo_reductions", []))
-        stamp["policy_reduced"] = sorted(
-            {*policy_reductions(accepted, current), *config.repo_reductions} - acknowledged
-        )
-
-        def save(t: Task) -> None:
-            t.code_stamp = stamp
-            t.policy = t.policy or accepted
-
-        task = store.mutate(task.id, save)
-    paths: list[str] = []
-    for repo in task.repos:
-        paths += changed_paths(Path(repo["path"]), _base_ref(repo))
-    return task, assess(config, paths)
-
-
-def _base_ref(repo: dict[str, str]) -> str:
-    branch = repo.get("integration_branch", "")
-    return merge_base(Path(repo["path"]), branch) if branch else ""
+    return refresh(store, task, config, remote)
 
 
 # -- tracking ------------------------------------------------------------------------------
@@ -131,7 +109,10 @@ def cmd_show(args: argparse.Namespace) -> int:
             data["log"] = store.read_log(task.id)
         emit_json(data)
         return 0
-    emit_kv(_show_pairs(task), title=f"Task: {task.id} — {task.title}", full=args.full)
+    pairs = _show_pairs(task)
+    if line := pr_board.summary_for(store, task.id):
+        pairs.append(("PRs", line))
+    emit_kv(pairs, title=f"Task: {task.id} — {task.title}", full=args.full)
     if args.full:
         emit_text(store.read_log(task.id), full=True)
     return 0
@@ -299,6 +280,7 @@ def cmd_close(args: argparse.Namespace) -> int:
                 f"Cannot close '{task.id}': "
                 + "; ".join(missing)
                 + " (or --abandon --reason '...')"
+                + (f". {legacy_notice(task)}" if legacy_notice(task) else "")
             )
     return _set_status("closed")(args)
 
@@ -355,6 +337,34 @@ def cmd_stamp(args: argparse.Namespace) -> int:
     return 0
 
 
+def _recovery_pairs(task: Task) -> list[tuple[str, str]]:
+    """Status rows about repos gone from disk and the legacy-state notice."""
+    gone = [
+        ("repo gone (stamp frozen)", str(e["repo"]))
+        for e in task.code_stamp.get("repos", [])
+        if e.get("missing")
+    ]
+    return [*gone, *([("legacy", legacy_notice(task))] if legacy_notice(task) else [])]
+
+
+def _status_pairs(task: Task, risk: RiskAssessment, missing: list[str]) -> list[tuple[str, str]]:
+    target = _next_phase(task.phase)
+    return [
+        ("Phase", f"{task.phase}{' (BLOCKED)' if task.blocked else ''} · next: {target or '-'}"),
+        ("Code stamp", task.stamp_key or "no repository bound"),
+        (
+            "Risk",
+            f"{risk.level} · judges: {', '.join(risk.judges)}"
+            + (" · restaging required" if risk.restaging else ""),
+        ),
+        ("Missing", "; ".join(missing) or "nothing"),
+        *_recovery_pairs(task),
+        ("Stale", ", ".join(_stale_rounds(task)) or "none"),
+        ("Expired approvals", ", ".join(_expired_approvals(task)) or "none"),
+        ("Next", NEXT_COMMAND.get(task.phase, "-")),
+    ]
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     store = _store()
     task = store.get(_resolve(store, args.task_id))
@@ -364,19 +374,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     missing = (
         check_transition(task, target, GateContext(config, risk, task.stamp_key)) if target else []
     )
-    pairs = [
-        ("Phase", f"{task.phase}{' (BLOCKED)' if task.blocked else ''} · next: {target or '-'}"),
-        ("Code stamp", task.stamp_key or "no repository bound"),
-        (
-            "Risk",
-            f"{risk.level} · judges: {', '.join(risk.judges)}"
-            + (" · restaging required" if risk.restaging else ""),
-        ),
-        ("Missing", "; ".join(missing) or "nothing"),
-        ("Stale", ", ".join(_stale_rounds(task)) or "none"),
-        ("Expired approvals", ", ".join(_expired_approvals(task)) or "none"),
-        ("Next", NEXT_COMMAND.get(task.phase, "-")),
-    ]
+    pairs = _status_pairs(task, risk, missing)
     waiting = _warn_pending_trust(config) if not args.json else []
     if args.json or waiting:
         pairs.insert(-1, ("Pending trust", "; ".join(waiting) or "none"))
@@ -526,8 +524,9 @@ def cmd_tdd(args: argparse.Namespace) -> int:
     else:
         if not args.cmd:
             raise ValueError("--cmd is required")
-        cwd = Path(task.repos[0]["path"]) if task.repos else Path.cwd()
-        exit_code, output = tdd.run_test(args.cmd, cwd)
+        live = first_live(task.repos)
+        cwd = live[0] if live else Path.cwd()
+        exit_code, output = on_live([cwd], lambda: tdd.run_test(args.cmd, cwd))
         if args.stage == "red":
             record = tdd.red_record(args.cmd, exit_code, output, task.stamp_key)
         else:
@@ -537,38 +536,13 @@ def cmd_tdd(args: argparse.Namespace) -> int:
     return 0
 
 
-def _prompt(args: argparse.Namespace) -> str:
-    if args.prompt_file:
-        return Path(args.prompt_file).read_text(encoding="utf-8")
-    if args.prompt:
-        return str(args.prompt)
-    raise ValueError("Pass --prompt-file or --prompt")
-
-
 def cmd_round(args: argparse.Namespace) -> int:
+    if args.action in ("dispatch", "collect", "abort"):
+        return round_cli.route(args)
     store = _store()
     task = store.get(args.task_id)
-    config = _config(task)
-    task, _risk = _refresh(store, task, config)
-    if args.action == "record":
-        return _record_manual_round(store, task, args)
-    _check_round_allowed(task, args.role)
-    agent = {"agent": args.agent, "model": args.model} if args.agent else config.role(args.role)
-    repo = Path(task.repos[0]["path"]) if task.repos else Path.cwd()
-    watch = tuple(Path(r["path"]) for r in task.repos[1:]) if args.role in READER_ROLES else ()
-    request = RoundRequest(
-        task.id,
-        args.phase or task.phase,
-        args.role,
-        _prompt(args),
-        repo,
-        agent,
-        timeout=args.timeout or config.timeout_seconds,
-        watch=watch,
-    )
-    record = run_round(store, request, task.stamp_key)
-    _report_round(record)
-    return 0 if record["state"] == "valid" else 1
+    task, _risk = _refresh(store, task, _config(task))
+    return _record_manual_round(store, task, args)
 
 
 def _record_manual_round(store: TaskStore, task: Task, args: argparse.Namespace) -> int:
@@ -584,29 +558,6 @@ def _record_manual_round(store: TaskStore, task: Task, args: argparse.Namespace)
     record = record_manual(store, task.id, info, scrub(body))
     emit_status("ok", f"Round {record['n']:03d} recorded as context (it never opens a gate)")
     return 0
-
-
-def _check_round_allowed(task: Task, role: str) -> None:
-    if role == "judge":
-        raise ValueError("Judges run through `taskflow judge`, on an isolated copy")
-    if task.workflow == "manual":
-        raise ValueError("Manual tasks have no agent rounds")
-    if role == "builder" and (missing := work_unmet(task)):
-        raise ValueError("A builder cannot write yet: " + "; ".join(missing))
-    if task.blocked:
-        raise ValueError(
-            f"'{task.id}' is blocked by {task.blocked.get('owner')}: {task.blocked.get('needs')}"
-        )
-
-
-def _report_round(record: dict[str, object]) -> None:
-    level: Literal["ok", "warn"] = "ok" if record["state"] == "valid" else "warn"
-    reason = f" — {record['reason']}" if record.get("reason") else ""
-    emit_status(
-        level,
-        f"Round {int(str(record['n'])):03d} {record['role']}: {record['verdict']} "
-        f"({record['state']}{reason}). Read it: {record['file']}",
-    )
 
 
 def cmd_rounds(args: argparse.Namespace) -> int:
@@ -652,15 +603,19 @@ def cmd_judge(args: argparse.Namespace) -> int:
     missing = judge_unmet(task, task.stamp_key) + policy_unmet(task, task.stamp_key)
     if missing:
         raise ValueError("Not ready to judge: " + "; ".join(missing))
-    records, kept = judge_task(
-        store, task, GateContext(config, risk, task.stamp_key), focus=args.focus
-    )
-    for record in records:
-        _report_round(record)
-    for path in kept:
-        emit_status("warn", f"A judge modified its copy; kept for review: {path}")
+    job = JudgeJob(store, task, GateContext(config, risk, task.stamp_key), JudgeScope(args.focus))
+    waiting: set[str] = set()
+    for plan in judge_flow(job, lambda: _refresh(store, store.get(task.id), config)[0].stamp_key):
+        print(shlex.join(plan.argv))
+        waiting.add(plan.focus)
+        print(
+            f"Round {plan.n:03d} reserved (judge '{plan.focus}'). Run the line above, end your turn, "
+            f"then: taskflow round {task.id} collect --round {plan.n} --dispatch-id <ID from Orca>",
+            file=sys.stderr,
+        )
     task = store.get(task.id)
     pending = checks_unmet(task, task.stamp_key) + judges_unmet(task, risk, config, task.stamp_key)
+    pending = [p for p in pending if not any(p.startswith(f"judge '{f}':") for f in waiting)]
     for item in pending:
         emit_status("warn", item)
     return 0 if not pending else 1
@@ -805,7 +760,7 @@ def cmd_trust(args: argparse.Namespace) -> int:
 
 
 def cmd_config(args: argparse.Namespace) -> int:
-    config = load_config([Path.cwd()])
+    config = load_config([TaskResolver._git_root(Path.cwd()) or Path.cwd()])
     _warn_pending_trust(config)
     errors = config.validate()
     emit_kv(
@@ -819,9 +774,11 @@ def cmd_config(args: argparse.Namespace) -> int:
                 (f"judge {j.get('focus')}", f"{j.get('agent')} {j.get('model', '')}")
                 for j in config.judges
             ),
+            ("allowed agents", ", ".join(sorted(config.allowed.agents)) or "none"),
             ("checks", "; ".join(config.checks)),
             ("tdd", "mandatory (skip only with the user tdd-skip approval)"),
             ("risk rules", ", ".join(r.name for r in config.risk_rules) or "none"),
+            ("orca cli", orca.orca_problem() or "found (needed only to dispatch workers)"),
             ("errors", "; ".join(errors) or "none"),
         ],
         title="taskflow config",
@@ -840,6 +797,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    begin_invocation()
     parser = _parser()
     args = parser.parse_args(argv)
     if not getattr(args, "handler", None):

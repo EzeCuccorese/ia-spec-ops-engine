@@ -35,13 +35,21 @@ def _stop(self: argparse.ArgumentParser, *_args: Any, **_kwargs: Any) -> Any:
     raise _Captured(self)
 
 
+def _visible(action: argparse._SubParsersAction) -> dict[str, tuple[Any, str]]:
+    """The subcommands of one subparsers action. A hidden one has ``help=SUPPRESS``."""
+    helps = {choice.dest: choice.help or "" for choice in action._choices_actions}
+    return {
+        name: (sub, helps.get(name, ""))
+        for name, sub in action.choices.items()
+        if helps.get(name) != argparse.SUPPRESS
+    }
+
+
 def _subparsers(parser: argparse.ArgumentParser) -> dict[str, tuple[Any, str]]:
     found: dict[str, tuple[Any, str]] = {}
     for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
-            helps = {choice.dest: choice.help or "" for choice in action._choices_actions}
-            for name, sub in action.choices.items():
-                found[name] = (sub, helps.get(name, ""))
+            found.update(_visible(action))
     return found
 
 

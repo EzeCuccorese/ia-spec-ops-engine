@@ -197,9 +197,9 @@ verdicts and approvals are stale, and the next command.
 | `summary`, `step add\|done\|remove`, `fact`, `decide --why`, `note`, `link`, `reference`, `friction` | Record what a later session needs |
 | `bind <id> --repo P [--integration-branch B] [--pr N]`, `unbind` | Bind repositories/worktrees |
 | `stamp <id> [--remote]` | Code stamp of the bound repositories (HEAD + every changed path) and risk by path |
-| `round <id> run --role planner\|validator\|builder` / `round <id> record` | Run an agent headless and log it / log a round run elsewhere (context only) |
+| `round <id> dispatch --role planner\|validator`, `round <id> collect --round N --dispatch-id D`, `round <id> abort` / `round <id> record` | Reserve a reader round and print its Orca worker-start line (the engine never launches an agent), settle it from its worker or abort it / log a round run elsewhere (context only). `round <id> run` is gone: it is a hidden stub that exits 2 and points here |
 | `tdd <id> red\|green --cmd "..."`, `tdd <id> skip` | Mandatory test-first evidence; skipping needs the user's approval |
-| `judge <id> [--focus F]` | Checks and every required judge on an isolated `git worktree` of HEAD |
+| `judge <id> [--focus F]` | Runs the checks on a throwaway `git worktree` of HEAD, then prints the Orca worker line of every required judge (a reader of the real checkout; settle with `round collect`) |
 | `phase <id> <phase>`, `block`/`unblock`, `close [--abandon]` | Move through the gates |
 | `approve <id> --action A --target T --user-reply "..." [--consequence "..."]` | Record an approval the user gave in the chat |
 | `deploy <id> ...`, `evidence <id> ...` | Record a deployment the user made and evidence bound to its SHA |
@@ -211,7 +211,13 @@ with `agent`/`model`, `[[judges]]` with `focus`/`agent`/`model` (`[[roles.judges
 `[[risk.rules]]` with `paths`, `judges`, `checks`, `restaging`); a repository's
 `.ai-governance/taskflow.toml` can add, replace or disable controls (see Configuration layers). Gates the engine enforces:
 
-- A judge must be a different agent than the builder; every required focus must `pass` on
+- Different agents means different sessions: planner, validator and each judge are separate
+  sessions, and the builder is the coordinating session. The validator and every judge must be a
+  different provider (`codex` in `codex/gpt-6.1-sol`) than the builder; the planner may share the
+  builder's provider. A repository narrows the agents it allows with `[taskflow] allowed_agents`
+  in `.ai-governance/config.toml` (the user's set intersected with each bound repo's; malformed
+  values block every agent; a role left at its default moves to an allowed agent, an explicit
+  choice outside the set is an error). Every required focus must `pass` on
   the current code stamp, and any code change makes verdicts and approvals stale.
 - Readers (planner, validator, judge) run with full permissions and a read-only limit in the
   prompt; a reader that changes the tree invalidates its round, and the change is kept.
@@ -245,6 +251,7 @@ Files are TOML (`[frugality]` / `threshold_chars = 4000`). Older JSON files keep
 | `hooks.gate_budget_chars` | `AI_GOVERNANCE_GATE_BUDGET_CHARS` | `1500` | Size of the failure summary the gate reports |
 | `hooks.gate_timeout_seconds` | `AI_GOVERNANCE_GATE_TIMEOUT_SECONDS` | `900` | Timeout of the turn-end quality gate |
 | `taskflow.timeout_seconds` | `AI_GOVERNANCE_CHECK_TIMEOUT_SECONDS` | `1800` | Timeout of each check, judge and TDD command |
+| `taskflow.allowed_agents` | `AI_GOVERNANCE_ALLOWED_AGENTS` | `antigravity, codex, claude` | Agents taskflow may use, comma separated (user level; a repo's `.ai-governance/config.toml` `[taskflow] allowed_agents` can only narrow it) |
 | `taskflow.planner_agent` | `AI_GOVERNANCE_PLANNER_AGENT` | `antigravity` | Agent of the planner role (user level only: a repo cannot change it) |
 | `taskflow.planner_model` | `AI_GOVERNANCE_PLANNER_MODEL` | `gemini-4-argon-high` | Model of the planner role (user level only: a repo cannot change it) |
 | `taskflow.validator_agent` | `AI_GOVERNANCE_VALIDATOR_AGENT` | `codex` | Agent of the validator role (user level only: a repo cannot change it) |
@@ -253,20 +260,20 @@ Files are TOML (`[frugality]` / `threshold_chars = 4000`). Older JSON files keep
 | `taskflow.builder_model` | `AI_GOVERNANCE_BUILDER_MODEL` | `""` | Model of the builder role (user level only: a repo cannot change it) |
 | `taskflow.judge_agent` | `AI_GOVERNANCE_JUDGE_AGENT` | `codex` | Agent of the judge role (user level only: a repo cannot change it) |
 | `taskflow.judge_model` | `AI_GOVERNANCE_JUDGE_MODEL` | `gpt-6.1-sol` | Model of the judge role (user level only: a repo cannot change it) |
-| `agents.antigravity_binary` | `AI_GOVERNANCE_ANTIGRAVITY_BINARY` | `agy` | CLI of Antigravity |
-| `agents.codex_binary` | `AI_GOVERNANCE_CODEX_BINARY` | `codex` | CLI of Codex |
-| `agents.claude_binary` | `AI_GOVERNANCE_CLAUDE_BINARY` | `claude` | CLI of Claude Code |
 | `agents.codex_scout_model` | `AI_GOVERNANCE_CODEX_SCOUT_MODEL` | `gpt-6-luna` | Model of the Codex scout subagent written at install |
 | `corporate.packs` | `AI_GOVERNANCE_CORPORATE` | `[]` (all) | Company packs to install, comma separated (empty: every pack present) |
 | `atlassian.timeout_seconds` | `ATLASSIAN_TIMEOUT` | `30.0` | HTTP timeout of Jira and Confluence calls |
 | `pricing.timeout_seconds` | `AI_GOVERNANCE_PRICING_TIMEOUT_SECONDS` | `10.0` | Timeout of the price feed download |
 | `schedule.label` | `AI_GOVERNANCE_SCHEDULE_LABEL` | `com.ai-governance.prices-update` | launchd label of the price-refresh agent |
 
-Role, agent-binary and model settings (`taskflow.<role>_agent|_model`, `agents.*`) are read from
+Role and model settings (`taskflow.<role>_agent|_model`, `agents.*`) are read from
 the user level only: a repository cannot swap the agents that run with full permissions.
+The `agents.<name>_binary` settings (and `AI_GOVERNANCE_<NAME>_BINARY`) were removed because agents
+run as Orca workers: files that still set them keep loading, the value is ignored, and
+`config show` lists the key as `no longer used`. Point `ORCA_CLI_COMMAND` at a different Orca CLI instead.
 `ai-governance install --scope user --corporate acme,globex` (or `corporate.packs`) installs
 only those company packs; an unknown name is an error that lists the packs present. `--corporate ""` (or `AI_GOVERNANCE_CORPORATE=`) installs no pack; choosing nothing installs every pack present.
-An environment variable that is set but empty counts as **unset** (a stray `VAR=` never blanks a command, binary, model or timeout); the only exceptions are selections where "nothing" is a real answer: `corporate.packs` (`AI_GOVERNANCE_CORPORATE=` installs no pack) and the gate's `QG_SKIP=` (skip nothing).
+An environment variable that is set but empty counts as **unset** (a stray `VAR=` never blanks a command, model or timeout); the only exceptions are selections where "nothing" is a real answer: `corporate.packs` (`AI_GOVERNANCE_CORPORATE=` installs no pack) and the gate's `QG_SKIP=` (skip nothing).
 `hooks.gate_command` is split like a shell line and its first word looked up on `PATH`.
 
 `taskflow.toml` keeps roles, judges, checks and risk rules. The repository's
