@@ -1,6 +1,7 @@
 # TriAgentTaskFlow (Plan · Build · Judge): Antigravity + Claude Code + Codex CLI
 
 > **Origin and plan sign-off:** design consolidated on 2026-10-26 between the user, Antigravity, Claude Code and Codex.
+> **Update:** agents now run as Orca workers (`round dispatch` / `collect`); the subprocess adapters and the `agents.*_binary` settings were removed, so the headless-launch details below are historical.
 > **Status:** **In execution.** Step 1 complete and installed (2026-10-26). Steps 2 to 4 designed (sections 6 to 8) and pending.
 > **Content rule:** this document is generic. It does not name tickets, repos, people or products of any company; that data lives only in the local task registry and in the round log (section 8).
 > **Base:** the engine (`ai-governance` + `ws`) **is already running and working well**. This plan builds on what already works and defines how to coordinate the three agents on **TriAgentTaskFlow**, the engine module that governs the lifecycle of each task.
@@ -158,7 +159,6 @@ mode = "tri-agent"  # "tri-agent" | "dual-agent" | "single-agent"
 [roles.planner]    # command tested on 2026-10-26
 agent = "antigravity"
 model = "gemini-4-argon-high"
-exec = ["agy", "--model", "{model}", "--mode", "plan", "--print={prompt}"]
 
 [roles.validator]  # two validators: the builder (before editing) and an independent read-only validator
 agents = ["claude", "codex"]
@@ -342,11 +342,7 @@ Plan approved after rounds 016–019 (Argon plans, Codex validates twice, Claude
 - **Reader roles:** prevention where possible (Codex `-s read-only` in validation), detection in the rest (fingerprint before and after). If a reader modifies anything, the round is left `invalid` and a notice is raised with the paths; changes are never discarded.
 - **Leases:** one writer per `(repo, branch)`. Recovery only if the PID is dead or the lease expired, never stealing it from a live process. Brake in `PreToolUse` of Claude (including the edit tools) and of Antigravity.
 - **Path-based risk:** commits, staged, unstaged, untracked and both sides of renames. Obligations accumulate, and lowering the policy is a risky action.
-- **Adapters** (flags verified with `--help`):
-  - `antigravity` (executable `agy`): `--mode plan` to read, `accept-edits` to write;
-  - `codex exec … -o` plus stdout/stderr saved separately;
-  - `claude -p --dangerously-skip-permissions`.
-  - All with a long timeout, output to the round and the limit written in the request.
+- **Agents never run from the engine.** Planner, validator and judge rounds are Orca workers: `round dispatch` (or `judge`) prints a `worker-start` line for the coordinating session to run, and `round collect` settles the round afterwards. The builder is the coordinating session. No agent CLI is ever launched by the engine or by a shell.
 - **Autonomous operation:**
   - `taskflow --help` documents prerequisites, phases, gates, failures, recovery and the exact next command. `status` always says what comes next.
   - The active state is injected at start in the three agents.

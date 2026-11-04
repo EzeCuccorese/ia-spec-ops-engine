@@ -8,7 +8,7 @@ import argparse
 from collections.abc import Callable
 from typing import TypeAlias
 
-from . import cli
+from . import cli, pr_cli
 from .approvals import ACTIONS
 from .guide import GUIDE
 from .models import EXIT_PHASES, PHASES, ROLES, VERDICTS, WORKFLOWS, now_iso
@@ -165,19 +165,56 @@ def _approval_round_commands(sub: Subparsers) -> None:
     item.add_argument("stage", choices=("red", "green", "skip"))
     item.add_argument("--cmd", default="", help="Test command, the same for red and green")
     item.add_argument("--reason", default="")
-    item = add(
-        "round", cli.cmd_round, "Run a planner/validator/builder round, or record one run elsewhere"
-    )
-    item.add_argument("action", choices=("run", "record"))
-    item.add_argument("--role", required=True, choices=ROLES)
+
+
+def _round_agent_args(item: argparse.ArgumentParser) -> None:
     item.add_argument("--phase", choices=PHASES, help="Default: the task's phase")
     item.add_argument("--prompt-file")
     item.add_argument("--prompt")
     item.add_argument("--agent", default="", help="Override the configured agent")
     item.add_argument("--model", default="")
-    item.add_argument("--timeout", type=int, default=0)
-    item.add_argument("--verdict", choices=VERDICTS, default="info", help="record only")
-    item.add_argument("--file", help="record only: the round's text (default: stdin)")
+
+
+def _round_commands(sub: Subparsers) -> None:
+    add = _adder(sub)
+    item = add(
+        "round",
+        cli.cmd_round,
+        "Dispatch a reader round to an Orca worker and collect or abort it, or record one",
+    )
+    actions = item.add_subparsers(
+        dest="action", required=True, metavar="{record,dispatch,collect,abort}"
+    )
+    record = actions.add_parser("record", help="Record a round that ran elsewhere (context only)")
+    record.add_argument("--role", required=True, choices=ROLES)
+    _round_agent_args(record)
+    record.add_argument("--verdict", choices=VERDICTS, default="info")
+    record.add_argument("--file", help="The round's text (default: stdin)")
+    _dispatch_commands(actions)
+
+
+def _dispatch_commands(actions: Subparsers) -> None:
+    dispatch = actions.add_parser(
+        "dispatch", help="Reserve a planner/validator round and print its Orca worker-start line"
+    )
+    dispatch.add_argument("--role", required=True, choices=ROLES)
+    _round_agent_args(dispatch)
+    dispatch.add_argument("--focus", default="")
+    dispatch.add_argument("--json", action="store_true", help="Print the command as a JSON array")
+    collect = actions.add_parser("collect", help="Settle a dispatched round from its worker")
+    collect.add_argument("--round", type=int, required=True)
+    collect.add_argument("--dispatch-id", required=True, help="Orca's id of the worker you started")
+    collect.add_argument("--answer-file", help="Read the answer here instead of runs/N/answer.txt")
+    abort = actions.add_parser("abort", help="Settle a dispatched round as aborted (audited)")
+    abort.add_argument("--round", type=int, required=True)
+    abort.add_argument("--reason", required=True)
+    binding = abort.add_mutually_exclusive_group(required=True)
+    binding.add_argument("--dispatch-id", help="Orca's id of the worker that ran this round")
+    binding.add_argument(
+        "--never-started",
+        action="store_true",
+        help="Your assertion that no worker was started for it (recorded; it is not evidence)",
+    )
 
 
 def _judge_commands(sub: Subparsers) -> None:
@@ -187,7 +224,7 @@ def _judge_commands(sub: Subparsers) -> None:
     item = add(
         "judge",
         cli.cmd_judge,
-        "Judge the committed code on an isolated copy (checks + every required judge)",
+        "Run the checks on the committed code, then print the Orca line of every required judge",
     )
     item.add_argument("--focus", default="", help="Run only this focus (the gate still needs all)")
     item = add("deploy", cli.cmd_deploy, "Record a deployment the user made (never deploys)")
@@ -221,6 +258,31 @@ def _judge_commands(sub: Subparsers) -> None:
     add("config", cli.cmd_config, "Show and validate the taskflow config", task="none")
 
 
+def _pr_commands(sub: Subparsers) -> None:
+    group = sub.add_parser(
+        "pr",
+        help="Pull requests of a task: register once, status read from GitHub by code",
+        description="Pull requests of a task and its subtasks. CI, review, open threads, "
+        "conflicts and stacking are read from GitHub (read-only) and classified by fixed rules.",
+    )
+    add = _adder(group.add_subparsers(dest="pr_cmd", required=True))
+    refs_help = "URL, owner/name#N or #N (needs --repo or a bound GitHub repo); '-' reads stdin"
+    for name, handler, text in (
+        ("add", pr_cli.cmd_pr_add, "Register PRs (idempotent); '-' reads pasted text from stdin"),
+        ("rm", pr_cli.cmd_pr_rm, "Stop tracking PRs"),
+    ):
+        item = add(name, handler, text)
+        item.add_argument("refs", nargs="+", help=refs_help)
+        item.add_argument("--repo", default="", help="owner/name for bare #N references")
+        if name == "add":
+            item.add_argument("--group", default="", help="Free-text label to group the board")
+    add("sync", pr_cli.cmd_pr_sync, "Refresh PR status from GitHub (read-only)", task="optional")
+    item = add("list", pr_cli.cmd_pr_list, "Board of PRs with what blocks each", task="optional")
+    item.add_argument("--sync", action="store_true", help="Refresh from GitHub first")
+    item.add_argument("--blocked", action="store_true", help="Only PRs that cannot merge yet")
+    item.add_argument("--json", action="store_true")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ai-governance taskflow",
@@ -232,7 +294,9 @@ def build_parser() -> argparse.ArgumentParser:
     _task_commands(sub)
     _content_commands(sub)
     _reference_commands(sub)
+    _pr_commands(sub)
     _lifecycle_commands(sub)
     _approval_round_commands(sub)
+    _round_commands(sub)
     _judge_commands(sub)
     return parser

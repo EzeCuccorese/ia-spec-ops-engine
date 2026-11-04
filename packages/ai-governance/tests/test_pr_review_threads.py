@@ -48,7 +48,6 @@ def empty_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("AI_GOVERNANCE_CONFIG_DIR", str(tmp_path / "cfg"))
     for name in (
         "AI_GOVERNANCE_GATE_COMMAND",
-        "AI_GOVERNANCE_ANTIGRAVITY_BINARY",
         "AI_GOVERNANCE_PLANNER_MODEL",
         "AI_GOVERNANCE_PLANNER_AGENT",
         "AI_GOVERNANCE_CODEX_SCOUT_MODEL",
@@ -60,16 +59,12 @@ def empty_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def test_empty_operational_env_values_keep_the_defaults(empty_env: Path) -> None:
     from ai_governance.settings import effective
-    from ai_governance.taskflow import adapters
 
     found = effective(empty_env)
     assert found["hooks.gate_command"].value == "ws check --changed --cache --json"
-    assert found["agents.antigravity_binary"].value == "agy"
+    assert found["agents.codex_scout_model"].value == "gpt-6-luna"
     assert found["taskflow.planner_model"].value == "gemini-4-argon-high"
     assert all(found[k].origin == "default" for k in found if k != "corporate.packs")
-    run = adapters.AgentRun(empty_env, False, empty_env / "a")
-    command = adapters.build_command("antigravity", "gemini-4-argon-high", "hi", run)
-    assert command[:3] == ["agy", "--model", "gemini-4-argon-high"]
 
 
 def test_an_empty_gate_command_env_still_runs_the_stop_gate(
