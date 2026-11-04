@@ -1,7 +1,7 @@
 # CircleCI Operations
 
 ## Invariants
-- **Read Operations**: CircleCI reads (pipeline, workflow, job status, logs, artifacts) are free and require no prior authorization.
-- **Mutations Require Approval**: Any POST or DELETE operation (rerun, cancel, approve, environment variable changes) requires the user's explicit approval after showing the exact action and target.
-- **No Deploy Approvals**: Never approve a deploy hold.
-- **Token Safety**: Tokens must only be named by variable (`CIRCLE_TOKEN`, `CIRCLE_TOKEN_RW`), never by value.
+- **Reads are free**: pipeline, workflow and job status, logs and artifacts, using `CIRCLE_TOKEN` (read-only).
+- **Writes need approval**: any POST or DELETE (rerun, cancel, approve a hold, trigger a pipeline, change env vars or contexts) requires showing the exact action and target, then the user's explicit approval. Use `CIRCLE_TOKEN_RW` only for an approved action.
+- **No deploy approvals**: never approve a deploy hold.
+- **Token safety**: name tokens only by variable, never by value.

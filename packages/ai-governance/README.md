@@ -36,7 +36,7 @@ Nothing ever defaults to all agents.
 
 Personal, project-agnostic harness, plus general tool rules and language rules: every catalog rule
 marked `user_scope` (always-on general tool rules such as `circleci`, `13-atlassian`, `14-taskflow`,
-`15-tool-confidentiality`, `16-git-branch-ownership`, all `2-stacks` rules, the code-level core rules
+`15-tool-confidentiality`, `16-git-branch-ownership`, `17-quality-gate`, all `2-stacks` rules, the code-level core rules
 and `api-design`) is written to the agent's global rules folder with its globs (or always-on trigger),
 so it loads in any repository without committing anything. Codex has no per-file global rules: they are
 copied to `$CODEX_HOME/ai-governance/`, indexed in `language-rules.md`, and the `AGENTS.md` block

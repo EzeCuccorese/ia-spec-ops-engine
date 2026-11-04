@@ -329,6 +329,19 @@
       "user_scope": true
     },
     {
+      "id": "17-quality-gate",
+      "category": "1-core",
+      "file": "1-core/17-quality-gate.md",
+      "description": "Quality gate and delegation: no hook bypass, own tests always run, bounded subagent output",
+      "triggers": {
+        "globs": [
+          "**/*"
+        ]
+      },
+      "stacks": [],
+      "user_scope": true
+    },
+    {
       "id": "java-spring",
       "category": "2-stacks",
       "file": "2-stacks/java-spring.md",
