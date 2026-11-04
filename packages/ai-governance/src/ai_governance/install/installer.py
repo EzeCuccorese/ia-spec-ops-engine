@@ -306,7 +306,9 @@ def _corporate_entries_to_keep(
 def _is_personal_rule_name(name: str) -> bool:
     prefix = "ai-governance-personal-"
     suffix = ".md"
-    return name.startswith(prefix) and name.endswith(suffix) and len(name) > len(prefix) + len(suffix)
+    return (
+        name.startswith(prefix) and name.endswith(suffix) and len(name) > len(prefix) + len(suffix)
+    )
 
 
 def _is_personal_link(agent: str, path: Path, target: str = "") -> bool:
@@ -343,11 +345,7 @@ def _corporate_desired(
     root = corporate.corporate_root()
     if root.exists():
         packs = corporate.packs(only=corporate_names)
-        desired = [
-            artifact
-            for spec in specs
-            for artifact in _corporate_rules(spec, packs)
-        ]
+        desired = [artifact for spec in specs for artifact in _corporate_rules(spec, packs)]
         desired.extend(_corporate_scripts(packs, report))
         return desired
     report.warnings.append(

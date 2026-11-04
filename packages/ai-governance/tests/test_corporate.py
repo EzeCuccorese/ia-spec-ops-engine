@@ -228,7 +228,10 @@ def test_missing_corporate_dir_keeps_installed_rules_and_scripts_and_warns(
         "ai-governance-acme-principles.md",
     ]
     assert _script(home).is_symlink()
-    assert ("unchanged", str(home / ".claude" / "rules" / "ai-governance-acme-glossary.md")) in report.changes
+    assert (
+        "unchanged",
+        str(home / ".claude" / "rules" / "ai-governance-acme-glossary.md"),
+    ) in report.changes
     assert ("unchanged", str(_script(home))) in report.changes
     assert any("AI_GOVERNANCE_CORPORATE_DIR" in w and str(missing) in w for w in report.warnings)
 
@@ -295,6 +298,16 @@ def test_missing_corporate_dir_keeps_all_agents_links(
     assert any("AI_GOVERNANCE_CORPORATE_DIR" in w for w in report.warnings)
 
 
+def _add_fake_rule_link(home: Path, tmp_path: Path, name: str) -> tuple[Path, Path]:
+    target = tmp_path / f"{name}.md"
+    target.write_text(f"#{name}\n")
+    link = home / ".claude" / "rules" / f"ai-governance-{name}.md"
+    if link.exists():
+        link.unlink()
+    link.symlink_to(target)
+    return link, target
+
+
 def test_non_corporate_agent_link_not_kept_when_dir_missing(
     home: Path, pack_root: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -302,27 +315,14 @@ def test_non_corporate_agent_link_not_kept_when_dir_missing(
     assert _pack_rules(home)
     assert _script(home).is_symlink()
 
-    # Create a non-corporate symlink in Claude rules and record it in ledger
-    external_target = tmp_path / "custom.md"
-    external_target.write_text("# Custom\n")
-    external_link = home / ".claude" / "rules" / "ai-governance-custom-rule.md"
-    external_link.symlink_to(external_target)
-
-    # Also a link pretending to be a catalog rule
-    catalog_target = tmp_path / "catalog.md"
-    catalog_target.write_text("# Catalog\n")
-    catalog_link = home / ".claude" / "rules" / "ai-governance-python-async.md"
-    if catalog_link.exists():
-        catalog_link.unlink()
-    catalog_link.symlink_to(catalog_target)
+    external_link, external_target = _add_fake_rule_link(home, tmp_path, "custom-rule")
+    catalog_link, catalog_target = _add_fake_rule_link(home, tmp_path, "python-async")
 
     ledger = global_ledger()
-    ledger.entries.append(
-        {"agent": "claude", "kind": "link", "path": ledger.key(external_link), "target": str(external_target)}
-    )
-    ledger.entries.append(
-        {"agent": "claude", "kind": "link", "path": ledger.key(catalog_link), "target": str(catalog_target)}
-    )
+    for link, target in ((external_link, external_target), (catalog_link, catalog_target)):
+        ledger.entries.append(
+            {"agent": "claude", "kind": "link", "path": ledger.key(link), "target": str(target)}
+        )
     ledger.save(cli.Report(), False)
 
     missing = pack_root.parent / "nonexistent-corporate-dir"
@@ -356,9 +356,7 @@ def test_non_corporate_agent_link_not_kept_when_dir_missing(
         ("claude", ".claude/rules/ai-governance-kotlin-sub.md", "t"),
     ],
 )
-def test_is_corporate_entry_edge_cases(
-    home: Path, agent: str, path: str, target: str
-) -> None:
+def test_is_corporate_entry_edge_cases(home: Path, agent: str, path: str, target: str) -> None:
     from ai_governance.install.installer import _is_corporate_entry, _is_corporate_target
 
     assert not _is_corporate_target("")

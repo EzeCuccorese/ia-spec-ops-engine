@@ -215,7 +215,9 @@ def test_atlassian_taskflow_and_confidentiality_rule_content_semantics() -> None
     assert taskflow.always_on is True
     t_content = taskflow.content
     assert "ai-governance taskflow" in t_content
-    assert "here" in t_content and "status" in t_content and "new" in t_content and "bind" in t_content
+    assert (
+        "here" in t_content and "status" in t_content and "new" in t_content and "bind" in t_content
+    )
 
     # tool-confidentiality: engine tooling never mentioned
     conf = catalog.get("15-tool-confidentiality")

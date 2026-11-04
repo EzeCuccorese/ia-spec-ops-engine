@@ -73,9 +73,7 @@ def test_missing_personal_folder_lists_no_rules(tmp_path: Path) -> None:
     assert personal.rules(missing) == []
 
 
-def test_user_install_links_personal_rules_for_all_agents(
-    home: Path, personal_root: Path
-) -> None:
+def test_user_install_links_personal_rules_for_all_agents(home: Path, personal_root: Path) -> None:
     report = install_user(["claude", "antigravity", "codex"])
 
     assert _claude_rules(home) == [
@@ -222,9 +220,7 @@ def test_is_personal_target() -> None:
         ("claude", ".claude/rules/ai-governance-personal-.md", "personal/rules/voice.md"),
     ],
 )
-def test_is_personal_entry_edge_cases(
-    home: Path, agent: str, path: str, target: str
-) -> None:
+def test_is_personal_entry_edge_cases(home: Path, agent: str, path: str, target: str) -> None:
     ledger = global_ledger()
     assert not _is_personal_entry(ledger, {"kind": "file"})
     entry = {

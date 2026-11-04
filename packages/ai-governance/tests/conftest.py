@@ -31,7 +31,9 @@ def _no_personal_packs(
     monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
 ) -> None:
     """The developer's own personal pack must not leak into tests."""
-    monkeypatch.setenv("AI_GOVERNANCE_PERSONAL_DIR", str(tmp_path_factory.mktemp("no-personal-packs")))
+    monkeypatch.setenv(
+        "AI_GOVERNANCE_PERSONAL_DIR", str(tmp_path_factory.mktemp("no-personal-packs"))
+    )
 
 
 @pytest.fixture(autouse=True)

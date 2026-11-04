@@ -251,8 +251,7 @@ class ClaudeSpec(AgentSpec):
     def personal_artifacts(self, rules: list[PersonalRule]) -> list[Artifact]:
         home = claude_rules_dir()
         return [
-            LinkArtifact(home / f"ai-governance-personal-{r.name}.md", str(r.path))
-            for r in rules
+            LinkArtifact(home / f"ai-governance-personal-{r.name}.md", str(r.path)) for r in rules
         ]
 
     def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
@@ -346,8 +345,7 @@ class AntigravitySpec(AgentSpec):
     def personal_artifacts(self, rules: list[PersonalRule]) -> list[Artifact]:
         home = antigravity_rules_dir()
         return [
-            LinkArtifact(home / f"ai-governance-personal-{r.name}.md", str(r.path))
-            for r in rules
+            LinkArtifact(home / f"ai-governance-personal-{r.name}.md", str(r.path)) for r in rules
         ]
 
     def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
