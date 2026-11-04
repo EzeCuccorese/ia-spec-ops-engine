@@ -11,6 +11,7 @@ from ai_governance.install import cli, doctor
 from ai_governance.install.budget import fixed_cost
 from ai_governance.install.cli import main as install_cli
 from ai_governance.install.installer import global_ledger, install_user, uninstall_user
+from ai_governance.rules.catalog import RuleCatalog
 
 
 @pytest.fixture
@@ -294,3 +295,102 @@ def test_missing_corporate_dir_keeps_all_agents_links(
     assert any("AI_GOVERNANCE_CORPORATE_DIR" in w for w in report.warnings)
 
 
+def test_non_corporate_agent_link_not_kept_when_dir_missing(
+    home: Path, pack_root: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    install_user(["claude"])
+    assert _pack_rules(home)
+    assert _script(home).is_symlink()
+
+    # Create a non-corporate symlink in Claude rules and record it in ledger
+    external_target = tmp_path / "custom.md"
+    external_target.write_text("# Custom\n")
+    external_link = home / ".claude" / "rules" / "ai-governance-custom-rule.md"
+    external_link.symlink_to(external_target)
+
+    # Also a link pretending to be a catalog rule
+    catalog_target = tmp_path / "catalog.md"
+    catalog_target.write_text("# Catalog\n")
+    catalog_link = home / ".claude" / "rules" / "ai-governance-python-async.md"
+    if catalog_link.exists():
+        catalog_link.unlink()
+    catalog_link.symlink_to(catalog_target)
+
+    ledger = global_ledger()
+    ledger.entries.append(
+        {"agent": "claude", "kind": "link", "path": ledger.key(external_link), "target": str(external_target)}
+    )
+    ledger.entries.append(
+        {"agent": "claude", "kind": "link", "path": ledger.key(catalog_link), "target": str(catalog_target)}
+    )
+    ledger.save(cli.Report(), False)
+
+    missing = pack_root.parent / "nonexistent-corporate-dir"
+    monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(missing))
+
+    report = install_user(["claude"])
+
+    # Genuine corporate rules and scripts are kept
+    assert _pack_rules(home) == [
+        "ai-governance-acme-glossary.md",
+        "ai-governance-acme-principles.md",
+    ]
+    assert _script(home).is_symlink()
+
+    # Non-corporate link was NOT kept and was removed
+    assert not external_link.exists()
+    assert not external_link.is_symlink()
+    assert ("removed", str(external_link)) in report.changes
+
+    # The catalog rule was installed as a regular file, not kept as a link
+    assert catalog_link.is_file() and not catalog_link.is_symlink()
+
+
+def test_is_corporate_entry_edge_cases(home: Path) -> None:
+    from ai_governance.install.installer import _is_corporate_entry, _is_corporate_target
+
+    ledger = global_ledger()
+    catalog = RuleCatalog()
+
+    assert not _is_corporate_target("")
+    assert not _is_corporate_entry(ledger, {"kind": "file"})
+    assert not _is_corporate_entry(
+        ledger, {"kind": "link", "agent": "unknown", "path": "p", "target": "t"}
+    )
+    assert not _is_corporate_entry(
+        ledger,
+        {
+            "kind": "link",
+            "agent": "claude",
+            "path": str(home / ".claude" / "not_rules" / "file.md"),
+            "target": "t",
+        },
+    )
+    assert not _is_corporate_entry(
+        ledger,
+        {
+            "kind": "link",
+            "agent": "claude",
+            "path": str(home / ".claude" / "rules" / "no-prefix.md"),
+            "target": "t",
+        },
+    )
+    assert not _is_corporate_entry(
+        ledger,
+        {
+            "kind": "link",
+            "agent": "claude",
+            "path": str(home / ".claude" / "rules" / "ai-governance-nohyphen.md"),
+            "target": "t",
+        },
+    )
+    assert not _is_corporate_entry(
+        ledger,
+        {
+            "kind": "link",
+            "agent": "claude",
+            "path": str(home / ".claude" / "rules" / "ai-governance-kotlin-sub.md"),
+            "target": "t",
+        },
+        catalog=catalog,
+    )

@@ -29,6 +29,7 @@ from .agents import (
     FileArtifact,
     LinkArtifact,
     canonical_rule_path,
+    codex_rules_dir,
     render_canonical_rule,
     resolve_agents,
 )
@@ -203,18 +204,69 @@ def sync_completions(*, dry_run: bool = False) -> Report | None:
     return report
 
 
-def _is_corporate_entry(entry: dict[str, Any]) -> bool:
-    """Corporate rules and scripts in the global ledger are symlinks."""
-    return entry.get("kind") == "link" and (
-        entry.get("agent") == SCRIPTS_OWNER or entry.get("agent") in AGENTS
-    )
+def _is_corporate_target(target: str) -> bool:
+    if not target:
+        return False
+    target_path = Path(target)
+    if corporate.CORPORATE_DIR in target_path.parts:
+        return True
+    return target_path.parent.name in ("rules", "scripts")
 
 
-def _corporate_entries_to_keep(ledger: Ledger, agents: set[str]) -> list[Owned]:
+def _is_corporate_entry(
+    ledger: Ledger, entry: dict[str, Any], catalog: RuleCatalog | None = None
+) -> bool:
+    """Corporate rules and scripts in the global ledger are symlinks pointing into packs."""
+    if entry.get("kind") != "link":
+        return False
+    agent = entry.get("agent")
+    path = ledger.resolve(str(entry.get("path", "")))
+    target = str(entry.get("target", ""))
+
+    if agent == SCRIPTS_OWNER:
+        return path.parent == corporate.bin_dir() and _is_corporate_target(target)
+
+    if agent == "codex":
+        company_dir = codex_rules_dir() / "company"
+        return path.parent == company_dir and _is_corporate_target(target)
+
+    if agent == "claude":
+        expected_dir = Path.home() / ".claude" / "rules"
+    elif agent == "antigravity":
+        expected_dir = Path.home() / ".gemini" / "config" / "rules"
+    else:
+        return False
+
+    if path.parent != expected_dir:
+        return False
+
+    name = path.name
+    if not (name.startswith("ai-governance-") and name.endswith(".md")):
+        return False
+
+    stem = name.removeprefix("ai-governance-").removesuffix(".md")
+    if "-" not in stem:
+        return False
+
+    cat = catalog or RuleCatalog()
+    if cat.get(stem) is not None:
+        return False
+
+    pack = stem.split("-", 1)[0]
+    if cat.get(pack) is not None:
+        return False
+
+    return _is_corporate_target(target)
+
+
+def _corporate_entries_to_keep(
+    ledger: Ledger, agents: set[str], catalog: RuleCatalog | None = None
+) -> list[Owned]:
     """Preserves existing corporate links when the corporate root directory is missing."""
     kept: list[Owned] = []
+    cat = catalog or RuleCatalog()
     for entry in ledger.entries:
-        if _is_corporate_entry(entry) and entry.get("agent") in agents:
+        if _is_corporate_entry(ledger, entry, cat) and entry.get("agent") in agents:
             kept.append(
                 Owned(
                     str(entry["agent"]),
@@ -241,7 +293,8 @@ def install_user(
     root = corporate.corporate_root()
     report = Report()
     desired = [Owned(spec.id, artifact) for spec in specs for artifact in spec.global_artifacts()]
-    language_rules = RuleCatalog().user_rules()
+    catalog = RuleCatalog()
+    language_rules = catalog.user_rules()
     for spec in specs:
         desired.extend(_language_rules(spec, language_rules))
     if root.exists():
@@ -255,7 +308,7 @@ def install_user(
             "Set AI_GOVERNANCE_CORPORATE_DIR to point to your corporate rules directory."
         )
         corporate_scope = {spec.id for spec in specs} | {SCRIPTS_OWNER}
-        desired.extend(_corporate_entries_to_keep(ledger, corporate_scope))
+        desired.extend(_corporate_entries_to_keep(ledger, corporate_scope, catalog))
     desired.extend(_completions())
     scope = {spec.id for spec in specs} | {SCRIPTS_OWNER, COMPLETIONS_OWNER, SCHEDULE_OWNER}
     if not dry_run:
