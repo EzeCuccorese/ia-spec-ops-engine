@@ -16,10 +16,14 @@ PROJECT_BLOCK_MAX = 1024
 RULE_MAX = 1000
 SCOUT_MAX = 700
 SKILL_MAX = 1024
+ENTRY_BLOCK_MAX = 500
 
 
 def test_static_content_budgets() -> None:
     assert len(content.GLOBAL_INSTRUCTIONS.encode()) <= GLOBAL_MAX
+    assert (
+        len(content.claude_agents_block(Path("~/.claude/rules")).encode()) <= ENTRY_BLOCK_MAX
+    )
     block = content.PROJECT_BLOCK.format(rule_locations="x" * 150)
     assert len(block.encode()) <= PROJECT_BLOCK_MAX
     assert len((content.SCOUT_DESCRIPTION + content.SCOUT_INSTRUCTIONS).encode()) <= SCOUT_MAX
@@ -50,7 +54,7 @@ def test_fixed_session_cost_for_a_typical_install(monkeypatch, tmp_path: Path) -
     user = fixed_cost(installer.global_ledger())
     project = fixed_cost(Ledger(root / PROJECT_DIR / "lock.json", base=root))
 
-    assert user["claude"] <= GLOBAL_MAX
+    assert user["claude"] <= GLOBAL_MAX + ENTRY_BLOCK_MAX
     # The single always-on rule (read by each agent once) plus the shared AGENTS.md block.
     assert project["claude"] <= RULE_MAX + 300  # symlink to the canonical always-on rule
     assert project["project"] <= PROJECT_BLOCK_MAX + RULE_MAX + 300

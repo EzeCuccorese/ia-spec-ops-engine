@@ -131,6 +131,20 @@ Prefer net-negative LOC. `ws design` flags the mechanical junk (no asserts, mock
 SKILLS = {"taskflow": TASKFLOW_SKILL, "test-audit": TEST_AUDIT_SKILL}
 
 
+CLAUDE_ENTRY_BLOCK = "@AGENTS.md"
+
+
+def claude_agents_block(rules_dir: Path) -> str:
+    """Claude Code loads rules from ~/.claude/rules across three layers."""
+    return (
+        "# AI governance\n"
+        f"- Installed rules live in `{rules_dir}` across three layers:\n"
+        "  - Personal preferences: `ai-governance-personal-*.md`\n"
+        "  - Company rules: `ai-governance-<company>-*.md`\n"
+        "  - Engine catalog: general tools and path-scoped language rules (`paths:`)\n"
+    )
+
+
 CODEX_LANGUAGE_INDEX_HEADER = (
     "# Language rules\n\n"
     "Before creating or editing a file, read the rules whose patterns match it.\n\n"

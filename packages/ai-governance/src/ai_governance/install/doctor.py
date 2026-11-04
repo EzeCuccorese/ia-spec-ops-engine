@@ -62,11 +62,24 @@ def _legacy_gemini_block() -> list[Row]:
     return [("user:antigravity", WARN, detail)]
 
 
+def _claude_entry_block_rows() -> list[Row]:
+    home = Path.home() / ".claude"
+    rows: list[Row] = []
+    for name in ("AGENTS.md", "CLAUDE.md"):
+        path = home / name
+        text = path.read_text(encoding="utf-8") if path.is_file() else ""
+        if START not in text or END not in text:
+            rows.append(("user:claude", FAIL, f"missing ai-governance block in {path}"))
+    return rows
+
+
 def _user_rows() -> list[Row]:
     user = global_ledger()
     agents = sorted(installed_agents(user))
     rows: list[Row] = [("user:agents", OK, ", ".join(agents) or "none installed")]
     rows.extend(_ledger_rows(user, "user"))
+    if "claude" in agents:
+        rows.extend(_claude_entry_block_rows())
     if "antigravity" in agents:
         rows.extend(_legacy_gemini_block())
     return rows

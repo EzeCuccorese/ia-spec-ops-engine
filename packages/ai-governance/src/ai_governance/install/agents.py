@@ -177,6 +177,8 @@ class ClaudeSpec(AgentSpec):
         home = Path.home() / ".claude"
         command = f"{HOOK_COMMAND_PREFIX} claude"
         return [
+            BlockArtifact(home / "AGENTS.md", content.claude_agents_block(home / "rules")),
+            BlockArtifact(home / "CLAUDE.md", content.CLAUDE_ENTRY_BLOCK),
             FileArtifact(home / "rules" / "ai-governance.md", content.GLOBAL_INSTRUCTIONS),
             FileArtifact(
                 home / "agents" / "scout.md",

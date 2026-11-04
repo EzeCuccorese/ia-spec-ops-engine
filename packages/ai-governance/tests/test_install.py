@@ -255,6 +255,83 @@ def test_update_check_reports_stale_projects(project: Path, monkeypatch) -> None
     assert install_cli("update", ["--all", "--check"]) == 1
 
 
+def test_claude_user_scope_entry_files_preserve_content_and_doctor_checks(
+    home: Path,
+) -> None:
+    claude_dir = home / ".claude"
+    claude_dir.mkdir(parents=True)
+    existing_agents = "# My notes\nDo not delete me.\n"
+    existing_claude = "Custom header\n"
+    (claude_dir / "AGENTS.md").write_text(existing_agents, encoding="utf-8")
+    (claude_dir / "CLAUDE.md").write_text(existing_claude, encoding="utf-8")
+
+    install_user(["claude"])
+
+    agents_text = (claude_dir / "AGENTS.md").read_text(encoding="utf-8")
+    assert agents_text.startswith(existing_agents.rstrip())
+    assert "<!-- ai-governance:start -->" in agents_text
+    assert "<!-- ai-governance:end -->" in agents_text
+    assert "Personal preferences:" in agents_text
+    assert "Company rules:" in agents_text
+    assert "Engine catalog:" in agents_text
+
+    claude_text = (claude_dir / "CLAUDE.md").read_text(encoding="utf-8")
+    assert claude_text.startswith(existing_claude.rstrip())
+    assert "<!-- ai-governance:start -->\n@AGENTS.md\n<!-- ai-governance:end -->" in claude_text
+    assert "@ai-governance" not in claude_text
+    assert "@rules" not in claude_text
+
+    # Reinstall is idempotent
+    second_report = install_user(["claude"])
+    entry_changes = [
+        (action, path)
+        for action, path in second_report.changes
+        if path.endswith(("AGENTS.md", "CLAUDE.md")) and action != "unchanged"
+    ]
+    assert entry_changes == []
+
+    # Doctor check passes with both blocks present
+    rows = check(None)
+    assert not any(s == FAIL and "user:claude" in label for label, s, _ in rows)
+
+    # Doctor flags missing block in CLAUDE.md
+    (claude_dir / "CLAUDE.md").write_text(existing_claude, encoding="utf-8")
+    rows = check(None)
+    assert any(
+        s == FAIL and "missing ai-governance block" in d and "CLAUDE.md" in d
+        for label, s, d in rows
+        if label == "user:claude"
+    )
+
+    # Doctor flags missing block in AGENTS.md
+    (claude_dir / "AGENTS.md").write_text(existing_agents, encoding="utf-8")
+    rows = check(None)
+    assert any(
+        s == FAIL and "missing ai-governance block" in d and "AGENTS.md" in d
+        for label, s, d in rows
+        if label == "user:claude"
+    )
+
+    # Reinstall blocks before testing uninstall
+    install_user(["claude"])
+
+    # Uninstall removes only the marker blocks, keeping outside content byte-for-byte
+    uninstall_user(["claude"])
+    assert (claude_dir / "AGENTS.md").read_text(encoding="utf-8") == existing_agents
+    assert (claude_dir / "CLAUDE.md").read_text(encoding="utf-8") == existing_claude
+
+
+def test_claude_entry_files_unlinked_when_no_prior_content(home: Path) -> None:
+    install_user(["claude"])
+    claude_dir = home / ".claude"
+    assert (claude_dir / "AGENTS.md").is_file()
+    assert (claude_dir / "CLAUDE.md").is_file()
+
+    uninstall_user(["claude"])
+    assert not (claude_dir / "AGENTS.md").exists()
+    assert not (claude_dir / "CLAUDE.md").exists()
+
+
 def test_doctor_flags_claude_memory_and_duplicate_hooks(project: Path, home: Path) -> None:
     install_user(["claude"])
     sync_project(project, add_agents=["claude"])
