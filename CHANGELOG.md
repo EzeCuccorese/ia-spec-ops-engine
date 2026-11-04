@@ -11,6 +11,27 @@
 ### Fixes
 - corporate: preserve previously installed corporate rules and scripts when the corporate root directory does not exist, warning instead of removing them.
 
+## 1.4.0 - 2026-11-04
+
+### Breaking changes
+- Remove the subprocess agent path.
+
+### Features
+- Per-repo allowed agents and provider independence.
+- Dispatch, collect and abort for Orca-run reader rounds.
+- Judge rounds are readers; the engine runs the checks.
+- Pull request model, GitHub reader and deterministic status.
+- PR add/rm/sync/list, subtask aggregation and a one-line PR summary.
+- Register pull requests created with gh pr create.
+
+### Fixes
+- A bound repo missing on disk no longer blocks commands.
+- Load the config without Orca and hide the run stub from usage.
+- Parse the real Orca envelope and harden collect integrity.
+- Accept gh -R in the PR hook and fix the PR test fixtures.
+- Resolve the PR #49 review findings.
+- Address the automated review comments.
+
 ## 1.3.0 - 2026-11-03
 
 ### Features
