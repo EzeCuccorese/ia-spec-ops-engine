@@ -30,23 +30,11 @@ class PersonalRule:
     path: Path
 
 
-@dataclass(frozen=True)
-class PersonalPack:
-    root: Path
-
-    def rules(self) -> list[PersonalRule]:
-        folder = self.root / "rules"
-        if not folder.is_dir():
-            return []
-        return [
-            PersonalRule(path.stem, path.read_text(encoding="utf-8"), path.resolve())
-            for path in sorted(folder.glob("*.md"))
-        ]
-
-
-def pack(root: Path | None = None) -> PersonalPack:
-    return PersonalPack(root or personal_root())
-
-
 def rules(root: Path | None = None) -> list[PersonalRule]:
-    return pack(root).rules()
+    folder = (root or personal_root()) / "rules"
+    if not folder.is_dir():
+        return []
+    return [
+        PersonalRule(path.stem, path.read_text(encoding="utf-8"), path.resolve())
+        for path in sorted(folder.glob("*.md"))
+    ]

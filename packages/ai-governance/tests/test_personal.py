@@ -162,6 +162,20 @@ def test_missing_personal_dir_keeps_links_and_warns(
     assert any("Personal directory" in w and "does not exist" in w for w in report.warnings)
 
 
+def test_missing_personal_dir_without_prior_entries_stays_silent(
+    home: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    missing = tmp_path / "nonexistent-personal"
+    monkeypatch.setenv("AI_GOVERNANCE_PERSONAL_DIR", str(missing))
+
+    report = install_user(["claude", "antigravity", "codex"])
+
+    assert not any("Personal directory" in w for w in report.warnings)
+    assert _claude_rules(home) == []
+    assert _gemini_rules(home) == []
+    assert _codex_rules(home) == []
+
+
 def test_empty_personal_rules_folder_removes_links_without_warning(
     home: Path, personal_root: Path
 ) -> None:

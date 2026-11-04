@@ -13,6 +13,7 @@ import json
 import shutil
 import subprocess
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -28,7 +29,9 @@ from .agents import (
     BlockArtifact,
     FileArtifact,
     LinkArtifact,
+    antigravity_rules_dir,
     canonical_rule_path,
+    claude_rules_dir,
     codex_rules_dir,
     render_canonical_rule,
     resolve_agents,
@@ -210,135 +213,133 @@ def sync_completions(*, dry_run: bool = False) -> Report | None:
 
 
 def _is_corporate_target(target: str) -> bool:
-    if not target:
+    return bool(target) and (
+        corporate.CORPORATE_DIR in Path(target).parts
+        or Path(target).parent.name in ("rules", "scripts")
+    )
+
+
+def _is_personal_target(target: str) -> bool:
+    return bool(target) and (
+        personal.PERSONAL_DIR in Path(target).parts or Path(target).parent.name == "rules"
+    )
+
+
+def _entries_to_keep(
+    ledger: Ledger,
+    agents: set[str],
+    matches: Callable[[str, Path, str], bool],
+) -> list[Owned]:
+    """Preserves symlinks matching a predicate when their source root is missing."""
+    kept: list[Owned] = []
+    for entry in ledger.entries:
+        if entry.get("kind") != "link":
+            continue
+        agent = str(entry.get("agent", ""))
+        if agent not in agents:
+            continue
+        path = ledger.resolve(str(entry.get("path", "")))
+        target = str(entry.get("target", ""))
+        if matches(agent, path, target):
+            kept.append(Owned(agent, LinkArtifact(path, target)))
+    return kept
+
+
+def _is_corporate_link(
+    agent: str, path: Path, target: str = "", catalog: RuleCatalog | None = None
+) -> bool:
+    if agent == SCRIPTS_OWNER:
+        return path.parent == corporate.bin_dir() and _is_corporate_target(target)
+    if agent == "codex":
+        return (
+            path.parent == codex_rules_dir() / "company"
+            and path.name.endswith(".md")
+            and _is_corporate_target(target)
+        )
+    expected = (
+        claude_rules_dir()
+        if agent == "claude"
+        else antigravity_rules_dir()
+        if agent == "antigravity"
+        else None
+    )
+    if expected is None or path.parent != expected:
         return False
-    target_path = Path(target)
-    if corporate.CORPORATE_DIR in target_path.parts:
-        return True
-    return target_path.parent.name in ("rules", "scripts")
+    name = path.name
+    if not (name.startswith("ai-governance-") and name.endswith(".md")):
+        return False
+    stem = name.removeprefix("ai-governance-").removesuffix(".md")
+    if "-" not in stem:
+        return False
+    cat = catalog or RuleCatalog()
+    if cat.get(stem) is not None:
+        return False
+    pack = stem.split("-", 1)[0]
+    if pack == "personal" or cat.get(pack) is not None:
+        return False
+    return _is_corporate_target(target)
 
 
 def _is_corporate_entry(
     ledger: Ledger, entry: dict[str, Any], catalog: RuleCatalog | None = None
 ) -> bool:
-    """Corporate rules and scripts in the global ledger are symlinks pointing into packs."""
     if entry.get("kind") != "link":
         return False
-    agent = entry.get("agent")
-    path = ledger.resolve(str(entry.get("path", "")))
-    target = str(entry.get("target", ""))
-
-    if agent == SCRIPTS_OWNER:
-        return path.parent == corporate.bin_dir() and _is_corporate_target(target)
-
-    if agent == "codex":
-        company_dir = codex_rules_dir() / "company"
-        return path.parent == company_dir and _is_corporate_target(target)
-
-    if agent == "claude":
-        expected_dir = Path.home() / ".claude" / "rules"
-    elif agent == "antigravity":
-        expected_dir = Path.home() / ".gemini" / "config" / "rules"
-    else:
-        return False
-
-    if path.parent != expected_dir:
-        return False
-
-    name = path.name
-    if not (name.startswith("ai-governance-") and name.endswith(".md")):
-        return False
-
-    stem = name.removeprefix("ai-governance-").removesuffix(".md")
-    if "-" not in stem:
-        return False
-
-    cat = catalog or RuleCatalog()
-    if cat.get(stem) is not None:
-        return False
-
-    pack = stem.split("-", 1)[0]
-    if pack == "personal":
-        return False
-    if cat.get(pack) is not None:
-        return False
-
-    return _is_corporate_target(target)
+    return _is_corporate_link(
+        str(entry.get("agent", "")),
+        ledger.resolve(str(entry.get("path", ""))),
+        str(entry.get("target", "")),
+        catalog,
+    )
 
 
 def _corporate_entries_to_keep(
     ledger: Ledger, agents: set[str], catalog: RuleCatalog | None = None
 ) -> list[Owned]:
-    """Preserves existing corporate links when the corporate root directory is missing."""
-    kept: list[Owned] = []
     cat = catalog or RuleCatalog()
-    for entry in ledger.entries:
-        if _is_corporate_entry(ledger, entry, cat) and entry.get("agent") in agents:
-            kept.append(
-                Owned(
-                    str(entry["agent"]),
-                    LinkArtifact(ledger.resolve(entry["path"]), str(entry["target"])),
-                )
-            )
-    return kept
+    return _entries_to_keep(
+        ledger, agents, lambda agent, path, target: _is_corporate_link(agent, path, target, cat)
+    )
 
 
-def _is_personal_target(target: str) -> bool:
-    if not target:
-        return False
-    target_path = Path(target)
-    if personal.PERSONAL_DIR in target_path.parts:
-        return True
-    return target_path.parent.name == "rules"
-
-
-def _is_personal_entry(ledger: Ledger, entry: dict[str, Any]) -> bool:
-    """Personal rules in the global ledger are symlinks pointing into personal rules."""
-    if entry.get("kind") != "link":
-        return False
-    agent = entry.get("agent")
-    path = ledger.resolve(str(entry.get("path", "")))
-    target = str(entry.get("target", ""))
-
+def _is_personal_link(agent: str, path: Path, target: str = "") -> bool:
     if agent == "codex":
-        personal_dir = codex_rules_dir() / "personal"
-        if path.parent != personal_dir or not path.name.endswith(".md"):
-            return False
-        return _is_personal_target(target)
-
-    if agent == "claude":
-        expected_dir = Path.home() / ".claude" / "rules"
-    elif agent == "antigravity":
-        expected_dir = Path.home() / ".gemini" / "config" / "rules"
-    else:
+        return (
+            path.parent == codex_rules_dir() / "personal"
+            and path.name.endswith(".md")
+            and _is_personal_target(target)
+        )
+    expected = (
+        claude_rules_dir()
+        if agent == "claude"
+        else antigravity_rules_dir()
+        if agent == "antigravity"
+        else None
+    )
+    if expected is None or path.parent != expected:
         return False
-
-    if path.parent != expected_dir:
-        return False
-
     name = path.name
-    if not (name.startswith("ai-governance-personal-") and name.endswith(".md")):
+    if not (
+        name.startswith("ai-governance-personal-")
+        and name.endswith(".md")
+        and len(name) > len("ai-governance-personal-.md")
+    ):
         return False
-
-    stem = name.removeprefix("ai-governance-personal-").removesuffix(".md")
-    if not stem:
-        return False
-
     return _is_personal_target(target)
 
 
+def _is_personal_entry(ledger: Ledger, entry: dict[str, Any]) -> bool:
+    if entry.get("kind") != "link":
+        return False
+    return _is_personal_link(
+        str(entry.get("agent", "")),
+        ledger.resolve(str(entry.get("path", ""))),
+        str(entry.get("target", "")),
+    )
+
+
 def _personal_entries_to_keep(ledger: Ledger, agents: set[str]) -> list[Owned]:
-    """Preserves existing personal links when the personal root directory is missing."""
-    kept: list[Owned] = []
-    for entry in ledger.entries:
-        if _is_personal_entry(ledger, entry) and entry.get("agent") in agents:
-            kept.append(
-                Owned(
-                    str(entry["agent"]),
-                    LinkArtifact(ledger.resolve(entry["path"]), str(entry["target"])),
-                )
-            )
-    return kept
+    return _entries_to_keep(ledger, agents, _is_personal_link)
 
 
 def install_user(
@@ -380,12 +381,14 @@ def install_user(
         for spec in specs:
             desired.extend(_personal_rules(spec, p_rules))
     else:
-        report.warnings.append(
-            f"Personal directory {p_root} does not exist: keeping previously installed personal entries. "
-            "Set AI_GOVERNANCE_PERSONAL_DIR to point to your personal rules directory."
-        )
         personal_scope = {spec.id for spec in specs}
-        desired.extend(_personal_entries_to_keep(ledger, personal_scope))
+        kept_personal = _personal_entries_to_keep(ledger, personal_scope)
+        if kept_personal:
+            report.warnings.append(
+                f"Personal directory {p_root} does not exist: keeping previously installed personal entries. "
+                "Set AI_GOVERNANCE_PERSONAL_DIR to point to your personal rules directory."
+            )
+            desired.extend(kept_personal)
     desired.extend(_completions())
     scope = {spec.id for spec in specs} | {SCRIPTS_OWNER, COMPLETIONS_OWNER, SCHEDULE_OWNER}
     if not dry_run:

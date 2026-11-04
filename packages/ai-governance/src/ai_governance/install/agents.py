@@ -125,6 +125,14 @@ def codex_home() -> Path:
 CODEX_LANGUAGE_INDEX = "language-rules.md"
 
 
+def claude_rules_dir() -> Path:
+    return Path.home() / ".claude" / "rules"
+
+
+def antigravity_rules_dir() -> Path:
+    return Path.home() / ".gemini" / "config" / "rules"
+
+
 def codex_rules_dir() -> Path:
     return codex_home() / "ai-governance"
 
@@ -229,20 +237,20 @@ class ClaudeSpec(AgentSpec):
         ]
 
     def corporate_artifacts(self, rules: list[CorporateRule]) -> list[Artifact]:
-        home = Path.home() / ".claude" / "rules"
+        home = claude_rules_dir()
         return [
             LinkArtifact(home / f"ai-governance-{r.pack}-{r.name}.md", str(r.path)) for r in rules
         ]
 
     def personal_artifacts(self, rules: list[PersonalRule]) -> list[Artifact]:
-        home = Path.home() / ".claude" / "rules"
+        home = claude_rules_dir()
         return [
             LinkArtifact(home / f"ai-governance-personal-{r.name}.md", str(r.path))
             for r in rules
         ]
 
     def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
-        return _global_catalog_rules(Path.home() / ".claude" / "rules", rules)
+        return _global_catalog_rules(claude_rules_dir(), rules)
 
     def project_artifacts(
         self, root: Path, rules: list[RuleDefinition], *, gate: bool = False
@@ -324,20 +332,20 @@ class CodexSpec(AgentSpec):
 
 class AntigravitySpec(AgentSpec):
     def corporate_artifacts(self, rules: list[CorporateRule]) -> list[Artifact]:
-        home = Path.home() / ".gemini" / "config" / "rules"
+        home = antigravity_rules_dir()
         return [
             LinkArtifact(home / f"ai-governance-{r.pack}-{r.name}.md", str(r.path)) for r in rules
         ]
 
     def personal_artifacts(self, rules: list[PersonalRule]) -> list[Artifact]:
-        home = Path.home() / ".gemini" / "config" / "rules"
+        home = antigravity_rules_dir()
         return [
             LinkArtifact(home / f"ai-governance-personal-{r.name}.md", str(r.path))
             for r in rules
         ]
 
     def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
-        return _global_catalog_rules(Path.home() / ".gemini" / "config" / "rules", rules)
+        return _global_catalog_rules(antigravity_rules_dir(), rules)
 
     def global_artifacts(self) -> list[Artifact]:
         home = Path.home() / ".gemini"
