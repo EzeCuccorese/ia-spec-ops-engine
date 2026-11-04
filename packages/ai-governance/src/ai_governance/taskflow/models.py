@@ -10,7 +10,6 @@ PHASES: tuple[str, ...] = ("plan", "validate", "work", "judge", "staging", "revi
 EXIT_PHASES: tuple[str, ...] = ("findings",)
 STATUSES: tuple[str, ...] = ("active", "paused", "closed")
 ROLES: tuple[str, ...] = ("planner", "validator", "builder", "judge")
-READER_ROLES: frozenset[str] = frozenset({"planner", "validator", "judge"})
 VERDICTS: tuple[str, ...] = ("pass", "concerns", "block", "info")
 WORKFLOWS: tuple[str, ...] = ("tri-agent", "dual-agent", "single-agent", "manual")
 

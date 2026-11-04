@@ -44,8 +44,6 @@ from .handoff import findings, handoff, scrub, ticket_draft
 from .judge import JudgeError, JudgeScope
 from .judge_flow import JudgeJob, judge_flow
 from .models import PHASES, Task, now_iso
-from .policy import _rule_reductions as _rule_reductions
-from .policy import policy_reductions as policy_reductions
 from .policy import policy_summary
 from .prs import board as pr_board
 from .refresh import legacy_notice, refresh
@@ -538,18 +536,7 @@ def cmd_tdd(args: argparse.Namespace) -> int:
     return 0
 
 
-ROUND_RUN_REMOVED = (
-    "`taskflow round <ID> run` was removed: the engine never launches an agent. Use "
-    "`taskflow round <ID> dispatch --role <role> --prompt-file <file>`, run the Orca "
-    "worker-start line it prints, end your turn, then `taskflow round <ID> collect --round N "
-    "--dispatch-id <id>` (or `abort`). Judges: `taskflow judge <ID>`."
-)
-
-
 def cmd_round(args: argparse.Namespace) -> int:
-    if args.action == "run":  # migration stub: hidden from help and completion
-        emit_status("error", ROUND_RUN_REMOVED)
-        return 2
     if args.action in ("dispatch", "collect", "abort"):
         return round_cli.route(args)
     store = _store()

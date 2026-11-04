@@ -28,10 +28,10 @@ ROLE_NAMES = ("planner", "validator", "builder", "judge")
 INDEPENDENT_ROLES = ("validator", "judge")
 # Fallback order for a role whose default agent is not allowed in a repository.
 PREFERENCE: dict[str, tuple[str, ...]] = {
-    "planner": ("claude", "codex"),
-    "validator": ("codex", "claude"),
-    "builder": ("claude", "codex"),
-    "judge": ("codex", "claude"),
+    "planner": ("claude", "codex", "antigravity"),
+    "validator": ("codex", "claude", "antigravity"),
+    "builder": ("claude", "codex", "antigravity"),
+    "judge": ("codex", "claude", "antigravity"),
 }
 # Default model of each built-in agent (mirrors the ``taskflow.<role>_model`` defaults).
 DEFAULT_MODELS = {"antigravity": "gemini-4-argon-high", "codex": "gpt-6.1-sol", "claude": ""}
@@ -189,15 +189,14 @@ def resolve_allowed(
 
 
 def fallback_agent(role: str, current: str, allowed: Allowed, builder: str) -> str:
-    """The default agent of ``role`` when it is allowed; else the first allowed one in the
-    role's preference order (never the builder's provider for the validator and judge)."""
-    if allowed.permits(current):
-        return current
-    for candidate in PREFERENCE[role]:
-        clash = role in INDEPENDENT_ROLES and provider(candidate) == provider(builder)
-        if allowed.permits(candidate) and not clash:
-            return candidate
-    return current
+    """The default agent of ``role`` when it fits; else the first fitting one in the role's
+    preference order. Fits: allowed, and never the builder's provider for validator and judge."""
+
+    def fits(name: str) -> bool:
+        clash = role in INDEPENDENT_ROLES and provider(name) == provider(builder)
+        return allowed.permits(name) and not clash
+
+    return next((name for name in (current, *PREFERENCE[role]) if fits(name)), current)
 
 
 def builder_providers(task: Task, configured_builder: str) -> set[str]:

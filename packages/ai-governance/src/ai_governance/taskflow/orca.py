@@ -18,7 +18,8 @@ import sys
 from dataclasses import dataclass, replace
 
 ALLOWED_VERBS = frozenset({"worker-show", "worker-list"})
-FAILED_STATES = frozenset({"failed", "cancelled", "canceled", "stopped", "abandoned", "timed_out"})
+# Anything else is finished: an unknown state settles as a failure instead of waiting forever.
+RUNNING_STATES = frozenset({"pending", "dispatched", "starting", "ready", "running", "stopping"})
 SUCCEEDED = "succeeded"
 REQUIRED_KEYS = ("dispatchId", "state", "liveness")
 ORCA_TIMEOUT = 30
@@ -39,7 +40,7 @@ class WorkerRow:
 
     @property
     def running(self) -> bool:
-        return self.state != SUCCEEDED and self.state not in FAILED_STATES
+        return self.state in RUNNING_STATES
 
 
 def orca_command() -> str:

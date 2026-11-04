@@ -214,12 +214,44 @@ def test_human_judge_is_always_allowed(tmp_path: Path, isolated: Path) -> None:
     assert [e for e in _problems(config) if "judge" in e] == []
 
 
-def test_fallback_respects_independence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_fallback_swaps_validator_when_builder_uses_same_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("AI_GOVERNANCE_BUILDER_AGENT", "codex")
     config = load_config([_restricted(tmp_path, "claude", "codex")])
-    # the validator default (codex) is allowed and kept; the judge default likewise: both clash
-    # with the explicit builder, which validate() reports instead of silently swapping them
+    # builder is explicitly codex; validator (default codex) clashes so it falls back to claude
+    assert config.roles["validator"]["agent"] == "claude"
+    assert config.judges[0]["agent"] == "claude"
+    assert _problems(config) == []
+
+
+def test_fallback_reports_clash_when_explicitly_configured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AI_GOVERNANCE_BUILDER_AGENT", "codex")
+    monkeypatch.setenv("AI_GOVERNANCE_VALIDATOR_AGENT", "codex")
+    config = load_config([_restricted(tmp_path, "claude", "codex")])
     assert any("validator" in e for e in config.validate())
+
+
+def test_allowed_codex_antigravity_swaps_builder_to_codex_and_validator_judge_to_antigravity(
+    tmp_path: Path,
+) -> None:
+    config = load_config([_restricted(tmp_path, "codex", "antigravity")])
+    assert config.roles["builder"]["agent"] == "codex"
+    assert config.roles["validator"]["agent"] == "antigravity"
+    assert config.judges[0]["agent"] == "antigravity"
+    assert _problems(config) == []
+
+
+def test_allowed_claude_antigravity_keeps_builder_claude_and_swaps_validator_to_antigravity(
+    tmp_path: Path,
+) -> None:
+    config = load_config([_restricted(tmp_path, "claude", "antigravity")])
+    assert config.roles["builder"]["agent"] == "claude"
+    assert config.roles["validator"]["agent"] == "antigravity"
+    assert config.judges[0]["agent"] == "antigravity"
+    assert _problems(config) == []
 
 
 def test_setting_is_user_only_and_documented() -> None:
@@ -560,3 +592,24 @@ def test_config_show_reports_a_broken_secondary_taskflow_file(
     code = config_cli.main(["show", "--origin", "--json"])
     captured = capsys.readouterr()
     assert code == 1 and "taskflow.toml" in captured.err
+
+
+def test_user_source_problem_fails_closed_on_agents_but_preserves_taskflow_toml(
+    isolated: Path,
+) -> None:
+    isolated.mkdir(parents=True)
+    (isolated / "taskflow.toml").write_text(
+        '[checks]\ncommands = ["pytest tests/auth"]\n'
+        '[[risk.rules]]\nname = "sec"\npaths = ["auth/*"]\njudges = ["sec-judge"]\n'
+        '[[judges]]\nfocus = "sec-judge"\nagent = "claude"\n'
+    )
+    (isolated / "config.json").symlink_to(isolated / "nonexistent.json")
+
+    config = load_config([])
+    assert config.allowed.agents == frozenset()
+    assert not config.allowed.permits("claude")
+    assert not config.allowed.permits("codex")
+    assert any("config.json" in p for p in config.allowed.problems)
+    assert any(r.name == "sec" for r in config.risk_rules)
+    assert "pytest tests/auth" in config.checks
+    assert any(j["focus"] == "sec-judge" for j in config.judges)

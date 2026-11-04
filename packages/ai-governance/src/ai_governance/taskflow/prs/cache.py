@@ -10,7 +10,7 @@ data. The file holds facts about public PRs and the owner -> login map, never a 
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -34,7 +34,7 @@ def _gen(entry: Entry) -> int:
 
 
 def make_entry(result: Snapshot | SyncError, synced_at: str) -> Entry:
-    """The cache entry for a sync outcome (``gen`` is added by ``PrCache.store``)."""
+    """The cache entry for a sync outcome (``gen`` is added by ``PrCache.store``/``store_many``)."""
     if isinstance(result, SyncError):
         return {"snapshot": None, "error": result.code, "synced_at": synced_at}
     return {"snapshot": result.to_dict(), "error": "", "synced_at": synced_at}
@@ -88,16 +88,26 @@ class PrCache:
             self._save(data)
             return int(data["gen"])
 
-    def store(self, key: str, entry: Entry, gen: int) -> bool:
-        """Replace ``key``'s entry if ``gen`` is strictly newer; False when it was older."""
+    def store_many(
+        self, entries: Mapping[str, Entry] | Iterable[tuple[str, Entry]], gen: int
+    ) -> int:
+        """Replace entries whose ``gen`` is strictly newer in one write; returns stored count."""
+        pairs = entries.items() if isinstance(entries, Mapping) else entries
+        updated = 0
         with self._lock():
             data = self._load()
-            current = data["entries"].get(key.lower())
-            if current is not None and gen <= _gen(current):
-                return False
-            data["entries"][key.lower()] = {**entry, "gen": gen}
-            self._save(data)
-            return True
+            for key, entry in pairs:
+                current = data["entries"].get(key.lower())
+                if current is None or gen > _gen(current):
+                    data["entries"][key.lower()] = {**entry, "gen": gen}
+                    updated += 1
+            if updated:
+                self._save(data)
+        return updated
+
+    def store(self, key: str, entry: Entry, gen: int) -> bool:
+        """Replace ``key``'s entry if ``gen`` is strictly newer; False when it was older."""
+        return bool(self.store_many([(key, entry)], gen))
 
     # -- owner -> login (non-secret) ------------------------------------------------------
     def accounts(self) -> dict[str, str]:

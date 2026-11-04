@@ -253,6 +253,14 @@ def _workflow_unmet(task: Task, config: FlowConfig) -> list[str]:
     ]
 
 
+def _latest_judges(task: Task) -> list[JsonDict]:
+    by_focus: dict[str, JsonDict] = {}
+    for r in sorted(_engine_rounds(task, "judge"), key=lambda r: int(r.get("n", 0))):
+        if r.get("stamp", "") == task.stamp_key:
+            by_focus[str(r.get("focus", ""))] = r
+    return list(by_focus.values())
+
+
 def _independence_unmet(task: Task, config: FlowConfig) -> list[str]:
     """The validator and every judge must be a different provider than the builder.
 
@@ -263,7 +271,7 @@ def _independence_unmet(task: Task, config: FlowConfig) -> list[str]:
     validators = _engine_rounds(task, "validator")
     latest = [max(validators, key=lambda r: int(r["n"]))] if validators else []
     clashes: dict[str, str] = {}
-    for role, rounds in (("validator", latest), ("judge", _engine_rounds(task, "judge"))):
+    for role, rounds in (("validator", latest), ("judge", _latest_judges(task))):
         for found in rounds:
             name = provider(str(found.get("agent", "")))
             if name in writers:

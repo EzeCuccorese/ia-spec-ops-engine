@@ -20,6 +20,7 @@ from ai_governance.taskflow.cli import main
 from ai_governance.taskflow.config import FlowConfig
 from ai_governance.taskflow.control import CheckedBaseline, DispatchError
 from ai_governance.taskflow.dispatch import DispatchRequest, plan_dispatch
+from ai_governance.taskflow.judge_flow import JudgeJob, judge_flow
 from ai_governance.taskflow.stamp import head_sha, tree_fingerprint
 from orca_fakes import TASK, OrcaWorld, _make_repo, flag, world
 
@@ -409,3 +410,165 @@ def test_an_exception_mid_checks_leaves_no_worktree_or_scratch(
         ready.run("judge", TASK)
     assert list(scratch.iterdir()) == []
     assert _git(ready.repo, "worktree", "list").count("\n") == 1
+
+
+# -- fix 2: dispatch and gates agree on frozen human vs engine ---------------------------------
+def test_judge_flow_agrees_with_gates_when_frozen_engine_overrides_live_human(
+    ready: OrcaWorld, checks: Checks
+) -> None:
+    task = ready.task()
+    config = FlowConfig(
+        judges=({"focus": "correctness", "agent": "human"},),
+        checks=(),
+        risk_rules=(),
+    )
+    # Frozen risk says correctness is engine-decided (e.g. missing repo / legacy obligations)
+    risk = gates.RiskAssessment(
+        rules=(),
+        judges=("correctness",),
+        checks=(),
+        restaging=False,
+        human=(),
+        engine=("correctness",),
+    )
+    assert not gates.decided_by_human(risk, config, "correctness")
+    unmet = gates.judges_unmet(task, risk, config, task.stamp_key)
+    assert unmet == ["judge 'correctness': no verdict yet"]
+
+    # judge_flow must agree: does not skip as human, attempts worker dispatch
+    job = JudgeJob(
+        ready.store, task, gates.GateContext(config, risk, task.stamp_key), judge.JudgeScope()
+    )
+    with pytest.raises(DispatchError, match="a human cannot run as a worker"):
+        list(judge_flow(job, lambda: task.stamp_key))
+
+
+def test_judge_flow_agrees_with_gates_when_frozen_human_overrides_live_engine(
+    ready: OrcaWorld, checks: Checks
+) -> None:
+    task = ready.task()
+    config = FlowConfig(
+        judges=({"focus": "correctness", "agent": "codex"},),
+        checks=(),
+        risk_rules=(),
+    )
+    # Frozen risk says correctness is human-decided
+    risk = gates.RiskAssessment(
+        rules=(),
+        judges=("correctness",),
+        checks=(),
+        restaging=False,
+        human=("correctness",),
+        engine=(),
+    )
+    assert gates.decided_by_human(risk, config, "correctness")
+    unmet = gates.judges_unmet(task, risk, config, task.stamp_key)
+    assert unmet == ["judge 'correctness' (human): approve --action review --target correctness"]
+
+    # judge_flow must agree: treats as human, skips worker dispatch entirely
+    job = JudgeJob(
+        ready.store, task, gates.GateContext(config, risk, task.stamp_key), judge.JudgeScope()
+    )
+    dispatches = list(judge_flow(job, lambda: task.stamp_key))
+    assert dispatches == []
+
+
+# -- fix 3: latest valid judge round per focus at current stamp for independence ---------------
+def test_judge_independence_only_considers_latest_valid_round_at_current_stamp(
+    ready: OrcaWorld,
+) -> None:
+    task = ready.task()
+    current_stamp = task.stamp_key
+    config = cli._config(task)
+    ready.store.mutate(
+        TASK,
+        lambda t: t.rounds.extend(
+            [
+                {
+                    "n": 1,
+                    "role": "judge",
+                    "focus": "correctness",
+                    "agent": "claude",
+                    "state": "valid",
+                    "source": "engine",
+                    "stamp": "stamp_old",
+                },
+                {
+                    "n": 2,
+                    "role": "judge",
+                    "focus": "correctness",
+                    "agent": "claude",
+                    "state": "valid",
+                    "source": "engine",
+                    "stamp": current_stamp,
+                },
+                {
+                    "n": 3,
+                    "role": "judge",
+                    "focus": "correctness",
+                    "agent": "codex",
+                    "state": "valid",
+                    "source": "engine",
+                    "stamp": current_stamp,
+                },
+            ]
+        ),
+    )
+    task = ready.task()
+    assert gates._independence_unmet(task, config) == []
+
+    ready.store.mutate(
+        TASK,
+        lambda t: t.rounds.append(
+            {
+                "n": 4,
+                "role": "judge",
+                "focus": "correctness",
+                "agent": "claude",
+                "state": "valid",
+                "source": "engine",
+                "stamp": current_stamp,
+            }
+        ),
+    )
+    task = ready.task()
+    unmet = gates._independence_unmet(task, config)
+    assert len(unmet) == 1 and "judge and builder both used provider 'claude'" in unmet[0]
+
+
+# -- fix 8: preflight checks disallowed agent and pending duplicate before checks/evidence -----
+def test_disallowed_judge_agent_refused_before_checks_and_evidence(
+    ready: OrcaWorld, checks: Checks
+) -> None:
+    task = ready.task()
+    config = FlowConfig(
+        judges=({"focus": "correctness", "agent": "disallowed_agent"},),
+        checks=("echo check",),
+    )
+    risk = gates.RiskAssessment(rules=(), judges=("correctness",), checks=(), restaging=False)
+    job = JudgeJob(
+        ready.store,
+        task,
+        gates.GateContext(config, risk, task.stamp_key),
+        judge.JudgeScope(),
+    )
+    with pytest.raises(DispatchError, match="judge: 'disallowed_agent' is not allowed here"):
+        list(judge_flow(job, lambda: task.stamp_key))
+    assert checks == []
+    assert _check_evidence(ready) == []
+
+
+def test_pending_duplicate_judge_refused_before_checks_and_evidence(
+    ready: OrcaWorld, checks: Checks
+) -> None:
+    result1 = ready.judge()
+    assert result1.code == 0
+    checks_count = len(checks)
+    evidence_count = len(_check_evidence(ready))
+    assert checks_count > 0 and evidence_count > 0
+
+    result2 = ready.judge()
+    assert result2.code == 1
+    assert "already dispatched and not settled" in result2.err
+    assert len(checks) == checks_count
+    assert len(_check_evidence(ready)) == evidence_count

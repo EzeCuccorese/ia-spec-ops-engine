@@ -81,6 +81,47 @@ def test_a_present_orca_cli_clears_the_notice(
     assert orca.orca_problem() is None
 
 
+def test_worker_row_running_only_for_known_running_states() -> None:
+    for state in ("ready", "running", "starting", "stopping"):
+        row = orca.WorkerRow("D1", state, "live", "claude")
+        assert row.running is True
+    for state in (
+        "succeeded",
+        "failed",
+        "cancelled",
+        "canceled",
+        "stopped",
+        "abandoned",
+        "timed_out",
+        "completed",
+        "error",
+        "killed",
+        "paused",
+        "unseen",
+    ):
+        row = orca.WorkerRow("D1", state, "live", "claude")
+        assert row.running is False
+
+
+def test_doctor_taskflow_rows_check_orca_and_emit_notice_when_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ai_governance.install import doctor
+
+    monkeypatch.setenv("PATH", str(tmp_path))
+    monkeypatch.delenv("ORCA_CLI_COMMAND", raising=False)
+    rows = doctor._taskflow_rows(None)
+    assert ("taskflow", doctor.OK, "roles and judges OK") in rows
+    orca_rows = [r for r in rows if r[0] == "taskflow:orca"]
+    assert len(orca_rows) == 1
+    assert orca_rows[0][1] == doctor.WARN
+    assert "not found on PATH" in orca_rows[0][2]
+
+    attach_orca(tmp_path / "world", monkeypatch)
+    rows_present = doctor._taskflow_rows(None)
+    assert rows_present == [("taskflow", doctor.OK, "roles, judges and the Orca CLI OK")]
+
+
 def test_the_subprocess_agent_path_is_gone() -> None:
     assert importlib.util.find_spec("ai_governance.taskflow.adapters") is None
     for name in ("run_round", "RoundRequest", "_run_reserved", "_abort_round", "_record"):

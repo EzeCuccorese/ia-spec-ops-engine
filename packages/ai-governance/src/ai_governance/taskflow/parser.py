@@ -185,13 +185,6 @@ def _round_commands(sub: Subparsers) -> None:
     actions = item.add_subparsers(
         dest="action", required=True, metavar="{record,dispatch,collect,abort}"
     )
-    # Removed command kept as a migration stub. It has no help, so argparse lists nothing, and
-    # ``hidden_command`` tells the completion walker to leave it out.
-    run = actions.add_parser("run")
-    run.set_defaults(hidden_command=True)
-    run.add_argument("--role", choices=ROLES)
-    _round_agent_args(run)
-    run.add_argument("--timeout", type=int, default=0)
     record = actions.add_parser("record", help="Record a round that ran elsewhere (context only)")
     record.add_argument("--role", required=True, choices=ROLES)
     _round_agent_args(record)

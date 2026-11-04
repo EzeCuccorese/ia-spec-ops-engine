@@ -7,6 +7,7 @@ one function that talks to GitHub, and it only ever writes the cache, never a ta
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -14,7 +15,7 @@ from typing import Any
 from ..models import now_iso
 from ..store import TaskStore
 from .cache import PrCache, make_entry
-from .github import PrReader
+from .github import GhFailure, PrReader
 from .registry import Registration, registrations
 from .snapshot import SyncError
 from .status import Evaluation, evaluate, summarize
@@ -70,6 +71,12 @@ def board(store: TaskStore, task_id: str, now: datetime | None = None) -> Board:
     return Board(items, skipped)
 
 
+def _discover_logins(reader: PrReader) -> None:
+    """Find the logged-in accounts once, before the threads share the account book."""
+    with suppress(GhFailure):  # each fetch then reports the failure as its own sync error
+        reader.book.logins()
+
+
 def sync(store: TaskStore, task_id: str, reader: PrReader | None = None) -> int:
     """Refresh the cache for every PR of the board; returns how many ended in a sync error.
 
@@ -77,12 +84,13 @@ def sync(store: TaskStore, task_id: str, reader: PrReader | None = None) -> int:
     refs = [reg.ref for _, reg in holders(store, task_id)[0]]
     cache = PrCache(store.root)
     reader = reader or PrReader(cache=cache)
+    _discover_logins(reader)
     gen = cache.begin_sync()
     with ThreadPoolExecutor(max_workers=POOL) as pool:
         results = list(pool.map(reader.fetch, refs))
     stamp = now_iso()
-    for ref, result in zip(refs, results, strict=True):
-        cache.store(ref.key, make_entry(result, stamp), gen)
+    entries = [(ref.key, make_entry(res, stamp)) for ref, res in zip(refs, results, strict=True)]
+    cache.store_many(entries, gen)
     return sum(isinstance(result, SyncError) for result in results)
 
 

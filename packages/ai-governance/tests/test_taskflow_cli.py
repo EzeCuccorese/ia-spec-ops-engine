@@ -228,18 +228,6 @@ def test_unresolvable_directory_asks_for_the_task_id(
     assert run("show") != 0
 
 
-def test_round_run_is_a_migration_stub(
-    run: Run, state: TaskStore, capsys: pytest.CaptureFixture[str]
-) -> None:
-    for role in ("planner", "validator", "builder", "judge"):
-        capsys.readouterr()
-        assert run("round", "ONB-1", "run", "--role", role, "--prompt", "x") == 2
-        err = capsys.readouterr().err
-        assert "was removed" in err and "round <ID> dispatch" in err and "collect" in err
-    assert run("round", "ONB-1", "run") == 2  # even a stale call without any flag
-    assert state.get("ONB-1").rounds == []
-
-
 def test_round_record_and_rounds_validate_their_inputs(run: Run, repo: Path) -> None:
     assert run("round", "ONB-1", "record", "--role", "planner", "--file", str(repo / "gone")) != 0
     assert run("rounds", "ONB-1", "--show", "99") != 0
@@ -430,5 +418,5 @@ def test_split_cli_modules_keep_their_public_paths() -> None:
     from ai_governance.taskflow import cli
 
     assert cli.GUIDE.startswith("Flow") and callable(cli.digest)
-    assert callable(cli.policy_summary) and callable(cli.policy_reductions)
+    assert callable(cli.policy_summary)
     assert cli._parser().prog.endswith("taskflow") or cli._parser().prog

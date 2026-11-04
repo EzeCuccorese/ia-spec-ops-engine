@@ -102,6 +102,16 @@ def test_a_repo_mismatch_or_no_task_only_hints(
     assert "taskflow pr add <task>" in mismatch and numbers(state) == []
     unbound = register_created_pr(payload(CREATE, tmp_path), tmp_path)
     assert "taskflow pr add <task>" in unbound and numbers(state) == []
+    # Without -R, bound repo has no origin configured; infer_repo raises ValueError
+    no_origin = register_created_pr(payload("gh pr create --fill", bound), bound)
+    assert "taskflow pr add <task>" in no_origin and numbers(state) == []
+
+
+def test_empty_tokens_such_as_empty_body_are_accepted(bound: Path, state: TaskStore) -> None:
+    command = 'gh -R o/r pr create --title t --body ""'
+    line = register_created_pr(payload(command, bound), bound)
+    assert "registered o/r#12 in task ONB-1" in line
+    assert numbers(state) == [12]
 
 
 def test_a_title_is_never_echoed_and_bad_payloads_never_raise(bound: Path) -> None:

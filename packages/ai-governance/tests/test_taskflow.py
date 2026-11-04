@@ -349,7 +349,7 @@ def test_approvals_are_bound_to_target_and_code() -> None:
 
 
 def test_weakening_a_risk_rule_under_the_same_name_is_a_reduction() -> None:
-    from ai_governance.taskflow.cli import policy_reductions, policy_summary
+    from ai_governance.taskflow.policy import policy_reductions, policy_summary
 
     strict = FlowConfig(
         risk_rules=(RiskRule("secure", ("auth/*",), judges=("security",), restaging=True),)

@@ -59,7 +59,7 @@ def _shape(tokens: list[str]) -> tuple[str, str] | None:
     if head is None:
         return None
     directory, tokens = head
-    if not tokens or tokens[0] != "gh" or any(set(t) <= _OPERATORS for t in tokens):
+    if not tokens or tokens[0] != "gh" or any(t and set(t) <= _OPERATORS for t in tokens):
         return None
     flag = _repo_flag(tokens[1:])
     if flag is None:
@@ -104,7 +104,10 @@ def _same_repo(ref: PrRef, flag: str, store: TaskStore, task_id: str) -> bool:
     if flag:
         return flag.lower() == ref.repo.lower()
     paths = [Path(r["path"]) for r in store.get(task_id).repos]
-    return infer_repo(paths).lower() == ref.repo.lower()
+    try:
+        return infer_repo(paths).lower() == ref.repo.lower()
+    except ValueError:
+        return False
 
 
 def _accepted(payload: dict[str, Any]) -> tuple[tuple[str, str], PrRef] | None:

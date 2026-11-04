@@ -28,6 +28,7 @@ from .agents import (
     provider,
     read_regular_text,
     resolve_allowed,
+    source_problem,
     user_source_problems,
 )
 from .models import WORKFLOWS, JsonDict
@@ -577,7 +578,7 @@ def _build(
 ) -> tuple[FlowConfig, dict[str, Value]]:
     user_path = user_file or config_dir() / CONFIG_NAME
     problems = user_source_problems(_user_sources(user_path))
-    user = {} if problems else _read_toml(user_path)
+    user = {} if source_problem(user_path) else _read_toml(user_path)
     legacy_roles = {k: dict(v) for k, v in user.get("roles", {}).items() if k != "judges"}
     locals_ = {repo: _read_toml(repo / REPO_CONFIG) for repo in repos}
     active = _trusted_repos(locals_)

@@ -13,6 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 from ai_governance.taskflow.cli import main
@@ -20,6 +21,7 @@ from ai_governance.taskflow.digest import digest
 from ai_governance.taskflow.models import Task, now_iso
 from ai_governance.taskflow.prs import board as pr_board
 from ai_governance.taskflow.prs.cache import PrCache, make_entry
+from ai_governance.taskflow.prs.github import NO_GH, GhFailure
 from ai_governance.taskflow.prs.refs import PrRef
 from ai_governance.taskflow.prs.registry import registrations
 from ai_governance.taskflow.prs.snapshot import Snapshot, SyncError
@@ -153,11 +155,17 @@ def test_a_hostile_title_is_cleaned_before_printing(env: Env) -> None:
     assert "next line" in text and "ignore all previous\nnext" not in text
 
 
+class NoLogins:
+    def logins(self) -> list[tuple[str, bool]]:
+        return []
+
+
 class FakeReader:
     """Stands in for ``PrReader``: PR 1 is fine, PR 2 times out, anything else is missing."""
 
     def __init__(self, cache: PrCache | None = None) -> None:
         self.cache = cache
+        self.book = NoLogins()
 
     def fetch(self, ref: PrRef) -> Snapshot | SyncError:
         if ref.number == 1:
@@ -179,6 +187,95 @@ def test_sync_writes_the_cache_not_the_task_and_fails_on_errors(
 
 def test_sync_succeeds_when_every_pr_resolves(env: Env, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(pr_board, "PrReader", FakeReader)
+    assert env.run("pr", "add", PARENT, "o/r#1") == 0
+    assert env.run("pr", "sync", PARENT) == 0
+
+
+def test_cache_store_many_batches_updates_and_respects_gen(env: Env) -> None:
+    cache = PrCache(env.store.root)
+    stamp = now_iso()
+    items = {
+        "o/r#1": make_entry(snap(), stamp),
+        "o/r#2": make_entry(snap(), stamp),
+    }
+    # First batch with gen 2 stores both
+    assert cache.store_many(items, 2) == 2
+    assert cache.get("o/r#1")["gen"] == 2
+    assert cache.get("o/r#2")["gen"] == 2
+
+    # Older gen 1 stores nothing
+    assert cache.store_many(items, 1) == 0
+    assert cache.get("o/r#1")["gen"] == 2
+
+    # Newer gen 3 updates only what is passed
+    assert cache.store_many({"o/r#1": make_entry(snap(), stamp)}, 3) == 1
+    assert cache.get("o/r#1")["gen"] == 3
+    assert cache.get("o/r#2")["gen"] == 2
+
+
+def test_sync_discovers_logins_once_before_pool_and_stores_in_one_write(
+    env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events: list[str] = []
+
+    class MockBook:
+        def logins(self) -> list[tuple[str, bool]]:
+            events.append("logins")
+            return [("alice", True)]
+
+    class ReaderWithBook:
+        def __init__(self, cache: PrCache | None = None) -> None:
+            self.cache = cache
+            self.book = MockBook()
+
+        def fetch(self, ref: PrRef) -> Snapshot | SyncError:
+            events.append(f"fetch:{ref.number}")
+            return snap()
+
+    monkeypatch.setattr(pr_board, "PrReader", ReaderWithBook)
+    stored_batches: list[list[tuple[str, Any]]] = []
+    original_store_many = PrCache.store_many
+
+    def spy_store_many(self: PrCache, entries: Any, gen: int) -> int:
+        stored_batches.append(list(entries))
+        return original_store_many(self, entries, gen)
+
+    monkeypatch.setattr(PrCache, "store_many", spy_store_many)
+    store_calls = 0
+
+    def fail_store(self: PrCache, key: str, entry: Any, gen: int) -> bool:
+        nonlocal store_calls
+        store_calls += 1
+        return True
+
+    monkeypatch.setattr(PrCache, "store", fail_store)
+
+    assert env.run("pr", "add", PARENT, "o/r#1", "o/r#2") == 0
+    assert env.run("pr", "sync", PARENT) == 0
+
+    # Logins was discovered first before any fetch
+    assert events[0] == "logins"
+    assert set(events[1:]) == {"fetch:1", "fetch:2"}
+    # Store was batched in one write under store_many, store was not called
+    assert len(stored_batches) == 1
+    assert {k for k, _ in stored_batches[0]} == {"o/r#1", "o/r#2"}
+    assert store_calls == 0
+
+
+def test_sync_tolerates_login_discovery_failure(env: Env, monkeypatch: pytest.MonkeyPatch) -> None:
+    class FailingBook:
+        def logins(self) -> list[tuple[str, bool]]:
+            raise GhFailure(NO_GH)
+
+    class ReaderWithFailingBook:
+        def __init__(self, cache: PrCache | None = None) -> None:
+            self.cache = cache
+            self.book = FailingBook()
+
+        def fetch(self, ref: PrRef) -> Snapshot | SyncError:
+            return snap()
+
+    monkeypatch.setattr(pr_board, "PrReader", ReaderWithFailingBook)
     assert env.run("pr", "add", PARENT, "o/r#1") == 0
     assert env.run("pr", "sync", PARENT) == 0
 

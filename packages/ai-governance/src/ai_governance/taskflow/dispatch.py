@@ -173,6 +173,17 @@ def _pending_duplicate(locked: Task, directory: Path, request: DispatchRequest) 
     return None
 
 
+def refuse_pending(locked: Task, directory: Path, request: DispatchRequest) -> None:
+    """Refuse a round whose role, phase and focus already have an unsettled dispatch."""
+    if (twin := _pending_duplicate(locked, directory, request)) is not None:
+        raise DispatchError(
+            f"round {twin:03d} ({request.role}) is already dispatched and not settled: "
+            f"collect it with `round {locked.id} collect --round {twin} --dispatch-id <ID>`, "
+            f"or abort it with `round {locked.id} abort --round {twin} --reason ... "
+            "(--dispatch-id <ID> | --never-started)`"
+        )
+
+
 class _Publisher:
     """The step ``reserve_round`` runs under the task lock: duplicate check, spec, seal, record."""
 
@@ -188,13 +199,7 @@ class _Publisher:
                 "the code stamp changed after the checks ran: nothing was dispatched; "
                 "run `taskflow judge` again"
             )
-        if (twin := _pending_duplicate(locked, directory, self.request)) is not None:
-            raise DispatchError(
-                f"round {twin:03d} ({self.request.role}) is already dispatched and not settled: "
-                f"collect it with `round {locked.id} collect --round {twin} --dispatch-id <ID>`, "
-                f"or abort it with `round {locked.id} abort --round {twin} --reason ... "
-                "(--dispatch-id <ID> | --never-started)`"
-            )
+        refuse_pending(locked, directory, self.request)
         record, text = self._record(locked, number, round_file)
         _write_sealed(self.store, record, text)
         self.made = {"n": number, "argv": record["command"], "spec": Path(record["spec"])}

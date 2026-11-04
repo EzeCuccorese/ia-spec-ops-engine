@@ -107,18 +107,13 @@ def test_cli_dispatch_hook() -> None:
 
 
 def _subcommand_helps(parser: argparse.ArgumentParser) -> dict[str, str | None]:
-    """Help of every visible subcommand, nested ones included as ``parent child``.
-
-    A hidden command (``set_defaults(hidden_command=True)``) is a migration stub that is
-    deliberately left out of ``--help`` and of shell completion, so it has no help text."""
+    """Help of every visible subcommand, nested ones included as ``parent child``."""
     helps: dict[str, str | None] = {}
     for action in parser._actions:
         if not isinstance(action, argparse._SubParsersAction):
             continue
         described = {choice.dest: choice.help for choice in action._choices_actions}
         for name, child in action.choices.items():
-            if child.get_default("hidden_command"):
-                continue
             helps[name] = described.get(name)
             helps.update({f"{name} {k}": v for k, v in _subcommand_helps(child).items()})
     return helps

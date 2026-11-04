@@ -11,7 +11,7 @@ from ai_governance import config_cli, corporate, hooks
 from ai_governance.install import schedule
 from ai_governance.install.agents import scout_model
 from ai_governance.output import truncate
-from ai_governance.settings import RETIRED, SETTINGS, effective, retired_rows
+from ai_governance.settings import SETTINGS, effective
 from ai_governance.taskflow import tdd
 from ai_governance.taskflow.config import FlowConfig, check_timeout_seconds, load_config
 
@@ -91,7 +91,7 @@ def test_roles_and_models_come_from_user_settings_never_the_repo(
     assert scout_model() == "tiny"
 
 
-def test_old_binary_keys_load_and_are_reported(
+def test_old_binary_keys_load_and_are_ignored(
     isolated: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     isolated.mkdir(parents=True)
@@ -102,22 +102,10 @@ def test_old_binary_keys_load_and_are_reported(
     root = Path("/nonexistent-root")
     assert effective(root)["taskflow.builder_agent"].value == "codex"  # the file still loads
     assert load_config().roles["builder"]["agent"] == "codex"
-    rows = retired_rows(root)
-    assert set(rows) == {"agents.codex_binary", "agents.claude_binary"}
-    assert all(
-        "no longer used" in str(row.value) and "ORCA_CLI_COMMAND" in str(row.value)
-        for row in rows.values()
-    )
-    assert set(RETIRED) == {
-        "agents.antigravity_binary",
-        "agents.codex_binary",
-        "agents.claude_binary",
-    }
     assert config_cli.main(["show", "--origin"]) == 0
     shown = capsys.readouterr().out
-    assert 'agents.codex_binary = "no longer used' in shown
-    assert 'agents.claude_binary = "no longer used' in shown
-    assert "agents.antigravity_binary" not in shown  # nothing set it
+    assert "codex_binary" not in shown
+    assert "claude_binary" not in shown
 
 
 def test_binary_settings_are_gone() -> None:

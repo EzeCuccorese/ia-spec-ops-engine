@@ -324,10 +324,6 @@ def _ready(w: OrcaWorld, mp: pytest.MonkeyPatch) -> None:
     w.finish(1, "D1", state="ready")
 
 
-def _paused(w: OrcaWorld, mp: pytest.MonkeyPatch) -> None:
-    w.finish(1, "D1", state="paused")
-
-
 def _orca_absent(w: OrcaWorld, mp: pytest.MonkeyPatch) -> None:
     w.finish(1, "D1")
     mp.setenv("ORCA_CLI_COMMAND", "no-such-orca")
@@ -380,7 +376,6 @@ def _receipt_of_another_worker(w: OrcaWorld, mp: pytest.MonkeyPatch) -> None:
 
 REFUSALS: dict[str, tuple[Callable[[OrcaWorld, pytest.MonkeyPatch], None], str]] = {
     "running": (_ready, WAIT),
-    "unseen-state": (_paused, "still running"),
     "orca-absent": (_orca_absent, "cannot confirm the worker for dispatch D1"),
     "show-fails": (_show_fails, "cannot confirm the worker"),
     "not-json": (_not_json, "did not print JSON"),
@@ -478,6 +473,27 @@ def test_failed_worker_is_invalid(world: OrcaWorld) -> None:
     record = world.record(1)
     assert (record["state"], record["verdict"]) == ("invalid", "block")
     assert record["reason"] == "worker ended as failed"
+
+
+@pytest.mark.parametrize("state", ["completed", "error", "killed", "paused"])
+def test_unknown_terminal_state_settles_as_invalid_and_does_not_block_collect(
+    world: OrcaWorld, state: str
+) -> None:
+    world.dispatch("validator", "codex")
+    world.finish(1, "D1", state=state, answer="VERDICT: pass\n", agent="codex")
+    assert world.collect(1, "D1").code == 1
+    record = world.record(1)
+    assert (record["state"], record["verdict"]) == ("invalid", "block")
+    assert record["reason"] == f"worker ended as {state}"
+
+
+@pytest.mark.parametrize("state", ["completed", "error", "killed", "paused"])
+def test_unknown_terminal_state_does_not_block_abort(world: OrcaWorld, state: str) -> None:
+    world.dispatch("validator", "codex")
+    world.finish(1, "D1", state=state, answer="VERDICT: pass\n", agent="codex")
+    res = world.abort(1, "--reason", "hung", "--dispatch-id", "D1")
+    assert res.code == 0
+    assert "still running" not in res.text
 
 
 def test_reader_that_changed_the_tree_is_invalid_and_kept(world: OrcaWorld) -> None:
@@ -862,15 +878,16 @@ def test_manual_record_stays_context_only(world: OrcaWorld, tmp_path: Path) -> N
     assert world.record(1)["state"] == "context"
 
 
-def test_parser_keeps_the_hidden_run_stub_and_needs_no_role_for_collect_and_abort() -> None:
+def test_parser_needs_no_role_for_collect_and_abort() -> None:
     parser = build_parser()
-    assert parser.parse_args(["round", TASK, "run", "--role", "planner"]).action == "run"
     args = parser.parse_args(["round", TASK, "collect", "--round", "1", "--dispatch-id", "D"])
     assert args.action == "collect" and not hasattr(args, "role")
     with pytest.raises(SystemExit):
         parser.parse_args(
             ["round", TASK, "collect", "--round", "1", "--dispatch-id", "D", "--role", "x"]
         )
+    with pytest.raises(SystemExit):
+        parser.parse_args(["round", TASK, "run", "--role", "planner"])
 
 
 def test_guide_documents_the_new_verbs() -> None:

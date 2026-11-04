@@ -81,7 +81,6 @@ def _hidden_cli() -> None:
     sub.add_parser("legacy", help=argparse.SUPPRESS)
     sub.add_parser("silent", help="")
     sub.add_parser("bare")
-    sub.add_parser("stub").set_defaults(hidden_command=True)
     parser.parse_args(sys.argv[1:])
 
 
@@ -91,29 +90,7 @@ def test_walker_omits_suppressed_subcommands_but_keeps_ordinary_ones(
     names = [s["name"] for s in _walk(monkeypatch, _hidden_cli)["subcommands"]]
     assert names == ["visible", "silent", "bare"]
     shown = render(_walk(monkeypatch, _hidden_cli))
-    assert "legacy" not in shown and "stub" not in shown
-
-
-def _taskflow_cli() -> None:
-    import sys
-
-    from ai_governance.taskflow.parser import build_parser
-
-    build_parser().parse_args(sys.argv[1:])
-
-
-def test_removed_round_run_stub_is_absent_from_generated_completion(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    walked = _walk(monkeypatch, _taskflow_cli)
-    round_cmd = next(s for s in walked["subcommands"] if s["name"] == "round")
-    assert {s["name"] for s in round_cmd["subcommands"]} == {
-        "record",
-        "dispatch",
-        "collect",
-        "abort",
-    }
-    assert "run" not in [s["name"] for s in round_cmd["subcommands"]]
+    assert "legacy" not in shown
 
 
 @pytest.mark.skipif(shutil.which("zsh") is None, reason="zsh not installed")
