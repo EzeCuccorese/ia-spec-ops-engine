@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..corporate import CorporateRule
+from ..personal import PersonalRule
 from ..rules.catalog import RuleDefinition
 from ..settings import get as setting
 from . import content
@@ -124,6 +125,14 @@ def codex_home() -> Path:
 CODEX_LANGUAGE_INDEX = "language-rules.md"
 
 
+def claude_rules_dir() -> Path:
+    return Path.home() / ".claude" / "rules"
+
+
+def antigravity_rules_dir() -> Path:
+    return Path.home() / ".gemini" / "config" / "rules"
+
+
 def codex_rules_dir() -> Path:
     return codex_home() / "ai-governance"
 
@@ -147,6 +156,10 @@ class AgentSpec:
         """Always-on company rules at user level."""
         raise NotImplementedError
 
+    def personal_artifacts(self, rules: list[PersonalRule]) -> list[Artifact]:
+        """Always-on personal rules at user level."""
+        raise NotImplementedError
+
     def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
         """Path-scoped catalog rules at user level."""
         raise NotImplementedError
@@ -167,45 +180,53 @@ class AgentSpec:
         return [HooksArtifact(path, entries, group)] if shell_hooks_verified(self.id) else []
 
 
+def _claude_subagents(agents_dir: Path) -> list[Artifact]:
+    return [
+        FileArtifact(
+            agents_dir / "scout.md",
+            "---\n"
+            "name: scout\n"
+            f"description: {content.CLAUDE_SCOUT_DESCRIPTION}\n"
+            "tools: Read, Grep, Glob\n"
+            "model: haiku\n"
+            "effort: medium\n"
+            "omitClaudeMd: true\n"
+            "---\n" + content.SCOUT_INSTRUCTIONS,
+        ),
+        FileArtifact(
+            agents_dir / "researcher.md",
+            "---\n"
+            "name: researcher\n"
+            f"description: {content.RESEARCHER_DESCRIPTION}\n"
+            "tools: Read, WebSearch, WebFetch\n"
+            "model: sonnet\n"
+            "effort: medium\n"
+            "omitClaudeMd: true\n"
+            "---\n" + content.RESEARCHER_INSTRUCTIONS,
+        ),
+        FileArtifact(
+            agents_dir / "runner.md",
+            "---\n"
+            "name: runner\n"
+            f"description: {content.RUNNER_DESCRIPTION}\n"
+            "tools: Bash, Read, Grep, Glob\n"
+            "model: haiku\n"
+            "effort: medium\n"
+            "omitClaudeMd: true\n"
+            "---\n" + content.RUNNER_INSTRUCTIONS,
+        ),
+    ]
+
+
 class ClaudeSpec(AgentSpec):
     def global_artifacts(self) -> list[Artifact]:
         home = Path.home() / ".claude"
         command = f"{HOOK_COMMAND_PREFIX} claude"
         return [
+            BlockArtifact(home / "AGENTS.md", content.claude_agents_block(home / "rules")),
+            BlockArtifact(home / "CLAUDE.md", content.CLAUDE_ENTRY_BLOCK),
             FileArtifact(home / "rules" / "ai-governance.md", content.GLOBAL_INSTRUCTIONS),
-            FileArtifact(
-                home / "agents" / "scout.md",
-                "---\n"
-                "name: scout\n"
-                f"description: {content.CLAUDE_SCOUT_DESCRIPTION}\n"
-                "tools: Read, Grep, Glob\n"
-                "model: haiku\n"
-                "effort: medium\n"
-                "omitClaudeMd: true\n"
-                "---\n" + content.SCOUT_INSTRUCTIONS,
-            ),
-            FileArtifact(
-                home / "agents" / "researcher.md",
-                "---\n"
-                "name: researcher\n"
-                f"description: {content.RESEARCHER_DESCRIPTION}\n"
-                "tools: Read, WebSearch, WebFetch\n"
-                "model: sonnet\n"
-                "effort: medium\n"
-                "omitClaudeMd: true\n"
-                "---\n" + content.RESEARCHER_INSTRUCTIONS,
-            ),
-            FileArtifact(
-                home / "agents" / "runner.md",
-                "---\n"
-                "name: runner\n"
-                f"description: {content.RUNNER_DESCRIPTION}\n"
-                "tools: Bash, Read, Grep, Glob\n"
-                "model: haiku\n"
-                "effort: medium\n"
-                "omitClaudeMd: true\n"
-                "---\n" + content.RUNNER_INSTRUCTIONS,
-            ),
+            *_claude_subagents(home / "agents"),
             *skill_artifacts(home / "skills"),
             HooksArtifact(
                 home / "settings.json",
@@ -222,13 +243,19 @@ class ClaudeSpec(AgentSpec):
         ]
 
     def corporate_artifacts(self, rules: list[CorporateRule]) -> list[Artifact]:
-        home = Path.home() / ".claude" / "rules"
+        home = claude_rules_dir()
         return [
             LinkArtifact(home / f"ai-governance-{r.pack}-{r.name}.md", str(r.path)) for r in rules
         ]
 
+    def personal_artifacts(self, rules: list[PersonalRule]) -> list[Artifact]:
+        home = claude_rules_dir()
+        return [
+            LinkArtifact(home / f"ai-governance-personal-{r.name}.md", str(r.path)) for r in rules
+        ]
+
     def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
-        return _global_catalog_rules(Path.home() / ".claude" / "rules", rules)
+        return _global_catalog_rules(claude_rules_dir(), rules)
 
     def project_artifacts(
         self, root: Path, rules: list[RuleDefinition], *, gate: bool = False
@@ -286,6 +313,10 @@ class CodexSpec(AgentSpec):
         company = codex_rules_dir() / "company"
         return [LinkArtifact(company / f"{r.pack}-{r.name}.md", str(r.path)) for r in rules]
 
+    def personal_artifacts(self, rules: list[PersonalRule]) -> list[Artifact]:
+        personal = codex_rules_dir() / "personal"
+        return [LinkArtifact(personal / f"{r.name}.md", str(r.path)) for r in rules]
+
     def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
         rules_dir = codex_rules_dir()
         if not rules:
@@ -306,13 +337,19 @@ class CodexSpec(AgentSpec):
 
 class AntigravitySpec(AgentSpec):
     def corporate_artifacts(self, rules: list[CorporateRule]) -> list[Artifact]:
-        home = Path.home() / ".gemini" / "config" / "rules"
+        home = antigravity_rules_dir()
         return [
             LinkArtifact(home / f"ai-governance-{r.pack}-{r.name}.md", str(r.path)) for r in rules
         ]
 
+    def personal_artifacts(self, rules: list[PersonalRule]) -> list[Artifact]:
+        home = antigravity_rules_dir()
+        return [
+            LinkArtifact(home / f"ai-governance-personal-{r.name}.md", str(r.path)) for r in rules
+        ]
+
     def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
-        return _global_catalog_rules(Path.home() / ".gemini" / "config" / "rules", rules)
+        return _global_catalog_rules(antigravity_rules_dir(), rules)
 
     def global_artifacts(self) -> list[Artifact]:
         home = Path.home() / ".gemini"
