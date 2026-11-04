@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.3.0 - 2026-11-03
+
+### Features
+- Layered configuration, repo-priority controls with trust, and module splits.
+- Read the repo and user config files in the quality gate.
+- Repo config can replace or disable controls.
+
+### Fixes
+- Reject unknown Atlassian profiles, unify run_local defaults, lazy config.
+- Address review findings.
+- Legacy judges follow config precedence.
+- Trust and approval for repo controls.
+- Harden repo trust.
+- Trust the ordered execution plan.
+- Untrusted repo configs are ignored entirely.
+- Keep legacy call signatures.
+- Correct config types and cover service selection.
+- Address PR review threads.
+- Empty env values are unset unless the setting opts in.
+
 ## 1.2.0 - 2026-10-29
 
 ### Features
