@@ -11,6 +11,7 @@ from ai_governance.install import cli, doctor
 from ai_governance.install.budget import fixed_cost
 from ai_governance.install.cli import main as install_cli
 from ai_governance.install.installer import global_ledger, install_user, uninstall_user
+from ai_governance.rules.catalog import RuleCatalog
 
 
 @pytest.fixture
@@ -205,3 +206,172 @@ def test_codex_installs_no_language_index_without_rules(home: Path) -> None:
     from ai_governance.install.agents import AGENTS
 
     assert AGENTS["codex"].catalog_artifacts([]) == []
+
+
+def test_missing_corporate_dir_keeps_installed_rules_and_scripts_and_warns(
+    home: Path, pack_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_user(["claude"])
+    assert _pack_rules(home) == [
+        "ai-governance-acme-glossary.md",
+        "ai-governance-acme-principles.md",
+    ]
+    assert _script(home).is_symlink()
+
+    missing = pack_root.parent / "nonexistent-corporate-dir"
+    monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(missing))
+
+    report = install_user(["claude"])
+
+    assert _pack_rules(home) == [
+        "ai-governance-acme-glossary.md",
+        "ai-governance-acme-principles.md",
+    ]
+    assert _script(home).is_symlink()
+    assert (
+        "unchanged",
+        str(home / ".claude" / "rules" / "ai-governance-acme-glossary.md"),
+    ) in report.changes
+    assert ("unchanged", str(_script(home))) in report.changes
+    assert any("AI_GOVERNANCE_CORPORATE_DIR" in w and str(missing) in w for w in report.warnings)
+
+    # Idempotent second run
+    report2 = install_user(["claude"])
+    assert _pack_rules(home) == [
+        "ai-governance-acme-glossary.md",
+        "ai-governance-acme-principles.md",
+    ]
+    assert _script(home).is_symlink()
+    assert any("AI_GOVERNANCE_CORPORATE_DIR" in w and str(missing) in w for w in report2.warnings)
+
+
+def test_empty_corporate_dir_still_removes(home: Path, pack_root: Path) -> None:
+    install_user(["claude"])
+    assert _pack_rules(home)
+    assert _script(home).is_symlink()
+
+    for path in sorted(pack_root.rglob("*"), reverse=True):
+        path.unlink() if path.is_file() else path.rmdir()
+    assert pack_root.is_dir()
+
+    report = install_user(["claude"])
+
+    assert _pack_rules(home) == []
+    assert not _script(home).exists()
+    assert not any("AI_GOVERNANCE_CORPORATE_DIR" in w for w in report.warnings)
+
+
+def test_missing_corporate_dir_without_prior_entries_stays_silent(
+    home: Path, pack_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    missing = pack_root.parent / "nonexistent-corporate-dir"
+    monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(missing))
+
+    report = install_user(["claude"])
+    assert not any("AI_GOVERNANCE_CORPORATE_DIR" in w for w in report.warnings)
+
+
+def test_uninstall_keeps_shared_scripts_when_corporate_dir_missing(
+    home: Path, pack_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_user(["claude", "antigravity"])
+    assert _script(home).is_symlink()
+
+    missing = pack_root.parent / "nonexistent-corporate-dir"
+    monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(missing))
+
+    uninstall_user(["claude"])
+    assert _pack_rules(home) == []
+    assert _script(home).is_symlink()
+
+    uninstall_user(["antigravity"])
+    assert not _script(home).exists()
+
+
+def test_missing_corporate_dir_keeps_all_agents_links(
+    home: Path, pack_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_user(["claude", "antigravity", "codex"])
+    gemini_rule = home / ".gemini" / "config" / "rules" / "ai-governance-acme-glossary.md"
+    codex_rule = home / ".codex" / "ai-governance" / "company" / "acme-glossary.md"
+    assert gemini_rule.is_symlink()
+    assert codex_rule.is_symlink()
+
+    missing = pack_root.parent / "nonexistent-packs"
+    monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(missing))
+
+    report = install_user(["claude", "antigravity", "codex"])
+    assert _pack_rules(home)
+    assert gemini_rule.is_symlink()
+    assert codex_rule.is_symlink()
+    assert _script(home).is_symlink()
+    assert any("AI_GOVERNANCE_CORPORATE_DIR" in w for w in report.warnings)
+
+
+def _add_fake_rule_link(home: Path, tmp_path: Path, name: str) -> tuple[Path, Path]:
+    target = tmp_path / f"{name}.md"
+    target.write_text(f"#{name}\n")
+    link = home / ".claude" / "rules" / f"ai-governance-{name}.md"
+    if link.exists():
+        link.unlink()
+    link.symlink_to(target)
+    return link, target
+
+
+def test_non_corporate_agent_link_not_kept_when_dir_missing(
+    home: Path, pack_root: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    install_user(["claude"])
+    assert _pack_rules(home)
+    assert _script(home).is_symlink()
+
+    external_link, external_target = _add_fake_rule_link(home, tmp_path, "custom-rule")
+    catalog_link, catalog_target = _add_fake_rule_link(home, tmp_path, "python-async")
+
+    ledger = global_ledger()
+    for link, target in ((external_link, external_target), (catalog_link, catalog_target)):
+        ledger.entries.append(
+            {"agent": "claude", "kind": "link", "path": ledger.key(link), "target": str(target)}
+        )
+    ledger.save(cli.Report(), False)
+
+    missing = pack_root.parent / "nonexistent-corporate-dir"
+    monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(missing))
+
+    report = install_user(["claude"])
+
+    # Genuine corporate rules and scripts are kept
+    assert _pack_rules(home) == [
+        "ai-governance-acme-glossary.md",
+        "ai-governance-acme-principles.md",
+    ]
+    assert _script(home).is_symlink()
+
+    # Non-corporate link was NOT kept and was removed
+    assert not external_link.exists()
+    assert not external_link.is_symlink()
+    assert ("removed", str(external_link)) in report.changes
+
+    # The catalog rule was installed as a regular file, not kept as a link
+    assert catalog_link.is_file() and not catalog_link.is_symlink()
+
+
+@pytest.mark.parametrize(
+    ("agent", "path", "target"),
+    [
+        ("unknown", "p", "t"),
+        ("claude", ".claude/not_rules/file.md", "t"),
+        ("claude", ".claude/rules/no-prefix.md", "t"),
+        ("claude", ".claude/rules/ai-governance-nohyphen.md", "t"),
+        ("claude", ".claude/rules/ai-governance-kotlin-sub.md", "t"),
+    ],
+)
+def test_is_corporate_entry_edge_cases(home: Path, agent: str, path: str, target: str) -> None:
+    from ai_governance.install.installer import _is_corporate_entry, _is_corporate_target
+
+    assert not _is_corporate_target("")
+    ledger = global_ledger()
+    catalog = RuleCatalog()
+    assert not _is_corporate_entry(ledger, {"kind": "file"})
+    entry = {"kind": "link", "agent": agent, "path": str(home / path), "target": target}
+    assert not _is_corporate_entry(ledger, entry, catalog=catalog)
