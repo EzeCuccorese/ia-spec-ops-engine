@@ -188,8 +188,8 @@ def _active_task(repo: Path) -> tuple[Any, Any] | None:
 
 
 NO_TASK_HINT = (
-    "TASKFLOW: no task for this repository/branch. Before changing code, create one "
-    "(`ai-governance taskflow new`, tri-agent) and start with the plan; `taskflow --help`."
+    "TASKFLOW: no task for this repository/branch. When tracking formal work or Jira tickets, "
+    "create one (`ai-governance taskflow new`, tri-agent); `taskflow --help`."
 )
 
 
