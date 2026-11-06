@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
+from ai_governance._config_core import ConfigError
 from ai_governance.taskflow import approvals, gates, tdd
 from ai_governance.taskflow.approvals import (
     ApprovalContext,
@@ -330,6 +331,85 @@ def test_production_actions_are_refused_outside_the_window(tmp_path: Path, monke
         )
     assert approvals.outside_production_window(datetime(2026, 10, 28, 16, 0))
     assert not approvals.outside_production_window(datetime(2026, 10, 30, 12, 59))
+
+
+def test_production_risk_window_defaults() -> None:
+    assert approvals.production_window_cutoffs() == (16, 13)
+    # Wednesday: 15:59 is inside, 16:00 is outside
+    assert not approvals.outside_production_window(datetime(2026, 10, 28, 15, 59))
+    assert approvals.outside_production_window(datetime(2026, 10, 28, 16, 0))
+    # Friday: 12:59 is inside, 13:00 is outside
+    assert not approvals.outside_production_window(datetime(2026, 10, 30, 12, 59))
+    assert approvals.outside_production_window(datetime(2026, 10, 30, 13, 0))
+    # Weekend is always outside
+    assert approvals.outside_production_window(datetime(2026, 10, 31, 10, 0))
+
+
+def test_production_risk_window_configurable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("AI_GOVERNANCE_RISK_WINDOW_CUTOFF_HOUR", "18")
+    monkeypatch.setenv("AI_GOVERNANCE_RISK_WINDOW_FRIDAY_CUTOFF_HOUR", "15")
+    assert approvals.production_window_cutoffs() == (18, 15)
+
+    # Wednesday 16:30 was outside previously (cutoff 16), now inside (cutoff 18)
+    wednesday_late = datetime(2026, 10, 28, 16, 30)
+    assert not approvals.outside_production_window(wednesday_late)
+    assert approvals.outside_production_window(datetime(2026, 10, 28, 18, 0))
+
+    # Friday 14:00 was outside previously (cutoff 13), now inside (cutoff 15)
+    friday_afternoon = datetime(2026, 10, 30, 14, 0)
+    assert not approvals.outside_production_window(friday_afternoon)
+    assert approvals.outside_production_window(datetime(2026, 10, 30, 15, 0))
+
+    # In build_approval, Friday 14:00 now succeeds because Friday cutoff is 15
+    _session(monkeypatch, tmp_path, ("assistant", DEPLOY_ASK), ("user", DEPLOY_REPLY))
+    record = _approve(
+        ApprovalRequest("deploy", "api", DEPLOY_REPLY, CONSEQUENCE), tmp_path, friday_afternoon
+    )
+    assert record["action"] == "deploy"
+
+    # Friday 15:30 is outside the new window, raises with the configured hours
+    friday_cutoff_passed = datetime(2026, 10, 30, 15, 30)
+    with pytest.raises(ApprovalError, match=r"never after 18:00, nor Friday after 15:00"):
+        _approve(
+            ApprovalRequest("deploy", "api", DEPLOY_REPLY, CONSEQUENCE),
+            tmp_path,
+            friday_cutoff_passed,
+        )
+
+
+def test_production_risk_window_invalid_hour_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("AI_GOVERNANCE_RISK_WINDOW_CUTOFF_HOUR", "25")
+    with pytest.raises(
+        ConfigError, match=r"Invalid value for risk_window\.cutoff_hour: 25.*0 and 23"
+    ):
+        approvals.production_window_cutoffs()
+
+    with pytest.raises(
+        ConfigError, match=r"Invalid value for risk_window\.cutoff_hour: 25.*0 and 23"
+    ):
+        approvals.outside_production_window(datetime(2026, 10, 28, 12, 0))
+
+    _session(monkeypatch, tmp_path, ("assistant", DEPLOY_ASK), ("user", DEPLOY_REPLY))
+    with pytest.raises(ConfigError, match=r"Invalid value for risk_window\.cutoff_hour: 25"):
+        _approve(
+            ApprovalRequest("deploy", "api", DEPLOY_REPLY, CONSEQUENCE),
+            tmp_path,
+            datetime(2026, 10, 28, 12, 0),
+        )
+
+    # Invalid Friday cutoff
+    monkeypatch.setenv("AI_GOVERNANCE_RISK_WINDOW_CUTOFF_HOUR", "16")
+    monkeypatch.setenv("AI_GOVERNANCE_RISK_WINDOW_FRIDAY_CUTOFF_HOUR", "-1")
+    with pytest.raises(ConfigError, match=r"Invalid value for risk_window\.friday_cutoff_hour: -1"):
+        approvals.production_window_cutoffs()
+
+    # Direct function argument invalid check
+    with pytest.raises(ConfigError, match=r"0 and 23"):
+        approvals.outside_production_window(datetime(2026, 10, 28, 12, 0), cutoff_hour=24)
 
 
 def test_without_a_session_plain_approvals_are_declared_and_risky_ones_refused(
