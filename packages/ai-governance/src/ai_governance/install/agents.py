@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..corporate import CorporateRule
+from ..frontmatter import _FRONTMATTER_RE
 from ..personal import PersonalRule
 from ..rules.catalog import RuleDefinition
 from ..settings import get as setting
@@ -282,16 +283,13 @@ class ClaudeSpec(AgentSpec):
 
 
 def _rule_summary(text: str) -> str:
-    body = text
-    if body.startswith("---"):
-        parts = body.split("\n---", 1)
-        if len(parts) > 1:
-            body = parts[1]
+    match = _FRONTMATTER_RE.match(text)
+    body = text[match.end() :] if match else text
     for line in body.splitlines():
         line = line.strip()
         if line.startswith("#"):
             return line.lstrip("#").strip()
-        if line:
+        if line and not line.startswith("---"):
             return line
     return ""
 

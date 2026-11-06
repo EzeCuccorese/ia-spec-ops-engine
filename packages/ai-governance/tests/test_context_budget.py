@@ -94,17 +94,17 @@ def test_user_content_outside_block_measured_and_trimming_changes_number(
     agents_md.write_text(f"{user_note}\n{initial_content}", encoding="utf-8")
 
     cost1 = fixed_cost(installer.global_ledger())
-    assert "usuario" in cost1
-    assert cost1["usuario"] == len(user_note.strip().encode("utf-8"))
+    assert "user_custom" in cost1
+    assert cost1["user_custom"] == len(user_note.strip().encode("utf-8"))
 
     # Trimming user content changes the reported number
     trimmed_note = "# My custom instructions\nBe concise.\n"
     agents_md.write_text(f"{trimmed_note}\n{initial_content}", encoding="utf-8")
 
     cost2 = fixed_cost(installer.global_ledger())
-    assert "usuario" in cost2
-    assert cost2["usuario"] == len(trimmed_note.strip().encode("utf-8"))
-    assert cost2["usuario"] < cost1["usuario"]
+    assert "user_custom" in cost2
+    assert cost2["user_custom"] == len(trimmed_note.strip().encode("utf-8"))
+    assert cost2["user_custom"] < cost1["user_custom"]
 
 
 def test_codex_fixed_cost_includes_always_personal_and_company_index(
