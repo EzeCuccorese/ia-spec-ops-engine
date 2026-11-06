@@ -203,12 +203,24 @@ def test_deploy_approvals_rule_content_semantics() -> None:
     assert deploy_rule.user_scope is True
     assert deploy_rule.always_on is True
     assert deploy_rule.category == "3-infrastructure"
+    assert any(r.id == "deploy-approvals" for r in catalog.rules)
+
     content = deploy_rule.content
     assert "deploy hold" in content.lower()
     assert "exact job" in content.lower()
     assert "target environment" in content.lower()
     assert "taskflow approve" in content
     assert "production-risk-window" in content
+
+    # Staging and production named and governed separately
+    assert "staging" in content.lower()
+    assert "production" in content.lower()
+    # The concepts, not the exact prose: the rule has to fit the per-rule context budget.
+    assert "non-production" in content.lower()
+    assert "never" in content.lower() and "explicit" in content.lower()
+    assert "deploy_approvals.production" in content
+    assert "ai-governance config show" in content
+    assert "ambiguity" in content.lower() or "doubt" in content.lower()
 
 
 def test_production_risk_window_rule_content_semantics() -> None:

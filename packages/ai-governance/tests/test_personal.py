@@ -303,7 +303,7 @@ def test_doctor_personal_checks(home: Path, personal_root: Path) -> None:
     )
 
 
-def test_doctor_personal_empty_and_missing_dir(personal_root: Path) -> None:
+def test_doctor_personal_empty_and_missing_dir(home: Path, personal_root: Path) -> None:
     import shutil
 
     from ai_governance.install import doctor
@@ -368,3 +368,305 @@ def test_frontmatter_utilities() -> None:
     new_fm = ensure_frontmatter("# Simple body\n")
     assert check_frontmatter(new_fm).valid
     assert check_frontmatter(new_fm).trigger == "always_on"
+
+
+def test_personal_add_without_from(home: Path, personal_root: Path) -> None:
+    install_user(["claude", "antigravity"])
+    code = personal.main(["add", "concise"])
+    assert code == 0
+
+    rule_path = personal_root / "rules" / "concise.md"
+    assert rule_path.is_file()
+    content = rule_path.read_text(encoding="utf-8")
+    assert content.startswith("---\ntrigger: always_on\n---\n")
+    assert "# Concise" in content
+
+    claude_link = home / ".claude" / "rules" / "ai-governance-personal-concise.md"
+    assert claude_link.is_symlink()
+    assert claude_link.resolve() == rule_path.resolve()
+
+    gemini_link = home / ".gemini" / "config" / "rules" / "ai-governance-personal-concise.md"
+    assert gemini_link.is_symlink()
+    assert gemini_link.resolve() == rule_path.resolve()
+
+
+def test_personal_add_with_from_and_title(home: Path, personal_root: Path, tmp_path: Path) -> None:
+    install_user(["claude"])
+    source_file = tmp_path / "style_guide.md"
+    source_file.write_text(
+        "Always use strict typing and descriptive variable names.\n", encoding="utf-8"
+    )
+
+    code = personal.main(
+        ["add", "strict_typing", "--from", str(source_file), "--title", "Strict Typing"]
+    )
+    assert code == 0
+
+    rule_path = personal_root / "rules" / "strict_typing.md"
+    assert rule_path.is_file()
+    content = rule_path.read_text(encoding="utf-8")
+    assert content.startswith("---\ntrigger: always_on\n---\n")
+    assert "# Strict Typing" in content
+    assert "Always use strict typing and descriptive variable names." in content
+
+    claude_link = home / ".claude" / "rules" / "ai-governance-personal-strict_typing.md"
+    assert claude_link.is_symlink()
+    assert claude_link.resolve() == rule_path.resolve()
+
+
+def test_personal_add_existing_requires_force(personal_root: Path) -> None:
+    assert personal.main(["add", "existing", "--title", "Initial"]) == 0
+    rule_path = personal_root / "rules" / "existing.md"
+    assert "Initial" in rule_path.read_text(encoding="utf-8")
+
+    # Duplicate without --force fails and preserves original
+    assert personal.main(["add", "existing", "--title", "Updated"]) == 1
+    assert "Initial" in rule_path.read_text(encoding="utf-8")
+
+    # With --force succeeds
+    assert personal.main(["add", "existing", "--title", "Updated", "--force"]) == 0
+    assert "Updated" in rule_path.read_text(encoding="utf-8")
+
+
+def test_personal_list_command(
+    home: Path, personal_root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    install_user(["claude"])
+    personal.main(["add", "list_test"])
+    personal.main(["list"])
+    captured = capsys.readouterr().out
+    assert "list_test" in captured
+    assert "claude" in captured
+
+
+def test_personal_migrate_section(home: Path, personal_root: Path, tmp_path: Path) -> None:
+    install_user(["claude"])
+    agents_file = tmp_path / "AGENTS.md"
+    agents_file.write_text(
+        "# Project Instructions\n\n"
+        "Project general instructions.\n\n"
+        "## Personal Preferences\n\n"
+        "Always write tests with pytest.\n"
+        "Be concise in responses.\n\n"
+        "## Team Standards\n\n"
+        "Format code with ruff.\n",
+        encoding="utf-8",
+    )
+
+    code = personal.main(
+        [
+            "migrate",
+            "--from",
+            str(agents_file),
+            "--name",
+            "migrated_prefs",
+            "--section",
+            "Personal Preferences",
+        ]
+    )
+    assert code == 0
+
+    rule_path = personal_root / "rules" / "migrated_prefs.md"
+    assert rule_path.is_file()
+    content = rule_path.read_text(encoding="utf-8")
+    assert content.startswith("---\ntrigger: always_on\n---\n")
+    assert "Always write tests with pytest." in content
+    assert "Be concise in responses." in content
+
+    # Source file was modified: section removed, other sections retained
+    remaining = agents_file.read_text(encoding="utf-8")
+    assert "Personal Preferences" not in remaining
+    assert "Project Instructions" in remaining
+    assert "Team Standards" in remaining
+
+    # Linked in installed agent
+    claude_link = home / ".claude" / "rules" / "ai-governance-personal-migrated_prefs.md"
+    assert claude_link.is_symlink()
+    assert claude_link.resolve() == rule_path.resolve()
+
+
+def test_personal_migrate_full_file(home: Path, personal_root: Path, tmp_path: Path) -> None:
+    install_user(["claude"])
+    custom_file = tmp_path / "custom_notes.md"
+    custom_file.write_text("# Custom Notes\nDo not forget to clean up.\n", encoding="utf-8")
+
+    code = personal.main(["migrate", "--from", str(custom_file), "--name", "full_notes"])
+    assert code == 0
+
+    rule_path = personal_root / "rules" / "full_notes.md"
+    assert rule_path.is_file()
+    content = rule_path.read_text(encoding="utf-8")
+    assert content.startswith("---\ntrigger: always_on\n---\n")
+    assert "# Custom Notes" in content
+
+    # Whole source file unlinked
+    assert not custom_file.exists()
+
+    claude_link = home / ".claude" / "rules" / "ai-governance-personal-full_notes.md"
+    assert claude_link.is_symlink()
+    assert claude_link.resolve() == rule_path.resolve()
+
+
+def test_personal_rm(home: Path, personal_root: Path) -> None:
+    install_user(["claude", "antigravity"])
+    personal.main(["add", "to_delete"])
+
+    rule_path = personal_root / "rules" / "to_delete.md"
+    assert rule_path.is_file()
+    claude_link = home / ".claude" / "rules" / "ai-governance-personal-to_delete.md"
+    gemini_link = home / ".gemini" / "config" / "rules" / "ai-governance-personal-to_delete.md"
+    assert claude_link.is_symlink()
+    assert gemini_link.is_symlink()
+
+    code = personal.main(["rm", "to_delete"])
+    assert code == 0
+
+    assert not rule_path.exists()
+    assert not claude_link.exists()
+    assert not gemini_link.exists()
+
+    # Removing non-existent rule returns 1
+    assert personal.main(["rm", "to_delete"]) == 1
+
+
+def test_cli_with_no_action_prints_help(capsys: pytest.CaptureFixture[str]) -> None:
+    from ai_governance.personal import main
+
+    assert main([]) == 0
+    assert "Manage personal preference rules" in capsys.readouterr().out
+
+
+def test_list_reports_an_empty_personal_layer(
+    home: Path, personal_root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from ai_governance.personal import main
+
+    for md in (personal_root / "rules").glob("*.md"):
+        md.unlink()
+    assert main(["list"]) == 0
+    assert "No personal rules found" in capsys.readouterr().out
+
+
+def test_add_refuses_a_missing_source_file(home: Path, personal_root: Path) -> None:
+    from ai_governance.personal import main
+
+    assert main(["add", "voice-notes", "--from", str(personal_root / "nope.md")]) == 1
+    assert not (personal_root / "rules" / "voice-notes.md").exists()
+
+
+def test_add_refuses_an_existing_rule_unless_forced(home: Path, personal_root: Path) -> None:
+    from ai_governance.personal import main
+
+    assert main(["add", "voice"]) == 1  # the fixture already ships voice.md
+    assert main(["add", "voice", "--force", "--title", "Voice"]) == 0
+    assert "# Voice" in (personal_root / "rules" / "voice.md").read_text()
+
+
+def test_migrate_refuses_a_missing_source_file(home: Path, personal_root: Path) -> None:
+    from ai_governance.personal import main
+
+    assert main(["migrate", "--from", str(personal_root / "nope.md"), "--name", "x"]) == 1
+
+
+def test_migrate_refuses_an_existing_rule_unless_forced(
+    home: Path, personal_root: Path, tmp_path: Path
+) -> None:
+    from ai_governance.personal import main
+
+    source = tmp_path / "AGENTS.md"
+    source.write_text("# Voice\n\nFirst person.\n")
+    assert main(["migrate", "--from", str(source), "--name", "voice"]) == 1
+    assert source.is_file(), "a refused migration must leave the source alone"
+
+
+def test_migrate_reports_a_section_that_is_not_there(
+    home: Path, personal_root: Path, tmp_path: Path
+) -> None:
+    from ai_governance.personal import main
+
+    source = tmp_path / "AGENTS.md"
+    source.write_text("# Kept\n\nSomething else.\n")
+    assert main(["migrate", "--from", str(source), "--name", "new", "--section", "Missing"]) == 1
+    assert source.read_text() == "# Kept\n\nSomething else.\n"
+
+
+def test_migrate_moves_one_section_and_leaves_the_rest(
+    home: Path, personal_root: Path, tmp_path: Path
+) -> None:
+    from ai_governance.personal import main
+
+    source = tmp_path / "AGENTS.md"
+    source.write_text("# Kept\n\nStays here.\n\n# Moved\n\nGoes to the rule.\n")
+    assert main(["migrate", "--from", str(source), "--name", "moved", "--section", "Moved"]) == 0
+    rule = (personal_root / "rules" / "moved.md").read_text()
+    assert "Goes to the rule" in rule and "trigger: always_on" in rule
+    remaining = source.read_text()
+    assert "Stays here" in remaining and "Goes to the rule" not in remaining
+
+
+def test_rm_removes_the_rule_and_its_links(home: Path, personal_root: Path) -> None:
+    from ai_governance.personal import main
+
+    install_user(["claude"])
+    link = home / ".claude" / "rules" / "ai-governance-personal-voice.md"
+    assert link.is_symlink()
+    assert main(["rm", "voice"]) == 0
+    assert not (personal_root / "rules" / "voice.md").exists()
+    assert not link.exists()
+
+
+def test_rm_reports_a_rule_that_is_not_there(home: Path, personal_root: Path) -> None:
+    from ai_governance.personal import main
+
+    assert main(["rm", "nothing-here"]) == 1
+
+
+def test_migrate_keeps_headings_inside_fenced_code_blocks(
+    home: Path, personal_root: Path, tmp_path: Path
+) -> None:
+    """A ``# comment`` inside a fence is not a heading, so it must not cut the section."""
+    from ai_governance.personal import main
+
+    source = tmp_path / "AGENTS.md"
+    source.write_text(
+        "# Tools\n\nHow to run it:\n\n```bash\n# install first\nmake install\n```\n\nAfter the block.\n\n# Other\n\nStays.\n"
+    )
+    assert main(["migrate", "--from", str(source), "--name", "tools", "--section", "Tools"]) == 0
+    rule = (personal_root / "rules" / "tools.md").read_text()
+    assert "# install first" in rule, "the fenced comment belongs to the section"
+    assert "After the block" in rule, "the section was cut at the fenced comment"
+    assert "Other" not in rule
+    assert "Stays" in source.read_text()
+
+
+def test_migrate_keeps_the_source_when_the_rule_cannot_be_written(
+    home: Path, personal_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The source is only touched once the rule exists, so a failure cannot lose content."""
+    from ai_governance import personal
+
+    source = tmp_path / "AGENTS.md"
+    original = "# Voice\n\nFirst person.\n"
+    source.write_text(original)
+
+    def boom(*args: object, **kwargs: object) -> Path:
+        raise PermissionError("read-only rules directory")
+
+    monkeypatch.setattr(personal, "create_rule", boom)
+    with pytest.raises(PermissionError):
+        personal.migrate_rule(personal.RuleTarget("voice-new"), from_file=source)
+    assert source.read_text() == original
+
+
+def test_rm_reports_the_links_it_cleaned_for_a_hand_deleted_rule(
+    home: Path, personal_root: Path
+) -> None:
+    """Removing a rule whose file was deleted by hand still counts the links cleaned up."""
+    from ai_governance.personal import main
+
+    install_user(["claude"])
+    link = home / ".claude" / "rules" / "ai-governance-personal-voice.md"
+    assert link.is_symlink()
+    (personal_root / "rules" / "voice.md").unlink()
+    assert main(["rm", "voice"]) == 0
+    assert not link.exists()

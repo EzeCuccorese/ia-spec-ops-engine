@@ -55,6 +55,26 @@ def test_doctor_reports_missing_edited_and_legacy(project: Path) -> None:
     assert any(c == "project:drift" and s == WARN for c, s, _ in rows)
 
 
+def test_doctor_in_repo_without_project_install(project: Path) -> None:
+    config_file = project / PROJECT_DIR / "config.toml"
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    config_file.write_text('[taskflow]\nallowed_agents = ["claude"]\n', encoding="utf-8")
+
+    rows = check(project)
+    assert any(c == "user:agents" for c, _, _ in rows)
+    assert not any(c.startswith("project:") for c, _, _ in rows)
+
+    plain_repo = project.parent / "plain_repo"
+    plain_repo.mkdir()
+    rows_plain = check(plain_repo)
+    assert any(c == "user:agents" for c, _, _ in rows_plain)
+    assert not any(c.startswith("project:") for c, _, _ in rows_plain)
+
+    from ai_governance.install.cli import main as install_cli_main
+
+    assert install_cli_main("doctor", ["--root", str(project)]) in (0, 1)
+
+
 def test_ledger_key_reads_relative_paths_against_the_base(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
