@@ -177,7 +177,8 @@ def test_supported_known_and_unknown() -> None:
     assert supported("foo.py")
     assert supported("foo.java")
     assert supported("foo.ts")
-    assert not supported("foo.dart")
+    assert supported("foo.dart")
+    assert not supported("foo.unknown")
 
 
 # --- metrics: per-language, per-metric ---------------------------------------
