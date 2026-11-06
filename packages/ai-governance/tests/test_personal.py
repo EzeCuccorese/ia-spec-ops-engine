@@ -329,3 +329,43 @@ def test_doctor_antigravity_missing_trigger_check(home: Path, personal_root: Pat
         c == "user:antigravity" and s == doctor.FAIL and "ai-governance-personal-style.md" in d
         for c, s, d in rows
     )
+
+
+def test_frontmatter_utilities() -> None:
+    from ai_governance.frontmatter import check_frontmatter, ensure_frontmatter
+
+    # Missing frontmatter
+    res = check_frontmatter("# Just header\n")
+    assert not res.valid and res.trigger is None
+
+    # Invalid trigger
+    res = check_frontmatter("---\ntrigger: invalid_value\n---\n# Header\n")
+    assert not res.valid and res.trigger == "invalid_value"
+
+    # Frontmatter without trigger
+    res = check_frontmatter("---\npaths:\n  - '**/*.py'\n---\n# Header\n")
+    assert not res.valid and res.trigger is None
+
+    # Valid trigger
+    res = check_frontmatter("---\ntrigger: glob\npaths:\n  - '**/*.py'\n---\n# Header\n")
+    assert res.valid and res.trigger == "glob"
+
+    # ensure_frontmatter on already valid content
+    valid_content = "---\ntrigger: always_on\n---\n# Content\n"
+    assert ensure_frontmatter(valid_content) == valid_content
+
+    # ensure_frontmatter when frontmatter exists with invalid trigger
+    replaced = ensure_frontmatter("---\ntrigger: custom\nfoo: bar\n---\nBody\n")
+    assert check_frontmatter(replaced).valid
+    assert check_frontmatter(replaced).trigger == "always_on"
+
+    # ensure_frontmatter when frontmatter exists without trigger
+    added = ensure_frontmatter("---\npaths:\n  - '**/*.py'\n---\nBody\n", default_trigger="glob")
+    assert check_frontmatter(added).valid
+    assert check_frontmatter(added).trigger == "glob"
+
+    # ensure_frontmatter when no frontmatter exists
+    new_fm = ensure_frontmatter("# Simple body\n")
+    assert check_frontmatter(new_fm).valid
+    assert check_frontmatter(new_fm).trigger == "always_on"
+
