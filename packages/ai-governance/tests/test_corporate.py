@@ -32,12 +32,23 @@ def pack_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     rules, scripts = root / "acme" / "rules", root / "acme" / "scripts"
     rules.mkdir(parents=True)
     scripts.mkdir()
-    (rules / "glossary.md").write_text("# Glossary\n")
+    (rules / "glossary.md").write_text("---\ntrigger: always_on\n---\n# Glossary\n")
     (rules / "principles.md").write_text("# Principles\n")
     script = scripts / "acme-up"
     script.write_text("#!/bin/sh\necho ok\n")
     script.chmod(0o755)
     monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(root))
+    return root
+
+
+@pytest.fixture(autouse=True)
+def personal_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    root = tmp_path / "personal"
+    rules = root / "rules"
+    rules.mkdir(parents=True)
+    (rules / "voice.md").write_text("---\ntrigger: always_on\n---\n# Voice\n")
+    (rules / "style.md").write_text("# Style\n")
+    monkeypatch.setenv("AI_GOVERNANCE_PERSONAL_DIR", str(root))
     return root
 
 
@@ -133,7 +144,7 @@ def test_switching_company_is_swapping_the_folder(home: Path, pack_root: Path) -
     install_user(["claude"])
 
     rules_dir = home / ".claude" / "rules"
-    rules = sorted(p.name for p in rules_dir.glob("ai-governance-*-*") if p.is_symlink())
+    rules = sorted(p.name for p in rules_dir.glob("ai-governance-globex-*") if p.is_symlink())
     assert rules == ["ai-governance-globex-glossary.md", "ai-governance-globex-principles.md"]
     assert (home / ".local" / "bin" / "acme-up").is_symlink()  # same script name, new target
     assert "globex" in os.readlink(home / ".local" / "bin" / "acme-up")
@@ -375,3 +386,15 @@ def test_is_corporate_entry_edge_cases(home: Path, agent: str, path: str, target
     assert not _is_corporate_entry(ledger, {"kind": "file"})
     entry = {"kind": "link", "agent": agent, "path": str(home / path), "target": target}
     assert not _is_corporate_entry(ledger, entry, catalog=catalog)
+
+
+def test_corporate_rule_frontmatter_validation(home: Path) -> None:
+    (pack,) = corporate.packs()
+    with pytest.warns(UserWarning, match="principles.md.*missing YAML front matter"):
+        rules = pack.rules()
+    assert {r.name for r in rules} == {"glossary", "principles"}
+
+    report = install_user(["claude"])
+    assert any("Corporate rule 'principles' in pack 'acme'" in w for w in report.warnings)
+    assert not any("Corporate rule 'glossary'" in w for w in report.warnings)
+

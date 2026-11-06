@@ -6,7 +6,9 @@ import json
 import shutil
 from pathlib import Path
 
-from .agents import HOOK_COMMAND_PREFIX
+from .. import personal
+from ..frontmatter import check_frontmatter
+from .agents import HOOK_COMMAND_PREFIX, resolve_agents
 from .engine import END, START, Ledger, sha256
 from .installer import PROJECT_DIR, ProjectConfig, global_ledger, installed_agents, sync_project
 
@@ -73,6 +75,58 @@ def _claude_entry_block_rows() -> list[Row]:
     return rows
 
 
+def _personal_rows(agents: list[str]) -> list[Row]:
+    if not agents:
+        return []
+    rows: list[Row] = []
+    root = personal.personal_root()
+    rules_dir = root / "rules"
+    if not rules_dir.is_dir():
+        rows.append(("user:personal", FAIL, f"personal rules directory missing: {rules_dir}"))
+        return rows
+    rules = personal.rules(root)
+    if not rules:
+        rows.append(("user:personal", FAIL, f"personal rules directory is empty: {rules_dir}"))
+        return rows
+
+    rows.append(("user:personal", OK, f"{len(rules)} personal rule(s) configured"))
+
+    for agent_id in agents:
+        spec = resolve_agents([agent_id])[0]
+        missing_links: list[str] = []
+        for artifact in spec.personal_artifacts(rules):
+            if not artifact.path.is_symlink():
+                missing_links.append(artifact.path.name)
+        if missing_links:
+            rows.append(
+                (
+                    "user:personal",
+                    FAIL,
+                    f"missing personal rule link(s) for {agent_id}: {', '.join(missing_links)}",
+                )
+            )
+
+    if "antigravity" in agents:
+        gemini_rules_dir = Path.home() / ".gemini" / "config" / "rules"
+        if gemini_rules_dir.is_dir():
+            missing_trigger: list[str] = []
+            for path in sorted(gemini_rules_dir.glob("*.md")):
+                if path.is_file() and path.name.lower() != "readme.md":
+                    valid, _ = check_frontmatter(path.read_text(encoding="utf-8"))
+                    if not valid:
+                        missing_trigger.append(path.name)
+            if missing_trigger:
+                rows.append(
+                    (
+                        "user:antigravity",
+                        FAIL,
+                        f"rules missing trigger front matter: {', '.join(missing_trigger)}",
+                    )
+                )
+
+    return rows
+
+
 def _user_rows() -> list[Row]:
     user = global_ledger()
     agents = sorted(installed_agents(user))
@@ -82,6 +136,7 @@ def _user_rows() -> list[Row]:
         rows.extend(_claude_entry_block_rows())
     if "antigravity" in agents:
         rows.extend(_legacy_gemini_block())
+    rows.extend(_personal_rows(agents))
     return rows
 
 

@@ -253,3 +253,80 @@ def test_corporate_entry_rejects_personal_link(home: Path) -> None:
         "target": str(home / "personal" / "rules" / "voice.md"),
     }
     assert not _is_corporate_entry(ledger, entry)
+
+
+def test_ensure_personal_dir_creates_readme(tmp_path: Path) -> None:
+    target = tmp_path / "custom_personal"
+    rules_dir = personal.ensure_personal_dir(target)
+    assert rules_dir.is_dir()
+    readme = rules_dir / "README.md"
+    assert readme.is_file()
+    assert "Personal Rules" in readme.read_text(encoding="utf-8")
+    assert "trigger: always_on" in readme.read_text(encoding="utf-8")
+
+
+def test_create_rule_injects_frontmatter_default(tmp_path: Path) -> None:
+    target = tmp_path / "personal_test"
+    path = personal.create_rule("custom", "# Custom Rule\nContent\n", root=target)
+    assert path.is_file()
+    text = path.read_text(encoding="utf-8")
+    assert text.startswith("---\ntrigger: always_on\n---\n")
+    assert "# Custom Rule" in text
+
+
+def test_personal_rules_ignores_readme_and_warns_on_missing_frontmatter(
+    personal_root: Path,
+) -> None:
+    rules_dir = personal_root / "rules"
+    (rules_dir / "README.md").write_text("# Readme", encoding="utf-8")
+    with pytest.warns(UserWarning, match="style.md.*missing YAML front matter"):
+        loaded = personal.rules(personal_root)
+    names = [r.name for r in loaded]
+    assert "README" not in names
+    assert names == ["style", "voice"]
+
+
+def test_doctor_personal_checks(home: Path, personal_root: Path) -> None:
+    import shutil
+    from ai_governance.install import doctor
+
+    install_user(["claude"])
+    rows = doctor.check(None)
+    assert any(c == "user:personal" and s == doctor.OK for c, s, _ in rows)
+
+    link = home / ".claude" / "rules" / "ai-governance-personal-voice.md"
+    link.unlink()
+    rows = doctor.check(None)
+    assert any(
+        c == "user:personal" and s == doctor.FAIL and "missing personal rule link" in d
+        for c, s, d in rows
+    )
+
+    link.symlink_to(personal_root / "rules" / "voice.md")
+    for md in list((personal_root / "rules").glob("*.md")):
+        md.unlink()
+    (personal_root / "rules" / "README.md").write_text("# Readme")
+    rows = doctor.check(None)
+    assert any(
+        c == "user:personal" and s == doctor.FAIL and "empty" in d
+        for c, s, d in rows
+    )
+
+    shutil.rmtree(personal_root / "rules")
+    rows = doctor.check(None)
+    assert any(
+        c == "user:personal" and s == doctor.FAIL and "missing" in d
+        for c, s, d in rows
+    )
+
+
+def test_doctor_antigravity_missing_trigger_check(home: Path, personal_root: Path) -> None:
+    from ai_governance.install import doctor
+
+    install_user(["antigravity"])
+    rows = doctor.check(None)
+    assert any(
+        c == "user:antigravity" and s == doctor.FAIL and "ai-governance-personal-style.md" in d
+        for c, s, d in rows
+    )
+

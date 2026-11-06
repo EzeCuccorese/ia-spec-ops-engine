@@ -544,3 +544,20 @@ def test_engine_write_preserves_existing_file_permissions(tmp_path: Path) -> Non
 
         assert target.read_text(encoding="utf-8") == "updated\n"
         assert stat.S_IMODE(target.stat().st_mode) == expected_mode
+
+
+def test_user_install_creates_personal_rules_dir_and_readme_when_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config_dir = tmp_path / ".config" / "ai-governance"
+    monkeypatch.setenv("AI_GOVERNANCE_CONFIG_DIR", str(config_dir))
+    monkeypatch.delenv("AI_GOVERNANCE_PERSONAL_DIR", raising=False)
+    expected_rules = config_dir / "personal" / "rules"
+    assert not expected_rules.exists()
+
+    install_user(["claude"])
+    assert expected_rules.is_dir()
+    readme = expected_rules / "README.md"
+    assert readme.is_file()
+    assert "Personal Rules" in readme.read_text(encoding="utf-8")
+

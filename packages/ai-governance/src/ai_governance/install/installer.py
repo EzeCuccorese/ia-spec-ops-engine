@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import __version__, corporate, personal
+from ..frontmatter import check_frontmatter
 from ..paths import state_dir
 from ..rules.catalog import RuleCatalog, RuleDefinition
 from . import content, schedule
@@ -345,6 +346,12 @@ def _corporate_desired(
     root = corporate.corporate_root()
     if root.exists():
         packs = corporate.packs(only=corporate_names)
+        for pack in packs:
+            for r in pack.rules():
+                if not check_frontmatter(r.content).valid:
+                    report.warnings.append(
+                        f"Corporate rule '{r.name}' in pack '{pack.name}' is missing YAML front matter with 'trigger: always_on' or 'trigger: glob'"
+                    )
         desired = [artifact for spec in specs for artifact in _corporate_rules(spec, packs)]
         desired.extend(_corporate_scripts(packs, report))
         return desired
@@ -358,10 +365,22 @@ def _corporate_desired(
     return kept
 
 
-def _personal_desired(specs: list[AgentSpec], ledger: Ledger, report: Report) -> list[Owned]:
+def _personal_desired(
+    specs: list[AgentSpec],
+    ledger: Ledger,
+    report: Report,
+    dry_run: bool = False,
+) -> list[Owned]:
     root = personal.personal_root()
+    if personal.is_default_root() and not dry_run:
+        personal.ensure_personal_dir(root)
     if root.exists():
         rules = personal.rules(root)
+        for r in rules:
+            if not check_frontmatter(r.content).valid:
+                report.warnings.append(
+                    f"Personal rule '{r.name}' is missing YAML front matter with 'trigger: always_on' or 'trigger: glob'"
+                )
         return [artifact for spec in specs for artifact in _personal_rules(spec, rules)]
     scope = {spec.id for spec in specs}
     kept = _personal_entries_to_keep(ledger, scope)
@@ -394,7 +413,7 @@ def install_user(
     for spec in specs:
         desired.extend(_language_rules(spec, language_rules))
     desired.extend(_corporate_desired(specs, ledger, report, corporate_names))
-    desired.extend(_personal_desired(specs, ledger, report))
+    desired.extend(_personal_desired(specs, ledger, report, dry_run=dry_run))
     desired.extend(_completions())
     scope = {spec.id for spec in specs} | {SCRIPTS_OWNER, COMPLETIONS_OWNER, SCHEDULE_OWNER}
     if not dry_run:
