@@ -200,9 +200,7 @@ def _template_body(name: str, title: str | None) -> str:
     return f"# {heading}\n\nRule contents...\n"
 
 
-def add_rule(
-    target: RuleTarget, *, from_file: Path | None = None, title: str | None = None
-) -> int:
+def add_rule(target: RuleTarget, *, from_file: Path | None = None, title: str | None = None) -> int:
     resolved = _resolve_target(target)
     if resolved is None:
         return 1
