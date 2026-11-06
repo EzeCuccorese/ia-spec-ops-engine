@@ -461,6 +461,22 @@ def test_antigravity_hooks_path_is_shown_in_full() -> None:
     assert AGENTS["antigravity"].global_hooks.startswith("~/.gemini/config/hooks.json ")
 
 
+def test_antigravity_does_not_install_session_start_and_doctor_reports_gap(home: Path) -> None:
+    from ai_governance.install.agents import HooksArtifact
+
+    install_user(["antigravity"])
+    spec = AGENTS["antigravity"]
+    for artifact in spec.global_artifacts():
+        if isinstance(artifact, HooksArtifact):
+            assert "SessionStart" not in [e.event for e in artifact.entries]
+
+    rows = check(None)
+    assert any(
+        c == "user:antigravity" and s == WARN and "no session-start hook event" in d
+        for c, s, d in rows
+    )
+
+
 def test_report_collapses_many_files_per_folder(project: Path) -> None:
     lines = sync_project(project, add_agents=["claude"]).lines()
     assert any(line.startswith("created: ") and " files in " in line for line in lines)

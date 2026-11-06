@@ -76,13 +76,7 @@ def test_antigravity_hook_installs_as_named_group_after_pre_tool_probe(
     install_user(["antigravity"])
     data = json.loads(hooks_path.read_text())
     assert data["other"] == {"Stop": [{"command": "x"}]}
-    assert data["ai-governance"]["SessionStart"] == [
-        {
-            "hooks": [
-                {"type": "command", "command": "ai-governance hook antigravity session-start"}
-            ],
-        }
-    ]
+    assert "SessionStart" not in data["ai-governance"]
     assert data["ai-governance"]["PreToolUse"] == [
         {
             "matcher": "run_command",

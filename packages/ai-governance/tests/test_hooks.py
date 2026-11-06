@@ -63,7 +63,7 @@ def _repo_with_task(monkeypatch, tmp_path: Path) -> Path:
     return repo
 
 
-@pytest.mark.parametrize("agent", ["claude", "codex", "antigravity"])
+@pytest.mark.parametrize("agent", ["claude", "codex"])
 def test_session_start_injects_active_task_digest(
     agent: str, monkeypatch, capsys, tmp_path
 ) -> None:

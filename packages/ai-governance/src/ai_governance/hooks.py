@@ -366,7 +366,6 @@ HANDLERS: dict[tuple[str, str], Callable[[], int]] = {
     ("claude", "session-end"): _claude_session_end,
     ("codex", "session-start"): _claude_session_start,
     ("codex", "post-tool-use"): _codex_post_tool_use,
-    ("antigravity", "session-start"): _claude_session_start,
     ("antigravity", "pre-tool-use"): _antigravity_pre_tool_use,
     ("antigravity", "writer-lease"): _antigravity_writer_lease,
 }

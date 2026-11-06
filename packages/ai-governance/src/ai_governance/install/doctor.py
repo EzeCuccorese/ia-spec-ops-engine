@@ -169,6 +169,13 @@ def _user_rows() -> list[Row]:
         rows.extend(_claude_entry_block_rows())
     if "antigravity" in agents:
         rows.extend(_legacy_gemini_block())
+        rows.append(
+            (
+                "user:antigravity",
+                WARN,
+                "antigravity has no session-start hook event; active task is not injected on start (agy supports PreInvocation, PostInvocation, PreToolUse, Stop)",
+            )
+        )
     rows.extend(_personal_rows(agents))
     rows.extend(_corporate_rows(user, agents))
     return rows

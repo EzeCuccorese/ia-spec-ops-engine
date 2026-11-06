@@ -418,7 +418,6 @@ class AntigravitySpec(AgentSpec):
             *skill_artifacts(home / "config" / "skills"),
             *self._verified_hooks(
                 home / "config" / "hooks.json",
-                HookEntry("SessionStart", None, f"{HOOK_COMMAND_PREFIX} antigravity session-start"),
                 HookEntry(
                     "PreToolUse", "run_command", f"{HOOK_COMMAND_PREFIX} antigravity pre-tool-use"
                 ),
@@ -467,7 +466,7 @@ AGENTS: dict[str, AgentSpec] = {
         id="antigravity",
         name="Google Antigravity 2",
         global_instructions="~/.gemini/config/rules/ai-governance.md (`trigger: always_on`) + language rules (`trigger: glob`)",
-        global_hooks="~/.gemini/config/hooks.json SessionStart, PreToolUse: raw noisy commands -> `ws run` (after `probe`)",
+        global_hooks="~/.gemini/config/hooks.json PreToolUse: raw noisy commands -> `ws run` (after `probe`)",
         project_rules=".agents/rules/ai-governance-<id>.md (single source)",
         project_rules_mechanism="`trigger: glob` activation (loaded per file; 20k-token rules budget)",
         scout="~/.gemini/config/agents/scout.md (model flash, read-only tools, no commands)",
