@@ -160,81 +160,93 @@ def list_rules(root: Path | None = None) -> int:
     return 0
 
 
-def add_rule(
-    name: str,
-    *,
-    from_file: Path | None = None,
-    title: str | None = None,
-    force: bool = False,
-    root: Path | None = None,
-) -> int:
-    r_root = root or personal_root()
-    rules_dir = ensure_personal_dir(r_root)
-    file_name = name if name.endswith(".md") else f"{name}.md"
-    target_path = rules_dir / file_name
+@dataclass(frozen=True)
+class RuleTarget:
+    """Where a personal rule is written, shared by ``add_rule`` and ``migrate_rule``."""
 
-    if target_path.exists() and not force:
+    name: str
+    force: bool = False
+    root: Path | None = None
+
+
+def _resolve_target(target: RuleTarget) -> tuple[Path, Path] | None:
+    """The personal root and the rule path, or None after reporting why it cannot be used."""
+    root = target.root or personal_root()
+    rules_dir = ensure_personal_dir(root)
+    file_name = target.name if target.name.endswith(".md") else f"{target.name}.md"
+    path = rules_dir / file_name
+    if path.exists() and not target.force:
         emit_status(
             "error",
-            f"Personal rule '{target_path.stem}' already exists at {target_path}. Use --force to overwrite.",
+            f"Personal rule '{path.stem}' already exists at {path}. Use --force to overwrite.",
         )
+        return None
+    return root, path
+
+
+def _body_from_file(from_file: Path, title: str | None) -> str | None:
+    """The source text with a heading if it has none, or None after reporting the missing file."""
+    if not from_file.is_file():
+        emit_status("error", f"Source file does not exist: {from_file}")
+        return None
+    content = from_file.read_text(encoding="utf-8")
+    if title and not content.lstrip().startswith("#"):
+        content = f"# {title}\n\n{content}"
+    return content
+
+
+def _template_body(name: str, title: str | None) -> str:
+    heading = title or name.removesuffix(".md").replace("-", " ").replace("_", " ").title()
+    return f"# {heading}\n\nRule contents...\n"
+
+
+def add_rule(
+    target: RuleTarget, *, from_file: Path | None = None, title: str | None = None
+) -> int:
+    resolved = _resolve_target(target)
+    if resolved is None:
         return 1
-
+    root, _ = resolved
     if from_file:
-        if not from_file.is_file():
-            emit_status("error", f"Source file does not exist: {from_file}")
+        content = _body_from_file(from_file, title)
+        if content is None:
             return 1
-        content = from_file.read_text(encoding="utf-8")
-        if title and not content.lstrip().startswith("#"):
-            content = f"# {title}\n\n{content}"
     else:
-        rule_title = title or name.removesuffix(".md").replace("-", " ").replace("_", " ").title()
-        content = f"# {rule_title}\n\nRule contents...\n"
-
-    created = create_rule(name, content, root=r_root, trigger="always_on")
-    _sync(r_root)
+        content = _template_body(target.name, title)
+    created = create_rule(target.name, content, root=root, trigger="always_on")
+    _sync(root)
     emit_status("ok", f"Created personal rule '{created.stem}' at {created}")
     return 0
 
 
-def migrate_rule(
-    *,
-    from_file: Path,
-    name: str,
-    section: str | None = None,
-    force: bool = False,
-    root: Path | None = None,
-) -> int:
+def _body_from_migration(from_file: Path, section: str | None) -> str | None:
+    """Takes the section (or the whole file) out of the source, or None after reporting why not."""
+    source_text = from_file.read_text(encoding="utf-8")
+    if section is None:
+        from_file.unlink()
+        return source_text
+    try:
+        content, remaining = extract_section(source_text, section)
+    except ValueError as exc:
+        emit_status("error", str(exc))
+        return None
+    from_file.write_text(remaining, encoding="utf-8")
+    return content
+
+
+def migrate_rule(target: RuleTarget, *, from_file: Path, section: str | None = None) -> int:
     if not from_file.is_file():
         emit_status("error", f"Source file does not exist: {from_file}")
         return 1
-
-    r_root = root or personal_root()
-    rules_dir = ensure_personal_dir(r_root)
-    file_name = name if name.endswith(".md") else f"{name}.md"
-    target_path = rules_dir / file_name
-
-    if target_path.exists() and not force:
-        emit_status(
-            "error",
-            f"Personal rule '{target_path.stem}' already exists at {target_path}. Use --force to overwrite.",
-        )
+    resolved = _resolve_target(target)
+    if resolved is None:
         return 1
-
-    source_text = from_file.read_text(encoding="utf-8")
-    if section:
-        try:
-            content, remaining = extract_section(source_text, section)
-        except ValueError as exc:
-            emit_status("error", str(exc))
-            return 1
-        from_file.write_text(remaining, encoding="utf-8")
-    else:
-        content = source_text
-        from_file.unlink()
-
-    created = create_rule(name, content, root=r_root, trigger="always_on")
-    _sync(r_root)
+    root, _ = resolved
+    content = _body_from_migration(from_file, section)
+    if content is None:
+        return 1
+    created = create_rule(target.name, content, root=root, trigger="always_on")
+    _sync(root)
     emit_status("ok", f"Migrated to personal rule '{created.stem}' at {created}")
     return 0
 
@@ -320,17 +332,15 @@ def main(argv: list[str] | None = None) -> int:
         return list_rules()
     if args.action == "add":
         return add_rule(
-            args.name,
+            RuleTarget(args.name, force=args.force),
             from_file=args.from_file,
             title=args.title,
-            force=args.force,
         )
     if args.action == "migrate":
         return migrate_rule(
+            RuleTarget(args.name, force=args.force),
             from_file=args.from_file,
-            name=args.name,
             section=args.section,
-            force=args.force,
         )
     if args.action == "rm":
         return remove_rule(args.name)

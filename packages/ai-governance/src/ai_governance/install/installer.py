@@ -430,15 +430,9 @@ def sync_personal_rules(root: Path | None = None, *, dry_run: bool = False) -> R
     ]
     report = Report()
     desired_keys = {("link", ledger.key(owned.artifact.path)) for owned in desired}
-
-    kept: list[dict[str, Any]] = []
-    for entry in ledger.entries:
-        if _is_personal_entry(ledger, entry) and ("link", entry["path"]) not in desired_keys:
-            if not _remove_entry(entry, ledger, report, dry_run):
-                kept.append(entry)
-        else:
-            kept.append(entry)
-    ledger.entries = kept
+    ledger.entries = _without_stale_personal_links(
+        ledger, desired_keys, report=report, dry_run=dry_run
+    )
 
     for owned in desired:
         if isinstance(owned.artifact, LinkArtifact):
@@ -446,6 +440,23 @@ def sync_personal_rules(root: Path | None = None, *, dry_run: bool = False) -> R
 
     ledger.save(report, dry_run)
     return report
+
+
+def _without_stale_personal_links(
+    ledger: Ledger,
+    desired_keys: set[tuple[str, str]],
+    *,
+    report: Report,
+    dry_run: bool,
+) -> list[dict[str, Any]]:
+    """The ledger entries to keep: personal links no longer wanted are removed from disk first."""
+    kept: list[dict[str, Any]] = []
+    for entry in ledger.entries:
+        stale = _is_personal_entry(ledger, entry) and ("link", entry["path"]) not in desired_keys
+        if stale and _remove_entry(entry, ledger, report, dry_run):
+            continue
+        kept.append(entry)
+    return kept
 
 
 def install_user(
