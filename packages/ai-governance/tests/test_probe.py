@@ -53,6 +53,9 @@ def test_codex_hooks_install_only_after_verified_probe(monkeypatch, tmp_path: Pa
     assert data["hooks"]["PostToolUse"][0]["hooks"][0]["command"] == (
         "ai-governance hook codex post-tool-use"
     )
+    assert data["hooks"]["SessionStart"][0]["hooks"][0]["command"] == (
+        "ai-governance hook codex session-start"
+    )
     assert 'model = "gpt-6-luna"' in (tmp_path / "home/.codex/agents/scout.toml").read_text()
 
 
@@ -71,6 +74,13 @@ def test_antigravity_hook_installs_as_named_group_after_pre_tool_probe(
     install_user(["antigravity"])
     data = json.loads(hooks_path.read_text())
     assert data["other"] == {"Stop": [{"command": "x"}]}
+    assert data["ai-governance"]["SessionStart"] == [
+        {
+            "hooks": [
+                {"type": "command", "command": "ai-governance hook antigravity session-start"}
+            ],
+        }
+    ]
     assert data["ai-governance"]["PreToolUse"] == [
         {
             "matcher": "run_command",
@@ -90,6 +100,7 @@ def test_antigravity_hook_installs_as_named_group_after_pre_tool_probe(
 
 
 def test_unverified_when_hooks_never_fired() -> None:
+    assert "exec mode" in probe.CODEX_HOOKS_NOTE
     assert probe.verify("antigravity", [])["shell_hooks_verified"] is False
     assert probe.shell_hooks_verified("antigravity") is False
 
