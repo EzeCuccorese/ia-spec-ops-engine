@@ -411,8 +411,9 @@ def test_production_risk_window_invalid_hour_fails(
     with pytest.raises(ConfigError, match=r"0 and 23"):
         approvals.outside_production_window(datetime(2026, 10, 28, 12, 0), cutoff_hour=24)
     with pytest.raises(ConfigError, match=r"0 and 23"):
-        approvals.outside_production_window(datetime(2026, 10, 30, 12, 0), cutoff_hour=16, friday_cutoff_hour=24)
-
+        approvals.outside_production_window(
+            datetime(2026, 10, 30, 12, 0), cutoff_hour=16, friday_cutoff_hour=24
+        )
 
 
 def test_without_a_session_plain_approvals_are_declared_and_risky_ones_refused(

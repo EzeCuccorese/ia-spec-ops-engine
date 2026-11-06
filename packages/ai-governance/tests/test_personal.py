@@ -368,4 +368,3 @@ def test_frontmatter_utilities() -> None:
     new_fm = ensure_frontmatter("# Simple body\n")
     assert check_frontmatter(new_fm).valid
     assert check_frontmatter(new_fm).trigger == "always_on"
-
