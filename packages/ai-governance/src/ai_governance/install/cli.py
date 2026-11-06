@@ -20,6 +20,7 @@ from .installer import (
     forget_project,
     global_ledger,
     install_user,
+    is_project_installed,
     registered_projects,
     sync_completions,
     sync_project,
@@ -158,7 +159,7 @@ def _install_or_uninstall(args: argparse.Namespace) -> int:
 
 def _update_root(root: Path, *, forget: bool, dry_run: bool, heading: bool) -> bool:
     """Refreshes one project; returns whether anything was (or would be) changed."""
-    if not (root / PROJECT_DIR / "config.toml").exists():
+    if not is_project_installed(root):
         if forget:
             forget_project(root, dry_run=dry_run)
             emit_status("warn", f"{root}: no longer installed; removed from registry")
@@ -187,7 +188,7 @@ def _update(args: argparse.Namespace) -> int:
 
 def _status(args: argparse.Namespace) -> int:
     rows = [("user", e["agent"], e["kind"], e["path"]) for e in global_ledger().entries]
-    if (args.root / PROJECT_DIR / "config.toml").exists():
+    if is_project_installed(args.root):
         config = ProjectConfig.load(args.root)
         rows.append(("project", ",".join(config.agents), "config", PROJECT_DIR))
         lock = Ledger(args.root / PROJECT_DIR / "lock.json", base=args.root)

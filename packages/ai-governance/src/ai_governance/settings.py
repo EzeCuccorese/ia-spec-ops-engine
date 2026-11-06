@@ -135,6 +135,12 @@ SETTINGS: tuple[Setting, ...] = (
         "AI_GOVERNANCE_RISK_WINDOW_FRIDAY_CUTOFF_HOUR",
         "Cutoff hour (0-23) of the production risk window on Friday",
     ),
+    Setting(
+        "deploy_approvals.production",
+        "never",
+        "AI_GOVERNANCE_DEPLOY_APPROVALS_PRODUCTION",
+        "Production deploy approval policy ('never' or 'explicit')",
+    ),
 )
 
 # Role and judge settings decide who runs with full permissions: only the user's own
@@ -210,6 +216,12 @@ def _validate_settings(values: dict[str, Value]) -> None:
                 raise ConfigError(
                     f"Invalid value for {key}: {raw!r} (must be an hour between 0 and 23)"
                 )
+    if "deploy_approvals.production" in values:
+        raw = values["deploy_approvals.production"].value
+        if raw not in ("never", "explicit"):
+            raise ConfigError(
+                f"Invalid value for deploy_approvals.production: {raw!r} (must be 'never' or 'explicit')"
+            )
 
 
 def effective(

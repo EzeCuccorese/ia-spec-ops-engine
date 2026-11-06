@@ -1,7 +1,31 @@
 """Shared fixtures: isolate tests from the agent that may be running them."""
 
+import os
+from pathlib import Path
+
 import pytest
 from ai_governance.output import AGENT_ENV_MARKERS
+
+
+@pytest.fixture(autouse=True)
+def _no_real_home(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """No test may write into the real home directory.
+
+    A test that calls ``install_user`` without isolating the home would otherwise
+    reconfigure the agents running the suite: it rewrites their rules, drops the personal
+    rule links and leaves symlinks pointing into the pytest temp directory. ``HOME`` is
+    what ``Path.home()`` reads, so a test that sets its own still wins over this guard.
+    """
+    monkeypatch.setenv("HOME", str(tmp_path_factory.mktemp("home-guard")))
+
+
+def test_the_home_guard_is_in_place() -> None:
+    """Fails if the guard above stops working, before a test can damage a real install."""
+    import pwd
+
+    assert Path.home() != Path(pwd.getpwuid(os.getuid()).pw_dir)
 
 
 @pytest.fixture(autouse=True)

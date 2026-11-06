@@ -1,9 +1,11 @@
 # Deploy Approvals
 
+Covers every deploy gate: a CircleCI deploy hold, a GitHub environment, an Argo sync.
+
 ## Invariants
-- **Explicit Authorization Only**: Deploy approvals (CircleCI deploy holds, GitHub environments, Argo CD sync/promote) require explicit user authorization; a bare "ok" is never sufficient.
-- **Named Job and Environment**: Prompt and approval must name the exact job/workflow and target environment. Staging approval never covers production; jobs without explicit environment are prohibited.
-- **Point-in-Time Grant**: Authorization is an immediate single-turn grant for that action. Never reuse prior authorizations or infer approval from indirect requests (e.g. "run the pipeline").
-- **Single-Action Scope**: One authorization covers one approval; never extends to another job, environment, or rerun.
-- **Audit Trail**: Record each approval with `taskflow approve`.
-- **Production Risk Window**: Production approvals must respect `production-risk-window`; outside the safe window, defer execution to the next business day.
+- **Staging**: contextual authorization is enough, scoped to one task and named repositories ("approve the deploys needed to test these repos"). Naming each job is not required; a standing blank check is never allowed.
+- **Production, canary included**: the agent never approves or triggers it, and only hands over the link to approve.
+- **`deploy_approvals.production`**: `never` (default) keeps that rule; `explicit` allows approving when the user names the exact job and target environment, where a bare "ok" is not enough. See `ai-governance config show`.
+- **Doubt means production**: an environment not confirmed as non-production counts as production.
+- **One at a time**: one authorization, one approval, now. Never reused, never inferred from "run the pipeline".
+- **Trail and window**: record with `taskflow approve`; production respects `production-risk-window`.

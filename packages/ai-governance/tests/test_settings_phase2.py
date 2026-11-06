@@ -7,7 +7,8 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from ai_governance import config_cli, corporate, hooks
+from ai_governance import config_cli, corporate, hooks, settings
+from ai_governance._config_core import ConfigError
 from ai_governance.install import schedule
 from ai_governance.install.agents import scout_model
 from ai_governance.output import truncate
@@ -43,6 +44,7 @@ def test_defaults_are_the_previous_hardcoded_values() -> None:
         {"focus": "correctness", "agent": "codex", "model": "gpt-6.1-sol"},
     )
     assert schedule.label() == schedule.LABEL
+    assert found["deploy_approvals.production"] == "never"
 
 
 def test_every_setting_has_a_documented_row_in_a_readme() -> None:
@@ -259,3 +261,53 @@ def test_legacy_judge_fields_follow_config_precedence(
     assert effective()[f"taskflow.judge_{field}"].value == configured  # config show agrees
     monkeypatch.setenv(env_name, from_env)
     assert load_config().judges[0][field] == from_env  # env > config.toml
+
+
+def test_deploy_approvals_production_default_is_never() -> None:
+    assert settings.get("deploy_approvals.production") == "never"
+    assert effective()["deploy_approvals.production"].value == "never"
+    assert effective()["deploy_approvals.production"].origin == "default"
+
+
+def test_deploy_approvals_production_valid_values(
+    isolated: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Environment variable override to explicit
+    monkeypatch.setenv("AI_GOVERNANCE_DEPLOY_APPROVALS_PRODUCTION", "explicit")
+    assert settings.get("deploy_approvals.production") == "explicit"
+    assert effective()["deploy_approvals.production"].origin == "env"
+
+    # config.toml override
+    monkeypatch.delenv("AI_GOVERNANCE_DEPLOY_APPROVALS_PRODUCTION")
+    isolated.mkdir(parents=True, exist_ok=True)
+    (isolated / "config.toml").write_text('[deploy_approvals]\nproduction = "explicit"\n')
+    assert settings.get("deploy_approvals.production") == "explicit"
+    assert effective()["deploy_approvals.production"].origin == "user"
+
+    # config.toml set to never
+    (isolated / "config.toml").write_text('[deploy_approvals]\nproduction = "never"\n')
+    assert settings.get("deploy_approvals.production") == "never"
+    assert effective()["deploy_approvals.production"].origin == "user"
+
+
+def test_deploy_approvals_production_invalid_value_fails_with_clear_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AI_GOVERNANCE_DEPLOY_APPROVALS_PRODUCTION", "always")
+    with pytest.raises(
+        ConfigError,
+        match=r"Invalid value for deploy_approvals\.production: 'always' \(must be 'never' or 'explicit'\)",
+    ):
+        effective()
+
+
+def test_config_show_fails_with_clear_message_on_invalid_deploy_approvals(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("AI_GOVERNANCE_DEPLOY_APPROVALS_PRODUCTION", "invalid_mode")
+    assert config_cli.main(["show"]) == 1
+    err = capsys.readouterr().out
+    assert (
+        "Invalid value for deploy_approvals.production: 'invalid_mode' (must be 'never' or 'explicit')"
+        in err
+    )
