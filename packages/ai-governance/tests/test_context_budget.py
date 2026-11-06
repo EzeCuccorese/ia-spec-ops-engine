@@ -21,6 +21,7 @@ ENTRY_BLOCK_MAX = 500
 
 def test_static_content_budgets() -> None:
     assert len(content.GLOBAL_INSTRUCTIONS.encode()) <= GLOBAL_MAX
+    assert "delegate only bounded implementation with a closed brief" in content.GLOBAL_INSTRUCTIONS
     assert len(content.claude_agents_block(Path("~/.claude/rules")).encode()) <= ENTRY_BLOCK_MAX
     block = content.PROJECT_BLOCK.format(rule_locations="x" * 150)
     assert len(block.encode()) <= PROJECT_BLOCK_MAX

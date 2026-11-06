@@ -20,8 +20,8 @@ GLOBAL_INSTRUCTIONS = """\
   lockfiles, bundles or generated files.
 - Delegate reading and summaries to the `scout` subagent, web research to `researcher`
   (else `scout`), noisy builds/tests/CI logs to `runner` if present; verify before acting.
-- Executing an approved plan: heavy implementation -> mid-tier subagent, tests/docs/
-  mechanical edits -> cheapest tier; you review each delivery and run the gates per phase.
+- Executing an approved plan: delegate only bounded implementation with a closed brief;
+  you review each delivery and run the gates per phase.
 - Code changes: `ai-governance taskflow here`, else create a task for tracked work.
 - Never write "honest"/"honestly" (es: "honesto"/"honestamente"); state caveats directly.
 """

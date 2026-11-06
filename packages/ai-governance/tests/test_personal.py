@@ -288,8 +288,6 @@ def test_personal_rules_ignores_readme_and_warns_on_missing_frontmatter(
 
 
 def test_doctor_personal_checks(home: Path, personal_root: Path) -> None:
-    import shutil
-
     from ai_governance.install import doctor
 
     install_user(["claude"])
@@ -304,7 +302,13 @@ def test_doctor_personal_checks(home: Path, personal_root: Path) -> None:
         for c, s, d in rows
     )
 
-    link.symlink_to(personal_root / "rules" / "voice.md")
+
+def test_doctor_personal_empty_and_missing_dir(personal_root: Path) -> None:
+    import shutil
+
+    from ai_governance.install import doctor
+
+    install_user(["claude"])
     for md in list((personal_root / "rules").glob("*.md")):
         md.unlink()
     (personal_root / "rules" / "README.md").write_text("# Readme")

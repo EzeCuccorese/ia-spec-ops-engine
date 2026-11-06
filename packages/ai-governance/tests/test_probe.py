@@ -32,6 +32,8 @@ def test_probe_builds_canaries_and_recording_hooks(tmp_path: Path) -> None:
     link = claude / ".claude/rules/probe-dual.md"
     assert link.is_symlink() and "CANARY-CLAUDE-LINK" in link.read_text()
     assert "CANARY-AG-DUAL" in (root / ".agents/rules/probe-dual.md").read_text()
+    assert (root / "sub" / "sample.probe").exists()
+    assert "sub/sample.probe" in probe.PROMPT
 
 
 def test_codex_hooks_install_only_after_verified_probe(monkeypatch, tmp_path: Path) -> None:

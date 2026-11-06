@@ -31,7 +31,7 @@ from .agents import scout_model
 EVENTS = ("PreToolUse", "PostToolUse", "Stop")
 CODEX_HOOKS_NOTE = "In exec mode or in an unapproved folder, Codex hooks never fire."
 PROMPT = (
-    "Read sample.probe, run the shell command `echo probe`, then ask the `probe-scout` "
+    "Read sample.probe and sub/sample.probe, run the shell command `echo probe`, then ask the `probe-scout` "
     "subagent to read sample.probe and repeat its reply. Finally list every token that starts "
     "with CANARY- that appears in your instructions, rules or the subagent reply. "
     "Reply only with the list."
@@ -145,6 +145,8 @@ def build(agent: str, root: Path | None = None) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
     (root / "sample.probe").write_text("probe sample\n", encoding="utf-8")
+    (root / "sub").mkdir(parents=True, exist_ok=True)
+    (root / "sub" / "sample.probe").write_text("nested probe sample\n", encoding="utf-8")
     if agent == "claude":
         link = root / ".claude" / "rules" / "probe-dual.md"
         link.parent.mkdir(parents=True, exist_ok=True)

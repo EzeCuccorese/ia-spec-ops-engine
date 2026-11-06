@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import shutil
 from pathlib import Path
 
@@ -70,61 +72,92 @@ def _claude_entry_block_rows() -> list[Row]:
     for name in ("AGENTS.md", "CLAUDE.md"):
         path = home / name
         text = path.read_text(encoding="utf-8") if path.is_file() else ""
-        if START not in text or END not in text:
-            rows.append(("user:claude", FAIL, f"missing ai-governance block in {path}"))
+        if name == "CLAUDE.md":
+            has_import = bool(re.search(r"^\s*@AGENTS\.md\b", text, re.MULTILINE))
+            has_block = START in text and END in text
+            if not has_block and not has_import:
+                rows.append(("user:claude", FAIL, f"missing ai-governance block in {path}"))
+            import_count = len(re.findall(r"^\s*@AGENTS\.md\b", text, re.MULTILINE))
+            if import_count > 1:
+                rows.append(("user:claude", WARN, f"duplicate '@AGENTS.md' import in {path}"))
+        else:
+            if START not in text or END not in text:
+                rows.append(("user:claude", FAIL, f"missing ai-governance block in {path}"))
     return rows
+
+
+def _agent_missing_links(agent_id: str, rules: list) -> Row | None:
+    spec = resolve_agents([agent_id])[0]
+    missing = [
+        artifact.path.name
+        for artifact in spec.personal_artifacts(rules)
+        if not artifact.path.is_symlink()
+    ]
+    if missing:
+        return (
+            "user:personal",
+            FAIL,
+            f"missing personal rule link(s) for {agent_id}: {', '.join(missing)}",
+        )
+    return None
+
+
+def _antigravity_frontmatter_row() -> Row | None:
+    gemini_rules_dir = Path.home() / ".gemini" / "config" / "rules"
+    if not gemini_rules_dir.is_dir():
+        return None
+    missing = [
+        path.name
+        for path in sorted(gemini_rules_dir.glob("*.md"))
+        if path.is_file()
+        and path.name.lower() != "readme.md"
+        and not check_frontmatter(path.read_text(encoding="utf-8")).valid
+    ]
+    if missing:
+        return (
+            "user:antigravity",
+            FAIL,
+            f"rules missing trigger front matter: {', '.join(missing)}",
+        )
+    return None
 
 
 def _personal_rows(agents: list[str]) -> list[Row]:
     if not agents:
         return []
-    rows: list[Row] = []
     root = personal.personal_root()
     rules_dir = root / "rules"
     if not rules_dir.is_dir():
-        rows.append(("user:personal", FAIL, f"personal rules directory missing: {rules_dir}"))
-        return rows
+        return [("user:personal", FAIL, f"personal rules directory missing: {rules_dir}")]
     rules = personal.rules(root)
     if not rules:
-        rows.append(("user:personal", FAIL, f"personal rules directory is empty: {rules_dir}"))
-        return rows
+        return [("user:personal", FAIL, f"personal rules directory is empty: {rules_dir}")]
 
-    rows.append(("user:personal", OK, f"{len(rules)} personal rule(s) configured"))
-
+    rows: list[Row] = [("user:personal", OK, f"{len(rules)} personal rule(s) configured")]
     for agent_id in agents:
-        spec = resolve_agents([agent_id])[0]
-        missing_links: list[str] = []
-        for artifact in spec.personal_artifacts(rules):
-            if not artifact.path.is_symlink():
-                missing_links.append(artifact.path.name)
-        if missing_links:
-            rows.append(
-                (
-                    "user:personal",
-                    FAIL,
-                    f"missing personal rule link(s) for {agent_id}: {', '.join(missing_links)}",
-                )
-            )
+        row = _agent_missing_links(agent_id, rules)
+        if row:
+            rows.append(row)
 
     if "antigravity" in agents:
-        gemini_rules_dir = Path.home() / ".gemini" / "config" / "rules"
-        if gemini_rules_dir.is_dir():
-            missing_trigger: list[str] = []
-            for path in sorted(gemini_rules_dir.glob("*.md")):
-                if path.is_file() and path.name.lower() != "readme.md":
-                    valid, _ = check_frontmatter(path.read_text(encoding="utf-8"))
-                    if not valid:
-                        missing_trigger.append(path.name)
-            if missing_trigger:
-                rows.append(
-                    (
-                        "user:antigravity",
-                        FAIL,
-                        f"rules missing trigger front matter: {', '.join(missing_trigger)}",
-                    )
-                )
+        row = _antigravity_frontmatter_row()
+        if row:
+            rows.append(row)
 
     return rows
+
+
+def _corporate_rows(user: Ledger, agents: list[str]) -> list[Row]:
+    from .. import corporate
+    from .installer import _corporate_entries_to_keep
+
+    root = corporate.corporate_root()
+    has_corporate = bool(os.environ.get("AI_GOVERNANCE_CORPORATE_DIR")) or bool(
+        _corporate_entries_to_keep(user, set(agents) | {"scripts"})
+    )
+    if has_corporate and not root.exists():
+        return [("user:corporate", FAIL, f"Corporate directory {root} does not exist")]
+    return []
 
 
 def _user_rows() -> list[Row]:
@@ -137,6 +170,7 @@ def _user_rows() -> list[Row]:
     if "antigravity" in agents:
         rows.extend(_legacy_gemini_block())
     rows.extend(_personal_rows(agents))
+    rows.extend(_corporate_rows(user, agents))
     return rows
 
 

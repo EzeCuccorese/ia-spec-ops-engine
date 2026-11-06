@@ -304,7 +304,7 @@ def _codex_post_tool_use() -> int:
 
 def _antigravity_pre_tool_use() -> int:
     """Antigravity cannot rewrite output: deny raw noisy commands and ask for `ws run`."""
-    from .frugality.cli import SKIP_CONDENSE
+    from .frugality.cli import HELP_FLAG, SKIP_CONDENSE
 
     payload = _payload()
     if _deny_antigravity(payload):
@@ -312,7 +312,11 @@ def _antigravity_pre_tool_use() -> int:
     command = antigravity_command(payload).strip()
     if not command or command.startswith("ws ") or "#nofrugal" in command:
         return 0
-    if SKIP_CONDENSE.match(command) or not NOISY_COMMAND.search(command):
+    if (
+        SKIP_CONDENSE.match(command)
+        or HELP_FLAG.search(command)
+        or not NOISY_COMMAND.search(command)
+    ):
         return 0
     reason = f"Re-run it as `ws run -- {command}` to get a condensed summary (full log kept)."
     print(json.dumps({"decision": "deny", "reason": reason}))

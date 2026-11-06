@@ -224,7 +224,11 @@ class ClaudeSpec(AgentSpec):
         command = f"{HOOK_COMMAND_PREFIX} claude"
         return [
             BlockArtifact(home / "AGENTS.md", content.claude_agents_block(home / "rules")),
-            BlockArtifact(home / "CLAUDE.md", content.CLAUDE_ENTRY_BLOCK),
+            BlockArtifact(
+                home / "CLAUDE.md",
+                content.CLAUDE_ENTRY_BLOCK,
+                conflict=r"^\s*@AGENTS\.md\b",
+            ),
             FileArtifact(home / "rules" / "ai-governance.md", content.GLOBAL_INSTRUCTIONS),
             *_claude_subagents(home / "agents"),
             *skill_artifacts(home / "skills"),

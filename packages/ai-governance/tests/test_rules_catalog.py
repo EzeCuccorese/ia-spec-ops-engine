@@ -225,7 +225,11 @@ def test_atlassian_taskflow_and_confidentiality_rule_content_semantics() -> None
     assert conf.user_scope is True
     assert conf.always_on is True
     conf_content = conf.content
-    assert "never mentioned in tickets, PRs, commits, reviews or chat tools" in conf_content
+    assert (
+        "never mentioned in tickets, PRs, commits, reviews, Confluence or chat tools"
+        in conf_content
+    )
+    assert "Quality gate and `QG_SKIP` count as engine tooling" in conf_content
 
 
 def test_every_language_rule_states_how_to_validate_input() -> None:

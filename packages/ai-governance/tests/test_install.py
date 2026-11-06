@@ -9,7 +9,7 @@ import pytest
 from ai_governance.install import installer
 from ai_governance.install.agents import AGENTS, capability_table
 from ai_governance.install.cli import main as install_cli
-from ai_governance.install.doctor import FAIL, Row, check
+from ai_governance.install.doctor import FAIL, WARN, Row, check
 from ai_governance.install.engine import Ledger
 from ai_governance.install.installer import (
     ProjectConfig,
@@ -413,6 +413,42 @@ def test_doctor_flags_claude_memory_and_duplicate_hooks(project: Path, home: Pat
     rows = check(project)
     assert any(s == FAIL and "CLAUDE.local.md" in d for _, s, d in rows)
     assert any("run twice" in d for _, _, d in rows)
+
+
+def test_claude_skips_existing_agents_import_and_doctor_flags_duplicate(
+    project: Path, home: Path
+) -> None:
+    claude_md = home / ".claude" / "CLAUDE.md"
+    claude_md.parent.mkdir(parents=True)
+    claude_md.write_text("@AGENTS.md\n# User notes\n")
+
+    # Install should not inject another @AGENTS.md block
+    install_user(["claude"])
+    content_text = claude_md.read_text()
+    assert content_text.count("@AGENTS.md") == 1
+    assert "<!-- ai-governance:start -->" not in content_text
+
+    # Doctor passes with single import
+    rows = check(project)
+    assert not any("duplicate '@AGENTS.md'" in d for _, _, d in rows)
+
+    # Doctor warns when duplicated
+    claude_md.write_text("@AGENTS.md\n@AGENTS.md\n")
+    rows = check(project)
+    assert any(s == WARN and "duplicate '@AGENTS.md' import" in d for _, s, d in rows)
+
+
+def test_doctor_fails_when_corporate_directory_missing(
+    project: Path, home: Path, monkeypatch
+) -> None:
+    install_user(["claude"])
+    missing_dir = home / "nonexistent-corp"
+    monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(missing_dir))
+
+    rows = check(project)
+    assert any(
+        s == FAIL and f"Corporate directory {missing_dir} does not exist" in d for _, s, d in rows
+    )
 
 
 def test_capability_table_covers_every_agent() -> None:
