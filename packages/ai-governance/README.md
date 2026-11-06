@@ -308,6 +308,8 @@ Files are TOML (`[frugality]` / `threshold_chars = 4000`). Older JSON files keep
 | `taskflow.judge_agent` | `AI_GOVERNANCE_JUDGE_AGENT` | `codex` | Agent of the judge role (user level only: a repo cannot change it) |
 | `taskflow.judge_model` | `AI_GOVERNANCE_JUDGE_MODEL` | `gpt-6.1-sol` | Model of the judge role (user level only: a repo cannot change it) |
 | `agents.codex_scout_model` | `AI_GOVERNANCE_CODEX_SCOUT_MODEL` | `gpt-6-luna` | Model of the Codex scout subagent written at install |
+| `risk_window.cutoff_hour` | `AI_GOVERNANCE_RISK_WINDOW_CUTOFF_HOUR` | `16` | Cutoff hour (0-23) of the production risk window, Monday to Thursday |
+| `risk_window.friday_cutoff_hour` | `AI_GOVERNANCE_RISK_WINDOW_FRIDAY_CUTOFF_HOUR` | `13` | Cutoff hour (0-23) of the production risk window on Friday |
 | `corporate.packs` | `AI_GOVERNANCE_CORPORATE` | `[]` (all) | Company packs to install, comma separated (empty: every pack present) |
 | `atlassian.timeout_seconds` | `ATLASSIAN_TIMEOUT` | `30.0` | HTTP timeout of Jira and Confluence calls |
 | `pricing.timeout_seconds` | `AI_GOVERNANCE_PRICING_TIMEOUT_SECONDS` | `10.0` | Timeout of the price feed download |
