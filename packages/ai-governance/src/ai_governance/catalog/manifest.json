@@ -642,6 +642,19 @@
       ]
     },
     {
+      "id": "deploy-approvals",
+      "category": "3-infrastructure",
+      "file": "3-infrastructure/deploy-approvals.md",
+      "description": "Deploy approvals: explicit per-job and per-environment user authorization required for deploy actions",
+      "triggers": {
+        "globs": [
+          "**/*"
+        ]
+      },
+      "stacks": [],
+      "user_scope": true
+    },
+    {
       "id": "circleci",
       "category": "3-infrastructure",
       "file": "3-infrastructure/circleci.md",

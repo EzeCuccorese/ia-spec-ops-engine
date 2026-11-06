@@ -144,6 +144,7 @@ def test_foreign_file_is_never_overwritten_without_force(home: Path) -> None:
 def test_user_scope_install_renders_general_tool_rules(home: Path) -> None:
     new_rule_ids = [
         "circleci",
+        "deploy-approvals",
         "13-atlassian",
         "14-taskflow",
         "15-tool-confidentiality",
