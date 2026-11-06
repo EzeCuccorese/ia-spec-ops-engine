@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.8.0 - 2026-11-06
+
+### Features
+- personal rules CLI, deploy approval policy and audit follow-ups (#61)
+
 ## 1.7.0 - 2026-11-06
 
 ### Features
