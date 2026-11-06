@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+from ai_governance import personal
 from ai_governance.cli import main
 from ai_governance.install import installer
 
@@ -16,6 +17,9 @@ def repo(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
     monkeypatch.setattr(installer, "detect_stacks", lambda root: {"python"})
+    personal_dir = tmp_path / "personal"
+    personal.create_rule("voice", "# Voice\nBe concise.\n", root=personal_dir)
+    monkeypatch.setenv("AI_GOVERNANCE_PERSONAL_DIR", str(personal_dir))
     root = tmp_path / "repo"
     root.mkdir()
     return root

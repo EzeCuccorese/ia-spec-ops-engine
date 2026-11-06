@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from .._config_core import ConfigError
+from ..settings import effective
 from .models import JsonDict, now_iso
 
 ACTIONS: tuple[str, ...] = (
@@ -55,10 +57,8 @@ RISKY_ACTIONS: dict[str, tuple[str, ...]] = {
     "policy-downgrade": ("politic", "policy", "riesgo", "risk"),
     "restaging": ("staging",),
 }
-# Production window (user rule): never after 16:00, and never on Friday after 13:00.
+# Production window: cutoff hours read from configuration (risk_window.*).
 PRODUCTION_ACTIONS = frozenset({"deploy", "prod", "migration", "infra", "permissions"})
-LAST_HOUR = 16
-FRIDAY_LAST_HOUR = 13
 FRIDAY = 4
 GENERIC_REPLIES = frozenset(
     {
@@ -102,10 +102,41 @@ def is_generic(reply: str) -> bool:
     return re.sub(r"[^a-z ]", "", normalize(reply)).strip() in GENERIC_REPLIES
 
 
-def outside_production_window(moment: datetime) -> bool:
+def _validate_hour(hour: object, key: str = "cutoff hour") -> int:
+    if not isinstance(hour, int) or isinstance(hour, bool) or not (0 <= hour <= 23):
+        raise ConfigError(f"Invalid value for {key}: {hour!r} (must be an hour between 0 and 23)")
+    return hour
+
+
+def production_window_cutoffs(root: Path | None = None) -> tuple[int, int]:
+    """Cutoff hours for Monday-Thursday and Friday from configuration."""
+    values = effective(root)
+    cutoff = values["risk_window.cutoff_hour"].value
+    friday_cutoff = values["risk_window.friday_cutoff_hour"].value
+    return _validate_hour(cutoff, "risk_window.cutoff_hour"), _validate_hour(
+        friday_cutoff, "risk_window.friday_cutoff_hour"
+    )
+
+
+def outside_production_window(
+    moment: datetime,
+    cutoff_hour: int | None = None,
+    friday_cutoff_hour: int | None = None,
+    root: Path | None = None,
+) -> bool:
     if moment.weekday() > FRIDAY:
         return True
-    last = FRIDAY_LAST_HOUR if moment.weekday() == FRIDAY else LAST_HOUR
+    if cutoff_hour is None or friday_cutoff_hour is None:
+        cfg_cutoff, cfg_friday = production_window_cutoffs(root)
+        if cutoff_hour is None:
+            cutoff_hour = cfg_cutoff
+        if friday_cutoff_hour is None:
+            friday_cutoff_hour = cfg_friday
+    last = (
+        _validate_hour(friday_cutoff_hour, "risk_window.friday_cutoff_hour")
+        if moment.weekday() == FRIDAY
+        else _validate_hour(cutoff_hour, "risk_window.cutoff_hour")
+    )
     return moment.hour >= last
 
 
@@ -216,11 +247,13 @@ def build_approval(request: ApprovalRequest, context: ApprovalContext) -> JsonDi
     proof = _require_proof(request, context.transcripts_root, risky)
     if proof and any(_reuses(a, proof, request, risky) for a in context.previous or []):
         raise ApprovalError("That user message already approved this: ask the user again")
-    if request.action in PRODUCTION_ACTIONS and outside_production_window(context.moment):
-        raise ApprovalError(
-            "Outside the production window (never after 16:00, nor Friday after 13:00): "
-            "prepare it now and run it on the next working day."
-        )
+    if request.action in PRODUCTION_ACTIONS:
+        cutoff, friday_cutoff = production_window_cutoffs()
+        if outside_production_window(context.moment, cutoff, friday_cutoff):
+            raise ApprovalError(
+                f"Outside the production window (never after {cutoff:02d}:00, nor Friday after {friday_cutoff:02d}:00): "
+                "prepare it now and run it on the next working day."
+            )
     return {
         "action": request.action,
         "target": request.target,

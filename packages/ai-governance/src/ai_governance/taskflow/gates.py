@@ -289,5 +289,7 @@ def close_unmet(task: Task, config: FlowConfig, risk: RiskAssessment, stamp_key:
     if task.workflow == "manual" or task.phase in EXIT_PHASES:
         return []
     if task.phase != "done":
-        return [f"phase is '{task.phase}': finish the flow (done/findings) or close --abandon"]
+        return [
+            f"phase is '{task.phase}': finish the flow (done/findings) or close --abandon / --done-outside"
+        ]
     return _judged_unmet(task, "done", GateContext(config, risk, stamp_key))

@@ -9,7 +9,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TypedDict, Unpack
 
-from ._config_core import Layers, Setting, Value, flatten, load_layers, read_table, resolve
+from ._config_core import (
+    ConfigError,
+    Layers,
+    Setting,
+    Value,
+    flatten,
+    load_layers,
+    read_table,
+    resolve,
+)
 from .paths import APP_NAME, config_dir
 
 SETTINGS: tuple[Setting, ...] = (
@@ -114,6 +123,18 @@ SETTINGS: tuple[Setting, ...] = (
         "AI_GOVERNANCE_SCHEDULE_LABEL",
         "launchd label of the price-refresh agent",
     ),
+    Setting(
+        "risk_window.cutoff_hour",
+        16,
+        "AI_GOVERNANCE_RISK_WINDOW_CUTOFF_HOUR",
+        "Cutoff hour (0-23) of the production risk window (Monday to Thursday)",
+    ),
+    Setting(
+        "risk_window.friday_cutoff_hour",
+        13,
+        "AI_GOVERNANCE_RISK_WINDOW_FRIDAY_CUTOFF_HOUR",
+        "Cutoff hour (0-23) of the production risk window on Friday",
+    ),
 )
 
 # Role and judge settings decide who runs with full permissions: only the user's own
@@ -181,6 +202,16 @@ class LayerOptions(TypedDict, total=False):
     user_values: tuple[Path, dict[str, object]]
 
 
+def _validate_settings(values: dict[str, Value]) -> None:
+    for key in ("risk_window.cutoff_hour", "risk_window.friday_cutoff_hour"):
+        if key in values:
+            raw = values[key].value
+            if not isinstance(raw, int) or isinstance(raw, bool) or not (0 <= raw <= 23):
+                raise ConfigError(
+                    f"Invalid value for {key}: {raw!r} (must be an hour between 0 and 23)"
+                )
+
+
 def effective(
     root: Path | None = None,
     flags: dict[str, object] | None = None,
@@ -192,6 +223,7 @@ def effective(
     user_only = [s for s in SETTINGS if s.key.startswith(USER_ONLY_PREFIXES)]
     no_repo = Layers(found.user, {}, found.user_files, {})
     values.update(resolve(user_only, no_repo, flags=flags))
+    _validate_settings(values)
     return values
 
 
