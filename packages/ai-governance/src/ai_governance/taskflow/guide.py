@@ -62,7 +62,7 @@ One worktree per task: tasks sharing a worktree make `here` ambiguous and review
 contexts. `round dispatch` already prepends the task context (goal, plan path, decisions, facts,
 repos), so a prompt only needs the specific question.
 
-Code tasks always run tri-agent: "different agents" means different Orca sessions (planner,
+Code tasks in taskflow run tri-agent: "different agents" means different Orca sessions (planner,
 validator and each judge) and the builder is the coordinating session. The validator and every judge must also be a different
 provider than the builder; the planner may share the builder's provider. A repository can
 narrow the allowed agents (`[taskflow] allowed_agents` in its .ai-governance/config.toml).
