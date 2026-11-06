@@ -75,3 +75,67 @@ def test_readme_agents_table_is_generated() -> None:
         "<!-- agents-table:end -->"
     )[0]
     assert section.strip() == capability_table().strip()
+
+
+def test_user_content_outside_block_measured_and_trimming_changes_number(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
+    install_user(["claude"])
+
+    agents_md = tmp_path / ".claude" / "AGENTS.md"
+    initial_content = agents_md.read_text(encoding="utf-8")
+
+    user_note = "# My custom instructions\nRemember to write clean code.\n" * 10
+    agents_md.write_text(f"{user_note}\n{initial_content}", encoding="utf-8")
+
+    cost1 = fixed_cost(installer.global_ledger())
+    assert "usuario" in cost1
+    assert cost1["usuario"] == len(user_note.strip().encode("utf-8"))
+
+    # Trimming user content changes the reported number
+    trimmed_note = "# My custom instructions\nBe concise.\n"
+    agents_md.write_text(f"{trimmed_note}\n{initial_content}", encoding="utf-8")
+
+    cost2 = fixed_cost(installer.global_ledger())
+    assert "usuario" in cost2
+    assert cost2["usuario"] == len(trimmed_note.strip().encode("utf-8"))
+    assert cost2["usuario"] < cost1["usuario"]
+
+
+def test_codex_fixed_cost_includes_always_personal_and_company_index(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from ai_governance import personal
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
+
+    # Setup corporate rules
+    corp_dir = tmp_path / "corporate-rules"
+    rules_dir = corp_dir / "acme" / "rules"
+    rules_dir.mkdir(parents=True)
+    (rules_dir / "glossary.md").write_text(
+        "---\ntrigger: always_on\n---\n# Glossary\nLarge text " * 50
+    )
+    (rules_dir / "principles.md").write_text("# Principles\nLarge text " * 50)
+    monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(corp_dir))
+
+    # Setup personal rules
+    p_dir = tmp_path / "personal"
+    personal.create_rule("voice", "# Voice\nBe concise.\n", root=p_dir)
+    monkeypatch.setenv("AI_GOVERNANCE_PERSONAL_DIR", str(p_dir))
+
+    install_user(["codex"])
+    cost = fixed_cost(installer.global_ledger())
+
+    codex_home = tmp_path / ".codex" / "ai-governance"
+    always_size = sum(len(p.read_bytes()) for p in (codex_home / "always").glob("*.md"))
+    personal_size = sum(len(p.read_bytes()) for p in (codex_home / "personal").glob("*.md"))
+    company_index_size = len((codex_home / "company" / "index.md").read_bytes())
+
+    # The individual company rule files (~large) must NOT be counted in fixed cost
+    glossary_size = len((codex_home / "company" / "acme-glossary.md").read_bytes())
+    assert cost["codex"] < always_size + personal_size + company_index_size + glossary_size
+    assert cost["codex"] >= always_size + personal_size + company_index_size
