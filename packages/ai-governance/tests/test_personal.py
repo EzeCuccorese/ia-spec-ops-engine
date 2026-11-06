@@ -527,3 +527,95 @@ def test_personal_rm(home: Path, personal_root: Path) -> None:
 
     # Removing non-existent rule returns 1
     assert personal.main(["rm", "to_delete"]) == 1
+
+
+def test_cli_with_no_action_prints_help(capsys: pytest.CaptureFixture[str]) -> None:
+    from ai_governance.personal import main
+
+    assert main([]) == 0
+    assert "Manage personal preference rules" in capsys.readouterr().out
+
+
+def test_list_reports_an_empty_personal_layer(
+    home: Path, personal_root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from ai_governance.personal import main
+
+    for md in (personal_root / "rules").glob("*.md"):
+        md.unlink()
+    assert main(["list"]) == 0
+    assert "No personal rules found" in capsys.readouterr().out
+
+
+def test_add_refuses_a_missing_source_file(home: Path, personal_root: Path) -> None:
+    from ai_governance.personal import main
+
+    assert main(["add", "voice-notes", "--from", str(personal_root / "nope.md")]) == 1
+    assert not (personal_root / "rules" / "voice-notes.md").exists()
+
+
+def test_add_refuses_an_existing_rule_unless_forced(home: Path, personal_root: Path) -> None:
+    from ai_governance.personal import main
+
+    assert main(["add", "voice"]) == 1  # the fixture already ships voice.md
+    assert main(["add", "voice", "--force", "--title", "Voice"]) == 0
+    assert "# Voice" in (personal_root / "rules" / "voice.md").read_text()
+
+
+def test_migrate_refuses_a_missing_source_file(home: Path, personal_root: Path) -> None:
+    from ai_governance.personal import main
+
+    assert main(["migrate", "--from", str(personal_root / "nope.md"), "--name", "x"]) == 1
+
+
+def test_migrate_refuses_an_existing_rule_unless_forced(
+    home: Path, personal_root: Path, tmp_path: Path
+) -> None:
+    from ai_governance.personal import main
+
+    source = tmp_path / "AGENTS.md"
+    source.write_text("# Voice\n\nFirst person.\n")
+    assert main(["migrate", "--from", str(source), "--name", "voice"]) == 1
+    assert source.is_file(), "a refused migration must leave the source alone"
+
+
+def test_migrate_reports_a_section_that_is_not_there(
+    home: Path, personal_root: Path, tmp_path: Path
+) -> None:
+    from ai_governance.personal import main
+
+    source = tmp_path / "AGENTS.md"
+    source.write_text("# Kept\n\nSomething else.\n")
+    assert main(["migrate", "--from", str(source), "--name", "new", "--section", "Missing"]) == 1
+    assert source.read_text() == "# Kept\n\nSomething else.\n"
+
+
+def test_migrate_moves_one_section_and_leaves_the_rest(
+    home: Path, personal_root: Path, tmp_path: Path
+) -> None:
+    from ai_governance.personal import main
+
+    source = tmp_path / "AGENTS.md"
+    source.write_text("# Kept\n\nStays here.\n\n# Moved\n\nGoes to the rule.\n")
+    assert main(["migrate", "--from", str(source), "--name", "moved", "--section", "Moved"]) == 0
+    rule = (personal_root / "rules" / "moved.md").read_text()
+    assert "Goes to the rule" in rule and "trigger: always_on" in rule
+    remaining = source.read_text()
+    assert "Stays here" in remaining and "Goes to the rule" not in remaining
+
+
+def test_rm_removes_the_rule_and_its_links(home: Path, personal_root: Path) -> None:
+    from ai_governance.personal import main
+
+    install_user(["claude"])
+    link = home / ".claude" / "rules" / "ai-governance-personal-voice.md"
+    assert link.is_symlink()
+    assert main(["rm", "voice"]) == 0
+    assert not (personal_root / "rules" / "voice.md").exists()
+    assert not link.exists()
+
+
+def test_rm_reports_a_rule_that_is_not_there(home: Path, personal_root: Path) -> None:
+    from ai_governance.personal import main
+
+    assert main(["rm", "nothing-here"]) == 1
