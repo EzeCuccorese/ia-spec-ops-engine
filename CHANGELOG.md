@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.0 - 2026-11-06
+
+### Features
+- Relax tri-agent hints for frictionless local workflows.
+
 ## 1.5.0 - 2026-11-04
 
 ### Features
