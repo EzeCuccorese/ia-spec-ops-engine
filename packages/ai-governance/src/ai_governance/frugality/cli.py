@@ -72,6 +72,7 @@ def run_pre_bash(cfg: dict) -> None:
 SKIP_CONDENSE = re.compile(
     r"^\s*(git\s+(diff|show|log\s+-p|grep)|cat|head|tail|sed\s+-n|jq|grep|rg|nl|awk|ws\s+log)\b"
 )
+HELP_FLAG = re.compile(r"(^|\s)(--help|-h)(\s|$)")
 
 
 def _condense_timeout() -> float:
@@ -106,7 +107,12 @@ def condense_with_ws(text: str, command: str, budget: int) -> dict | None:
 def condensed_output(payload: dict, cfg: dict) -> tuple[str, dict | str] | None:
     """Returns (condensed text, replacement tool response) or None to keep the original."""
     command = (payload.get("tool_input") or {}).get("command", "")
-    if "#nofrugal" in command or os.environ.get("FRUGAL") == "0" or SKIP_CONDENSE.match(command):
+    if (
+        "#nofrugal" in command
+        or os.environ.get("FRUGAL") == "0"
+        or SKIP_CONDENSE.match(command)
+        or HELP_FLAG.search(command)
+    ):
         return None
     resp = payload.get("tool_response")
     if isinstance(resp, dict):
@@ -114,13 +120,15 @@ def condensed_output(payload: dict, cfg: dict) -> tuple[str, dict | str] | None:
     else:
         stdout, stderr = payload.get("tool_output") or (resp if isinstance(resp, str) else ""), ""
     text = stdout + (f"\n{stderr}" if stderr else "")
-    if len(text) <= cfg["threshold_chars"]:
+    if len(text) <= cfg["threshold_chars"] or len(text) <= cfg.get("budget_chars", 0):
         return None
     result = condense_with_ws(text, command, cfg["budget_chars"])
     if not result or not result.get("truncated") or len(result["text"]) >= len(text):
         return None
     note = f"\n[condensed by ws: ws log {result['log_id']} --grep RE | --lines A-B]"
     condensed = result["text"] + (note if result.get("log_id") else "")
+    if len(condensed) >= len(text):
+        return None
     if isinstance(resp, dict):
         return condensed, {**resp, "stdout": condensed, "stderr": ""}
     return condensed, condensed

@@ -85,6 +85,18 @@ def test_lifecycle_pause_resume_block_and_close(
     assert state.get("ONB-1").status == "active"
 
 
+def test_close_done_outside_flow(run: Run, state: TaskStore) -> None:
+    assert run("close", "ONB-1", "--done-outside") == 0
+    assert state.get("ONB-1").status == "closed"
+    assert "done outside flow" in state.read_log("ONB-1")
+
+    assert run("reopen", "ONB-1") == 0
+    assert state.get("ONB-1").status == "active"
+    assert run("close", "ONB-1", "--external", "--reason", "merged manually") == 0
+    assert state.get("ONB-1").status == "closed"
+    assert "merged manually" in state.read_log("ONB-1")
+
+
 def test_unbind_and_reports(
     run: Run, repo: Path, orca_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

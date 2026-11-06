@@ -61,3 +61,20 @@ def test_condensed_output_handles_string_responses(monkeypatch) -> None:
     monkeypatch.setattr(cli, "condense_with_ws", lambda text, command, budget: result)
     payload = {"tool_input": {"command": "pytest"}, "tool_output": "x" * 5000}
     assert cli.condensed_output(payload, dict(cli.DEFAULT_CONFIG)) == ("short", "short")
+
+
+def test_condensed_output_skips_help_and_small_outputs(monkeypatch) -> None:
+    result = {"schema_version": 1, "text": "condensed", "truncated": True, "log_id": "123"}
+    monkeypatch.setattr(cli, "condense_with_ws", lambda text, command, budget: result)
+
+    # --help flag skips condensing
+    payload_help = {"tool_input": {"command": "pytest --help"}, "tool_output": "x" * 5000}
+    assert cli.condensed_output(payload_help, dict(cli.DEFAULT_CONFIG)) is None
+
+    # -h flag skips condensing
+    payload_h = {"tool_input": {"command": "pytest -h"}, "tool_output": "x" * 5000}
+    assert cli.condensed_output(payload_h, dict(cli.DEFAULT_CONFIG)) is None
+
+    # small output below threshold skips condensing
+    payload_small = {"tool_input": {"command": "pytest"}, "tool_output": "small"}
+    assert cli.condensed_output(payload_small, dict(cli.DEFAULT_CONFIG)) is None

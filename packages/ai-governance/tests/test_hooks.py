@@ -63,10 +63,13 @@ def _repo_with_task(monkeypatch, tmp_path: Path) -> Path:
     return repo
 
 
-def test_session_start_injects_active_task_digest(monkeypatch, capsys, tmp_path) -> None:
+@pytest.mark.parametrize("agent", ["claude", "codex"])
+def test_session_start_injects_active_task_digest(
+    agent: str, monkeypatch, capsys, tmp_path
+) -> None:
     repo = _repo_with_task(monkeypatch, tmp_path)
     _stdin(monkeypatch, {"cwd": str(repo)})
-    assert hooks.main(["claude", "session-start"]) == 0
+    assert hooks.main([agent, "session-start"]) == 0
     out = capsys.readouterr().out
     assert "T-1" in out and "write tests" in out
     assert len(out) <= hooks.SESSION_CONTEXT_CHARS + 1

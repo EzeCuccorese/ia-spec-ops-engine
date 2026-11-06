@@ -32,12 +32,23 @@ def pack_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     rules, scripts = root / "acme" / "rules", root / "acme" / "scripts"
     rules.mkdir(parents=True)
     scripts.mkdir()
-    (rules / "glossary.md").write_text("# Glossary\n")
+    (rules / "glossary.md").write_text("---\ntrigger: always_on\n---\n# Glossary\n")
     (rules / "principles.md").write_text("# Principles\n")
     script = scripts / "acme-up"
     script.write_text("#!/bin/sh\necho ok\n")
     script.chmod(0o755)
     monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(root))
+    return root
+
+
+@pytest.fixture(autouse=True)
+def personal_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    root = tmp_path / "personal"
+    rules = root / "rules"
+    rules.mkdir(parents=True)
+    (rules / "voice.md").write_text("---\ntrigger: always_on\n---\n# Voice\n")
+    (rules / "style.md").write_text("# Style\n")
+    monkeypatch.setenv("AI_GOVERNANCE_PERSONAL_DIR", str(root))
     return root
 
 
@@ -72,6 +83,12 @@ def test_user_install_picks_up_every_pack_without_flags(home: Path) -> None:
     assert gemini.is_symlink() and Path(os.readlink(gemini)).is_file()
     codex = home / ".codex" / "ai-governance" / "company" / "acme-glossary.md"
     assert codex.is_symlink() and Path(os.readlink(codex)).is_file()
+    company_index_file = home / ".codex" / "ai-governance" / "company" / "index.md"
+    assert company_index_file.is_file()
+    company_index_text = company_index_file.read_text()
+    assert "acme-glossary.md" in company_index_text
+    assert "Glossary" in company_index_text
+    assert "acme-principles.md" in company_index_text
     assert not any("OpenAI Codex" in warning for warning in report.warnings)
     assert _script(home).is_symlink() and Path(os.readlink(_script(home))).is_file()
 
@@ -88,8 +105,16 @@ def test_user_install_adds_path_scoped_language_rules(home: Path) -> None:
     codex = home / ".codex" / "ai-governance"
     index = (codex / "language-rules.md").read_text()
     assert "`**/*.py`" in index and str(codex / "ai-governance-python-async.md") in index
+    assert not any(line.strip().startswith("- `**/*`:") for line in index.splitlines())
     assert "EmailStr" in (codex / "ai-governance-python-async.md").read_text()
     assert "language-rules.md" in (home / ".codex" / "AGENTS.md").read_text()
+    always_rules = sorted(p.name for p in (codex / "always").glob("*.md"))
+    assert "ai-governance.md" in always_rules
+    assert "ai-governance-13-atlassian.md" in always_rules
+    assert "ai-governance-circleci.md" in always_rules
+    assert "ai-governance-deploy-approvals.md" in always_rules
+    assert "ai-governance-production-risk-window.md" in always_rules
+    assert len(always_rules) == 9
 
 
 def test_claude_rules_are_symlinks_and_old_copies_migrate(home: Path, pack_root: Path) -> None:
@@ -133,7 +158,7 @@ def test_switching_company_is_swapping_the_folder(home: Path, pack_root: Path) -
     install_user(["claude"])
 
     rules_dir = home / ".claude" / "rules"
-    rules = sorted(p.name for p in rules_dir.glob("ai-governance-*-*") if p.is_symlink())
+    rules = sorted(p.name for p in rules_dir.glob("ai-governance-globex-*") if p.is_symlink())
     assert rules == ["ai-governance-globex-glossary.md", "ai-governance-globex-principles.md"]
     assert (home / ".local" / "bin" / "acme-up").is_symlink()  # same script name, new target
     assert "globex" in os.readlink(home / ".local" / "bin" / "acme-up")
@@ -375,3 +400,14 @@ def test_is_corporate_entry_edge_cases(home: Path, agent: str, path: str, target
     assert not _is_corporate_entry(ledger, {"kind": "file"})
     entry = {"kind": "link", "agent": agent, "path": str(home / path), "target": target}
     assert not _is_corporate_entry(ledger, entry, catalog=catalog)
+
+
+def test_corporate_rule_frontmatter_validation(home: Path) -> None:
+    (pack,) = corporate.packs()
+    with pytest.warns(UserWarning, match="principles.md.*missing YAML front matter"):
+        rules = pack.rules()
+    assert {r.name for r in rules} == {"glossary", "principles"}
+
+    report = install_user(["claude"])
+    assert any("Corporate rule 'principles' in pack 'acme'" in w for w in report.warnings)
+    assert not any("Corporate rule 'glossary'" in w for w in report.warnings)

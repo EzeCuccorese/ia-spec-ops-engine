@@ -9,10 +9,12 @@ swapping folders.
 from __future__ import annotations
 
 import os
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from .frontmatter import check_frontmatter
 from .settings import effective
 
 CORPORATE_DIR = "corporate-rules"
@@ -45,10 +47,20 @@ class CorporatePack:
     root: Path
 
     def rules(self) -> list[CorporateRule]:
-        return [
-            CorporateRule(self.name, path.stem, path.read_text(encoding="utf-8"), path.resolve())
-            for path in sorted((self.root / "rules").glob("*.md"))
-        ]
+        result: list[CorporateRule] = []
+        for path in sorted((self.root / "rules").glob("*.md")):
+            if not path.is_file() or path.name.lower() == "readme.md":
+                continue
+            content = path.read_text(encoding="utf-8")
+            check = check_frontmatter(content)
+            if not check.valid:
+                warnings.warn(
+                    f"Corporate rule '{path.name}' in pack '{self.name}' ({path}) is missing YAML front matter with 'trigger: always_on' or 'trigger: glob'",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            result.append(CorporateRule(self.name, path.stem, content, path.resolve()))
+        return result
 
     def scripts(self) -> list[Path]:
         folder = self.root / "scripts"

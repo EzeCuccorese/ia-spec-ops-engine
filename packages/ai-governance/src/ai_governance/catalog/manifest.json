@@ -342,6 +342,19 @@
       "user_scope": true
     },
     {
+      "id": "production-risk-window",
+      "category": "1-core",
+      "file": "1-core/production-risk-window.md",
+      "description": "Production risk window: changes that can break production must not run outside safe hours",
+      "triggers": {
+        "globs": [
+          "**/*"
+        ]
+      },
+      "stacks": [],
+      "user_scope": true
+    },
+    {
       "id": "java-spring",
       "category": "2-stacks",
       "file": "2-stacks/java-spring.md",
@@ -640,6 +653,19 @@
         "gitlab-ci",
         "jenkins"
       ]
+    },
+    {
+      "id": "deploy-approvals",
+      "category": "3-infrastructure",
+      "file": "3-infrastructure/deploy-approvals.md",
+      "description": "Deploy approvals: explicit per-job and per-environment user authorization required for deploy actions",
+      "triggers": {
+        "globs": [
+          "**/*"
+        ]
+      },
+      "stacks": [],
+      "user_scope": true
     },
     {
       "id": "circleci",

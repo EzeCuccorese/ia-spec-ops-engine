@@ -212,13 +212,19 @@ def _probe(args: argparse.Namespace) -> int:
             emit_status("warn", "Not everything was verified; see the result above.")
         return 0
     root = probe.build(args.agent, args.dir)
-    emit_text(
-        f"Probe project: {root}\n"
-        f"1. Open {AGENTS[args.agent].name} in that directory (trust it if asked).\n"
-        f"2. Send: {probe.PROMPT}\n"
-        f"3. Run: ai-governance probe --agent {args.agent} --verify --seen <tokens it listed>",
-        full=True,
+    lines = [
+        f"Probe project: {root}",
+        f"1. Open {AGENTS[args.agent].name} in that directory (trust it if asked).",
+    ]
+    if args.agent == "codex":
+        lines.append(f"   ({probe.CODEX_HOOKS_NOTE})")
+    lines.extend(
+        [
+            f"2. Send: {probe.PROMPT}",
+            f"3. Run: ai-governance probe --agent {args.agent} --verify --seen <tokens it listed>",
+        ]
     )
+    emit_text("\n".join(lines), full=True)
     return 0
 
 
