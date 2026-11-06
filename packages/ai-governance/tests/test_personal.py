@@ -109,7 +109,8 @@ def test_user_install_links_personal_rules_for_all_agents(home: Path, personal_r
     assert Path(os.readlink(codex_link)) == (personal_root / "rules" / "voice.md").resolve()
 
     codex_agents = (home / ".codex" / "AGENTS.md").read_text()
-    assert "once per session read every file in `company/` and `personal/`" in codex_agents
+    assert "once per session read every file in `always/` and `personal/`" in codex_agents
+    assert "read `company/index.md`" in codex_agents
 
     assert not any("Personal directory" in w for w in report.warnings)
 
@@ -288,6 +289,7 @@ def test_personal_rules_ignores_readme_and_warns_on_missing_frontmatter(
 
 def test_doctor_personal_checks(home: Path, personal_root: Path) -> None:
     import shutil
+
     from ai_governance.install import doctor
 
     install_user(["claude"])
@@ -307,17 +309,11 @@ def test_doctor_personal_checks(home: Path, personal_root: Path) -> None:
         md.unlink()
     (personal_root / "rules" / "README.md").write_text("# Readme")
     rows = doctor.check(None)
-    assert any(
-        c == "user:personal" and s == doctor.FAIL and "empty" in d
-        for c, s, d in rows
-    )
+    assert any(c == "user:personal" and s == doctor.FAIL and "empty" in d for c, s, d in rows)
 
     shutil.rmtree(personal_root / "rules")
     rows = doctor.check(None)
-    assert any(
-        c == "user:personal" and s == doctor.FAIL and "missing" in d
-        for c, s, d in rows
-    )
+    assert any(c == "user:personal" and s == doctor.FAIL and "missing" in d for c, s, d in rows)
 
 
 def test_doctor_antigravity_missing_trigger_check(home: Path, personal_root: Path) -> None:
@@ -329,4 +325,3 @@ def test_doctor_antigravity_missing_trigger_check(home: Path, personal_root: Pat
         c == "user:antigravity" and s == doctor.FAIL and "ai-governance-personal-style.md" in d
         for c, s, d in rows
     )
-

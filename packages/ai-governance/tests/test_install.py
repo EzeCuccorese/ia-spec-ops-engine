@@ -179,10 +179,13 @@ def test_user_scope_install_renders_general_tool_rules(home: Path) -> None:
         assert gemini_text.startswith("---\ntrigger: always_on\n")
         assert "## Invariants" in gemini_text
 
-        # Codex: file created and referenced in language-rules.md index
-        codex_file = codex_dir / f"ai-governance-{rule_id}.md"
+        # Codex: file created in always/ and NOT referenced in language-rules.md index
+        codex_file = codex_dir / "always" / f"ai-governance-{rule_id}.md"
         assert codex_file.is_file(), f"Codex rule missing: {rule_id}"
-        assert f"ai-governance-{rule_id}.md" in codex_index
+        assert f"ai-governance-{rule_id}.md" not in codex_index
+
+    assert not any(line.strip().startswith("- `**/*`:") for line in codex_index.splitlines())
+    assert (codex_dir / "always" / "ai-governance.md").is_file()
 
     # Idempotency: second install makes zero changes
     second = install_user(["claude", "antigravity", "codex"])
@@ -193,7 +196,8 @@ def test_user_scope_install_renders_general_tool_rules(home: Path) -> None:
     for rule_id in new_rule_ids:
         assert not (claude_rules / f"ai-governance-{rule_id}.md").exists()
         assert not (gemini_rules / f"ai-governance-{rule_id}.md").exists()
-        assert not (codex_dir / f"ai-governance-{rule_id}.md").exists()
+        assert not (codex_dir / "always" / f"ai-governance-{rule_id}.md").exists()
+    assert not (codex_dir / "always" / "ai-governance.md").exists()
 
 
 # -- project scope ------------------------------------------------------------------
@@ -560,4 +564,3 @@ def test_user_install_creates_personal_rules_dir_and_readme_when_missing(
     readme = expected_rules / "README.md"
     assert readme.is_file()
     assert "Personal Rules" in readme.read_text(encoding="utf-8")
-

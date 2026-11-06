@@ -151,11 +151,17 @@ CODEX_LANGUAGE_INDEX_HEADER = (
     "Before creating or editing a file, read the rules whose patterns match it.\n\n"
 )
 
+CODEX_COMPANY_INDEX = "index.md"
+CODEX_COMPANY_INDEX_HEADER = (
+    "# Company rules\n\nOpen and read only the rule needed for the current task.\n\n"
+)
+
 
 def codex_rules_pointer(rules_dir: Path) -> str:
     """Codex has no per-file rules, so its instructions point to the installed indexes."""
     return (
         f"- Installed rules live in `{rules_dir}`: once per session read every file in "
-        "`company/` and `personal/` (if present); before editing code, open `language-rules.md` and read the "
+        "`always/` and `personal/` (if present); read `company/index.md` (if present) and open only "
+        "the rule needed for the task; before editing code, open `language-rules.md` and read the "
         "rules whose patterns match the file.\n"
     )

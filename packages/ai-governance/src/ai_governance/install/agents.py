@@ -277,13 +277,33 @@ class ClaudeSpec(AgentSpec):
         return artifacts
 
 
+def _rule_summary(text: str) -> str:
+    body = text
+    if body.startswith("---"):
+        parts = body.split("\n---", 1)
+        if len(parts) > 1:
+            body = parts[1]
+    for line in body.splitlines():
+        line = line.strip()
+        if line.startswith("#"):
+            return line.lstrip("#").strip()
+        if line:
+            return line
+    return ""
+
+
 class CodexSpec(AgentSpec):
     def global_artifacts(self) -> list[Artifact]:
         home = codex_home()
+        rules_dir = codex_rules_dir()
         return [
             BlockArtifact(
                 home / "AGENTS.md",
-                content.GLOBAL_INSTRUCTIONS + content.codex_rules_pointer(codex_rules_dir()),
+                content.GLOBAL_INSTRUCTIONS + content.codex_rules_pointer(rules_dir),
+            ),
+            FileArtifact(
+                rules_dir / "always" / "ai-governance.md",
+                content.GLOBAL_INSTRUCTIONS,
             ),
             FileArtifact(
                 home / "agents" / "scout.toml",
@@ -311,7 +331,23 @@ class CodexSpec(AgentSpec):
 
     def corporate_artifacts(self, rules: list[CorporateRule]) -> list[Artifact]:
         company = codex_rules_dir() / "company"
-        return [LinkArtifact(company / f"{r.pack}-{r.name}.md", str(r.path)) for r in rules]
+        if not rules:
+            return []
+        artifacts: list[Artifact] = [
+            LinkArtifact(company / f"{r.pack}-{r.name}.md", str(r.path)) for r in rules
+        ]
+        index_entries = []
+        for r in rules:
+            summary = _rule_summary(r.content)
+            desc = f" — {summary}" if summary else ""
+            index_entries.append(f"- `{company / f'{r.pack}-{r.name}.md'}`{desc}")
+        artifacts.append(
+            FileArtifact(
+                company / content.CODEX_COMPANY_INDEX,
+                f"{content.CODEX_COMPANY_INDEX_HEADER}" + "\n".join(index_entries) + "\n",
+            )
+        )
+        return artifacts
 
     def personal_artifacts(self, rules: list[PersonalRule]) -> list[Artifact]:
         personal = codex_rules_dir() / "personal"
@@ -321,14 +357,21 @@ class CodexSpec(AgentSpec):
         rules_dir = codex_rules_dir()
         if not rules:
             return []
-        files = _global_catalog_rules(rules_dir, rules)
+        always_dir = rules_dir / "always"
+        always_rules = [r for r in rules if r.always_on]
+        language_rules = [r for r in rules if not r.always_on]
+
+        always_files = _global_catalog_rules(always_dir, always_rules)
+        language_files = _global_catalog_rules(rules_dir, language_rules)
+
         index = "\n".join(
-            f"- {', '.join(f'`{g}`' for g in rule.globs) or 'every file'}: "
+            f"- {', '.join(f'`{g}`' for g in rule.globs)}: "
             f"`{rules_dir / f'ai-governance-{rule.id}.md'}`"
-            for rule in rules
+            for rule in language_rules
         )
         return [
-            *files,
+            *always_files,
+            *language_files,
             FileArtifact(
                 rules_dir / CODEX_LANGUAGE_INDEX, f"{content.CODEX_LANGUAGE_INDEX_HEADER}{index}\n"
             ),

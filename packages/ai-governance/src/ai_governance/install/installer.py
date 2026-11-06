@@ -299,9 +299,26 @@ def _corporate_entries_to_keep(
     ledger: Ledger, agents: set[str], catalog: RuleCatalog | None = None
 ) -> list[Owned]:
     cat = catalog or RuleCatalog()
-    return _entries_to_keep(
+    kept = _entries_to_keep(
         ledger, agents, lambda agent, path, target: _is_corporate_link(agent, path, target, cat)
     )
+    if kept and "codex" in agents:
+        company_index = codex_rules_dir() / "company" / content.CODEX_COMPANY_INDEX
+        for entry in ledger.entries:
+            if (
+                entry.get("agent") == "codex"
+                and entry.get("kind") == "file"
+                and ledger.resolve(str(entry.get("path", ""))) == company_index
+                and company_index.is_file()
+            ):
+                kept.append(
+                    Owned(
+                        "codex",
+                        FileArtifact(company_index, company_index.read_text(encoding="utf-8")),
+                    )
+                )
+                break
+    return kept
 
 
 def _is_personal_rule_name(name: str) -> bool:

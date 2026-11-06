@@ -41,7 +41,7 @@ def ensure_frontmatter(content: str, default_trigger: str = "always_on") -> str:
     match = _FRONTMATTER_RE.match(content)
     if match:
         yaml_content = match.group(1)
-        rest = content[match.end():]
+        rest = content[match.end() :]
         if _TRIGGER_RE.search(yaml_content):
             yaml_content = _TRIGGER_RE.sub(f"trigger: {default_trigger}", yaml_content)
         else:

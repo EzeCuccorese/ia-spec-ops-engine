@@ -83,6 +83,12 @@ def test_user_install_picks_up_every_pack_without_flags(home: Path) -> None:
     assert gemini.is_symlink() and Path(os.readlink(gemini)).is_file()
     codex = home / ".codex" / "ai-governance" / "company" / "acme-glossary.md"
     assert codex.is_symlink() and Path(os.readlink(codex)).is_file()
+    company_index_file = home / ".codex" / "ai-governance" / "company" / "index.md"
+    assert company_index_file.is_file()
+    company_index_text = company_index_file.read_text()
+    assert "acme-glossary.md" in company_index_text
+    assert "Glossary" in company_index_text
+    assert "acme-principles.md" in company_index_text
     assert not any("OpenAI Codex" in warning for warning in report.warnings)
     assert _script(home).is_symlink() and Path(os.readlink(_script(home))).is_file()
 
@@ -99,8 +105,14 @@ def test_user_install_adds_path_scoped_language_rules(home: Path) -> None:
     codex = home / ".codex" / "ai-governance"
     index = (codex / "language-rules.md").read_text()
     assert "`**/*.py`" in index and str(codex / "ai-governance-python-async.md") in index
+    assert not any(line.strip().startswith("- `**/*`:") for line in index.splitlines())
     assert "EmailStr" in (codex / "ai-governance-python-async.md").read_text()
     assert "language-rules.md" in (home / ".codex" / "AGENTS.md").read_text()
+    always_rules = sorted(p.name for p in (codex / "always").glob("*.md"))
+    assert "ai-governance.md" in always_rules
+    assert "ai-governance-13-atlassian.md" in always_rules
+    assert "ai-governance-circleci.md" in always_rules
+    assert len(always_rules) == 7
 
 
 def test_claude_rules_are_symlinks_and_old_copies_migrate(home: Path, pack_root: Path) -> None:
@@ -397,4 +409,3 @@ def test_corporate_rule_frontmatter_validation(home: Path) -> None:
     report = install_user(["claude"])
     assert any("Corporate rule 'principles' in pack 'acme'" in w for w in report.warnings)
     assert not any("Corporate rule 'glossary'" in w for w in report.warnings)
-
