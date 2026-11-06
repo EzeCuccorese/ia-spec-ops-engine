@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.7.0 - 2026-11-06
+
+### Features
+- Comprehensive v1.6 audit implementation.
+- Phase 1 - personal layer governance and origin frontmatter guarantee.
+- Phase 2 - always-on rules separation and corporate index.
+- Phase 3 - measure actual session reads for codex and user content.
+- Phase 4 - session-start hooks for codex and antigravity.
+- Phase 5 - audit polish and minor engine improvements.
+- Add provider-agnostic deploy approvals rule and decouple circleci.
+- Add production risk window rule and update manifests.
+- Make production risk window cutoff hours configurable.
+
+### Fixes
+- Phase 4 correction - report antigravity session-start gap in doctor.
+
 ## 1.6.0 - 2026-11-06
 
 ### Features
