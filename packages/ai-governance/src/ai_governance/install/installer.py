@@ -37,7 +37,7 @@ from .agents import (
     render_canonical_rule,
     resolve_agents,
 )
-from .engine import Ledger, Owned, Report, sync
+from .engine import Ledger, Owned, Report, _apply_link, _remove_entry, sync
 
 PROJECT_DIR = ".ai-governance"
 PROJECT_OWNER = "project"
@@ -94,6 +94,11 @@ class ProjectConfig:
         if self.tables:
             text += "\n" + self.tables
         return text
+
+
+def is_project_installed(root: Path) -> bool:
+    """True when root has an ai-governance project configuration with installed agents."""
+    return (root / PROJECT_DIR / "config.toml").is_file() and bool(ProjectConfig.load(root).agents)
 
 
 def detect_stacks(root: Path) -> set[str] | None:
@@ -409,6 +414,51 @@ def _personal_desired(
     return kept
 
 
+def sync_personal_rules(root: Path | None = None, *, dry_run: bool = False) -> Report:
+    """Reconciles personal rule symlinks across all installed agents."""
+    ledger = global_ledger()
+    agents = sorted(installed_agents(ledger))
+    if not agents:
+        return Report()
+    specs = resolve_agents(agents)
+    target_root = root or personal.personal_root()
+    current_rules = personal.rules(target_root)
+    desired = [
+        Owned(spec.id, artifact)
+        for spec in specs
+        for artifact in spec.personal_artifacts(current_rules)
+    ]
+    report = Report()
+    desired_keys = {("link", ledger.key(owned.artifact.path)) for owned in desired}
+    ledger.entries = _without_stale_personal_links(
+        ledger, desired_keys, report=report, dry_run=dry_run
+    )
+
+    for owned in desired:
+        if isinstance(owned.artifact, LinkArtifact):
+            _apply_link(owned.agent, owned.artifact, ledger, report, dry_run, force=False)
+
+    ledger.save(report, dry_run)
+    return report
+
+
+def _without_stale_personal_links(
+    ledger: Ledger,
+    desired_keys: set[tuple[str, str]],
+    *,
+    report: Report,
+    dry_run: bool,
+) -> list[dict[str, Any]]:
+    """The ledger entries to keep: personal links no longer wanted are removed from disk first."""
+    kept: list[dict[str, Any]] = []
+    for entry in ledger.entries:
+        stale = _is_personal_entry(ledger, entry) and ("link", entry["path"]) not in desired_keys
+        if stale and _remove_entry(entry, ledger, report, dry_run):
+            continue
+        kept.append(entry)
+    return kept
+
+
 def install_user(
     agents: list[str],
     *,
@@ -534,7 +584,10 @@ def _changed_config(config: ProjectConfig, *, agents: Change, profiles: Change) 
     had_agents = bool(config.agents)
     config.agents = _merged(config.agents, *agents)
     if not config.agents and not had_agents:
-        raise ValueError("No agent selected. Pass --agent claude|codex|antigravity.")
+        raise ValueError(
+            "No agent selected. Pass --agent claude|codex|antigravity "
+            "(e.g. `ai-governance install --scope project --agent <name>`)."
+        )
     config.profiles = _merged(config.profiles, *profiles)
     return config
 

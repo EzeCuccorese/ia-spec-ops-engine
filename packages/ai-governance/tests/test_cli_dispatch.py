@@ -73,11 +73,26 @@ def test_cli_does_not_import_optional_packages() -> None:
 def test_cli_help_lists_all_canonical_subcommands(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["--help"]) == 0
     out = capsys.readouterr().out
-    for subcommand in ("install", "update", "doctor", "rules", "telemetry", "taskflow", "hook"):
+    for subcommand in (
+        "install",
+        "update",
+        "doctor",
+        "rules",
+        "personal",
+        "telemetry",
+        "taskflow",
+        "hook",
+    ):
         assert subcommand in out
     listing = out.split("{", 1)[1].split("}", 1)[0].split(",")
     for removed in ("frugal", "harness", "progreso", "ritmo"):
         assert removed not in listing
+
+
+def test_cli_dispatch_personal() -> None:
+    with patch("ai_governance.personal.main", return_value=0) as mock_personal:
+        assert main(["personal", "list"]) == 0
+        mock_personal.assert_called_once_with(["list"])
 
 
 def test_rules_subcommand_help_delegates_to_rules_parser(

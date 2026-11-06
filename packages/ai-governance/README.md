@@ -141,6 +141,19 @@ unchanged and a warning is printed explaining how to set `AI_GOVERNANCE_PERSONAL
 An existing directory with an empty `rules` folder removes previous links as normal.
 Uninstalling an agent removes its personal links.
 
+Personal rules can be managed directly through the CLI:
+
+```bash
+ai-governance personal list                                                    # list personal rules and linked agents
+ai-governance personal add <name> [--from <file>] [--title <text>]             # create and link a personal rule
+ai-governance personal migrate --from <file> --name <name> [--section <title>] # migrate file or section to personal rule
+ai-governance personal rm <name>                                               # delete rule and its symlinks
+```
+
+- `add`: creates `<personal>/rules/<name>.md` with guaranteed `trigger: always_on` front matter and links it into all installed agents. With `--from`, seeds content from the file; without `--from`, generates a template.
+- `migrate`: moves a markdown section by heading title (`--section "Title"`) or the entire file into a personal rule, guaranteeing front matter and updating symlinks.
+- `rm`: deletes the rule file and removes its symlinks and ledger entries across installed agents.
+
 ### Generated entry files (Claude Code)
 
 At user scope, Claude Code receives entry files managed via marker blocks:
@@ -310,6 +323,7 @@ Files are TOML (`[frugality]` / `threshold_chars = 4000`). Older JSON files keep
 | `agents.codex_scout_model` | `AI_GOVERNANCE_CODEX_SCOUT_MODEL` | `gpt-6-luna` | Model of the Codex scout subagent written at install |
 | `risk_window.cutoff_hour` | `AI_GOVERNANCE_RISK_WINDOW_CUTOFF_HOUR` | `16` | Cutoff hour (0-23) of the production risk window, Monday to Thursday |
 | `risk_window.friday_cutoff_hour` | `AI_GOVERNANCE_RISK_WINDOW_FRIDAY_CUTOFF_HOUR` | `13` | Cutoff hour (0-23) of the production risk window on Friday |
+| `deploy_approvals.production` | `AI_GOVERNANCE_DEPLOY_APPROVALS_PRODUCTION` | `never` | Production deploy approval policy (`never` or `explicit`) |
 | `corporate.packs` | `AI_GOVERNANCE_CORPORATE` | `[]` (all) | Company packs to install, comma separated (empty: every pack present) |
 | `atlassian.timeout_seconds` | `ATLASSIAN_TIMEOUT` | `30.0` | HTTP timeout of Jira and Confluence calls |
 | `pricing.timeout_seconds` | `AI_GOVERNANCE_PRICING_TIMEOUT_SECONDS` | `10.0` | Timeout of the price feed download |

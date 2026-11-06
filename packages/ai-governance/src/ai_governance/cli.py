@@ -16,6 +16,7 @@ COMMANDS: dict[str, str] = {
     "budget": "Fixed context (bytes/tokens) loaded per agent every session",
     "probe": "Verify on this machine what an agent loads and which hooks fire",
     "rules": "Browse the engineering-rules catalog (list, show, profiles)",
+    "personal": "Manage personal preference rules across agents (list, add, rm, migrate)",
     "taskflow": "Task tracking and the plan/validate/work/judge flow across agents",
     "telemetry": "Claude spend estimates (claude-usage), prices and threshold alerts",
     "jira": "Jira issues and transitions in Markdown",
@@ -36,6 +37,7 @@ INSTALL_COMMANDS = (
 )
 _SUBCOMMAND_MODULES: dict[str, str] = {
     "rules": "ai_governance.rules.cli",
+    "personal": "ai_governance.personal",
     "taskflow": "ai_governance.taskflow.cli",
     "telemetry": "ai_governance.telemetry.cli",
     "jira": "ai_governance.tools.jira",
