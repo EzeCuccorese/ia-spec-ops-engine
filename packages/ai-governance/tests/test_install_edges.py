@@ -72,7 +72,8 @@ def test_budget_counts_shared_blocks_and_no_codex_project_rules(project: Path) -
     lock = fixed_cost(Ledger(project / PROJECT_DIR / "lock.json", base=project))
     # Codex carries its always-on rules (always/, personal/, company/index.md) and
     # the AGENTS.md block. At project scope it has no per-file rules.
-    assert 0 < user["codex"] <= 10000
+    # The bound grew with the deploy-approvals and production-risk-window rules.
+    assert 0 < user["codex"] <= 11000
     assert lock.get("codex", 0) == 0 and lock["project"] > 0
 
 

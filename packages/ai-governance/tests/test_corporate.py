@@ -112,7 +112,9 @@ def test_user_install_adds_path_scoped_language_rules(home: Path) -> None:
     assert "ai-governance.md" in always_rules
     assert "ai-governance-13-atlassian.md" in always_rules
     assert "ai-governance-circleci.md" in always_rules
-    assert len(always_rules) == 7
+    assert "ai-governance-deploy-approvals.md" in always_rules
+    assert "ai-governance-production-risk-window.md" in always_rules
+    assert len(always_rules) == 9
 
 
 def test_claude_rules_are_symlinks_and_old_copies_migrate(home: Path, pack_root: Path) -> None:
