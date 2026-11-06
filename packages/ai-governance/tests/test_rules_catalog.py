@@ -215,8 +215,9 @@ def test_deploy_approvals_rule_content_semantics() -> None:
     # Staging and production named and governed separately
     assert "staging" in content.lower()
     assert "production" in content.lower()
-    assert "staging and non-production environments" in content.lower()
-    assert "production environments" in content.lower()
+    # The concepts, not the exact prose: the rule has to fit the per-rule context budget.
+    assert "non-production" in content.lower()
+    assert "never" in content.lower() and "explicit" in content.lower()
     assert "deploy_approvals.production" in content
     assert "ai-governance config show" in content
     assert "ambiguity" in content.lower() or "doubt" in content.lower()
