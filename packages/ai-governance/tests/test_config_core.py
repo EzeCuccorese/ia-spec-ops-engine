@@ -116,6 +116,11 @@ def test_config_show_reports_the_origin_of_each_value(
         "source": "AI_GOVERNANCE_CHECK_TIMEOUT_SECONDS",
     }
     assert shown["atlassian.timeout_seconds"]["origin"] == "default"
+    assert shown["deploy_approvals.production"] == {
+        "value": "never",
+        "origin": "default",
+        "source": "",
+    }
 
 
 def test_frugal_json_and_taskflow_toml_feed_the_same_layers(

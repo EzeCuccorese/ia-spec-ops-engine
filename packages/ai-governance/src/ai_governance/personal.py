@@ -7,13 +7,20 @@ Every rule present in ``<root>/rules/*.md`` is installed as a symlink for each s
 
 from __future__ import annotations
 
+import argparse
 import os
+import re
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .frontmatter import check_frontmatter, ensure_frontmatter
+from .output import emit_rows, emit_status
 from .paths import config_dir
+
+if TYPE_CHECKING:
+    from .install.engine import Report
 
 PERSONAL_DIR = "personal"
 
@@ -102,3 +109,274 @@ def rules(root: Path | None = None) -> list[PersonalRule]:
             )
         result.append(PersonalRule(path.stem, content, path.resolve()))
     return result
+
+
+def _sync(root: Path | None = None) -> Report:
+    from .install.installer import sync_personal_rules
+
+    return sync_personal_rules(root=root)
+
+
+def _next_heading_at_or_above(text: str, start: int, level: int) -> int:
+    """Where the section ends: the next heading of this level or higher, fences ignored.
+
+    A fenced block may hold comment lines that look like headings (``# comment`` inside
+    a shell or python block). Treating one as a heading would cut the section short and
+    corrupt both the extracted rule and what is left behind.
+    """
+    heading = re.compile(rf"^#{{1,{level}}}\s+")
+    fence = re.compile(r"^\s*(```|~~~)")
+    in_fence = False
+    pos = start
+    for line in text[start:].splitlines(keepends=True):
+        if fence.match(line):
+            in_fence = not in_fence
+        elif not in_fence and heading.match(line):
+            return pos
+        pos += len(line)
+    return len(text)
+
+
+def extract_section(text: str, title: str) -> tuple[str, str]:
+    """Extract a markdown section by heading title, returning (section_text, remaining_text).
+
+    Matches '# ... Title' or '## Title' case-insensitively.
+    """
+    clean_title = title.strip("#").strip()
+    pattern = re.compile(
+        rf"^(?P<hashes>#+)\s+{re.escape(clean_title)}\s*$",
+        re.MULTILINE | re.IGNORECASE,
+    )
+    match = pattern.search(text)
+    if not match:
+        raise ValueError(f"Section '{clean_title}' not found")
+    level = len(match.group("hashes"))
+    start_pos = match.start()
+
+    end_pos = _next_heading_at_or_above(text, match.end(), level)
+
+    section_text = text[start_pos:end_pos].strip()
+    remaining = (text[:start_pos].rstrip() + "\n\n" + text[end_pos:].lstrip()).strip()
+    if remaining:
+        remaining += "\n"
+    return section_text, remaining
+
+
+def list_rules(root: Path | None = None) -> int:
+    from .install.agents import AGENTS
+
+    r_root = root or personal_root()
+    all_rules = rules(r_root)
+    if not all_rules:
+        emit_status("info", f"No personal rules found in {r_root / 'rules'}")
+        return 0
+    rows = []
+    for r in all_rules:
+        linked = []
+        for agent_id, spec in sorted(AGENTS.items()):
+            artifacts = spec.personal_artifacts([r])
+            if any(a.path.is_symlink() for a in artifacts):
+                linked.append(agent_id)
+        rows.append((r.name, ", ".join(linked) or "none"))
+    emit_rows(rows, headers=("Rule", "Agents"), full=True)
+    return 0
+
+
+@dataclass(frozen=True)
+class RuleTarget:
+    """Where a personal rule is written, shared by ``add_rule`` and ``migrate_rule``."""
+
+    name: str
+    force: bool = False
+    root: Path | None = None
+
+
+def _resolve_target(target: RuleTarget) -> tuple[Path, Path] | None:
+    """The personal root and the rule path, or None after reporting why it cannot be used."""
+    root = target.root or personal_root()
+    rules_dir = ensure_personal_dir(root)
+    file_name = target.name if target.name.endswith(".md") else f"{target.name}.md"
+    path = rules_dir / file_name
+    if path.exists() and not target.force:
+        emit_status(
+            "error",
+            f"Personal rule '{path.stem}' already exists at {path}. Use --force to overwrite.",
+        )
+        return None
+    return root, path
+
+
+def _body_from_file(from_file: Path, title: str | None) -> str | None:
+    """The source text with a heading if it has none, or None after reporting the missing file."""
+    if not from_file.is_file():
+        emit_status("error", f"Source file does not exist: {from_file}")
+        return None
+    content = from_file.read_text(encoding="utf-8")
+    if title and not content.lstrip().startswith("#"):
+        content = f"# {title}\n\n{content}"
+    return content
+
+
+def _template_body(name: str, title: str | None) -> str:
+    heading = title or name.removesuffix(".md").replace("-", " ").replace("_", " ").title()
+    return f"# {heading}\n\nRule contents...\n"
+
+
+def add_rule(target: RuleTarget, *, from_file: Path | None = None, title: str | None = None) -> int:
+    resolved = _resolve_target(target)
+    if resolved is None:
+        return 1
+    root, _ = resolved
+    if from_file:
+        content = _body_from_file(from_file, title)
+        if content is None:
+            return 1
+    else:
+        content = _template_body(target.name, title)
+    created = create_rule(target.name, content, root=root, trigger="always_on")
+    _sync(root)
+    emit_status("ok", f"Created personal rule '{created.stem}' at {created}")
+    return 0
+
+
+def _split_migration(from_file: Path, section: str | None) -> tuple[str, str | None] | None:
+    """The rule body and what the source should keep (None: delete it), without touching disk.
+
+    Nothing is written here: the source is only changed once the rule exists, so a failure
+    while creating it cannot lose the content.
+    """
+    source_text = from_file.read_text(encoding="utf-8")
+    if section is None:
+        return source_text, None
+    try:
+        content, remaining = extract_section(source_text, section)
+    except ValueError as exc:
+        emit_status("error", str(exc))
+        return None
+    return content, remaining
+
+
+def migrate_rule(target: RuleTarget, *, from_file: Path, section: str | None = None) -> int:
+    if not from_file.is_file():
+        emit_status("error", f"Source file does not exist: {from_file}")
+        return 1
+    resolved = _resolve_target(target)
+    if resolved is None:
+        return 1
+    root, _ = resolved
+    split = _split_migration(from_file, section)
+    if split is None:
+        return 1
+    content, remaining = split
+    created = create_rule(target.name, content, root=root, trigger="always_on")
+    if remaining is None:
+        from_file.unlink()
+    else:
+        from_file.write_text(remaining, encoding="utf-8")
+    _sync(root)
+    emit_status("ok", f"Migrated to personal rule '{created.stem}' at {created}")
+    return 0
+
+
+def _unlink_leftover_links(stem: str, rule_path: Path) -> int:
+    """Removes links the ledger no longer owns, and says how many there were."""
+    from .install.agents import AGENTS
+
+    fake_rule = PersonalRule(stem, "", rule_path)
+    removed = 0
+    for spec in AGENTS.values():
+        for artifact in spec.personal_artifacts([fake_rule]):
+            if artifact.path.is_symlink() or artifact.path.exists():
+                artifact.path.unlink()
+                removed += 1
+    return removed
+
+
+def remove_rule(name: str, *, root: Path | None = None) -> int:
+    r_root = root or personal_root()
+    file_name = name if name.endswith(".md") else f"{name}.md"
+    rule_path = r_root / "rules" / file_name
+    stem = rule_path.stem
+
+    existed = rule_path.is_file()
+    if existed:
+        rule_path.unlink()
+
+    # ``_sync`` already unlinks what the ledger owned, so count those too: otherwise
+    # removing a rule whose file was deleted by hand reports "not found" after cleaning
+    # up its links.
+    report = _sync(r_root)
+    removed_links = sum(1 for action, _ in report.changes if action == "removed")
+    removed_links += _unlink_leftover_links(stem, rule_path)
+
+    if not existed and removed_links == 0:
+        emit_status("error", f"Personal rule '{stem}' not found: {rule_path}")
+        return 1
+
+    emit_status("ok", f"Removed personal rule '{stem}' and its links.")
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="ai-governance personal",
+        description="Manage personal preference rules across agents.",
+    )
+    sub = parser.add_subparsers(dest="action")
+
+    sub.add_parser("list", help="List personal rules and the agents they are linked into")
+
+    add_p = sub.add_parser("add", help="Create and link a new personal rule")
+    add_p.add_argument("name", help="Rule name")
+    add_p.add_argument(
+        "--from", dest="from_file", type=Path, help="File to seed the rule content from"
+    )
+    add_p.add_argument("--title", help="Rule title for the heading")
+    add_p.add_argument("--force", action="store_true", help="Overwrite existing personal rule")
+
+    mig_p = sub.add_parser(
+        "migrate", help="Migrate a file or markdown section into a personal rule"
+    )
+    mig_p.add_argument(
+        "--from",
+        dest="from_file",
+        required=True,
+        type=Path,
+        help="Source markdown file (e.g. AGENTS.md)",
+    )
+    mig_p.add_argument("--name", required=True, help="Name for the personal rule")
+    mig_p.add_argument(
+        "--section",
+        help="Optional heading of the section to extract; if omitted, migrates the entire file and removes it",
+    )
+    mig_p.add_argument("--force", action="store_true", help="Overwrite existing personal rule")
+
+    rm_p = sub.add_parser("rm", help="Remove a personal rule and unlink it from all agents")
+    rm_p.add_argument("name", help="Rule name to remove")
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if not args.action:
+        parser.print_help()
+        return 0
+    if args.action == "list":
+        return list_rules()
+    if args.action == "add":
+        return add_rule(
+            RuleTarget(args.name, force=args.force),
+            from_file=args.from_file,
+            title=args.title,
+        )
+    if args.action == "migrate":
+        return migrate_rule(
+            RuleTarget(args.name, force=args.force),
+            from_file=args.from_file,
+            section=args.section,
+        )
+    if args.action == "rm":
+        return remove_rule(args.name)
+    return 0

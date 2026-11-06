@@ -12,7 +12,14 @@ from .. import personal
 from ..frontmatter import check_frontmatter
 from .agents import HOOK_COMMAND_PREFIX, resolve_agents
 from .engine import END, START, Ledger, sha256
-from .installer import PROJECT_DIR, ProjectConfig, global_ledger, installed_agents, sync_project
+from .installer import (
+    PROJECT_DIR,
+    ProjectConfig,
+    global_ledger,
+    installed_agents,
+    is_project_installed,
+    sync_project,
+)
 
 OK, WARN, FAIL = "OK", "WARN", "FAIL"
 Row = tuple[str, str, str]
@@ -246,6 +253,6 @@ def _taskflow_rows(root: Path | None) -> list[Row]:
 
 def check(root: Path | None) -> list[Row]:
     rows = _binary_rows() + _user_rows() + _taskflow_rows(root)
-    if root is not None and (root / PROJECT_DIR / "config.toml").exists():
+    if root is not None and is_project_installed(root):
         rows.extend(_project_rows(root))
     return rows
