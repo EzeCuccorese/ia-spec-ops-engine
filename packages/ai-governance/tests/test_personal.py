@@ -368,3 +368,162 @@ def test_frontmatter_utilities() -> None:
     new_fm = ensure_frontmatter("# Simple body\n")
     assert check_frontmatter(new_fm).valid
     assert check_frontmatter(new_fm).trigger == "always_on"
+
+
+def test_personal_add_without_from(home: Path, personal_root: Path) -> None:
+    install_user(["claude", "antigravity"])
+    code = personal.main(["add", "concise"])
+    assert code == 0
+
+    rule_path = personal_root / "rules" / "concise.md"
+    assert rule_path.is_file()
+    content = rule_path.read_text(encoding="utf-8")
+    assert content.startswith("---\ntrigger: always_on\n---\n")
+    assert "# Concise" in content
+
+    claude_link = home / ".claude" / "rules" / "ai-governance-personal-concise.md"
+    assert claude_link.is_symlink()
+    assert claude_link.resolve() == rule_path.resolve()
+
+    gemini_link = home / ".gemini" / "config" / "rules" / "ai-governance-personal-concise.md"
+    assert gemini_link.is_symlink()
+    assert gemini_link.resolve() == rule_path.resolve()
+
+
+def test_personal_add_with_from_and_title(home: Path, personal_root: Path, tmp_path: Path) -> None:
+    install_user(["claude"])
+    source_file = tmp_path / "style_guide.md"
+    source_file.write_text(
+        "Always use strict typing and descriptive variable names.\n", encoding="utf-8"
+    )
+
+    code = personal.main(
+        ["add", "strict_typing", "--from", str(source_file), "--title", "Strict Typing"]
+    )
+    assert code == 0
+
+    rule_path = personal_root / "rules" / "strict_typing.md"
+    assert rule_path.is_file()
+    content = rule_path.read_text(encoding="utf-8")
+    assert content.startswith("---\ntrigger: always_on\n---\n")
+    assert "# Strict Typing" in content
+    assert "Always use strict typing and descriptive variable names." in content
+
+    claude_link = home / ".claude" / "rules" / "ai-governance-personal-strict_typing.md"
+    assert claude_link.is_symlink()
+    assert claude_link.resolve() == rule_path.resolve()
+
+
+def test_personal_add_existing_requires_force(personal_root: Path) -> None:
+    assert personal.main(["add", "existing", "--title", "Initial"]) == 0
+    rule_path = personal_root / "rules" / "existing.md"
+    assert "Initial" in rule_path.read_text(encoding="utf-8")
+
+    # Duplicate without --force fails and preserves original
+    assert personal.main(["add", "existing", "--title", "Updated"]) == 1
+    assert "Initial" in rule_path.read_text(encoding="utf-8")
+
+    # With --force succeeds
+    assert personal.main(["add", "existing", "--title", "Updated", "--force"]) == 0
+    assert "Updated" in rule_path.read_text(encoding="utf-8")
+
+
+def test_personal_list_command(
+    home: Path, personal_root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    install_user(["claude"])
+    personal.main(["add", "list_test"])
+    personal.main(["list"])
+    captured = capsys.readouterr().out
+    assert "list_test" in captured
+    assert "claude" in captured
+
+
+def test_personal_migrate_section(home: Path, personal_root: Path, tmp_path: Path) -> None:
+    install_user(["claude"])
+    agents_file = tmp_path / "AGENTS.md"
+    agents_file.write_text(
+        "# Project Instructions\n\n"
+        "Project general instructions.\n\n"
+        "## Personal Preferences\n\n"
+        "Always write tests with pytest.\n"
+        "Be concise in responses.\n\n"
+        "## Team Standards\n\n"
+        "Format code with ruff.\n",
+        encoding="utf-8",
+    )
+
+    code = personal.main(
+        [
+            "migrate",
+            "--from",
+            str(agents_file),
+            "--name",
+            "migrated_prefs",
+            "--section",
+            "Personal Preferences",
+        ]
+    )
+    assert code == 0
+
+    rule_path = personal_root / "rules" / "migrated_prefs.md"
+    assert rule_path.is_file()
+    content = rule_path.read_text(encoding="utf-8")
+    assert content.startswith("---\ntrigger: always_on\n---\n")
+    assert "Always write tests with pytest." in content
+    assert "Be concise in responses." in content
+
+    # Source file was modified: section removed, other sections retained
+    remaining = agents_file.read_text(encoding="utf-8")
+    assert "Personal Preferences" not in remaining
+    assert "Project Instructions" in remaining
+    assert "Team Standards" in remaining
+
+    # Linked in installed agent
+    claude_link = home / ".claude" / "rules" / "ai-governance-personal-migrated_prefs.md"
+    assert claude_link.is_symlink()
+    assert claude_link.resolve() == rule_path.resolve()
+
+
+def test_personal_migrate_full_file(home: Path, personal_root: Path, tmp_path: Path) -> None:
+    install_user(["claude"])
+    custom_file = tmp_path / "custom_notes.md"
+    custom_file.write_text("# Custom Notes\nDo not forget to clean up.\n", encoding="utf-8")
+
+    code = personal.main(["migrate", "--from", str(custom_file), "--name", "full_notes"])
+    assert code == 0
+
+    rule_path = personal_root / "rules" / "full_notes.md"
+    assert rule_path.is_file()
+    content = rule_path.read_text(encoding="utf-8")
+    assert content.startswith("---\ntrigger: always_on\n---\n")
+    assert "# Custom Notes" in content
+
+    # Whole source file unlinked
+    assert not custom_file.exists()
+
+    claude_link = home / ".claude" / "rules" / "ai-governance-personal-full_notes.md"
+    assert claude_link.is_symlink()
+    assert claude_link.resolve() == rule_path.resolve()
+
+
+def test_personal_rm(home: Path, personal_root: Path) -> None:
+    install_user(["claude", "antigravity"])
+    personal.main(["add", "to_delete"])
+
+    rule_path = personal_root / "rules" / "to_delete.md"
+    assert rule_path.is_file()
+    claude_link = home / ".claude" / "rules" / "ai-governance-personal-to_delete.md"
+    gemini_link = home / ".gemini" / "config" / "rules" / "ai-governance-personal-to_delete.md"
+    assert claude_link.is_symlink()
+    assert gemini_link.is_symlink()
+
+    code = personal.main(["rm", "to_delete"])
+    assert code == 0
+
+    assert not rule_path.exists()
+    assert not claude_link.exists()
+    assert not gemini_link.exists()
+
+    # Removing non-existent rule returns 1
+    assert personal.main(["rm", "to_delete"]) == 1
