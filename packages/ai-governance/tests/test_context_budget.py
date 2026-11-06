@@ -21,6 +21,7 @@ ENTRY_BLOCK_MAX = 500
 
 def test_static_content_budgets() -> None:
     assert len(content.GLOBAL_INSTRUCTIONS.encode()) <= GLOBAL_MAX
+    assert "delegate only bounded implementation with a closed brief" in content.GLOBAL_INSTRUCTIONS
     assert len(content.claude_agents_block(Path("~/.claude/rules")).encode()) <= ENTRY_BLOCK_MAX
     block = content.PROJECT_BLOCK.format(rule_locations="x" * 150)
     assert len(block.encode()) <= PROJECT_BLOCK_MAX
@@ -45,6 +46,8 @@ def test_always_on_rules_are_security_and_general_tools() -> None:
         "16-git-branch-ownership",
         "17-quality-gate",
         "circleci",
+        "deploy-approvals",
+        "production-risk-window",
     }
 
 
@@ -60,11 +63,11 @@ def test_fixed_session_cost_for_a_typical_install(monkeypatch, tmp_path: Path) -
     user = fixed_cost(installer.global_ledger())
     project = fixed_cost(Ledger(root / PROJECT_DIR / "lock.json", base=root))
 
-    # Global instructions, the Claude entry blocks and the 6 always-on tool rules.
-    assert user["claude"] <= GLOBAL_MAX + ENTRY_BLOCK_MAX + 7 * (RULE_MAX + 300)
-    # The 7 always-on rules (read by each agent once) plus the shared AGENTS.md block.
-    assert project["claude"] <= 7 * (RULE_MAX + 300)
-    assert project["project"] <= PROJECT_BLOCK_MAX + 7 * (RULE_MAX + 300)
+    # Global instructions, the Claude entry blocks and the always-on tool rules.
+    assert user["claude"] <= GLOBAL_MAX + ENTRY_BLOCK_MAX + 9 * (RULE_MAX + 300)
+    # The always-on rules (read by each agent once) plus the shared AGENTS.md block.
+    assert project["claude"] <= 9 * (RULE_MAX + 300)
+    assert project["project"] <= PROJECT_BLOCK_MAX + 9 * (RULE_MAX + 300)
 
 
 def test_readme_agents_table_is_generated() -> None:
@@ -75,3 +78,67 @@ def test_readme_agents_table_is_generated() -> None:
         "<!-- agents-table:end -->"
     )[0]
     assert section.strip() == capability_table().strip()
+
+
+def test_user_content_outside_block_measured_and_trimming_changes_number(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
+    install_user(["claude"])
+
+    agents_md = tmp_path / ".claude" / "AGENTS.md"
+    initial_content = agents_md.read_text(encoding="utf-8")
+
+    user_note = "# My custom instructions\nRemember to write clean code.\n" * 10
+    agents_md.write_text(f"{user_note}\n{initial_content}", encoding="utf-8")
+
+    cost1 = fixed_cost(installer.global_ledger())
+    assert "user_custom" in cost1
+    assert cost1["user_custom"] == len(user_note.strip().encode("utf-8"))
+
+    # Trimming user content changes the reported number
+    trimmed_note = "# My custom instructions\nBe concise.\n"
+    agents_md.write_text(f"{trimmed_note}\n{initial_content}", encoding="utf-8")
+
+    cost2 = fixed_cost(installer.global_ledger())
+    assert "user_custom" in cost2
+    assert cost2["user_custom"] == len(trimmed_note.strip().encode("utf-8"))
+    assert cost2["user_custom"] < cost1["user_custom"]
+
+
+def test_codex_fixed_cost_includes_always_personal_and_company_index(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from ai_governance import personal
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
+
+    # Setup corporate rules
+    corp_dir = tmp_path / "corporate-rules"
+    rules_dir = corp_dir / "acme" / "rules"
+    rules_dir.mkdir(parents=True)
+    (rules_dir / "glossary.md").write_text(
+        "---\ntrigger: always_on\n---\n# Glossary\nLarge text " * 50
+    )
+    (rules_dir / "principles.md").write_text("# Principles\nLarge text " * 50)
+    monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(corp_dir))
+
+    # Setup personal rules
+    p_dir = tmp_path / "personal"
+    personal.create_rule("voice", "# Voice\nBe concise.\n", root=p_dir)
+    monkeypatch.setenv("AI_GOVERNANCE_PERSONAL_DIR", str(p_dir))
+
+    install_user(["codex"])
+    cost = fixed_cost(installer.global_ledger())
+
+    codex_home = tmp_path / ".codex" / "ai-governance"
+    always_size = sum(len(p.read_bytes()) for p in (codex_home / "always").glob("*.md"))
+    personal_size = sum(len(p.read_bytes()) for p in (codex_home / "personal").glob("*.md"))
+    company_index_size = len((codex_home / "company" / "index.md").read_bytes())
+
+    # The individual company rule files (~large) must NOT be counted in fixed cost
+    glossary_size = len((codex_home / "company" / "acme-glossary.md").read_bytes())
+    assert cost["codex"] < always_size + personal_size + company_index_size + glossary_size
+    assert cost["codex"] >= always_size + personal_size + company_index_size

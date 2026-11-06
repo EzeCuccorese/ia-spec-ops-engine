@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..corporate import CorporateRule
+from ..frontmatter import _FRONTMATTER_RE
 from ..personal import PersonalRule
 from ..rules.catalog import RuleDefinition
 from ..settings import get as setting
@@ -224,7 +225,11 @@ class ClaudeSpec(AgentSpec):
         command = f"{HOOK_COMMAND_PREFIX} claude"
         return [
             BlockArtifact(home / "AGENTS.md", content.claude_agents_block(home / "rules")),
-            BlockArtifact(home / "CLAUDE.md", content.CLAUDE_ENTRY_BLOCK),
+            BlockArtifact(
+                home / "CLAUDE.md",
+                content.CLAUDE_ENTRY_BLOCK,
+                conflict=r"^\s*@AGENTS\.md\b",
+            ),
             FileArtifact(home / "rules" / "ai-governance.md", content.GLOBAL_INSTRUCTIONS),
             *_claude_subagents(home / "agents"),
             *skill_artifacts(home / "skills"),
@@ -277,13 +282,30 @@ class ClaudeSpec(AgentSpec):
         return artifacts
 
 
+def _rule_summary(text: str) -> str:
+    match = _FRONTMATTER_RE.match(text)
+    body = text[match.end() :] if match else text
+    for line in body.splitlines():
+        line = line.strip()
+        if line.startswith("#"):
+            return line.lstrip("#").strip()
+        if line and not line.startswith("---"):
+            return line
+    return ""
+
+
 class CodexSpec(AgentSpec):
     def global_artifacts(self) -> list[Artifact]:
         home = codex_home()
+        rules_dir = codex_rules_dir()
         return [
             BlockArtifact(
                 home / "AGENTS.md",
-                content.GLOBAL_INSTRUCTIONS + content.codex_rules_pointer(codex_rules_dir()),
+                content.GLOBAL_INSTRUCTIONS + content.codex_rules_pointer(rules_dir),
+            ),
+            FileArtifact(
+                rules_dir / "always" / "ai-governance.md",
+                content.GLOBAL_INSTRUCTIONS,
             ),
             FileArtifact(
                 home / "agents" / "scout.toml",
@@ -305,13 +327,30 @@ class CodexSpec(AgentSpec):
             *skill_artifacts(Path.home() / ".agents" / "skills"),
             *self._verified_hooks(
                 home / "hooks.json",
+                HookEntry("SessionStart", None, f"{HOOK_COMMAND_PREFIX} codex session-start"),
                 HookEntry("PostToolUse", None, f"{HOOK_COMMAND_PREFIX} codex post-tool-use"),
             ),
         ]
 
     def corporate_artifacts(self, rules: list[CorporateRule]) -> list[Artifact]:
         company = codex_rules_dir() / "company"
-        return [LinkArtifact(company / f"{r.pack}-{r.name}.md", str(r.path)) for r in rules]
+        if not rules:
+            return []
+        artifacts: list[Artifact] = [
+            LinkArtifact(company / f"{r.pack}-{r.name}.md", str(r.path)) for r in rules
+        ]
+        index_entries = []
+        for r in rules:
+            summary = _rule_summary(r.content)
+            desc = f" — {summary}" if summary else ""
+            index_entries.append(f"- `{company / f'{r.pack}-{r.name}.md'}`{desc}")
+        artifacts.append(
+            FileArtifact(
+                company / content.CODEX_COMPANY_INDEX,
+                f"{content.CODEX_COMPANY_INDEX_HEADER}" + "\n".join(index_entries) + "\n",
+            )
+        )
+        return artifacts
 
     def personal_artifacts(self, rules: list[PersonalRule]) -> list[Artifact]:
         personal = codex_rules_dir() / "personal"
@@ -321,14 +360,21 @@ class CodexSpec(AgentSpec):
         rules_dir = codex_rules_dir()
         if not rules:
             return []
-        files = _global_catalog_rules(rules_dir, rules)
+        always_dir = rules_dir / "always"
+        always_rules = [r for r in rules if r.always_on]
+        language_rules = [r for r in rules if not r.always_on]
+
+        always_files = _global_catalog_rules(always_dir, always_rules)
+        language_files = _global_catalog_rules(rules_dir, language_rules)
+
         index = "\n".join(
-            f"- {', '.join(f'`{g}`' for g in rule.globs) or 'every file'}: "
+            f"- {', '.join(f'`{g}`' for g in rule.globs)}: "
             f"`{rules_dir / f'ai-governance-{rule.id}.md'}`"
-            for rule in rules
+            for rule in language_rules
         )
         return [
-            *files,
+            *always_files,
+            *language_files,
             FileArtifact(
                 rules_dir / CODEX_LANGUAGE_INDEX, f"{content.CODEX_LANGUAGE_INDEX_HEADER}{index}\n"
             ),
@@ -408,7 +454,7 @@ AGENTS: dict[str, AgentSpec] = {
         id="codex",
         name="OpenAI Codex",
         global_instructions="$CODEX_HOME/AGENTS.md (marker block) + rule indexes in $CODEX_HOME/ai-governance/",
-        global_hooks="$CODEX_HOME/hooks.json PostToolUse condensing (after `probe` verifies)",
+        global_hooks="$CODEX_HOME/hooks.json SessionStart, PostToolUse condensing (after `probe` verifies)",
         project_rules=".agents/rules/ai-governance-<id>.md (shared)",
         project_rules_mechanism="injected on edit by a PreToolUse hook (planned)",
         scout="$CODEX_HOME/agents/scout.toml (gpt-6-luna, effort medium, read-only) + config.toml default subagent model gpt-6-luna",  # default of agents.codex_scout_model,

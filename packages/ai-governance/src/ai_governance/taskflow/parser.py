@@ -110,10 +110,21 @@ def _lifecycle_commands(sub: Subparsers) -> None:
     for name, status in (("pause", "paused"), ("reopen", "active"), ("resume", "active")):
         item = add(name, cli._set_status(status), f"Mark the task {status}")
         item.add_argument("--reason", default="")
-    item = add("close", cli.cmd_close, "Close a task (after done/findings, or --abandon)")
+    item = add(
+        "close",
+        cli.cmd_close,
+        "Close a task (after done/findings, or --abandon / --done-outside)",
+    )
     item.add_argument("--reason", default="")
     item.add_argument(
         "--abandon", action="store_true", help="Close a task that left the flow unfinished"
+    )
+    item.add_argument(
+        "--done-outside",
+        "--external",
+        action="store_true",
+        dest="done_outside",
+        help="Close a task completed outside the flow",
     )
     item = add("bind", cli.cmd_bind, "Bind a repository/worktree to the task")
     item.add_argument("--repo", default=".")
