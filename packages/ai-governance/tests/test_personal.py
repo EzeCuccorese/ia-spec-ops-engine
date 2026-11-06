@@ -619,3 +619,54 @@ def test_rm_reports_a_rule_that_is_not_there(home: Path, personal_root: Path) ->
     from ai_governance.personal import main
 
     assert main(["rm", "nothing-here"]) == 1
+
+
+def test_migrate_keeps_headings_inside_fenced_code_blocks(
+    home: Path, personal_root: Path, tmp_path: Path
+) -> None:
+    """A ``# comment`` inside a fence is not a heading, so it must not cut the section."""
+    from ai_governance.personal import main
+
+    source = tmp_path / "AGENTS.md"
+    source.write_text(
+        "# Tools\n\nHow to run it:\n\n```bash\n# install first\nmake install\n```\n\nAfter the block.\n\n# Other\n\nStays.\n"
+    )
+    assert main(["migrate", "--from", str(source), "--name", "tools", "--section", "Tools"]) == 0
+    rule = (personal_root / "rules" / "tools.md").read_text()
+    assert "# install first" in rule, "the fenced comment belongs to the section"
+    assert "After the block" in rule, "the section was cut at the fenced comment"
+    assert "Other" not in rule
+    assert "Stays" in source.read_text()
+
+
+def test_migrate_keeps_the_source_when_the_rule_cannot_be_written(
+    home: Path, personal_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The source is only touched once the rule exists, so a failure cannot lose content."""
+    from ai_governance import personal
+
+    source = tmp_path / "AGENTS.md"
+    original = "# Voice\n\nFirst person.\n"
+    source.write_text(original)
+
+    def boom(*args: object, **kwargs: object) -> Path:
+        raise PermissionError("read-only rules directory")
+
+    monkeypatch.setattr(personal, "create_rule", boom)
+    with pytest.raises(PermissionError):
+        personal.migrate_rule(personal.RuleTarget("voice-new"), from_file=source)
+    assert source.read_text() == original
+
+
+def test_rm_reports_the_links_it_cleaned_for_a_hand_deleted_rule(
+    home: Path, personal_root: Path
+) -> None:
+    """Removing a rule whose file was deleted by hand still counts the links cleaned up."""
+    from ai_governance.personal import main
+
+    install_user(["claude"])
+    link = home / ".claude" / "rules" / "ai-governance-personal-voice.md"
+    assert link.is_symlink()
+    (personal_root / "rules" / "voice.md").unlink()
+    assert main(["rm", "voice"]) == 0
+    assert not link.exists()

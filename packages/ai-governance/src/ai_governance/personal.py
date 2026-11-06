@@ -13,10 +13,14 @@ import re
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .frontmatter import check_frontmatter, ensure_frontmatter
 from .output import emit_rows, emit_status
 from .paths import config_dir
+
+if TYPE_CHECKING:
+    from .install.engine import Report
 
 PERSONAL_DIR = "personal"
 
@@ -107,10 +111,30 @@ def rules(root: Path | None = None) -> list[PersonalRule]:
     return result
 
 
-def _sync(root: Path | None = None) -> None:
+def _sync(root: Path | None = None) -> Report:
     from .install.installer import sync_personal_rules
 
-    sync_personal_rules(root=root)
+    return sync_personal_rules(root=root)
+
+
+def _next_heading_at_or_above(text: str, start: int, level: int) -> int:
+    """Where the section ends: the next heading of this level or higher, fences ignored.
+
+    A fenced block may hold comment lines that look like headings (``# comment`` inside
+    a shell or python block). Treating one as a heading would cut the section short and
+    corrupt both the extracted rule and what is left behind.
+    """
+    heading = re.compile(rf"^#{{1,{level}}}\s+")
+    fence = re.compile(r"^\s*(```|~~~)")
+    in_fence = False
+    pos = start
+    for line in text[start:].splitlines(keepends=True):
+        if fence.match(line):
+            in_fence = not in_fence
+        elif not in_fence and heading.match(line):
+            return pos
+        pos += len(line)
+    return len(text)
 
 
 def extract_section(text: str, title: str) -> tuple[str, str]:
@@ -129,9 +153,7 @@ def extract_section(text: str, title: str) -> tuple[str, str]:
     level = len(match.group("hashes"))
     start_pos = match.start()
 
-    next_pattern = re.compile(rf"^#{{1,{level}}}\s+", re.MULTILINE)
-    next_match = next_pattern.search(text, pos=match.end())
-    end_pos = next_match.start() if next_match else len(text)
+    end_pos = _next_heading_at_or_above(text, match.end(), level)
 
     section_text = text[start_pos:end_pos].strip()
     remaining = (text[:start_pos].rstrip() + "\n\n" + text[end_pos:].lstrip()).strip()
@@ -217,19 +239,21 @@ def add_rule(target: RuleTarget, *, from_file: Path | None = None, title: str | 
     return 0
 
 
-def _body_from_migration(from_file: Path, section: str | None) -> str | None:
-    """Takes the section (or the whole file) out of the source, or None after reporting why not."""
+def _split_migration(from_file: Path, section: str | None) -> tuple[str, str | None] | None:
+    """The rule body and what the source should keep (None: delete it), without touching disk.
+
+    Nothing is written here: the source is only changed once the rule exists, so a failure
+    while creating it cannot lose the content.
+    """
     source_text = from_file.read_text(encoding="utf-8")
     if section is None:
-        from_file.unlink()
-        return source_text
+        return source_text, None
     try:
         content, remaining = extract_section(source_text, section)
     except ValueError as exc:
         emit_status("error", str(exc))
         return None
-    from_file.write_text(remaining, encoding="utf-8")
-    return content
+    return content, remaining
 
 
 def migrate_rule(target: RuleTarget, *, from_file: Path, section: str | None = None) -> int:
@@ -240,37 +264,50 @@ def migrate_rule(target: RuleTarget, *, from_file: Path, section: str | None = N
     if resolved is None:
         return 1
     root, _ = resolved
-    content = _body_from_migration(from_file, section)
-    if content is None:
+    split = _split_migration(from_file, section)
+    if split is None:
         return 1
+    content, remaining = split
     created = create_rule(target.name, content, root=root, trigger="always_on")
+    if remaining is None:
+        from_file.unlink()
+    else:
+        from_file.write_text(remaining, encoding="utf-8")
     _sync(root)
     emit_status("ok", f"Migrated to personal rule '{created.stem}' at {created}")
     return 0
 
 
-def remove_rule(name: str, *, root: Path | None = None) -> int:
+def _unlink_leftover_links(stem: str, rule_path: Path) -> int:
+    """Removes links the ledger no longer owns, and says how many there were."""
     from .install.agents import AGENTS
 
+    fake_rule = PersonalRule(stem, "", rule_path)
+    removed = 0
+    for spec in AGENTS.values():
+        for artifact in spec.personal_artifacts([fake_rule]):
+            if artifact.path.is_symlink() or artifact.path.exists():
+                artifact.path.unlink()
+                removed += 1
+    return removed
+
+
+def remove_rule(name: str, *, root: Path | None = None) -> int:
     r_root = root or personal_root()
-    rules_dir = r_root / "rules"
     file_name = name if name.endswith(".md") else f"{name}.md"
-    rule_path = rules_dir / file_name
+    rule_path = r_root / "rules" / file_name
     stem = rule_path.stem
 
     existed = rule_path.is_file()
     if existed:
         rule_path.unlink()
 
-    _sync(r_root)
-
-    removed_links = 0
-    fake_rule = PersonalRule(stem, "", rule_path)
-    for spec in AGENTS.values():
-        for artifact in spec.personal_artifacts([fake_rule]):
-            if artifact.path.is_symlink() or artifact.path.exists():
-                artifact.path.unlink()
-                removed_links += 1
+    # ``_sync`` already unlinks what the ledger owned, so count those too: otherwise
+    # removing a rule whose file was deleted by hand reports "not found" after cleaning
+    # up its links.
+    report = _sync(r_root)
+    removed_links = sum(1 for action, _ in report.changes if action == "removed")
+    removed_links += _unlink_leftover_links(stem, rule_path)
 
     if not existed and removed_links == 0:
         emit_status("error", f"Personal rule '{stem}' not found: {rule_path}")
