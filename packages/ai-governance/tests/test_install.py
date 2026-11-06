@@ -9,7 +9,7 @@ import pytest
 from ai_governance.install import installer
 from ai_governance.install.agents import AGENTS, capability_table
 from ai_governance.install.cli import main as install_cli
-from ai_governance.install.doctor import FAIL, Row, check
+from ai_governance.install.doctor import FAIL, WARN, Row, check
 from ai_governance.install.engine import Ledger
 from ai_governance.install.installer import (
     ProjectConfig,
@@ -144,6 +144,8 @@ def test_foreign_file_is_never_overwritten_without_force(home: Path) -> None:
 def test_user_scope_install_renders_general_tool_rules(home: Path) -> None:
     new_rule_ids = [
         "circleci",
+        "deploy-approvals",
+        "production-risk-window",
         "13-atlassian",
         "14-taskflow",
         "15-tool-confidentiality",
@@ -179,10 +181,13 @@ def test_user_scope_install_renders_general_tool_rules(home: Path) -> None:
         assert gemini_text.startswith("---\ntrigger: always_on\n")
         assert "## Invariants" in gemini_text
 
-        # Codex: file created and referenced in language-rules.md index
-        codex_file = codex_dir / f"ai-governance-{rule_id}.md"
+        # Codex: file created in always/ and NOT referenced in language-rules.md index
+        codex_file = codex_dir / "always" / f"ai-governance-{rule_id}.md"
         assert codex_file.is_file(), f"Codex rule missing: {rule_id}"
-        assert f"ai-governance-{rule_id}.md" in codex_index
+        assert f"ai-governance-{rule_id}.md" not in codex_index
+
+    assert not any(line.strip().startswith("- `**/*`:") for line in codex_index.splitlines())
+    assert (codex_dir / "always" / "ai-governance.md").is_file()
 
     # Idempotency: second install makes zero changes
     second = install_user(["claude", "antigravity", "codex"])
@@ -193,7 +198,8 @@ def test_user_scope_install_renders_general_tool_rules(home: Path) -> None:
     for rule_id in new_rule_ids:
         assert not (claude_rules / f"ai-governance-{rule_id}.md").exists()
         assert not (gemini_rules / f"ai-governance-{rule_id}.md").exists()
-        assert not (codex_dir / f"ai-governance-{rule_id}.md").exists()
+        assert not (codex_dir / "always" / f"ai-governance-{rule_id}.md").exists()
+    assert not (codex_dir / "always" / "ai-governance.md").exists()
 
 
 # -- project scope ------------------------------------------------------------------
@@ -411,6 +417,42 @@ def test_doctor_flags_claude_memory_and_duplicate_hooks(project: Path, home: Pat
     assert any("run twice" in d for _, _, d in rows)
 
 
+def test_claude_skips_existing_agents_import_and_doctor_flags_duplicate(
+    project: Path, home: Path
+) -> None:
+    claude_md = home / ".claude" / "CLAUDE.md"
+    claude_md.parent.mkdir(parents=True)
+    claude_md.write_text("@AGENTS.md\n# User notes\n")
+
+    # Install should not inject another @AGENTS.md block
+    install_user(["claude"])
+    content_text = claude_md.read_text()
+    assert content_text.count("@AGENTS.md") == 1
+    assert "<!-- ai-governance:start -->" not in content_text
+
+    # Doctor passes with single import
+    rows = check(project)
+    assert not any("duplicate '@AGENTS.md'" in d for _, _, d in rows)
+
+    # Doctor warns when duplicated
+    claude_md.write_text("@AGENTS.md\n@AGENTS.md\n")
+    rows = check(project)
+    assert any(s == WARN and "duplicate '@AGENTS.md' import" in d for _, s, d in rows)
+
+
+def test_doctor_fails_when_corporate_directory_missing(
+    project: Path, home: Path, monkeypatch
+) -> None:
+    install_user(["claude"])
+    missing_dir = home / "nonexistent-corp"
+    monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(missing_dir))
+
+    rows = check(project)
+    assert any(
+        s == FAIL and f"Corporate directory {missing_dir} does not exist" in d for _, s, d in rows
+    )
+
+
 def test_capability_table_covers_every_agent() -> None:
     table = capability_table()
     for spec in AGENTS.values():
@@ -419,6 +461,22 @@ def test_capability_table_covers_every_agent() -> None:
 
 def test_antigravity_hooks_path_is_shown_in_full() -> None:
     assert AGENTS["antigravity"].global_hooks.startswith("~/.gemini/config/hooks.json ")
+
+
+def test_antigravity_does_not_install_session_start_and_doctor_reports_gap(home: Path) -> None:
+    from ai_governance.install.agents import HooksArtifact
+
+    install_user(["antigravity"])
+    spec = AGENTS["antigravity"]
+    for artifact in spec.global_artifacts():
+        if isinstance(artifact, HooksArtifact):
+            assert "SessionStart" not in [e.event for e in artifact.entries]
+
+    rows = check(None)
+    assert any(
+        c == "user:antigravity" and s == WARN and "no session-start hook event" in d
+        for c, s, d in rows
+    )
 
 
 def test_report_collapses_many_files_per_folder(project: Path) -> None:
@@ -544,3 +602,19 @@ def test_engine_write_preserves_existing_file_permissions(tmp_path: Path) -> Non
 
         assert target.read_text(encoding="utf-8") == "updated\n"
         assert stat.S_IMODE(target.stat().st_mode) == expected_mode
+
+
+def test_user_install_creates_personal_rules_dir_and_readme_when_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config_dir = tmp_path / ".config" / "ai-governance"
+    monkeypatch.setenv("AI_GOVERNANCE_CONFIG_DIR", str(config_dir))
+    monkeypatch.delenv("AI_GOVERNANCE_PERSONAL_DIR", raising=False)
+    expected_rules = config_dir / "personal" / "rules"
+    assert not expected_rules.exists()
+
+    install_user(["claude"])
+    assert expected_rules.is_dir()
+    readme = expected_rules / "README.md"
+    assert readme.is_file()
+    assert "Personal Rules" in readme.read_text(encoding="utf-8")

@@ -271,7 +271,8 @@ def _set_status(status: str) -> Callable[[argparse.Namespace], int]:
 def cmd_close(args: argparse.Namespace) -> int:
     store = _store()
     task = store.get(args.task_id)
-    if not args.abandon:
+    done_outside = getattr(args, "done_outside", False)
+    if not (args.abandon or done_outside):
         config = _config(task)
         task, risk = _refresh(store, task, config)
         missing = close_unmet(task, config, risk, task.stamp_key)
@@ -279,9 +280,11 @@ def cmd_close(args: argparse.Namespace) -> int:
             raise ValueError(
                 f"Cannot close '{task.id}': "
                 + "; ".join(missing)
-                + " (or --abandon --reason '...')"
+                + " (or --abandon / --done-outside --reason '...')"
                 + (f". {legacy_notice(task)}" if legacy_notice(task) else "")
             )
+    if done_outside and not getattr(args, "reason", ""):
+        args.reason = "done outside flow"
     return _set_status("closed")(args)
 
 

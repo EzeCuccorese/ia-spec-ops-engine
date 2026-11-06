@@ -6,7 +6,7 @@ from ai_governance.rules.catalog import SCHEMA_VERSION, RuleCatalog
 
 def test_catalog_loads_all_rules_with_metadata() -> None:
     catalog = RuleCatalog()
-    assert len(catalog.rules) == 36
+    assert len(catalog.rules) == 38
     for rule in catalog.rules:
         assert rule.description and rule.globs and rule.sha256
         assert rule.content.startswith("# ")
@@ -152,6 +152,8 @@ def test_user_rules_cover_every_language_and_tool_rules() -> None:
     assert "api-design" in user_ids
     tool_rules = {
         "circleci",
+        "deploy-approvals",
+        "production-risk-window",
         "13-atlassian",
         "14-taskflow",
         "15-tool-confidentiality",
@@ -181,7 +183,7 @@ def test_git_branch_and_circleci_rule_content_semantics() -> None:
     assert "one authorization covers one action on one branch" in content.lower()
     assert "unclear ownership means not the user's" in content.lower()
 
-    # circleci: reads free, writes need approval, deploy hold prohibited, tokens named by variable
+    # circleci: reads free, writes need approval, tokens named by variable, references deploy-approvals
     circleci = catalog.get("circleci")
     assert circleci is not None
     assert circleci.user_scope is True
@@ -190,8 +192,38 @@ def test_git_branch_and_circleci_rule_content_semantics() -> None:
     assert "reads" in c_content.lower() and "free" in c_content.lower()
     assert "POST" in c_content and "DELETE" in c_content
     assert "approval" in c_content.lower()
-    assert "deploy hold" in c_content.lower()
+    assert "deploy-approvals" in c_content
     assert "CIRCLE_TOKEN" in c_content and "CIRCLE_TOKEN_RW" in c_content
+
+
+def test_deploy_approvals_rule_content_semantics() -> None:
+    catalog = RuleCatalog()
+    deploy_rule = catalog.get("deploy-approvals")
+    assert deploy_rule is not None
+    assert deploy_rule.user_scope is True
+    assert deploy_rule.always_on is True
+    assert deploy_rule.category == "3-infrastructure"
+    content = deploy_rule.content
+    assert "deploy hold" in content.lower()
+    assert "exact job" in content.lower()
+    assert "target environment" in content.lower()
+    assert "taskflow approve" in content
+    assert "production-risk-window" in content
+
+
+def test_production_risk_window_rule_content_semantics() -> None:
+    catalog = RuleCatalog()
+    risk_rule = catalog.get("production-risk-window")
+    assert risk_rule is not None
+    assert risk_rule.user_scope is True
+    assert risk_rule.always_on is True
+    assert risk_rule.category == "1-core"
+    content = risk_rule.content
+    assert "production" in content.lower()
+    assert "16:00" in content and "13:00" in content
+    assert "risk_window.cutoff_hour" in content and "risk_window.friday_cutoff_hour" in content
+    assert "ai-governance config show" in content
+    assert "warning" in content.lower()
 
 
 def test_atlassian_taskflow_and_confidentiality_rule_content_semantics() -> None:
@@ -225,7 +257,11 @@ def test_atlassian_taskflow_and_confidentiality_rule_content_semantics() -> None
     assert conf.user_scope is True
     assert conf.always_on is True
     conf_content = conf.content
-    assert "never mentioned in tickets, PRs, commits, reviews or chat tools" in conf_content
+    assert (
+        "never mentioned in tickets, PRs, commits, reviews, Confluence or chat tools"
+        in conf_content
+    )
+    assert "Quality gate and `QG_SKIP` count as engine tooling" in conf_content
 
 
 def test_every_language_rule_states_how_to_validate_input() -> None:
