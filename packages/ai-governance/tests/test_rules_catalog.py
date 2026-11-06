@@ -6,7 +6,7 @@ from ai_governance.rules.catalog import SCHEMA_VERSION, RuleCatalog
 
 def test_catalog_loads_all_rules_with_metadata() -> None:
     catalog = RuleCatalog()
-    assert len(catalog.rules) == 37
+    assert len(catalog.rules) == 38
     for rule in catalog.rules:
         assert rule.description and rule.globs and rule.sha256
         assert rule.content.startswith("# ")
@@ -153,6 +153,7 @@ def test_user_rules_cover_every_language_and_tool_rules() -> None:
     tool_rules = {
         "circleci",
         "deploy-approvals",
+        "production-risk-window",
         "13-atlassian",
         "14-taskflow",
         "15-tool-confidentiality",
@@ -208,6 +209,21 @@ def test_deploy_approvals_rule_content_semantics() -> None:
     assert "target environment" in content.lower()
     assert "taskflow approve" in content
     assert "production-risk-window" in content
+
+
+def test_production_risk_window_rule_content_semantics() -> None:
+    catalog = RuleCatalog()
+    risk_rule = catalog.get("production-risk-window")
+    assert risk_rule is not None
+    assert risk_rule.user_scope is True
+    assert risk_rule.always_on is True
+    assert risk_rule.category == "1-core"
+    content = risk_rule.content
+    assert "production" in content.lower()
+    assert "16:00" in content and "13:00" in content
+    assert "risk_window.cutoff_hour" in content and "risk_window.friday_cutoff_hour" in content
+    assert "ai-governance config show" in content
+    assert "warning" in content.lower()
 
 
 def test_atlassian_taskflow_and_confidentiality_rule_content_semantics() -> None:

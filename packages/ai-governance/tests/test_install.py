@@ -145,6 +145,7 @@ def test_user_scope_install_renders_general_tool_rules(home: Path) -> None:
     new_rule_ids = [
         "circleci",
         "deploy-approvals",
+        "production-risk-window",
         "13-atlassian",
         "14-taskflow",
         "15-tool-confidentiality",
