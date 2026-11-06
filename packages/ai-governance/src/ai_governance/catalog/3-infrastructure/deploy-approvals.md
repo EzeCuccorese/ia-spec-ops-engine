@@ -1,9 +1,13 @@
 # Deploy Approvals
 
 ## Invariants
-- **Explicit Authorization Only**: Deploy approvals (CircleCI deploy holds, GitHub environments, Argo CD sync/promote) require explicit user authorization; a bare "ok" is never sufficient.
-- **Named Job and Environment**: Prompt and approval must name the exact job/workflow and target environment. Staging approval never covers production; jobs without explicit environment are prohibited.
-- **Point-in-Time Grant**: Authorization is an immediate single-turn grant for that action. Never reuse prior authorizations or infer approval from indirect requests (e.g. "run the pipeline").
-- **Single-Action Scope**: One authorization covers one approval; never extends to another job, environment, or rerun.
+- **Staging and Non-Production Environments**: Contextual authorization is sufficient when scoped to a specific task and set of repositories (e.g. "authorized to approve all deploys required for testing these repos"). It does not require naming every individual job or pipeline, but must remain bounded to that task and repository scope rather than a permanent blank check.
+- **Production Environments (Including Canary)**: The agent never approves or triggers a production deploy. The agent may only provide the target link for the user to review and approve directly.
+- **Configurable Production Policy (`deploy_approvals.production`)**:
+  - `never` (default): The agent never approves or triggers production deploys under any circumstances; it only passes the link to the user.
+  - `explicit`: Production deploys are permitted only with explicit user authorization naming the exact job/workflow and target environment; a bare "ok" is never sufficient.
+  Inspect the active configuration with `ai-governance config show`.
+- **Ambiguity Treated as Production**: When in doubt between staging and production, or if an environment cannot be definitively confirmed as non-production, always treat it as production.
 - **Audit Trail**: Record each approval with `taskflow approve`.
-- **Production Risk Window**: Production approvals must respect `production-risk-window`; outside the safe window, defer execution to the next business day.
+- **Production Risk Window**: Any production deploy actions must respect `production-risk-window`; outside the safe window, defer execution to the next business day.
+- **Deploy Holds and Actions**: Applies to all deployment gates and promotions, including CircleCI deploy holds, GitHub environments, and Argo CD sync/promote actions.
