@@ -2,7 +2,7 @@
 workspace_engine.design.metrics — Per-function complexity metrics via ``lizard``.
 
 One engine (lizard) covers Java, JavaScript/TypeScript/TSX/JSX, Python, Go, Kotlin,
-C#, PHP, Rust, Swift, Scala, Ruby, C/C++ and more. Dart is not supported by lizard.
+C#, PHP, Rust, Swift, Scala, Ruby, C/C++, Dart and more.
 Nesting depth is computed by ``workspace_engine.design.nesting`` instead of lizard's
 own ``max_nested_structures``, which is too noisy to use as a metric.
 
