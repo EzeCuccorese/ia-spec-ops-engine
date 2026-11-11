@@ -29,3 +29,17 @@ def _isolated_git_config(
         config.write_text("[user]\n\tname = Test\n\temail = test@example.com\n")
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+
+@pytest.fixture(autouse=True)
+def _isolated_user_config(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """The developer's own ``~/.config/workspace/config.toml`` (design limits, gate settings)
+    and the quality gate's ``QG_*`` variables (set when the suite runs inside ``git push``)
+    must not change what a test sees. Each test gets an empty config home; a test that needs
+    one sets its own."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("xdg-config")))
+    for name in list(os.environ):
+        if name.startswith("QG_") or name in ("WORKSPACE_CONFIG_DIR", "AI_GOVERNANCE_CONFIG_DIR"):
+            monkeypatch.delenv(name)
