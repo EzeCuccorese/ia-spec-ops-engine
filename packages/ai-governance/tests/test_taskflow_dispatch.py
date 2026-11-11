@@ -18,7 +18,14 @@ from pathlib import Path
 import pytest
 from ai_governance.taskflow import orca
 from ai_governance.taskflow import store as store_module
-from ai_governance.taskflow.collect import RoundRef, abort_round, collect_round
+from ai_governance.taskflow.collect import (
+    Launch,
+    RoundRef,
+    abort_round,
+    collect_round,
+    launch_verified,
+    parse_launch,
+)
 from ai_governance.taskflow.control import DispatchError
 from ai_governance.taskflow.guide import GUIDE
 from ai_governance.taskflow.models import Task
@@ -901,9 +908,16 @@ def test_guide_documents_the_new_verbs() -> None:
 
 
 # -- cross-examination, launch receipt, CHANGE lines and scratch -----------------------------------
-def _launch(world: OrcaWorld, n: int, agent: str, model: str) -> None:
-    receipt = {"ok": True, "result": {"launch": {"effective": {"agent": agent, "model": model}}}}
-    Path(world.dispatch_json(n)["launch"]).write_text(json.dumps(receipt), encoding="utf-8")
+def _receipt(dispatch_id: str, agent: str, model: str) -> dict[str, object]:
+    """The shape of a real ``worker-start --json`` receipt (Orca 1.4.256, captured)."""
+    result = {"dispatchId": dispatch_id, "taskId": "task_1", "runId": "run_1", "state": "ready"}
+    result |= {"agent": agent, "model": model, "effort": "medium", "mode": "terminal"}
+    return {"ok": True, "result": result}
+
+
+def _launch(world: OrcaWorld, n: int, agent: str, model: str, dispatch_id: str = "D1") -> None:
+    receipt = json.dumps(_receipt(dispatch_id, agent, model))
+    Path(world.dispatch_json(n)["launch"]).write_text(receipt, encoding="utf-8")
 
 
 def test_printed_line_saves_the_launch_receipt(world: OrcaWorld) -> None:
@@ -941,16 +955,41 @@ def test_rebut_refuses_unknown_and_invalid_rounds(world: OrcaWorld) -> None:
 
 def test_launch_receipt_with_another_model_refuses_collect(world: OrcaWorld) -> None:
     world.dispatch("planner", "claude", "", "--model", "opus")
-    world.finish(1, "D1")
+    world.finish(1, "D1", agent=None)  # released worker: Orca no longer names the agent
     _launch(world, 1, "claude", "sonnet")
     refused = world.collect(1, "D1")
     assert refused.code == 1 and "on model 'sonnet', not on the dispatched 'opus'" in refused.text
     assert world.task().rounds == []
     _launch(world, 1, "codex", "opus")
     assert "not as the dispatched provider 'claude'" in world.collect(1, "D1").text
+    _launch(world, 1, "claude", "opus", dispatch_id="OTHER")
+    assert "belongs to dispatch OTHER, not D1" in world.collect(1, "D1").text
+    assert world.task().rounds == []
     _launch(world, 1, "claude", "opus")
     assert world.collect(1, "D1").code == 0
     assert world.record(1)["launch_verified"] is True
+
+
+def test_partial_launch_evidence_stays_unverified(world: OrcaWorld) -> None:
+    world.dispatch("planner", "claude", "", "--model", "opus")
+    world.finish(1, "D1")
+    _launch(world, 1, "claude", "")
+    assert world.collect(1, "D1").code == 0
+    assert world.record(1)["launch_verified"] is False
+
+
+def test_launch_receipt_parsing_and_legacy_dispatches(tmp_path: Path) -> None:
+    real = parse_launch(_receipt("D1", "codex", "gpt-6.1-sol"))
+    assert real == Launch("D1", "codex", "gpt-6.1-sol")
+    nested = {"ok": True, "result": {"dispatchId": "D2", "launch": {"effective": {"agent": "a"}}}}
+    assert parse_launch(nested) == Launch("D2", "a", "")
+    assert parse_launch({"ok": False, "result": {"dispatchId": "D1"}}) is None
+    assert parse_launch(["not", "a", "receipt"]) is None
+    legacy = {"n": 1, "provider": "claude", "model": ""}  # dispatched before receipts existed
+    assert launch_verified(legacy, "D1") is False
+    broken = tmp_path / "launch.json"
+    broken.write_text("{not json", encoding="utf-8")
+    assert launch_verified({**legacy, "launch": str(broken)}, "D1") is False
 
 
 def test_no_launch_receipt_is_unverified_not_refused(world: OrcaWorld) -> None:

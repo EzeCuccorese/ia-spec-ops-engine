@@ -153,40 +153,75 @@ def _provider_verified(row: orca.WorkerRow, found: JsonDict) -> bool:
     return True
 
 
-def _effective_launch(data: object) -> JsonDict:
-    """``launch.effective`` of a worker-start receipt (bare or in Orca's ``result`` envelope)."""
-    for holder in (data, data.get("result") if isinstance(data, dict) else None):
-        launch = holder.get("launch") if isinstance(holder, dict) else None
-        effective = launch.get("effective") if isinstance(launch, dict) else None
-        if isinstance(effective, dict):
-            return effective
-    return {}
+@dataclass(frozen=True)
+class Launch:
+    """What Orca's worker-start receipt says it launched."""
+
+    dispatch_id: str
+    agent: str
+    model: str
 
 
-def _launch_verified(found: JsonDict) -> bool:
-    """True when the saved worker-start receipt shows the dispatched agent and model launched.
+def parse_launch(data: object) -> Launch | None:
+    """Orca's ``worker-start --json`` receipt: ``{"ok": true, "result": {"dispatchId", "agent",
+    "model", ...}}`` (Orca 1.4). A nested ``result.launch.effective`` is read instead when
+    present. None when it is not a successful-start envelope."""
+    result = data.get("result") if isinstance(data, dict) else None
+    if not isinstance(data, dict) or data.get("ok") is not True or not isinstance(result, dict):
+        return None
+    launch = result.get("launch")
+    effective = launch.get("effective") if isinstance(launch, dict) else None
+    source = effective if isinstance(effective, dict) else result
+    return Launch(
+        str(result.get("dispatchId") or ""),
+        str(source.get("agent") or ""),
+        str(source.get("model") or ""),
+    )
 
-    No receipt (older dispatch, or the coordinator did not save it) is unverified, not a
-    failure; a receipt that names another provider or model refuses the collect."""
+
+def _read_launch(found: JsonDict) -> Launch | None:
     path = Path(str(found.get("launch", "")))
     if not found.get("launch") or not path.is_file():
-        return False
+        return None
     try:
-        effective = _effective_launch(json.loads(path.read_text(encoding="utf-8")))
+        return parse_launch(json.loads(path.read_text(encoding="utf-8")))
     except (OSError, ValueError):
+        return None
+
+
+def launch_verified(found: JsonDict, dispatch_id: str) -> bool:
+    """True only when the saved receipt is this dispatch's and shows the dispatched provider
+    and (when one was requested) the dispatched model.
+
+    No receipt, a receipt that is not a successful start, or one without a dispatch id is
+    unverified, not a failure (older dispatches have none). A receipt of another dispatch,
+    or one naming another provider or model, refuses the collect."""
+    launch = _read_launch(found)
+    if launch is None or not launch.dispatch_id:
         return False
-    agent, model = str(effective.get("agent", "")), str(effective.get("model", ""))
-    if agent and provider(agent) != found["provider"]:
+    _refuse_mismatch(launch, found, dispatch_id)
+    wanted = str(found.get("model", ""))
+    return bool(launch.agent) and (not wanted or launch.model == wanted)
+
+
+def _refuse_mismatch(launch: Launch, found: JsonDict, dispatch_id: str) -> None:
+    """A receipt of another dispatch, provider or model is evidence against the round."""
+    number, wanted = found["n"], str(found.get("model", ""))
+    if launch.dispatch_id != dispatch_id:
         raise DispatchError(
-            f"Orca launched round {found['n']} as '{agent}', not as the dispatched provider "
+            f"the launch receipt of round {number} belongs to dispatch {launch.dispatch_id}, "
+            f"not {dispatch_id}"
+        )
+    if launch.agent and provider(launch.agent) != found["provider"]:
+        raise DispatchError(
+            f"Orca launched round {number} as '{launch.agent}', not as the dispatched provider "
             f"'{found['provider']}': abort it and dispatch again"
         )
-    if found.get("model") and model and model != found["model"]:
+    if wanted and launch.model and launch.model != wanted:
         raise DispatchError(
-            f"Orca launched round {found['n']} on model '{model}', not on the dispatched "
-            f"'{found['model']}' (it fell back?): abort it and dispatch again"
+            f"Orca launched round {number} on model '{launch.model}', not on the dispatched "
+            f"'{wanted}' (it fell back?): abort it and dispatch again"
         )
-    return bool(agent or model)
 
 
 def _used_scratch(found: JsonDict) -> bool:
@@ -309,7 +344,7 @@ def collect_round(
             "taskflow control files changed since dispatch (" + ", ".join(changed[:6]) + "): "
             "the round was not settled; inspect the store before going on"
         )
-    launched = _launch_verified(found)
+    launched = launch_verified(found, dispatch_id)
     state, verdict, reason = _outcome(found, row, answer)
     reviews = found["role"] in ("validator", "judge")
     record = {
