@@ -10,11 +10,14 @@ An accepted collect needs all of: the sealed dispatch record and spec unchanged,
 the worker wrote (round token plus its Orca dispatch id) equal to the id the coordinator
 passes, a worker that is not running and whose agent, when Orca still reports it, has the
 dispatched provider, a non-blank answer written after dispatch, the taskflow control files
-unchanged (see ``control``), and the repositories unchanged since dispatch.
+unchanged (see ``control``), and the repositories unchanged since dispatch. When the
+coordinator saved Orca's ``worker-start --json`` receipt to ``runs/N/launch.json``, the agent
+and model Orca really launched must also be the dispatched ones.
 """
 
 from __future__ import annotations
 
+import json
 import shlex
 from dataclasses import dataclass
 from datetime import datetime
@@ -25,7 +28,7 @@ from .agents import provider
 from .control import DispatchError, drift
 from .dispatch import read_dispatch, verify_dispatch
 from .models import JsonDict, Task, now_iso
-from .prompts import parse_verdict
+from .prompts import parse_changes, parse_verdict
 from .repos import guard
 from .stamp import changed_paths, head_sha, tree_fingerprint
 from .store import TaskStore, atomic_write_text
@@ -150,6 +153,47 @@ def _provider_verified(row: orca.WorkerRow, found: JsonDict) -> bool:
     return True
 
 
+def _effective_launch(data: object) -> JsonDict:
+    """``launch.effective`` of a worker-start receipt (bare or in Orca's ``result`` envelope)."""
+    for holder in (data, data.get("result") if isinstance(data, dict) else None):
+        launch = holder.get("launch") if isinstance(holder, dict) else None
+        effective = launch.get("effective") if isinstance(launch, dict) else None
+        if isinstance(effective, dict):
+            return effective
+    return {}
+
+
+def _launch_verified(found: JsonDict) -> bool:
+    """True when the saved worker-start receipt shows the dispatched agent and model launched.
+
+    No receipt (older dispatch, or the coordinator did not save it) is unverified, not a
+    failure; a receipt that names another provider or model refuses the collect."""
+    path = Path(str(found.get("launch", "")))
+    if not found.get("launch") or not path.is_file():
+        return False
+    try:
+        effective = _effective_launch(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return False
+    agent, model = str(effective.get("agent", "")), str(effective.get("model", ""))
+    if agent and provider(agent) != found["provider"]:
+        raise DispatchError(
+            f"Orca launched round {found['n']} as '{agent}', not as the dispatched provider "
+            f"'{found['provider']}': abort it and dispatch again"
+        )
+    if found.get("model") and model and model != found["model"]:
+        raise DispatchError(
+            f"Orca launched round {found['n']} on model '{model}', not on the dispatched "
+            f"'{found['model']}' (it fell back?): abort it and dispatch again"
+        )
+    return bool(agent or model)
+
+
+def _used_scratch(found: JsonDict) -> bool:
+    path = Path(str(found.get("scratch", "")))
+    return bool(found.get("scratch")) and path.is_dir() and any(path.iterdir())
+
+
 def _read_answer(found: JsonDict, answer_file: Path | None) -> tuple[str, str]:
     path = answer_file or Path(found["answer"])
     try:
@@ -197,14 +241,24 @@ def _render(record: JsonDict, found: JsonDict, answer: str) -> str:
     focus = f" · {record['focus']}" if record.get("focus") else ""
     spec = Path(found["spec"]).read_text(encoding="utf-8")
     check = "provider verified" if record.get("provider_verified") else "provider not verified"
+    launch = "launch verified" if record.get("launch_verified") else "launch not verified"
     reason = f": {record['reason']}" if record.get("reason") else ""
+    extra = ""
+    if record.get("rebuts"):
+        extra += (
+            "- Cross-examines rounds: " + ", ".join(f"{n:03d}" for n in record["rebuts"]) + "\n"
+        )
+    if record.get("scratch_used"):
+        extra += f"- Scratch evidence: {found['scratch']}\n"
+    if record.get("changes"):
+        extra += "- Required changes:\n" + "".join(f"  - {c}\n" for c in record["changes"])
     return (
         f"# Round {record['n']:03d} · {record['phase']} · {record['role']}{focus} · "
         f"{record['agent']} {record['model']}\n\n"
         f"- Date: {record['at']}\n- Code stamp: {record['stamp']}\n"
         f"- Command: `{shlex.join(found['command'])}`\n"
-        f"- Dispatch: {record['session']} ({check})\n"
-        f"- Verdict: {record['verdict']} ({record['state']}{reason})\n\n"
+        f"- Dispatch: {record['session']} ({check}, {launch})\n"
+        f"- Verdict: {record['verdict']} ({record['state']}{reason})\n{extra}\n"
         f"## Request\n\n{spec}\n\n## Answer\n\n{answer}\n"
     )
 
@@ -255,11 +309,16 @@ def collect_round(
             "taskflow control files changed since dispatch (" + ", ".join(changed[:6]) + "): "
             "the round was not settled; inspect the store before going on"
         )
+    launched = _launch_verified(found)
     state, verdict, reason = _outcome(found, row, answer)
+    reviews = found["role"] in ("validator", "judge")
     record = {
         **_base_record(found),
         **{"verdict": verdict, "state": state, "reason": reason, "session": dispatch_id},
         **{"provider_verified": verified, "answer_transport": transport},
+        **{"launch_verified": launched, "rebuts": list(found.get("rebuts", []))},
+        **{"changes": parse_changes(answer) if reviews else []},
+        **{"scratch_used": _used_scratch(found)},
     }
     try:
         _write_settled(store, task_id, _Settlement(record, _render(record, found, answer)))

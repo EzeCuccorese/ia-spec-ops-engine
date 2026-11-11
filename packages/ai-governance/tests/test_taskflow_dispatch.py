@@ -898,3 +898,85 @@ def test_guide_documents_the_new_verbs() -> None:
         "--never-started",
     ):
         assert verb in GUIDE
+
+
+# -- cross-examination, launch receipt, CHANGE lines and scratch -----------------------------------
+def _launch(world: OrcaWorld, n: int, agent: str, model: str) -> None:
+    receipt = {"ok": True, "result": {"launch": {"effective": {"agent": agent, "model": model}}}}
+    Path(world.dispatch_json(n)["launch"]).write_text(json.dumps(receipt), encoding="utf-8")
+
+
+def test_printed_line_saves_the_launch_receipt(world: OrcaWorld) -> None:
+    made = world.dispatch("planner", "claude")
+    assert "--json" in made.argv
+    launch = str(world.run_dir(1) / "launch.json")
+    assert made.argv[-2:] == [">", launch]
+    assert world.dispatch_json(1)["launch"] == launch
+
+
+def test_rebuttal_round_cross_examines_settled_rounds(world: OrcaWorld) -> None:
+    assert world.cycle("planner", "claude").code == 0
+    first = str(world.record(1)["file"])
+    made = world.dispatch("planner", "claude", "cross", "--rebut", "1")
+    spec = (world.run_dir(made.n) / "spec.md").read_text(encoding="utf-8")
+    assert "Cross-examination" in spec and f"round 001 (claude): {first}" in spec
+    assert world.dispatch_json(made.n)["rebuts"] == [1]
+    world.finish(made.n, f"D{made.n}")
+    assert world.collect(made.n, f"D{made.n}").code == 0
+    record = world.record(made.n)
+    assert record["rebuts"] == [1]
+    assert "Cross-examines rounds: 001" in Path(str(record["file"])).read_text(encoding="utf-8")
+
+
+def test_rebut_refuses_unknown_and_invalid_rounds(world: OrcaWorld) -> None:
+    unknown = world.run(*PLANNER, "--rebut", "7")
+    assert unknown.code == 1 and "round 007 is not settled" in unknown.text
+    assert not (world.store.task_dir(TASK) / "runs").exists()
+    world.dispatch("validator", "codex")
+    world.finish(1, "D1", state="failed", agent="codex")
+    assert world.collect(1, "D1").code == 1
+    invalid = world.run(*PLANNER, "--rebut", "1")
+    assert invalid.code == 1 and "is invalid and cannot be cross-examined" in invalid.text
+
+
+def test_launch_receipt_with_another_model_refuses_collect(world: OrcaWorld) -> None:
+    world.dispatch("planner", "claude", "", "--model", "opus")
+    world.finish(1, "D1")
+    _launch(world, 1, "claude", "sonnet")
+    refused = world.collect(1, "D1")
+    assert refused.code == 1 and "on model 'sonnet', not on the dispatched 'opus'" in refused.text
+    assert world.task().rounds == []
+    _launch(world, 1, "codex", "opus")
+    assert "not as the dispatched provider 'claude'" in world.collect(1, "D1").text
+    _launch(world, 1, "claude", "opus")
+    assert world.collect(1, "D1").code == 0
+    assert world.record(1)["launch_verified"] is True
+
+
+def test_no_launch_receipt_is_unverified_not_refused(world: OrcaWorld) -> None:
+    assert world.cycle("planner", "claude").code == 0
+    record = world.record(1)
+    assert record["launch_verified"] is False and record["state"] == "valid"
+    assert "launch not verified" in Path(str(record["file"])).read_text(encoding="utf-8")
+
+
+def test_change_lines_and_scratch_are_recorded(world: OrcaWorld) -> None:
+    world.dispatch("validator", "codex")
+    scratch = Path(world.dispatch_json(1)["scratch"])
+    scratch.mkdir(parents=True)
+    (scratch / "probe.py").write_text("print(1)\n", encoding="utf-8")
+    answer = "CHANGE: src/a.py:10 - guard None\n- CHANGE: src/b.py:3 - rename\nVERDICT: block\n"
+    world.finish(1, "D1", answer=answer, agent="codex")
+    assert world.collect(1, "D1").code == 0
+    record = world.record(1)
+    assert record["changes"] == ["src/a.py:10 - guard None", "src/b.py:3 - rename"]
+    assert record["scratch_used"] is True and record["verdict"] == "block"
+    text = Path(str(record["file"])).read_text(encoding="utf-8")
+    assert "Required changes:" in text and f"Scratch evidence: {scratch}" in text
+
+
+def test_spec_offers_the_scratch_folder_and_change_format(world: OrcaWorld) -> None:
+    world.dispatch("validator", "codex")
+    spec = (world.run_dir(1) / "spec.md").read_text(encoding="utf-8")
+    assert str(world.run_dir(1) / "scratch") in spec
+    assert "CHANGE: <path>:<line> - <what to change>" in spec

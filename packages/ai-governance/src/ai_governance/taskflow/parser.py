@@ -211,6 +211,14 @@ def _dispatch_commands(actions: Subparsers) -> None:
     dispatch.add_argument("--role", required=True, choices=ROLES)
     _round_agent_args(dispatch)
     dispatch.add_argument("--focus", default="")
+    dispatch.add_argument(
+        "--rebut",
+        type=int,
+        action="append",
+        default=[],
+        metavar="N",
+        help="Cross-examine settled round N (repeatable): the worker reads and refutes it",
+    )
     dispatch.add_argument("--json", action="store_true", help="Print the command as a JSON array")
     collect = actions.add_parser("collect", help="Settle a dispatched round from its worker")
     collect.add_argument("--round", type=int, required=True)

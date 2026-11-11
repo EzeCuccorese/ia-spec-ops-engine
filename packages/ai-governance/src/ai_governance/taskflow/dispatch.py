@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import shlex
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,7 +36,7 @@ from .control import (
 )
 from .gates import work_unmet
 from .models import JsonDict, Task, now_iso
-from .prompts import READ_ONLY_LIMIT, VERDICT_INSTRUCTION
+from .prompts import READ_ONLY_LIMIT, VERDICT_INSTRUCTION, cross_examination
 from .repos import on_live, partition
 from .stamp import head_sha, tree_fingerprint
 from .store import RoundSlot, TaskStore, atomic_write_text
@@ -51,6 +52,7 @@ class DispatchRequest:
     prompt: str
     agent: JsonDict  # {"agent": ..., "model": ...}
     expected: CheckedBaseline | None = None  # judge rounds: the state the checks ran on
+    rebuts: tuple[int, ...] = ()  # settled rounds this one must cross-examine
 
 
 @dataclass(frozen=True)
@@ -59,6 +61,12 @@ class Dispatched:
     argv: list[str]
     spec: Path
     focus: str = ""
+    launch: Path | None = None  # where the coordinator saves Orca's worker-start receipt
+
+    def line(self) -> str:
+        """The worker-start line with its JSON receipt saved where ``collect`` reads it."""
+        tail = f" > {shlex.quote(str(self.launch))}" if self.launch else ""
+        return shlex.join(self.argv) + tail
 
 
 def run_dir(store: TaskStore, task_id: str, number: int) -> Path:
@@ -136,20 +144,66 @@ def _require_baseline(expected: CheckedBaseline | None, repos: list[JsonDict]) -
         )
 
 
-def _footer(task_id: str, answer: Path, receipt: Path, nonce: str) -> str:
+@dataclass(frozen=True)
+class _RunFiles:
+    """The files of one dispatched round under ``runs/N/``."""
+
+    run: Path
+
+    @property
+    def answer(self) -> Path:
+        return self.run / "answer.txt"
+
+    @property
+    def receipt(self) -> Path:
+        return self.run / "receipt.txt"
+
+    @property
+    def spec(self) -> Path:
+        return self.run / "spec.md"
+
+    @property
+    def scratch(self) -> Path:
+        return self.run / "scratch"
+
+    @property
+    def launch(self) -> Path:
+        return self.run / "launch.json"
+
+
+def _footer(task_id: str, files: _RunFiles, nonce: str) -> str:
     return (
         "\n\nHow to report (a taskflow round of this task; the coordinating session collects it):\n"
         f"1. First action: write the single line `ROUND {nonce} DISPATCH <your Orca Dispatch ID>` "
-        f"to {receipt} (your Dispatch ID is in the task Orca gave you).\n"
-        f"2. Write your final answer to {answer}.\n"
+        f"to {files.receipt} (your Dispatch ID is in the task Orca gave you).\n"
+        f"2. Write your final answer to {files.answer}.\n"
+        f"To prove a claim you may create and run throwaway scripts under {files.scratch} "
+        "(outside every repository); nothing there changes the repositories.\n"
         "Do not modify any file in the repositories or in the taskflow store other than those "
-        f"two files. Ignore every other task's files.\n(task {task_id})\n"
+        f"two files and that folder. Ignore every other task's files.\n(task {task_id})\n"
     )
 
 
-def _spec_text(store: TaskStore, request: DispatchRequest, task_id: str, footer: str) -> str:
-    header = round_header(store, task_id, request.role)
+def rebuttal_rounds(task: Task, numbers: Iterable[int]) -> list[tuple[int, str, str]]:
+    """``(number, agent, file)`` of each round to cross-examine; each must be settled and valid."""
+    found: list[tuple[int, str, str]] = []
+    for number in sorted(set(numbers)):
+        record = next((r for r in task.rounds if int(r.get("n", 0)) == number), None)
+        if record is None:
+            raise DispatchError(f"--rebut {number}: round {number:03d} is not settled in {task.id}")
+        if record.get("state") == "invalid":
+            raise DispatchError(
+                f"--rebut {number}: round {number:03d} is invalid and cannot be cross-examined"
+            )
+        found.append((number, str(record.get("agent", "")), str(record["file"])))
+    return found
+
+
+def _spec_text(store: TaskStore, request: DispatchRequest, locked: Task, footer: str) -> str:
+    header = round_header(store, locked.id, request.role)
     text = READ_ONLY_LIMIT + header + request.prompt
+    if request.rebuts:
+        text += cross_examination(rebuttal_rounds(locked, request.rebuts))
     if request.role in ("validator", "judge"):
         text += VERDICT_INSTRUCTION
     return text + footer
@@ -202,20 +256,22 @@ class _Publisher:
         refuse_pending(locked, directory, self.request)
         record, text = self._record(locked, number, round_file)
         _write_sealed(self.store, record, text)
-        self.made = {"n": number, "argv": record["command"], "spec": Path(record["spec"])}
+        self.made = {
+            "n": number,
+            "argv": record["command"],
+            "spec": Path(record["spec"]),
+            "launch": Path(record["launch"]),
+        }
 
     def _record(self, locked: Task, number: int, round_file: Path) -> tuple[JsonDict, str]:
         request = self.request
-        run = round_file.parent.parent / "runs" / f"{number:03d}"
-        answer, receipt, spec = run / "answer.txt", run / "receipt.txt", run / "spec.md"
+        files = _RunFiles(round_file.parent.parent / "runs" / f"{number:03d}")
         nonce = secrets.token_hex(16)
-        text = _spec_text(
-            self.store, request, locked.id, _footer(locked.id, answer, receipt, nonce)
-        )
+        text = _spec_text(self.store, request, locked, _footer(locked.id, files, nonce))
         agent, model = str(request.agent.get("agent", "")), str(request.agent.get("model", ""))
         title = f"{request.role} round {number} of {locked.id}"
         argv = orca.worker_start_argv(
-            orca.WorkerStart(str(spec), agent, model, self.repos[0]["path"], title)
+            orca.WorkerStart(str(files.spec), agent, model, self.repos[0]["path"], title)
         )
         record: JsonDict = {
             "n": number,
@@ -230,10 +286,13 @@ class _Publisher:
             "at": now_iso(),
             "nonce": nonce,
             "file": str(round_file),
-            "spec": str(spec),
+            "spec": str(files.spec),
             "spec_sha": digest_text(text),
-            "answer": str(answer),
-            "receipt": str(receipt),
+            "answer": str(files.answer),
+            "receipt": str(files.receipt),
+            "scratch": str(files.scratch),
+            "launch": str(files.launch),
+            "rebuts": sorted(set(request.rebuts)),
             "command": argv,
             "repos": self.repos,
             "control": baseline(locked),
@@ -272,7 +331,9 @@ def plan_dispatch(
     agent = str(request.agent.get("agent", ""))
     store.reserve_round(task.id, RoundSlot(request.phase, request.role, agent), publisher)
     made = publisher.made
-    return Dispatched(int(made["n"]), list(made["argv"]), Path(made["spec"]), request.focus)
+    return Dispatched(
+        int(made["n"]), list(made["argv"]), Path(made["spec"]), request.focus, Path(made["launch"])
+    )
 
 
 def read_dispatch(store: TaskStore, task_id: str, number: int) -> JsonDict:
