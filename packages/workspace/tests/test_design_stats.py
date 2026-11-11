@@ -186,4 +186,3 @@ def test_stats_edge_cases(tmp_path: Path) -> None:
     config = DesignConfig()
     stats = compute_stats(tmp_path, [unreadable, empty_file, unsupported_file], config)
     assert stats.by_language == {}
-

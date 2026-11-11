@@ -100,9 +100,7 @@ def _collect_file_functions(
     return lang, split, fms
 
 
-def _group_functions(
-    root: Path, files: list[Path]
-) -> dict[str, dict[str, list[FunctionMetrics]]]:
+def _group_functions(root: Path, files: list[Path]) -> dict[str, dict[str, list[FunctionMetrics]]]:
     grouped: dict[str, dict[str, list[FunctionMetrics]]] = {}
     for path in files:
         result = _collect_file_functions(root, path)
@@ -226,7 +224,7 @@ def format_stats_table(stats: DesignStats) -> str:
 
     lines: list[str] = [
         f"{'Language':<12} {'Split':<6} {'Metric':<12} {'Count':>6} {'p50':>6} {'p90':>6} {'p99':>6} {'Max':>6} {'Exceeded':>9}",
-        f"{'-'*12} {'-'*6} {'-'*12} {'-'*6} {'-'*6} {'-'*6} {'-'*6} {'-'*6} {'-'*9}",
+        f"{'-' * 12} {'-' * 6} {'-' * 12} {'-' * 6} {'-' * 6} {'-' * 6} {'-' * 6} {'-' * 6} {'-' * 9}",
     ]
 
     for lang, splits in stats.by_language.items():
