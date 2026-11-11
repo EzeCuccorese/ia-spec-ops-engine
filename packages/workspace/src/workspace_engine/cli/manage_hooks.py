@@ -129,6 +129,39 @@ def _skip_command(target: Path, action: str, stages: str | None) -> int:
     return _skip_set(target, stages)
 
 
+def _plan_monorepo_tests_action(target: Path, files_file: str | None) -> int:
+    import json
+
+    from workspace_engine.services.monorepo import plan_monorepo_test_runs
+
+    changed_paths: list[str] = []
+    if files_file and Path(files_file).is_file():
+        changed_paths = [
+            line.strip()
+            for line in Path(files_file).read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+    plan = plan_monorepo_test_runs(target.resolve(), changed_paths)
+    payload = {
+        "is_monorepo": plan.is_monorepo,
+        "runs": [
+            {
+                "package": r.package,
+                "package_dir": r.package_dir,
+                "runner": r.runner,
+                "command": r.command,
+                "files": r.files,
+            }
+            for r in plan.runs
+        ],
+        "unresolved_files": plan.unresolved_files,
+        "unknown_runner_packages": plan.unknown_runner_packages,
+        "skipped_outside_package": plan.skipped_outside_package,
+    }
+    print(json.dumps(payload))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
@@ -216,6 +249,11 @@ def main(argv: list[str] | None = None) -> int:
     p_test = sub.add_parser("test", help="Test Quality Gate execution in current repository")
     p_test.add_argument("--dir", "-d", help="Repository root directory")
 
+    # plan-monorepo-tests
+    p_mono = sub.add_parser("plan-monorepo-tests", help="Plan scoped test commands for JS monorepo")
+    p_mono.add_argument("--dir", "-d", help="Repository root directory")
+    p_mono.add_argument("--files-from", help="File listing changed files")
+
     args = parser.parse_args(argv)
 
     if not args.action or args.action == "status":
@@ -264,6 +302,9 @@ def main(argv: list[str] | None = None) -> int:
             scope="all",
             timeout=120,
         )
+
+    elif args.action == "plan-monorepo-tests":
+        return _plan_monorepo_tests_action(target, getattr(args, "files_from", None))
 
     return 0
 
