@@ -94,7 +94,7 @@ packages/workspace/
 | `ws hooks [install\|status\|uninstall\|run\|test]` | Git hooks and quality gate manager |
 | `ws check` | Run the quality gate with condensed output (`--changed`, `--cache`, `--json`, `--skip`, `--budget`, `--dir`) |
 | `ws changed [--json] [--dir DIR]` | Files changed vs. the base branch plus the working tree |
-| `ws design` | Per-function design metrics and checks (`--changed`, `--files-from`, `--focus`, `--json`, `--verbose`, `--dir`) |
+| `ws design` | Per-function design metrics and checks (`--changed`, `--files-from`, `--focus`, `--stats`, `--suggest`, `--json`, `--verbose`, `--dir`) |
 | `ws run` / `ws log` / `ws condense` | Condensed command output and saved full logs |
 | `ws detect [--json] [--dir DIR]` | Detect repository technology stacks |
 | `ws hook claude-worktree-create` | Run a coding-agent integration hook |
@@ -281,6 +281,9 @@ ws design                   # whole repo (git ls-files, or a walk without git)
 ws design --changed         # only files changed vs. the base branch
 ws design src/ pkg/foo.go   # specific files or directories
 ws design --files-from list.txt  # newline-separated paths, relative to --dir (default: the current directory)
+ws design --stats            # metric distribution (p50/p90/p99/max) per language and prod vs test
+ws design --suggest          # propose [design] limits from prod p99, ready to paste (implies --stats)
+ws design --stats --json     # structured stats object; adds "suggested" block with --suggest
 ws design --json            # versioned contract: {schema_version, status, violations, files}
 ws design --changed --verbose  # also list every untouched pre-existing violation
 ```

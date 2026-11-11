@@ -22,6 +22,12 @@ from workspace_engine.design.metrics import (
     violations_for,
 )
 from workspace_engine.design.report import format_focus, format_text, to_dict
+from workspace_engine.design.stats import (
+    compute_stats,
+    format_stats_json,
+    format_stats_table,
+    format_suggest_toml,
+)
 from workspace_engine.design.testquality import junk_test_violations
 from workspace_engine.services.changes import base_ref, changed_files
 
@@ -53,7 +59,15 @@ def _walk(root: Path, base: Path, exclude: tuple[str, ...]) -> list[Path]:
 def _repo_files(root: Path, exclude: tuple[str, ...]) -> list[Path]:
     code, out, _ = run_command_safe(["git", "ls-files"], cwd=root, isolated_git=True)
     if code == 0 and out.strip():
-        return [root / line for line in out.splitlines() if line]
+        candidates = [root / line for line in out.splitlines() if line]
+        return [
+            c
+            for c in candidates
+            if not any(
+                fnmatch.fnmatch(f"/{c.relative_to(root).as_posix()}", pattern)
+                for pattern in exclude
+            )
+        ]
     return _walk(root, root, exclude)
 
 
@@ -120,7 +134,20 @@ def _run_checks(
     return violations, len(files)
 
 
-def design(argv: list[str]) -> int:
+def _run_stats(root: Path, args: argparse.Namespace, config: DesignConfig) -> int:
+    files = _repo_files(root, config.exclude)
+    stats = compute_stats(root, files, config)
+    if args.json:
+        print(json.dumps(format_stats_json(stats, suggest=args.suggest), ensure_ascii=False))
+        return 0
+    if args.suggest:
+        print(format_suggest_toml(stats.suggested_limits))
+    else:
+        print(format_stats_table(stats))
+    return 0
+
+
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ws design", description="Deterministic design metrics")
     parser.add_argument("--dir", "-d", default=".", help="Repository root")
     parser.add_argument("--changed", action="store_true", help="Measure only changed files")
@@ -133,24 +160,44 @@ def design(argv: list[str]) -> int:
     parser.add_argument(
         "--verbose", action="store_true", help="List every pre-existing violation individually"
     )
-    args = parser.parse_args(argv)
+    parser.add_argument(
+        "--stats", action="store_true", help="Report metric distribution across all tracked files"
+    )
+    parser.add_argument(
+        "--suggest",
+        action="store_true",
+        help="Propose limits from prod p99 as a ready-to-paste [design] TOML block (implies --stats)",
+    )
+    return parser
+
+
+def _render_report(
+    violations: list[Violation], config: DesignConfig, file_count: int, args: argparse.Namespace
+) -> None:
+    if args.json:
+        print(json.dumps(to_dict(violations, config, file_count), ensure_ascii=False))
+    else:
+        scoped = bool(args.changed or args.files_from)
+        print(format_text(violations, config, file_count, verbose=args.verbose or not scoped))
+
+
+def design(argv: list[str]) -> int:
+    args = _build_parser().parse_args(argv)
     root = Path(args.dir).resolve()
     config = DesignConfig.load(root)
 
     if args.focus:
         return _focus(root, args.focus, config)
 
+    if args.stats or args.suggest:
+        return _run_stats(root, args, config)
+
     if config.mode == "off":
         print("design: off")
         return 0
 
     violations, file_count = _run_checks(root, args, config)
-
-    if args.json:
-        print(json.dumps(to_dict(violations, config, file_count), ensure_ascii=False))
-    else:
-        scoped = bool(args.changed or args.files_from)
-        print(format_text(violations, config, file_count, verbose=args.verbose or not scoped))
+    _render_report(violations, config, file_count, args)
 
     if config.mode == "block" and any(v.blocking for v in violations):
         return 1
