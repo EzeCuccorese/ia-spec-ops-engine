@@ -983,6 +983,9 @@ def test_launch_receipt_parsing_and_legacy_dispatches(tmp_path: Path) -> None:
     assert real == Launch("D1", "codex", "gpt-6.1-sol")
     nested = {"ok": True, "result": {"dispatchId": "D2", "launch": {"effective": {"agent": "a"}}}}
     assert parse_launch(nested) == Launch("D2", "a", "")
+    partial = _receipt("D3", "codex", "gpt-6.1-sol")
+    partial["result"]["launch"] = {"effective": {"model": "gpt-6.1-mini"}}  # type: ignore[index]
+    assert parse_launch(partial) == Launch("D3", "codex", "gpt-6.1-mini")
     assert parse_launch({"ok": False, "result": {"dispatchId": "D1"}}) is None
     assert parse_launch(["not", "a", "receipt"]) is None
     legacy = {"n": 1, "provider": "claude", "model": ""}  # dispatched before receipts existed

@@ -195,6 +195,8 @@ def rebuttal_rounds(task: Task, numbers: Iterable[int]) -> list[tuple[int, str, 
             raise DispatchError(
                 f"--rebut {number}: round {number:03d} is invalid and cannot be cross-examined"
             )
+        if not record.get("file"):
+            raise DispatchError(f"--rebut {number}: round {number:03d} has no recorded round file")
         found.append((number, str(record.get("agent", "")), str(record["file"])))
     return found
 

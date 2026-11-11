@@ -171,12 +171,17 @@ def parse_launch(data: object) -> Launch | None:
         return None
     launch = result.get("launch")
     effective = launch.get("effective") if isinstance(launch, dict) else None
-    source = effective if isinstance(effective, dict) else result
+    override = effective if isinstance(effective, dict) else {}
     return Launch(
         str(result.get("dispatchId") or ""),
-        str(source.get("agent") or ""),
-        str(source.get("model") or ""),
+        _launched(override, result, "agent"),
+        _launched(override, result, "model"),
     )
+
+
+def _launched(override: JsonDict, result: JsonDict, key: str) -> str:
+    """A field of ``launch.effective``; a partial override keeps the receipt's own value."""
+    return str(override.get(key) or result.get(key) or "")
 
 
 def _read_launch(found: JsonDict) -> Launch | None:
@@ -225,8 +230,13 @@ def _refuse_mismatch(launch: Launch, found: JsonDict, dispatch_id: str) -> None:
 
 
 def _used_scratch(found: JsonDict) -> bool:
-    path = Path(str(found.get("scratch", "")))
-    return bool(found.get("scratch")) and path.is_dir() and any(path.iterdir())
+    if not found.get("scratch"):
+        return False
+    path = Path(str(found["scratch"]))
+    try:
+        return path.is_dir() and any(path.iterdir())
+    except OSError:  # unreadable scratch is not evidence; it must not break the settle
+        return False
 
 
 def _read_answer(found: JsonDict, answer_file: Path | None) -> tuple[str, str]:
