@@ -131,6 +131,7 @@ def _extract_php_param_list(text: str) -> str:
 
 
 def _count_top_level_commas(text: str) -> int:
+    text = text.rstrip().rstrip(",").strip()
     if not text:
         return 0
     depths = {"(": 0, "[": 0, "{": 0}

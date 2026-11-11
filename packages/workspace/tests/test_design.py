@@ -286,6 +286,7 @@ int calculateTotal(int a, int b) {
         ("<?php function f() {}\n", 0),
         ("<?php function f($a) {}\n", 1),
         ("<?php function f($a, $b, $c, $d, $e) {}\n", 5),
+        ("<?php function f($a, $b,) {}\n", 2),
         ("<?php function f(int $a, ?string $b, array &$c, $d = [1, 2], ...$rest) {}\n", 5),
         ("<?php function f($a = 'hello, world', $b = ['x,y', 1]) {}\n", 2),
         (
