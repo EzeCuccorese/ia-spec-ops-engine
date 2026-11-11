@@ -17,7 +17,7 @@ from workspace_engine.design.hygiene import (
     todo_ticket_violations,
 )
 from workspace_engine.design.layers import extract_imports, go_module_name, layer_violations
-from workspace_engine.design.metrics import Violation, measure, supported
+from workspace_engine.design.metrics import Violation, analyze_source, measure, supported
 from workspace_engine.design.report import format_text, to_dict
 
 # --- fixtures: violating + clean function per priority language -----------------
@@ -262,6 +262,52 @@ def test_smoke_other_languages(tmp_path: Path, filename: str, source: str) -> No
     assert violations == []
 
 
+def test_dart_complexity_violation(tmp_path: Path) -> None:
+    source = """
+int calculateTotal(int a, int b) {
+  if (a > 0) {
+    if (b > 0) {
+      if (a > b) {
+        return a + b;
+      }
+    }
+  }
+  return b;
+}
+"""
+    config = DesignConfig(max_complexity=2)
+    violations = _measure_one(tmp_path, "total.dart", source, config)
+    assert any(v.metric == "complexity" and v.value == 4 for v in violations)
+
+
+@pytest.mark.parametrize(
+    "source,expected_args",
+    [
+        ("<?php function f() {}\n", 0),
+        ("<?php function f($a) {}\n", 1),
+        ("<?php function f($a, $b, $c, $d, $e) {}\n", 5),
+        ("<?php function f(int $a, ?string $b, array &$c, $d = [1, 2], ...$rest) {}\n", 5),
+        ("<?php function f($a = 'hello, world', $b = ['x,y', 1]) {}\n", 2),
+        (
+            "<?php class Foo { public function __construct(public int $x, private string $y = 'a,b') {} }\n",
+            2,
+        ),
+        ("<?php $c = function($a, $b) {};\n", 2),
+    ],
+)
+def test_php_args_measurement(tmp_path: Path, source: str, expected_args: int) -> None:
+    functions = analyze_source("test.php", "php", source)
+    assert len(functions) == 1
+    assert functions[0].args == expected_args
+
+
+def test_php_args_violation(tmp_path: Path) -> None:
+    source = "<?php function f($a, $b, $c, $d, $e) { return 1; }\n"
+    config = DesignConfig(max_args=4)
+    violations = _measure_one(tmp_path, "f.php", source, config)
+    assert any(v.metric == "args" and v.value == 5 for v in violations)
+
+
 # --- exclude / missing / unsupported -----------------------------------------
 
 
@@ -278,7 +324,7 @@ def test_missing_file_skipped(tmp_path: Path) -> None:
 
 
 def test_unsupported_file_skipped(tmp_path: Path) -> None:
-    path = tmp_path / "readme.dart"
+    path = tmp_path / "readme.unknown"
     path.write_text("void main() {}\n")
     assert measure(tmp_path, [path], DesignConfig()) == []
 

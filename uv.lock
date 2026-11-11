@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -773,7 +773,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "lizard", specifier = ">=1.17" },
+    { name = "lizard", specifier = ">=1.25.0" },
     { name = "psutil", specifier = ">=5.9" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'" },
