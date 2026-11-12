@@ -2,4 +2,4 @@
 workspace_engine — Deterministic manager for workspaces, Git repositories, local environments and builds.
 """
 
-__version__ = "1.9.1"
+__version__ = "1.9.2"

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "workspace"
-version = "1.9.1"
+version = "1.9.2"
 description = "Deterministic quality gates, design limits, stack detection, and command condensation for coding agents."
 license = "MIT"
 license-files = ["LICENSE"]

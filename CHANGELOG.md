@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.9.2 - 2026-11-12
+
+### Fixes
+- Remove interactive TUIs and legacy packages, fix gate and hygiene bugs.
+- Address PR review feedback on check cache, git -z paths, and todo hygiene.
+- Tokenize comments with lizard and harden check cache.
+
 ## 1.9.1 - 2026-11-12
 
 ### Features
