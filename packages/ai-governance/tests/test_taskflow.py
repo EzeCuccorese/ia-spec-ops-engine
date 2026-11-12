@@ -831,7 +831,8 @@ def _plan_and_approve(run, orca: OrcaWorld) -> None:
     assert orca.cycle("validator", "codex", answer="review done\nVERDICT: pass\n").code == 0
     assert run("phase", "TASK-1", "work") == 1  # the user has not approved the plan yet
     assert (
-        run("approve", "TASK-1", "--action", "plan", "--target", "TASK-1", "--user-reply", "ok") == 0
+        run("approve", "TASK-1", "--action", "plan", "--target", "TASK-1", "--user-reply", "ok")
+        == 0
     )
     assert run("phase", "TASK-1", "work") == 0
 
