@@ -405,6 +405,7 @@ def hygiene_violations(
     if not active:
         return []
     violations: list[Violation] = []
+    root_resolved = root.resolve()
     for path in paths:
         if not path.is_file():
             continue
@@ -413,7 +414,7 @@ def hygiene_violations(
             source = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        relative = path.resolve().relative_to(root).as_posix()
+        relative = path.resolve().relative_to(root_resolved).as_posix()
         for name in active:
             violations.extend(_CHECK_FUNCS[name](relative, extension, source, changed))
     violations.sort(key=lambda v: (v.path, v.start_line, v.metric))

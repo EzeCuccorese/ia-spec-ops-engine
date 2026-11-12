@@ -17,7 +17,7 @@ from workspace_engine.design.hygiene import (
     todo_ticket_violations,
 )
 from workspace_engine.design.layers import extract_imports, go_module_name, layer_violations
-from workspace_engine.design.metrics import Violation, measure, supported
+from workspace_engine.design.metrics import Violation, analyze_source, measure, supported
 from workspace_engine.design.report import format_text, to_dict
 
 # --- fixtures: violating + clean function per priority language -----------------
@@ -136,8 +136,8 @@ def test_config_defaults(tmp_path: Path) -> None:
 
 
 def test_config_overrides(tmp_path: Path) -> None:
-    (tmp_path / ".ai-governance").mkdir()
-    (tmp_path / ".ai-governance" / "config.toml").write_text(
+    (tmp_path / ".workspace").mkdir()
+    (tmp_path / ".workspace" / "config.toml").write_text(
         '[design]\nmode = "warn"\nmax_complexity = 20\n'
     )
     config = DesignConfig.load(tmp_path)
@@ -164,8 +164,8 @@ def test_config_overrides(tmp_path: Path) -> None:
     ],
 )
 def test_config_rejects_invalid_design_table(tmp_path: Path, toml: str, match: str) -> None:
-    (tmp_path / ".ai-governance").mkdir()
-    (tmp_path / ".ai-governance" / "config.toml").write_text(toml)
+    (tmp_path / ".workspace").mkdir()
+    (tmp_path / ".workspace" / "config.toml").write_text(toml)
     with pytest.raises(ValueError, match=match):
         DesignConfig.load(tmp_path)
 
@@ -262,15 +262,77 @@ def test_smoke_other_languages(tmp_path: Path, filename: str, source: str) -> No
     assert violations == []
 
 
+def test_dart_complexity_violation(tmp_path: Path) -> None:
+    source = """
+int calculateTotal(int a, int b) {
+  if (a > 0) {
+    if (b > 0) {
+      if (a > b) {
+        return a + b;
+      }
+    }
+  }
+  return b;
+}
+"""
+    config = DesignConfig(max_complexity=2)
+    violations = _measure_one(tmp_path, "total.dart", source, config)
+    assert any(v.metric == "complexity" and v.value == 4 for v in violations)
+
+
+@pytest.mark.parametrize(
+    "source,expected_args",
+    [
+        ("<?php function f() {}\n", 0),
+        ("<?php function f($a) {}\n", 1),
+        ("<?php function f($a, $b, $c, $d, $e) {}\n", 5),
+        ("<?php function f($a, $b,) {}\n", 2),
+        ("<?php function f(int $a, ?string $b, array &$c, $d = [1, 2], ...$rest) {}\n", 5),
+        ("<?php function f($a = 'hello, world', $b = ['x,y', 1]) {}\n", 2),
+        (
+            "<?php class Foo { public function __construct(public int $x, private string $y = 'a,b') {} }\n",
+            2,
+        ),
+        ("<?php $c = function($a, $b) {};\n", 2),
+    ],
+)
+def test_php_args_measurement(tmp_path: Path, source: str, expected_args: int) -> None:
+    functions = analyze_source("test.php", "php", source)
+    assert len(functions) == 1
+    assert functions[0].args == expected_args
+
+
+def test_php_args_violation(tmp_path: Path) -> None:
+    source = "<?php function f($a, $b, $c, $d, $e) { return 1; }\n"
+    config = DesignConfig(max_args=4)
+    violations = _measure_one(tmp_path, "f.php", source, config)
+    assert any(v.metric == "args" and v.value == 5 for v in violations)
+
+
 # --- exclude / missing / unsupported -----------------------------------------
 
 
-def test_exclude_globs(tmp_path: Path) -> None:
+def test_exclude_globs(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     vendor = tmp_path / "node_modules"
     vendor.mkdir()
     (vendor / "big.js").write_text(JS_VIOLATING)
-    violations = measure(tmp_path, [vendor / "big.js"], DesignConfig())
-    assert violations == []
+    code = design_cli.design(["--dir", str(tmp_path), str(vendor / "big.js")])
+    assert code == 0
+    assert "big.js" not in capsys.readouterr().out
+
+
+def test_exclude_matching_with_and_without_leading_slash(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    custom_dir = tmp_path / "generated"
+    custom_dir.mkdir()
+    (custom_dir / "gen.py").write_text(PY_VIOLATING)
+    cfg = tmp_path / ".workspace"
+    cfg.mkdir()
+    (cfg / "config.toml").write_text('[design]\nexclude = ["generated/*"]\n', encoding="utf-8")
+    code = design_cli.design(["--dir", str(tmp_path), str(custom_dir / "gen.py")])
+    assert code == 0
+    assert "gen.py" not in capsys.readouterr().out
 
 
 def test_missing_file_skipped(tmp_path: Path) -> None:
@@ -278,7 +340,7 @@ def test_missing_file_skipped(tmp_path: Path) -> None:
 
 
 def test_unsupported_file_skipped(tmp_path: Path) -> None:
-    path = tmp_path / "readme.dart"
+    path = tmp_path / "readme.unknown"
     path.write_text("void main() {}\n")
     assert measure(tmp_path, [path], DesignConfig()) == []
 
@@ -334,8 +396,8 @@ def test_cli_json(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_cli_warn_mode_exit_zero(git_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    (git_repo / ".ai-governance").mkdir()
-    (git_repo / ".ai-governance" / "config.toml").write_text('[design]\nmode = "warn"\n')
+    (git_repo / ".workspace").mkdir()
+    (git_repo / ".workspace" / "config.toml").write_text('[design]\nmode = "warn"\n')
     (git_repo / "deep.py").write_text(PY_VIOLATING)
     code = design_cli.design(["--dir", str(git_repo), "--changed"])
     out = capsys.readouterr().out
@@ -344,8 +406,8 @@ def test_cli_warn_mode_exit_zero(git_repo: Path, capsys: pytest.CaptureFixture[s
 
 
 def test_cli_off_mode(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    (tmp_path / ".ai-governance").mkdir()
-    (tmp_path / ".ai-governance" / "config.toml").write_text('[design]\nmode = "off"\n')
+    (tmp_path / ".workspace").mkdir()
+    (tmp_path / ".workspace" / "config.toml").write_text('[design]\nmode = "off"\n')
     code = design_cli.design(["--dir", str(tmp_path)])
     out = capsys.readouterr().out
     assert code == 0
@@ -515,8 +577,8 @@ def test_measure_skips_unparseable_file(tmp_path: Path, content: bytes, name: st
 
 
 def test_config_no_design_table_returns_defaults(tmp_path: Path) -> None:
-    (tmp_path / ".ai-governance").mkdir()
-    (tmp_path / ".ai-governance" / "config.toml").write_text("[other]\nkey = 1\n")
+    (tmp_path / ".workspace").mkdir()
+    (tmp_path / ".workspace" / "config.toml").write_text("[other]\nkey = 1\n")
     config = DesignConfig.load(tmp_path)
     assert config == DesignConfig()
 
@@ -590,6 +652,56 @@ def test_cli_changed_flag_uses_changed_files(
     out = capsys.readouterr().out
     assert code == 0  # unscoped: an audit, never blocks
     assert "1 pre-existing functions over the limits in touched files" in out
+
+
+def _setup_excluded_hygiene_repo(tmp_path: Path) -> tuple[Path, Path]:
+    gov = tmp_path / ".workspace"
+    gov.mkdir()
+    (gov / "config.toml").write_text(
+        '[design]\nmode = "block"\nexclude = ["**/poc/**", "**/ignore_test.py"]\n',
+        encoding="utf-8",
+    )
+    poc_dir = tmp_path / "poc"
+    poc_dir.mkdir()
+    (poc_dir / "service.py").write_text("try:\n    pass\nexcept Exception:\n    pass\n")
+    (tmp_path / "ignore_test.py").write_text("def test_dummy():\n    x = 1\n")
+    (tmp_path / "bad.py").write_text("try:\n    pass\nexcept Exception:\n    pass\n")
+    list_file = tmp_path / "files.txt"
+    list_file.write_text("poc/service.py\nignore_test.py\n", encoding="utf-8")
+    return list_file, tmp_path
+
+
+def test_cli_changed_and_files_from_filters_excluded_hygiene_and_test_quality(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    list_file, _ = _setup_excluded_hygiene_repo(tmp_path)
+    monkeypatch.setattr(
+        design_cli,
+        "changed_files",
+        lambda root: ["poc/service.py", "ignore_test.py", "bad.py"],
+    )
+    monkeypatch.setattr(
+        design_cli,
+        "changed_lines",
+        lambda root: {
+            "poc/service.py": {1, 2, 3, 4},
+            "ignore_test.py": {1, 2},
+            "bad.py": {1, 2, 3, 4},
+        },
+    )
+
+    code = design_cli.design(["--dir", str(tmp_path), "--changed"])
+    out = capsys.readouterr().out
+    assert "poc/service.py" not in out
+    assert "ignore_test.py" not in out
+    assert "bad.py" in out
+    assert code == 1
+
+    code2 = design_cli.design(["--dir", str(tmp_path), "--files-from", str(list_file)])
+    out2 = capsys.readouterr().out
+    assert "poc/service.py" not in out2
+    assert "ignore_test.py" not in out2
+    assert code2 == 0
 
 
 # --- new vs. legacy classification -----------------------------------------------
@@ -1010,8 +1122,8 @@ _LAYERS = LayersConfig(order=("adapters", "application", "domain"), paths={})
 
 
 def _write_config(root: Path, extra: str = "") -> None:
-    (root / ".ai-governance").mkdir(exist_ok=True)
-    (root / ".ai-governance" / "config.toml").write_text(
+    (root / ".workspace").mkdir(exist_ok=True)
+    (root / ".workspace" / "config.toml").write_text(
         'profiles = ["architecture"]\n[design.layers]\norder = ["adapters", "application", "domain"]\n'
         + extra
     )
@@ -1229,8 +1341,8 @@ def test_cli_profile_off_no_layer_check(tmp_path: Path, capsys: pytest.CaptureFi
 def test_cli_profile_on_no_layers_configured_note(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    (tmp_path / ".ai-governance").mkdir()
-    (tmp_path / ".ai-governance" / "config.toml").write_text('profiles = ["architecture"]\n')
+    (tmp_path / ".workspace").mkdir()
+    (tmp_path / ".workspace" / "config.toml").write_text('profiles = ["architecture"]\n')
     (tmp_path / "small.py").write_text(PY_CLEAN)
     code = design_cli.design(["--dir", str(tmp_path), str(tmp_path / "small.py")])
     out = capsys.readouterr().out
@@ -1393,8 +1505,8 @@ def test_config_checks_default_enables_all(tmp_path: Path) -> None:
 
 
 def test_config_checks_subset_disables_others(tmp_path: Path) -> None:
-    (tmp_path / ".ai-governance").mkdir()
-    (tmp_path / ".ai-governance" / "config.toml").write_text('[design]\nchecks = ["complexity"]\n')
+    (tmp_path / ".workspace").mkdir()
+    (tmp_path / ".workspace" / "config.toml").write_text('[design]\nchecks = ["complexity"]\n')
     config = DesignConfig.load(tmp_path)
     assert config.checks == ("complexity",)
 
@@ -1491,8 +1603,8 @@ def test_hygiene_violations_skips_undecodable_file(tmp_path: Path) -> None:
 def test_cli_checks_disabled_skips_hygiene(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    (tmp_path / ".ai-governance").mkdir()
-    (tmp_path / ".ai-governance" / "config.toml").write_text(
+    (tmp_path / ".workspace").mkdir()
+    (tmp_path / ".workspace" / "config.toml").write_text(
         '[design]\nchecks = ["complexity", "length", "args", "nesting"]\n'
     )
     (tmp_path / "A.java").write_text(

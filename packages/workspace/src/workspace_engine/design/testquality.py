@@ -99,6 +99,7 @@ def junk_test_violations(
     if not active:
         return []
     violations: list[Violation] = []
+    root_resolved = root.resolve()
     for path in paths:
         if not path.is_file():
             continue
@@ -106,7 +107,7 @@ def junk_test_violations(
             source = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        relative = path.resolve().relative_to(root).as_posix()
+        relative = path.resolve().relative_to(root_resolved).as_posix()
         ext = path.suffix.lstrip(".")
         if is_test_file(relative, ext, source):
             violations.extend(_file_violations(_Job(relative, active, changed), ext, source))

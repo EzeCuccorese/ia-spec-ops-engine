@@ -937,8 +937,8 @@ def test_design_stage_passes_in_warn_mode(tmp_path: Path) -> None:
     assert install_git_hooks(target_dir=project_dir)["success"] is True
     bin_dir = tmp_path / "bin"
     _write_ws_shim(bin_dir)
-    (project_dir / ".ai-governance").mkdir()
-    (project_dir / ".ai-governance" / "config.toml").write_text('[design]\nmode = "warn"\n')
+    (project_dir / ".workspace").mkdir()
+    (project_dir / ".workspace" / "config.toml").write_text('[design]\nmode = "warn"\n')
     _commit_complex_function(project_dir, "test(fixture): add complex function, warn mode")
 
     proc = _push_with_gate_custom(
@@ -1043,3 +1043,139 @@ def test_run_quality_gate_passes_step_timeout_via_env_without_subprocess_timeout
     assert captured == ["ok\n"]
     assert "timeout" not in recorded_kwargs
     assert recorded_kwargs["env"]["QG_TIMEOUT"] == "900"
+
+
+def _setup_monorepo_project(project_dir: Path, bin_dir: Path) -> None:
+    _init_test_git_repo(project_dir)
+    _commit_fixture(project_dir)
+    (project_dir / "package.json").write_text(
+        '{"scripts": {"test": "yarn workspaces run test"}, "workspaces": ["packages/*"]}',
+        encoding="utf-8",
+    )
+    (project_dir / "yarn.lock").write_text("", encoding="utf-8")
+    (project_dir / "node_modules").mkdir()
+    _write_exe(bin_dir / "yarn", 'echo "YARN_EXECUTED: $*"\nexit 1')
+
+    # Commit a change so DIFF_FILES_FILE is not empty
+    (project_dir / "packages" / "pkg-a").mkdir(parents=True)
+    (project_dir / "packages" / "pkg-a" / "index.js").write_text(
+        "module.exports = 1;\n", encoding="utf-8"
+    )
+    subprocess.run(["git", "-C", str(project_dir), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(project_dir), "commit", "-m", "feat: add pkg-a"], check=True)
+
+
+@requires_node
+def test_monorepo_without_ws_on_path_warns_and_skips_full_suite(tmp_path: Path) -> None:
+    project_dir = tmp_path / "repo"
+    bin_dir = tmp_path / "bin"
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    _setup_monorepo_project(project_dir, bin_dir)
+    assert install_git_hooks(target_dir=project_dir)["success"] is True
+
+    # Bare remote so git push triggers pre-push hook
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+    subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=project_dir, check=True)
+
+    node_dir = Path(shutil.which("node") or "/usr/bin").parent
+    clean_path = f"{bin_dir}{os.pathsep}{node_dir}{os.pathsep}/usr/bin{os.pathsep}/bin"
+
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "QG_"))}
+    env.update(
+        HOME=str(fake_home),
+        PATH=clean_path,
+        GIT_CONFIG_GLOBAL="/dev/null",
+        GIT_CONFIG_SYSTEM="/dev/null",
+        QG_SKIP="gitleaks,commits,lint,design",
+        QG_OUTPUT="verbose",
+        QG_SCOPE="changed",
+    )
+    proc = subprocess.run(
+        ["git", "push", "origin", "HEAD:refs/heads/feature"],
+        cwd=project_dir,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    combined = proc.stdout + proc.stderr
+    assert "Monorepo test scoping: 'ws' CLI not found on PATH; skipping monorepo tests." in combined
+    assert "YARN_EXECUTED" not in combined
+    assert "yarn workspaces run test" not in combined
+    assert proc.returncode == 0
+
+
+def _setup_monorepo_stdin_repo(tmp_path: Path) -> tuple[Path, Path, Path]:
+    project_dir = tmp_path / "repo"
+    bin_dir = tmp_path / "bin"
+    _init_test_git_repo(project_dir)
+    _commit_fixture(project_dir)
+
+    (project_dir / "package.json").write_text(
+        '{"scripts": {"test": "yarn workspaces run test"}, "workspaces": ["packages/*"]}',
+        encoding="utf-8",
+    )
+    (project_dir / "yarn.lock").write_text("", encoding="utf-8")
+    (project_dir / "node_modules").mkdir()
+
+    for name in ("pkg-a", "pkg-b"):
+        pkg = project_dir / "packages" / name
+        pkg.mkdir(parents=True)
+        (pkg / "package.json").write_text(
+            f'{{"name": "{name}", "scripts": {{"test": "vitest"}}, "devDependencies": {{"vitest": "1.0.0"}}}}',
+            encoding="utf-8",
+        )
+        (pkg / "index.js").write_text(f"module.exports = '{name}';\n", encoding="utf-8")
+
+    log_file = tmp_path / "yarn_executed.log"
+    _write_exe(
+        bin_dir / "yarn",
+        f'read -r line\necho "$PWD: $*" >> "{log_file}"\nexit 0\n',
+    )
+    subprocess.run(["git", "-C", str(project_dir), "add", "."], check=True)
+    subprocess.run(
+        ["git", "-C", str(project_dir), "commit", "-m", "feat: add packages"], check=True
+    )
+    return project_dir, bin_dir, log_file
+
+
+@requires_node
+def test_monorepo_pre_push_scoped_run_does_not_swallow_stdin(tmp_path: Path) -> None:
+    project_dir, bin_dir, log_file = _setup_monorepo_stdin_repo(tmp_path)
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+
+    assert install_git_hooks(target_dir=project_dir)["success"] is True
+
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+    subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=project_dir, check=True)
+
+    node_dir = Path(shutil.which("node") or "/usr/bin").parent
+    ws_bin_dir = Path(sys.executable).parent
+    clean_path = f"{bin_dir}{os.pathsep}{ws_bin_dir}{os.pathsep}{node_dir}{os.pathsep}/usr/bin{os.pathsep}/bin"
+
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "QG_"))}
+    env.update(
+        HOME=str(fake_home),
+        PATH=clean_path,
+        GIT_CONFIG_GLOBAL="/dev/null",
+        GIT_CONFIG_SYSTEM="/dev/null",
+        QG_SKIP="gitleaks,commits,lint,design",
+        QG_OUTPUT="verbose",
+        QG_SCOPE="changed",
+    )
+
+    proc = subprocess.run(
+        ["git", "push", "origin", "HEAD:refs/heads/feature"],
+        cwd=project_dir,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0
+    executed = log_file.read_text(encoding="utf-8") if log_file.exists() else ""
+    assert "pkg-a" in executed
+    assert "pkg-b" in executed
