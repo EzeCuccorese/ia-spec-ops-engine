@@ -1,19 +1,20 @@
 """
 workspace_engine.design.config — Configuration for ``ws design``.
 
-Reads the optional ``[design]`` table of ``<root>/.ai-governance/config.toml``. This
-table is the contract shared with ai-governance: ai-governance may read and render
-it, but ``ws design`` never reads or writes the repository's own linter configs
-(eslint, checkstyle, ruff, golangci-lint, ...) to decide its limits.
+Reads the optional ``[design]`` table from the unified workspace config files:
+user global (~/.config/workspace/config.toml), in-repo (<root>/.workspace/config.toml),
+and personal per-repo (~/.config/workspace/repos/<repo-name>.toml).
 """
 
 from __future__ import annotations
 
 import tomllib
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from workspace_engine._config_core import merge_tables, read_table, xdg_dir
+from workspace_engine._config_core import read_table, xdg_dir
+from workspace_engine.settings import personal_repo_config_path
 
 MODES = ("block", "warn", "off")
 
@@ -37,6 +38,7 @@ _FIELDS = {
     "exclude",
     "layers",
     "checks",
+    "profiles",
 }
 _LAYERS_FIELDS = {"order", "paths"}
 
@@ -98,6 +100,53 @@ def _design_table(data: dict, where: str) -> dict | None:
     return table
 
 
+def _extract_exclude(table: dict | None) -> list[str]:
+    if not table:
+        return []
+    raw = table.get("exclude")
+    if raw is None:
+        return []
+    if isinstance(raw, list | tuple):
+        return [str(item) for item in raw]
+    return [str(raw)]
+
+
+def _accumulate_exclude(*sources: Sequence[object] | object) -> tuple[str, ...]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in DEFAULT_EXCLUDE:
+        if item not in seen:
+            seen.add(item)
+            result.append(item)
+    for source in sources:
+        if not source:
+            continue
+        items: Sequence[object] = source if isinstance(source, list | tuple) else [source]
+        for raw in items:
+            s = str(raw)
+            if s not in seen:
+                seen.add(s)
+                result.append(s)
+    return tuple(result)
+
+
+def _merge_design_tables(
+    user: dict | None, repo: dict | None, personal: dict | None = None
+) -> dict:
+    merged: dict = {}
+    if user:
+        merged.update(user)
+    if repo:
+        merged.update(repo)
+    if personal:
+        merged.update(personal)
+    user_exc = _extract_exclude(user)
+    repo_exc = _extract_exclude(repo)
+    personal_exc = _extract_exclude(personal)
+    merged["exclude"] = _accumulate_exclude(user_exc, repo_exc, personal_exc)
+    return merged
+
+
 @dataclass(frozen=True)
 class DesignConfig:
     mode: str = "block"
@@ -113,13 +162,24 @@ class DesignConfig:
     @classmethod
     def load(cls, root: Path) -> DesignConfig:
         user = read_table(xdg_dir("config", "workspace") / "config.toml")
-        repo = _read_repo_table(root / ".ai-governance" / "config.toml")
-        raw_profiles = repo.get("profiles", [])
-        profiles = tuple(str(p) for p in raw_profiles) if isinstance(raw_profiles, list) else ()
-        tables = _design_table(user, "user config"), _design_table(repo, "[design]")
-        if not any(t is not None for t in tables):
+        repo = _read_repo_table(root / ".workspace" / "config.toml")
+        personal = read_table(personal_repo_config_path(root))
+
+        user_table = _design_table(user, "user config")
+        repo_table = _design_table(repo, "[design]")
+        personal_table = _design_table(personal, "personal config")
+
+        raw_profiles: list[object] = []
+        for src in (user, repo, personal, user_table, repo_table, personal_table):
+            if src is not None:
+                p = src.get("profiles")
+                if isinstance(p, list):
+                    raw_profiles = p
+        profiles = tuple(str(p) for p in raw_profiles)
+
+        if user_table is None and repo_table is None and personal_table is None:
             return cls(profiles=profiles)
-        table: dict = merge_tables(*(t for t in tables if t is not None))
+        table: dict = _merge_design_tables(user_table, repo_table, personal_table)
         unknown = set(table) - _FIELDS
         if unknown:
             raise ValueError(f"[design] has unknown key(s): {', '.join(sorted(unknown))}")
