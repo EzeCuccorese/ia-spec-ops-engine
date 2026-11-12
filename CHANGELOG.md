@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.0.0 - 2026-11-12
+
+### Breaking changes
+- Remove interactive TUIs and legacy packages, slim down engine for AI agents.
+
 ## 1.9.1 - 2026-11-12
 
 ### Features
