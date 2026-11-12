@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.9.1 - 2026-11-12
+
+### Features
+- Add ws design --stats and --suggest flags.
+- Scope quality gate tests stage in yarn and pnpm monorepos.
+- Unify config file handling with 3 layers and personal override.
+
+### Fixes
+- Fix PHP args calculation and pin lizard for Dart support.
+- Handle PHP 8 trailing comma in parameter list.
+- Format monorepo test plan for shell and guard against unscoped fallback.
+- Redirect stdin from /dev/null in monorepo scoped test run.
+- Make design exclude additive and apply to all checks.
+- Resolve design blocking violations in settings and tests.
+- Address review feedback on design stats and exclude matching.
+- Resolve relative root paths across design checks and add tests.
+
 ## 1.9.0 - 2026-11-12
 
 ### Features
