@@ -1105,3 +1105,82 @@ def test_monorepo_without_ws_on_path_warns_and_skips_full_suite(tmp_path: Path) 
     assert "YARN_EXECUTED" not in combined
     assert "yarn workspaces run test" not in combined
     assert proc.returncode == 0
+
+
+@requires_node
+def test_monorepo_pre_push_scoped_run_does_not_swallow_stdin(tmp_path: Path) -> None:
+    project_dir = tmp_path / "repo"
+    bin_dir = tmp_path / "bin"
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    _init_test_git_repo(project_dir)
+    _commit_fixture(project_dir)
+
+    (project_dir / "package.json").write_text(
+        '{"scripts": {"test": "yarn workspaces run test"}, "workspaces": ["packages/*"]}',
+        encoding="utf-8",
+    )
+    (project_dir / "yarn.lock").write_text("", encoding="utf-8")
+    (project_dir / "node_modules").mkdir()
+
+    # Create two packages pkg-a and pkg-b, both with vitest and tests
+    pkg_a = project_dir / "packages" / "pkg-a"
+    pkg_a.mkdir(parents=True)
+    (pkg_a / "package.json").write_text(
+        '{"name": "pkg-a", "scripts": {"test": "vitest"}, "devDependencies": {"vitest": "1.0.0"}}',
+        encoding="utf-8",
+    )
+    (pkg_a / "index.js").write_text("module.exports = 1;\n", encoding="utf-8")
+
+    pkg_b = project_dir / "packages" / "pkg-b"
+    pkg_b.mkdir(parents=True)
+    (pkg_b / "package.json").write_text(
+        '{"name": "pkg-b", "scripts": {"test": "vitest"}, "devDependencies": {"vitest": "1.0.0"}}',
+        encoding="utf-8",
+    )
+    (pkg_b / "index.js").write_text("module.exports = 2;\n", encoding="utf-8")
+
+    # Mock yarn executable: attempts to read from stdin to test if stdin is /dev/null
+    log_file = tmp_path / "yarn_executed.log"
+    _write_exe(
+        bin_dir / "yarn",
+        f'read -r line\necho "$PWD: $*" >> "{log_file}"\nexit 0\n',
+    )
+
+    subprocess.run(["git", "-C", str(project_dir), "add", "."], check=True)
+    subprocess.run(
+        ["git", "-C", str(project_dir), "commit", "-m", "feat: add packages"], check=True
+    )
+
+    assert install_git_hooks(target_dir=project_dir)["success"] is True
+
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+    subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=project_dir, check=True)
+
+    node_dir = Path(shutil.which("node") or "/usr/bin").parent
+    ws_bin_dir = Path(sys.executable).parent
+    clean_path = f"{bin_dir}{os.pathsep}{ws_bin_dir}{os.pathsep}{node_dir}{os.pathsep}/usr/bin{os.pathsep}/bin"
+
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "QG_"))}
+    env.update(
+        HOME=str(fake_home),
+        PATH=clean_path,
+        GIT_CONFIG_GLOBAL="/dev/null",
+        GIT_CONFIG_SYSTEM="/dev/null",
+        QG_SKIP="gitleaks,commits,lint,design",
+        QG_OUTPUT="verbose",
+        QG_SCOPE="changed",
+    )
+
+    proc = subprocess.run(
+        ["git", "push", "origin", "HEAD:refs/heads/feature"],
+        cwd=project_dir,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0
+    executed = log_file.read_text(encoding="utf-8") if log_file.exists() else ""
+    assert "pkg-a" in executed
+    assert "pkg-b" in executed

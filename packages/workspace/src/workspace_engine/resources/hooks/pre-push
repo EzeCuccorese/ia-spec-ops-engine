@@ -839,7 +839,7 @@ else
                     cmd_args+=("${extra_args[@]}")
                   fi
                   note "$runner in $pkg scoped to $num_files file(s)"
-                  (cd "$pkg_dir" && run_to "$QG_TIMEOUT" "${cmd_args[@]}") || TESTS_OK=0
+                  (cd "$pkg_dir" && run_to "$QG_TIMEOUT" "${cmd_args[@]}") < /dev/null || TESTS_OK=0
                   ;;
               esac
             done < "$TMPD/mono-plan.out"
