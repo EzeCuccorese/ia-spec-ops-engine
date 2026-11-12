@@ -57,13 +57,22 @@ def _repo_files(root: Path, exclude: tuple[str, ...]) -> list[Path]:
     return _walk(root, root, exclude)
 
 
+def _is_excluded(path: Path, root: Path, exclude: tuple[str, ...]) -> bool:
+    try:
+        relative = path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        relative = path.as_posix()
+    candidate = f"/{relative}"
+    return any(fnmatch.fnmatch(candidate, p) or fnmatch.fnmatch(relative, p) for p in exclude)
+
+
 def _collect(root: Path, args: argparse.Namespace, exclude: tuple[str, ...]) -> list[Path]:
     if args.files_from:
         lines = Path(args.files_from).read_text(encoding="utf-8").splitlines()
-        return [root / line.strip() for line in lines if line.strip()]
-    if args.changed:
-        return [root / relative for relative in changed_files(root)]
-    if args.paths:
+        candidates = [root / line.strip() for line in lines if line.strip()]
+    elif args.changed:
+        candidates = [root / relative for relative in changed_files(root)]
+    elif args.paths:
         collected: list[Path] = []
         for raw in args.paths:
             candidate = (root / raw) if not Path(raw).is_absolute() else Path(raw)
@@ -71,8 +80,10 @@ def _collect(root: Path, args: argparse.Namespace, exclude: tuple[str, ...]) -> 
                 collected.extend(_walk(root, candidate, exclude))
             else:
                 collected.append(candidate)
-        return collected
-    return _repo_files(root, exclude)
+        candidates = collected
+    else:
+        candidates = _repo_files(root, exclude)
+    return [p for p in candidates if not _is_excluded(p, root, exclude)]
 
 
 def _focus(root: Path, spec: str, config: DesignConfig) -> int:
