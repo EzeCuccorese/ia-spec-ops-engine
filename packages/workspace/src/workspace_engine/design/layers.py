@@ -264,7 +264,7 @@ def violations_for_file(
     go_module: str | None,
     changed: dict[str, set[int] | None] | None = None,
 ) -> list[Violation]:
-    relative = path.resolve().relative_to(root).as_posix()
+    relative = path.resolve().relative_to(root.resolve()).as_posix()
     file_layer = layer_of(relative, config)
     if file_layer is None:
         return []

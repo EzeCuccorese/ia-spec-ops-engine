@@ -24,7 +24,9 @@ def _git(cwd: Path, *args: str) -> None:
 
 def test_language_of() -> None:
     assert language_of("foo.py") == "python"
+    assert language_of("FOO.PY") == "python"
     assert language_of("bar.ts") == "typescript"
+    assert language_of("bar.Ts") == "typescript"
     assert language_of("baz.js") == "javascript"
     assert language_of("test.go") == "go"
     assert language_of("A.java") == "java"
@@ -186,3 +188,22 @@ def test_stats_edge_cases(tmp_path: Path) -> None:
     config = DesignConfig()
     stats = compute_stats(tmp_path, [unreadable, empty_file, unsupported_file], config)
     assert stats.by_language == {}
+
+
+def test_stats_relative_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    f = tmp_path / "foo.py"
+    f.write_text("def ok():\n    pass\n")
+    monkeypatch.chdir(tmp_path)
+    config = DesignConfig()
+    stats = compute_stats(Path("."), [f], config)
+    assert "python" in stats.by_language
+
+
+def test_stats_table_test_only_language(tmp_path: Path) -> None:
+    t = tmp_path / "test_bar.py"
+    t.write_text("def test_it():\n    pass\n")
+    config = DesignConfig()
+    stats = compute_stats(tmp_path, [t], config)
+    table = format_stats_table(stats)
+    assert "python" in table
+    assert "test" in table

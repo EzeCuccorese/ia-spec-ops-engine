@@ -321,6 +321,20 @@ def test_exclude_globs(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> No
     assert "big.js" not in capsys.readouterr().out
 
 
+def test_exclude_matching_with_and_without_leading_slash(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    custom_dir = tmp_path / "generated"
+    custom_dir.mkdir()
+    (custom_dir / "gen.py").write_text(PY_VIOLATING)
+    cfg = tmp_path / ".workspace"
+    cfg.mkdir()
+    (cfg / "config.toml").write_text('[design]\nexclude = ["generated/*"]\n', encoding="utf-8")
+    code = design_cli.design(["--dir", str(tmp_path), str(custom_dir / "gen.py")])
+    assert code == 0
+    assert "gen.py" not in capsys.readouterr().out
+
+
 def test_missing_file_skipped(tmp_path: Path) -> None:
     assert measure(tmp_path, [tmp_path / "missing.py"], DesignConfig()) == []
 

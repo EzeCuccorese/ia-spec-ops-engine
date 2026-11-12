@@ -214,7 +214,7 @@ def analyze_file(root: Path, path: Path) -> list[FunctionMetrics] | None:
         source = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None
-    relative = path.resolve().relative_to(root).as_posix()
+    relative = path.resolve().relative_to(root.resolve()).as_posix()
     return analyze_source(relative, path.suffix.lstrip("."), source)
 
 
@@ -323,14 +323,15 @@ def measure(
 
     ``scope`` turns on the ratchet; without it, every violation is ``legacy``.
     """
+    root_resolved = root.resolve()
     violations: list[Violation] = []
     for path in paths:
         if not path.is_file():
             continue
-        relative = path.resolve().relative_to(root).as_posix()
+        relative = path.resolve().relative_to(root_resolved).as_posix()
         if not supported(path):
             continue
-        functions = analyze_file(root, path)
+        functions = analyze_file(root_resolved, path)
         if not functions:
             continue
 

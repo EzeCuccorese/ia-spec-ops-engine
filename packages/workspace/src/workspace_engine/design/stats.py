@@ -139,6 +139,7 @@ def _suggest_limits(prod_fms: list[FunctionMetrics], limits: dict[str, int]) -> 
 
 def compute_stats(root: Path, files: list[Path], config: DesignConfig) -> DesignStats:
     """Analyze all given files and calculate metrics distribution and suggested limits."""
+    root = root.resolve()
     grouped = _group_functions(root, files)
     limits = {
         "complexity": config.max_complexity,
