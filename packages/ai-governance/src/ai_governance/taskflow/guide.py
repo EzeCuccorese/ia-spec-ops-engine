@@ -13,6 +13,8 @@ Flow (one task or subtask at a time):
                 taskflow phase <ID> validate
   3. validate:  taskflow round <ID> dispatch --role validator --prompt-file review.md
                 (same cycle: run the line, end your turn, collect)
+                optional cross-examination: dispatch again with `--rebut N` (repeatable) so a
+                worker reads settled rounds N and refutes them with evidence before concluding
                 show the user the final plan; on their ok in the chat:
                 taskflow approve <ID> --action plan --target <ID> --user-reply "<their words>"
                 taskflow phase <ID> work
@@ -41,7 +43,9 @@ Agents never run from the engine or from a shell. Planner, validator and judge r
 Orca workers:
   1. taskflow round <ID> dispatch --role validator --prompt-file review.md
        reserves the round and PRINTS ONE `orchestration worker-start` line (judges: `taskflow judge <ID>`)
-  2. Run that line. END YOUR TURN. Orca wakes you when the worker reports worker_done.
+  2. Run that line as printed: it saves Orca's JSON receipt to runs/N/launch.json, which
+       collect uses to check that Orca launched the dispatched agent and model.
+       END YOUR TURN. Orca wakes you when the worker reports worker_done.
   3. taskflow round <ID> collect --round N --dispatch-id <the id Orca gave you>
        settles it. A running worker: wait with `orca orchestration check --wait --types worker_done`.
        A stuck worker: `orca orchestration worker-stop --dispatch <id>`, then
@@ -51,7 +55,9 @@ The builder is YOU (the coordinating session): write the code yourself. Do not e
 while a reader round is pending: the round becomes invalid and must be re-dispatched.
 Never launch agent CLIs yourself. A judge is a reader: the engine runs the checks, the worker reads.
 The worker writes a receipt (round token + its dispatch id) and its answer under runs/N/;
-collect accepts only the dispatch id that matches that receipt.
+collect accepts only the dispatch id that matches that receipt. A worker may run throwaway
+scripts under runs/N/scratch/ to prove a claim. Validators and judges list each required change
+as `CHANGE: <path>:<line> - <fix>`; collect stores those lines in the round record.
 
 Pull requests: register each one once (`taskflow pr add <ID> <url | owner/name#N>`; `-` reads
 pasted text from stdin; Claude's `gh pr create` registers it by itself). CI, review, open threads,

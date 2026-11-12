@@ -10,11 +10,14 @@ An accepted collect needs all of: the sealed dispatch record and spec unchanged,
 the worker wrote (round token plus its Orca dispatch id) equal to the id the coordinator
 passes, a worker that is not running and whose agent, when Orca still reports it, has the
 dispatched provider, a non-blank answer written after dispatch, the taskflow control files
-unchanged (see ``control``), and the repositories unchanged since dispatch.
+unchanged (see ``control``), and the repositories unchanged since dispatch. When the
+coordinator saved Orca's ``worker-start --json`` receipt to ``runs/N/launch.json``, the agent
+and model Orca really launched must also be the dispatched ones.
 """
 
 from __future__ import annotations
 
+import json
 import shlex
 from dataclasses import dataclass
 from datetime import datetime
@@ -25,7 +28,7 @@ from .agents import provider
 from .control import DispatchError, drift
 from .dispatch import read_dispatch, verify_dispatch
 from .models import JsonDict, Task, now_iso
-from .prompts import parse_verdict
+from .prompts import parse_changes, parse_verdict
 from .repos import guard
 from .stamp import changed_paths, head_sha, tree_fingerprint
 from .store import TaskStore, atomic_write_text
@@ -150,6 +153,92 @@ def _provider_verified(row: orca.WorkerRow, found: JsonDict) -> bool:
     return True
 
 
+@dataclass(frozen=True)
+class Launch:
+    """What Orca's worker-start receipt says it launched."""
+
+    dispatch_id: str
+    agent: str
+    model: str
+
+
+def parse_launch(data: object) -> Launch | None:
+    """Orca's ``worker-start --json`` receipt: ``{"ok": true, "result": {"dispatchId", "agent",
+    "model", ...}}`` (Orca 1.4). A nested ``result.launch.effective`` is read instead when
+    present. None when it is not a successful-start envelope."""
+    result = data.get("result") if isinstance(data, dict) else None
+    if not isinstance(data, dict) or data.get("ok") is not True or not isinstance(result, dict):
+        return None
+    launch = result.get("launch")
+    effective = launch.get("effective") if isinstance(launch, dict) else None
+    override = effective if isinstance(effective, dict) else {}
+    return Launch(
+        str(result.get("dispatchId") or ""),
+        _launched(override, result, "agent"),
+        _launched(override, result, "model"),
+    )
+
+
+def _launched(override: JsonDict, result: JsonDict, key: str) -> str:
+    """A field of ``launch.effective``; a partial override keeps the receipt's own value."""
+    return str(override.get(key) or result.get(key) or "")
+
+
+def _read_launch(found: JsonDict) -> Launch | None:
+    path = Path(str(found.get("launch", "")))
+    if not found.get("launch") or not path.is_file():
+        return None
+    try:
+        return parse_launch(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return None
+
+
+def launch_verified(found: JsonDict, dispatch_id: str) -> bool:
+    """True only when the saved receipt is this dispatch's and shows the dispatched provider
+    and (when one was requested) the dispatched model.
+
+    No receipt, a receipt that is not a successful start, or one without a dispatch id is
+    unverified, not a failure (older dispatches have none). A receipt of another dispatch,
+    or one naming another provider or model, refuses the collect."""
+    launch = _read_launch(found)
+    if launch is None or not launch.dispatch_id:
+        return False
+    _refuse_mismatch(launch, found, dispatch_id)
+    wanted = str(found.get("model", ""))
+    return bool(launch.agent) and (not wanted or launch.model == wanted)
+
+
+def _refuse_mismatch(launch: Launch, found: JsonDict, dispatch_id: str) -> None:
+    """A receipt of another dispatch, provider or model is evidence against the round."""
+    number, wanted = found["n"], str(found.get("model", ""))
+    if launch.dispatch_id != dispatch_id:
+        raise DispatchError(
+            f"the launch receipt of round {number} belongs to dispatch {launch.dispatch_id}, "
+            f"not {dispatch_id}"
+        )
+    if launch.agent and provider(launch.agent) != found["provider"]:
+        raise DispatchError(
+            f"Orca launched round {number} as '{launch.agent}', not as the dispatched provider "
+            f"'{found['provider']}': abort it and dispatch again"
+        )
+    if wanted and launch.model and launch.model != wanted:
+        raise DispatchError(
+            f"Orca launched round {number} on model '{launch.model}', not on the dispatched "
+            f"'{wanted}' (it fell back?): abort it and dispatch again"
+        )
+
+
+def _used_scratch(found: JsonDict) -> bool:
+    if not found.get("scratch"):
+        return False
+    path = Path(str(found["scratch"]))
+    try:
+        return path.is_dir() and any(path.iterdir())
+    except OSError:  # unreadable scratch is not evidence; it must not break the settle
+        return False
+
+
 def _read_answer(found: JsonDict, answer_file: Path | None) -> tuple[str, str]:
     path = answer_file or Path(found["answer"])
     try:
@@ -197,14 +286,24 @@ def _render(record: JsonDict, found: JsonDict, answer: str) -> str:
     focus = f" · {record['focus']}" if record.get("focus") else ""
     spec = Path(found["spec"]).read_text(encoding="utf-8")
     check = "provider verified" if record.get("provider_verified") else "provider not verified"
+    launch = "launch verified" if record.get("launch_verified") else "launch not verified"
     reason = f": {record['reason']}" if record.get("reason") else ""
+    extra = ""
+    if record.get("rebuts"):
+        extra += (
+            "- Cross-examines rounds: " + ", ".join(f"{n:03d}" for n in record["rebuts"]) + "\n"
+        )
+    if record.get("scratch_used"):
+        extra += f"- Scratch evidence: {found['scratch']}\n"
+    if record.get("changes"):
+        extra += "- Required changes:\n" + "".join(f"  - {c}\n" for c in record["changes"])
     return (
         f"# Round {record['n']:03d} · {record['phase']} · {record['role']}{focus} · "
         f"{record['agent']} {record['model']}\n\n"
         f"- Date: {record['at']}\n- Code stamp: {record['stamp']}\n"
         f"- Command: `{shlex.join(found['command'])}`\n"
-        f"- Dispatch: {record['session']} ({check})\n"
-        f"- Verdict: {record['verdict']} ({record['state']}{reason})\n\n"
+        f"- Dispatch: {record['session']} ({check}, {launch})\n"
+        f"- Verdict: {record['verdict']} ({record['state']}{reason})\n{extra}\n"
         f"## Request\n\n{spec}\n\n## Answer\n\n{answer}\n"
     )
 
@@ -255,11 +354,16 @@ def collect_round(
             "taskflow control files changed since dispatch (" + ", ".join(changed[:6]) + "): "
             "the round was not settled; inspect the store before going on"
         )
+    launched = launch_verified(found, dispatch_id)
     state, verdict, reason = _outcome(found, row, answer)
+    reviews = found["role"] in ("validator", "judge")
     record = {
         **_base_record(found),
         **{"verdict": verdict, "state": state, "reason": reason, "session": dispatch_id},
         **{"provider_verified": verified, "answer_transport": transport},
+        **{"launch_verified": launched, "rebuts": list(found.get("rebuts", []))},
+        **{"changes": parse_changes(answer) if reviews else []},
+        **{"scratch_used": _used_scratch(found)},
     }
     try:
         _write_settled(store, task_id, _Settlement(record, _render(record, found, answer)))

@@ -9,8 +9,8 @@ At dispatch the coordinator records a baseline of those files inside ``dispatch.
 keeps a seal of that file (its sha256) outside the task directory, under ``<store>/seals``.
 At collect, anything in the baseline that changed is reported. Legitimate concurrent engine
 writes (new rounds, approvals, evidence, facts, other fields of ``state.json``) are not in the
-baseline's scope, and the worker's two designated files (``answer.txt`` and ``receipt.txt``)
-are not control files.
+baseline's scope, and the worker's designated files (``answer.txt``, ``receipt.txt`` and its
+``scratch/`` folder) and the coordinator's ``launch.json`` are not control files.
 
 Limit: a malicious worker running as the same user can rewrite the baseline, the seal and
 the files together, so this cannot make the store tamper-proof. It detects accidental

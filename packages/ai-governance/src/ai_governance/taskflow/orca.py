@@ -102,7 +102,8 @@ def worker_start_argv(start: WorkerStart) -> list[str]:
     ]
     if start.model:
         argv += ["--model", start.model]
-    return [*argv, "--worktree", f"path:{start.worktree}", "--task-title", start.title]
+    # --json: the receipt names the agent and model Orca really launched (checked at collect)
+    return [*argv, "--worktree", f"path:{start.worktree}", "--task-title", start.title, "--json"]
 
 
 def worker_stop_line(dispatch_id: str) -> str:

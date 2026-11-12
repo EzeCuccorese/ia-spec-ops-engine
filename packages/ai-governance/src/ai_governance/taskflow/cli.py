@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shlex
 import subprocess
 import sys
 from collections.abc import Callable
@@ -609,7 +608,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
     job = JudgeJob(store, task, GateContext(config, risk, task.stamp_key), JudgeScope(args.focus))
     waiting: set[str] = set()
     for plan in judge_flow(job, lambda: _refresh(store, store.get(task.id), config)[0].stamp_key):
-        print(shlex.join(plan.argv))
+        print(plan.line())
         waiting.add(plan.focus)
         print(
             f"Round {plan.n:03d} reserved (judge '{plan.focus}'). Run the line above, end your turn, "
