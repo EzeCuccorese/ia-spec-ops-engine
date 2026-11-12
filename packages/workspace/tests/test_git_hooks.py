@@ -1107,12 +1107,9 @@ def test_monorepo_without_ws_on_path_warns_and_skips_full_suite(tmp_path: Path) 
     assert proc.returncode == 0
 
 
-@requires_node
-def test_monorepo_pre_push_scoped_run_does_not_swallow_stdin(tmp_path: Path) -> None:
+def _setup_monorepo_stdin_repo(tmp_path: Path) -> tuple[Path, Path, Path]:
     project_dir = tmp_path / "repo"
     bin_dir = tmp_path / "bin"
-    fake_home = tmp_path / "home"
-    fake_home.mkdir()
     _init_test_git_repo(project_dir)
     _commit_fixture(project_dir)
 
@@ -1123,34 +1120,32 @@ def test_monorepo_pre_push_scoped_run_does_not_swallow_stdin(tmp_path: Path) -> 
     (project_dir / "yarn.lock").write_text("", encoding="utf-8")
     (project_dir / "node_modules").mkdir()
 
-    # Create two packages pkg-a and pkg-b, both with vitest and tests
-    pkg_a = project_dir / "packages" / "pkg-a"
-    pkg_a.mkdir(parents=True)
-    (pkg_a / "package.json").write_text(
-        '{"name": "pkg-a", "scripts": {"test": "vitest"}, "devDependencies": {"vitest": "1.0.0"}}',
-        encoding="utf-8",
-    )
-    (pkg_a / "index.js").write_text("module.exports = 1;\n", encoding="utf-8")
+    for name in ("pkg-a", "pkg-b"):
+        pkg = project_dir / "packages" / name
+        pkg.mkdir(parents=True)
+        (pkg / "package.json").write_text(
+            f'{{"name": "{name}", "scripts": {{"test": "vitest"}}, "devDependencies": {{"vitest": "1.0.0"}}}}',
+            encoding="utf-8",
+        )
+        (pkg / "index.js").write_text(f"module.exports = '{name}';\n", encoding="utf-8")
 
-    pkg_b = project_dir / "packages" / "pkg-b"
-    pkg_b.mkdir(parents=True)
-    (pkg_b / "package.json").write_text(
-        '{"name": "pkg-b", "scripts": {"test": "vitest"}, "devDependencies": {"vitest": "1.0.0"}}',
-        encoding="utf-8",
-    )
-    (pkg_b / "index.js").write_text("module.exports = 2;\n", encoding="utf-8")
-
-    # Mock yarn executable: attempts to read from stdin to test if stdin is /dev/null
     log_file = tmp_path / "yarn_executed.log"
     _write_exe(
         bin_dir / "yarn",
         f'read -r line\necho "$PWD: $*" >> "{log_file}"\nexit 0\n',
     )
-
     subprocess.run(["git", "-C", str(project_dir), "add", "."], check=True)
     subprocess.run(
         ["git", "-C", str(project_dir), "commit", "-m", "feat: add packages"], check=True
     )
+    return project_dir, bin_dir, log_file
+
+
+@requires_node
+def test_monorepo_pre_push_scoped_run_does_not_swallow_stdin(tmp_path: Path) -> None:
+    project_dir, bin_dir, log_file = _setup_monorepo_stdin_repo(tmp_path)
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
 
     assert install_git_hooks(target_dir=project_dir)["success"] is True
 

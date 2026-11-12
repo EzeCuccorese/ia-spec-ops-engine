@@ -640,30 +640,27 @@ def test_cli_changed_flag_uses_changed_files(
     assert "1 pre-existing functions over the limits in touched files" in out
 
 
-def test_cli_changed_and_files_from_filters_excluded_hygiene_and_test_quality(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # Set up config with exclude = ["**/poc/**", "**/ignore_test.py"]
+def _setup_excluded_hygiene_repo(tmp_path: Path) -> tuple[Path, Path]:
     gov = tmp_path / ".workspace"
     gov.mkdir()
     (gov / "config.toml").write_text(
         '[design]\nmode = "block"\nexclude = ["**/poc/**", "**/ignore_test.py"]\n',
         encoding="utf-8",
     )
-    # File in excluded directory with empty-catch violation
     poc_dir = tmp_path / "poc"
     poc_dir.mkdir()
-    poc_file = poc_dir / "service.py"
-    poc_file.write_text("try:\n    pass\nexcept Exception:\n    pass\n")
+    (poc_dir / "service.py").write_text("try:\n    pass\nexcept Exception:\n    pass\n")
+    (tmp_path / "ignore_test.py").write_text("def test_dummy():\n    x = 1\n")
+    (tmp_path / "bad.py").write_text("try:\n    pass\nexcept Exception:\n    pass\n")
+    list_file = tmp_path / "files.txt"
+    list_file.write_text("poc/service.py\nignore_test.py\n", encoding="utf-8")
+    return list_file, tmp_path
 
-    # Excluded test file with test-no-assert violation
-    test_file = tmp_path / "ignore_test.py"
-    test_file.write_text("def test_dummy():\n    x = 1\n")
 
-    # Regular non-excluded file with empty catch
-    bad_file = tmp_path / "bad.py"
-    bad_file.write_text("try:\n    pass\nexcept Exception:\n    pass\n")
-
+def test_cli_changed_and_files_from_filters_excluded_hygiene_and_test_quality(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    list_file, _ = _setup_excluded_hygiene_repo(tmp_path)
     monkeypatch.setattr(
         design_cli,
         "changed_files",
@@ -681,15 +678,11 @@ def test_cli_changed_and_files_from_filters_excluded_hygiene_and_test_quality(
 
     code = design_cli.design(["--dir", str(tmp_path), "--changed"])
     out = capsys.readouterr().out
-    # Only bad.py should produce a violation; poc/service.py and ignore_test.py are excluded
     assert "poc/service.py" not in out
     assert "ignore_test.py" not in out
     assert "bad.py" in out
     assert code == 1
 
-    # Verify --files-from also filters out excluded paths
-    list_file = tmp_path / "files.txt"
-    list_file.write_text("poc/service.py\nignore_test.py\n", encoding="utf-8")
     code2 = design_cli.design(["--dir", str(tmp_path), "--files-from", str(list_file)])
     out2 = capsys.readouterr().out
     assert "poc/service.py" not in out2

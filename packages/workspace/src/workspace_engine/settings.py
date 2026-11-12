@@ -114,7 +114,7 @@ def stable_repo_name(root: Path) -> str:
                 common_dir = common_dir.resolve()
             return common_dir.parent.name
     except (OSError, subprocess.SubprocessError):
-        pass
+        return root.resolve().name
     return root.resolve().name
 
 
