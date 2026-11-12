@@ -26,20 +26,14 @@ def _scope_row(
     hook_exists = bool(scope_status["hook_exists"])
     is_executable = bool(scope_status["is_executable"])
     is_active = bool(scope_status["is_active"])
-    configured_command = scope_status["configured_command"] or (
-        "Not configured" if agent_mode else "[dim]Not configured[/dim]"
-    )
+    configured_command = scope_status["configured_command"] or "Not configured"
 
     if agent_mode:
         perm = "Executable" if is_executable else ("No exec" if hook_exists else "Not installed")
         active = "ACTIVE" if is_active else "Inactive"
     else:
-        perm = (
-            "[green]✓ Executable[/green]"
-            if is_executable
-            else ("[yellow]No exec[/yellow]" if hook_exists else "[red]Not installed[/red]")
-        )
-        active = "[green]✓ ACTIVE[/green]" if is_active else "[dim]Inactive[/dim]"
+        perm = "✓ Executable" if is_executable else ("No exec" if hook_exists else "Not installed")
+        active = "✓ ACTIVE" if is_active else "Inactive"
 
     return (label, str(scope_status["hook_path"]), str(configured_command), perm, active)
 

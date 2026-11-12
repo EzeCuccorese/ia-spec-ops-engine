@@ -1,6 +1,6 @@
 """
 Coverage tests for workspace_engine.cli.main: doctor_check's human-readable
-branches and the full `args.command` dispatch table in main().
+branches and the `args.command` dispatch table in main().
 
 The `config` dispatch branch has dedicated coverage in test_ws_cli.py.
 """
@@ -13,7 +13,7 @@ import pytest
 from workspace_engine.cli.main import doctor_check, main
 
 # ---------------------------------------------------------------------------
-# doctor_check — human-readable (non agent-mode) branches
+# doctor_check — human-readable and agent-mode branches
 # ---------------------------------------------------------------------------
 
 
@@ -47,59 +47,12 @@ def test_doctor_check_rows(agent_mode, git_path, local, glob, git_status, hooks_
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "argv,target,forwarded",
-    [
-        (
-            ["ws", "generate", "ws-name", "repo-a"],
-            "workspace_engine.cli.generate_workspace.main",
-            (["ws-name", "repo-a"],),
-        ),
-        (["ws", "edit"], "workspace_engine.cli.edit_workspace.main", ([],)),
-        (["ws", "clean"], "workspace_engine.cli.clean_workspace.main", ([],)),
-        (
-            ["ws", "stop", "--timeout", "2"],
-            "workspace_engine.cli.stop_workspace.main",
-            (["--timeout", "2"],),
-        ),
-        (
-            ["ws", "reset", "--force", "repo-a"],
-            "workspace_engine.cli.reset_repos.main",
-            (["--force", "repo-a"],),
-        ),
-        (["ws", "delete", "ws-a"], "workspace_engine.cli.delete_workspaces.main", (["ws-a"],)),
-        (["ws", "build", "/tmp/x"], "workspace_engine.cli.build_project.main", (["/tmp/x"],)),
-        (["ws", "deps", "repo-a"], "workspace_engine.cli.install_deps.main", (["repo-a"],)),
-        (["ws", "java", "--json"], "workspace_engine.cli.set_java.main", (["--json"],)),
-        (
-            ["ws", "env-init", "--check-only"],
-            "workspace_engine.cli.init_env.main",
-            (["--check-only"],),
-        ),
-        (
-            ["ws", "env-load", "--envs", "dev"],
-            "workspace_engine.cli.load_env.main",
-            (["--envs", "dev"],),
-        ),
-        (["ws", "benchmark"], "workspace_engine.cli.unit_test_benchmark.main", ([],)),
-        (["ws", "run-local", "--stop"], "workspace_engine.run_local.main.main", (["--stop"],)),
-        (["ws", "doctor"], "workspace_engine.cli.main.doctor_check", ()),
-        (
-            ["ws", "worktree", "feat-x"],
-            "workspace_engine.cli.create_worktree.main",
-            (["feat-x"],),
-        ),
-        (
-            ["ws", "worktree", "repo-a", "/tmp/target", "feature-x"],
-            "workspace_engine.cli.create_worktree.main",
-            (["repo-a", "/tmp/target", "feature-x"],),
-        ),
-    ],
-)
-def test_main_dispatches_simple_subcommands(argv, target, forwarded):
-    with patch("sys.argv", argv), patch(target) as mock_main:
+def test_main_dispatches_doctor(capsys: pytest.CaptureFixture[str]) -> None:
+    with patch("sys.argv", ["ws", "doctor"]):
         main()
-    mock_main.assert_called_once_with(*forwarded)
+    out = capsys.readouterr().out
+    assert "Development Environment Diagnostics" in out
+    assert "git-hooks" in out
 
 
 def test_main_dispatches_hooks_with_forwarded_args():
@@ -111,30 +64,6 @@ def test_main_dispatches_hooks_with_forwarded_args():
         main()
     assert exc.value.code == 0
     mock_hooks.assert_called_once_with(["status", "--dir", "/tmp/x"])
-
-
-def test_main_dispatches_hook_claude_worktree_create():
-    with (
-        patch("sys.argv", ["ws", "hook", "claude-worktree-create", "--repo", "foo"]),
-        patch(
-            "workspace_engine.integrations.claude.worktree_hook.main", return_value=0
-        ) as mock_hook,
-        pytest.raises(SystemExit) as exc,
-    ):
-        main()
-    assert exc.value.code == 0
-    mock_hook.assert_called_once_with(["--repo", "foo"])
-
-
-def test_main_dispatches_kube_with_action():
-    with (
-        patch("sys.argv", ["ws", "kube", "env"]),
-        patch("workspace_engine.cli.kube.main.main", return_value=0) as mock_kube,
-        pytest.raises(SystemExit) as exc,
-    ):
-        main()
-    assert exc.value.code == 0
-    mock_kube.assert_called_once_with("env")
 
 
 @pytest.mark.parametrize(

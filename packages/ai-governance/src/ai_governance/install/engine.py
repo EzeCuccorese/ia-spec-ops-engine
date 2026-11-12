@@ -382,51 +382,87 @@ def _apply_hooks(
     )
 
 
-def _remove_entry(entry: dict[str, Any], ledger: Ledger, report: Report, dry_run: bool) -> bool:
-    """Removes a previously written artifact. Returns False when it had to be kept."""
+def _remove_link_entry(
+    entry: dict[str, Any], ledger: Ledger, report: Report, dry_run: bool
+) -> bool:
     path = ledger.resolve(entry["path"])
-    if entry["kind"] == "link":
-        if path.is_symlink() and os.readlink(path) == entry["target"]:
-            if not dry_run:
-                path.unlink()
-                _prune_empty_parents(path.parent, ledger.base)
-            report.add("removed", path)
-        elif path.exists():
-            report.warnings.append(f"{path} was replaced locally; not removed.")
-            return False
-        return True
-    current = _read(path)
-    if entry["kind"] == "file":
-        if current is None:
-            return True
-        if sha256(current) != entry["sha256"]:
-            report.warnings.append(f"{path} was edited locally; not removed.")
-            return False
+    if path.is_symlink() and os.readlink(path) == entry["target"]:
         if not dry_run:
             path.unlink()
             _prune_empty_parents(path.parent, ledger.base)
         report.add("removed", path)
-    elif entry["kind"] == "block":
-        start, end = entry.get("markers", [START, END])
-        if current is not None and start in current:
-            cleaned = BlockInjector.remove(current, start=start, end=end)
-            if not dry_run:
-                if cleaned:
-                    _write(path, cleaned)
-                else:
-                    path.unlink()
-            report.add("removed block from", path)
-    elif current is not None:
-        data = json.loads(current) if current.strip() else {}
-        _remove_hooks(data, set(entry.get("commands", [])), entry.get("group"))
-        if not dry_run:
-            if not data and entry.get("created"):
-                path.unlink()
-                _prune_empty_parents(path.parent, ledger.base)
-            else:
-                _write(path, _dump_json(data))
-        report.add("removed hooks from", path)
+        return True
+    if path.exists():
+        report.warnings.append(f"{path} was replaced locally; not removed.")
+        return False
     return True
+
+
+def _remove_file_entry(
+    entry: dict[str, Any], ledger: Ledger, report: Report, dry_run: bool
+) -> bool:
+    path = ledger.resolve(entry["path"])
+    current = _read(path)
+    if current is None:
+        return True
+    if sha256(current) != entry["sha256"]:
+        report.warnings.append(f"{path} was edited locally; not removed.")
+        return False
+    if not dry_run:
+        path.unlink()
+        _prune_empty_parents(path.parent, ledger.base)
+    report.add("removed", path)
+    return True
+
+
+def _remove_block_entry(
+    entry: dict[str, Any], ledger: Ledger, report: Report, dry_run: bool
+) -> bool:
+    path = ledger.resolve(entry["path"])
+    current = _read(path)
+    start, end = entry.get("markers", [START, END])
+    if current is None or start not in current:
+        return True
+    cleaned = BlockInjector.remove(current, start=start, end=end)
+    if not dry_run:
+        if cleaned:
+            _write(path, cleaned)
+        else:
+            path.unlink()
+    report.add("removed block from", path)
+    return True
+
+
+def _remove_hooks_entry(
+    entry: dict[str, Any], ledger: Ledger, report: Report, dry_run: bool
+) -> bool:
+    path = ledger.resolve(entry["path"])
+    current = _read(path)
+    if current is None:
+        return True
+    data = json.loads(current) if current.strip() else {}
+    _remove_hooks(data, set(entry.get("commands", [])), entry.get("group"))
+    if not dry_run:
+        if not data and entry.get("created"):
+            path.unlink()
+            _prune_empty_parents(path.parent, ledger.base)
+        else:
+            _write(path, _dump_json(data))
+    report.add("removed hooks from", path)
+    return True
+
+
+_REMOVE_HANDLERS = {
+    "link": _remove_link_entry,
+    "file": _remove_file_entry,
+    "block": _remove_block_entry,
+}
+
+
+def _remove_entry(entry: dict[str, Any], ledger: Ledger, report: Report, dry_run: bool) -> bool:
+    """Removes a previously written artifact. Returns False when it had to be kept."""
+    handler = _REMOVE_HANDLERS.get(entry["kind"], _remove_hooks_entry)
+    return handler(entry, ledger, report, dry_run)
 
 
 def _prune_empty_parents(directory: Path, stop: Path | None) -> None:

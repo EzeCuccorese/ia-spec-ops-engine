@@ -238,7 +238,7 @@ def _gate_environment(options: GateOptions) -> dict[str, str]:
     env.update(QG_SCOPE=options.scope, QG_OUTPUT=options.output)
     if options.timeout is not None:
         env["QG_TIMEOUT"] = str(options.timeout)
-    if options.skip:
+    if options.skip is not None:
         env["QG_SKIP"] = options.skip
     if options.commit_style:
         env["QG_COMMIT_STYLE"] = options.commit_style

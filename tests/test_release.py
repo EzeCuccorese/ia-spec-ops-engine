@@ -111,7 +111,7 @@ def _seed_repo(root: Path) -> None:
     """Create the minimal files the version writer touches."""
     (root / "packages/ai-governance/src/ai_governance").mkdir(parents=True)
     (root / "packages/workspace/src/workspace_engine").mkdir(parents=True)
-    for package in ("ai-governance", "spec", "workspace"):
+    for package in ("ai-governance", "workspace"):
         (root / "packages" / package).mkdir(parents=True, exist_ok=True)
         (root / "packages" / package / "pyproject.toml").write_text(
             '[project]\nname = "x"\nversion = "0.1.0"\n', encoding="utf-8"
@@ -130,7 +130,7 @@ def _seed_repo(root: Path) -> None:
 def test_write_version_files_updates_every_target(tmp_path: Path) -> None:
     _seed_repo(tmp_path)
     changed = release.write_version_files(tmp_path, "1.0.0")
-    assert len(changed) == 6
+    assert len(changed) == 5
     assert 'version = "1.0.0"' in (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
     init = tmp_path / "packages/workspace/src/workspace_engine/__init__.py"
     assert '__version__ = "1.0.0"' in init.read_text(encoding="utf-8")

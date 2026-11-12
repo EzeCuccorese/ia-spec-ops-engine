@@ -65,20 +65,15 @@ def test_install_errors_are_reported(repo: Path, capsys) -> None:
     assert "--agent" in capsys.readouterr().err
 
 
-def test_interactive_agent_picker(repo: Path, monkeypatch, capsys) -> None:
-    from ai_governance.install import cli as install_cli
-
+def test_install_never_prompts_even_on_tty(repo: Path, monkeypatch, capsys) -> None:
     monkeypatch.setenv("AI_GOVERNANCE_AGENT", "0")
     monkeypatch.setattr("sys.stdin.isatty", lambda: True, raising=False)
-    monkeypatch.setattr("builtins.input", lambda prompt: "1,3")
-    assert install_cli._pick_agents() == ["claude", "antigravity"]
-    for bad in ("9", "x", ""):
-        monkeypatch.setattr("builtins.input", lambda prompt, bad=bad: bad)
-        with pytest.raises(ValueError):
-            install_cli._pick_agents()
-    monkeypatch.setattr("builtins.input", lambda prompt: "0")
-    with pytest.raises(ValueError):
-        install_cli._pick_agents()
+    monkeypatch.setattr(
+        "builtins.input", lambda _prompt="": pytest.fail("input() must not be called")
+    )
+    assert main(["install", "--root", str(repo)]) == 1
+    captured = capsys.readouterr()
+    assert "--agent" in captured.out + captured.err
 
 
 def test_probe_cli_build_and_verify(repo: Path, capsys) -> None:

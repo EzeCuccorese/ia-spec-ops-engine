@@ -1,24 +1,17 @@
 """
 workspace_engine.cli.main — Master unified entry point for the `ws` CLI.
 
-Unifies workspace management operations into a single command:
-  ws generate
-  ws edit
-  ws worktree
-  ws clean
-  ws stop
-  ws reset
-  ws delete
-  ws build
-  ws deps
-  ws java
-  ws env-init
-  ws env-load
-  ws benchmark
-  ws run-local
-  ws kube
-  ws doctor
+Unifies deterministic workspace quality-gate and inspection operations into a single command:
+  ws check
+  ws changed
+  ws design
+  ws run
+  ws condense
+  ws log
+  ws detect
   ws hooks
+  ws config
+  ws doctor
 """
 
 from __future__ import annotations
@@ -30,6 +23,24 @@ import shutil
 import sys
 
 from workspace_engine.common import emit_rows, is_agent_mode
+
+
+def _hooks_doctor_row(*, agent_mode: bool) -> tuple[str, str, str]:
+    from workspace_engine.services.git_hooks import get_hooks_status
+
+    hooks_stat = get_hooks_status()
+    local_active = bool(hooks_stat["local"]["is_active"])
+    global_active = bool(hooks_stat["global"]["is_active"])
+    if not (local_active or global_active):
+        status = "Inactive" if agent_mode else "⚠ Inactive"
+        return ("git-hooks", status, "Run 'ws hooks install --global' to protect git push")
+
+    if local_active and global_active:
+        active_scope = "Local & Global"
+    else:
+        active_scope = "Local" if local_active else "Global"
+    status = "Active" if agent_mode else "✓ Active"
+    return ("git-hooks", status, f"Pre-Push Quality Gate ({active_scope})")
 
 
 def doctor_check() -> None:
@@ -51,26 +62,13 @@ def doctor_check() -> None:
     for tool, desc in tools:
         path = shutil.which(tool)
         if path:
-            status = "Available" if agent_mode else "[green]✓ Available[/green]"
+            status = "Available" if agent_mode else "✓ Available"
             rows.append((tool, status, f"{desc} ({path})"))
         else:
-            status = "Not Found" if agent_mode else "[yellow]⚠ Not Found[/yellow]"
+            status = "Not Found" if agent_mode else "⚠ Not Found"
             rows.append((tool, status, desc))
 
-    from workspace_engine.services.git_hooks import get_hooks_status
-
-    hooks_stat = get_hooks_status()
-    if hooks_stat["local"]["is_active"] or hooks_stat["global"]["is_active"]:
-        active_scope = (
-            "Local & Global"
-            if (hooks_stat["local"]["is_active"] and hooks_stat["global"]["is_active"])
-            else ("Local" if hooks_stat["local"]["is_active"] else "Global")
-        )
-        status = "Active" if agent_mode else "[green]✓ Active[/green]"
-        rows.append(("git-hooks", status, f"Pre-Push Quality Gate ({active_scope})"))
-    else:
-        status = "Inactive" if agent_mode else "[yellow]⚠ Inactive[/yellow]"
-        rows.append(("git-hooks", status, "Run 'ws hooks install --global' to protect git push"))
+    rows.append(_hooks_doctor_row(agent_mode=agent_mode))
 
     emit_rows(
         rows,
@@ -83,62 +81,6 @@ def doctor_check() -> None:
 # Commands that own their argument parser: `ws <command> ...` forwards everything after the
 # command name to `<module>.main(argv)`.
 DELEGATED_COMMANDS = {
-    "generate": (
-        "workspace_engine.cli.generate_workspace",
-        "Generate a new multi-repo workspace from Git worktrees",
-    ),
-    "worktree": (
-        "workspace_engine.cli.create_worktree",
-        "Create an isolated Git worktree",
-    ),
-    "edit": (
-        "workspace_engine.cli.edit_workspace",
-        "Add/remove repositories in the current workspace",
-    ),
-    "clean": (
-        "workspace_engine.cli.clean_workspace",
-        "Clean dependencies, caches, and build artifacts in workspace",
-    ),
-    "stop": (
-        "workspace_engine.cli.stop_workspace",
-        "Stop all running processes and services in workspace",
-    ),
-    "reset": (
-        "workspace_engine.cli.reset_repos",
-        "Reset workspace repositories to their branch point or a clean HEAD",
-    ),
-    "delete": (
-        "workspace_engine.cli.delete_workspaces",
-        "Delete workspaces and unregister associated worktrees",
-    ),
-    "build": (
-        "workspace_engine.cli.build_project",
-        "Build project auto-detecting the technology stack",
-    ),
-    "deps": (
-        "workspace_engine.cli.install_deps",
-        "Install workspace repository dependencies (Gradle, Maven, npm, uv, etc.)",
-    ),
-    "java": (
-        "workspace_engine.cli.set_java",
-        "Print the JAVA_HOME/PATH exports for the project's JDK via SDKMAN",
-    ),
-    "env-init": (
-        "workspace_engine.cli.init_env",
-        "Initialize or sync config/.env from its .env.example template",
-    ),
-    "env-load": (
-        "workspace_engine.cli.load_env",
-        "Update a variable across per-environment values.<env>.yaml files",
-    ),
-    "benchmark": (
-        "workspace_engine.cli.unit_test_benchmark",
-        "Execute parallel unit test benchmarks with visual reports",
-    ),
-    "run-local": (
-        "workspace_engine.run_local.main",
-        "Orchestrate and launch local microservices with live TUI",
-    ),
     "hooks": (
         "workspace_engine.cli.manage_hooks:main",
         "Multi-stack Git Hooks & Quality Gates manager",
@@ -182,7 +124,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="ws",
-        description="ia-spec-ops-engine — deterministic workspace, Git worktree & local microservices manager.",
+        description="ia-spec-ops-engine — deterministic quality gates, design limits, and command condensation.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {__version__}")
@@ -191,28 +133,17 @@ def _build_parser() -> argparse.ArgumentParser:
     for name, (_, help_text) in DELEGATED_COMMANDS.items():
         subparsers.add_parser(name, help=help_text, add_help=False)
 
-    p_kube = subparsers.add_parser(
-        "kube", help="Kubernetes pod manager for environment extraction and shells"
-    )
-    p_kube.add_argument(
-        "action", nargs="?", choices=["env", "logs", "shell"], help="Action to execute"
-    )
-
     p_detect = subparsers.add_parser(
         "detect", help="Detect the repository technology stacks (deterministic)"
     )
     p_detect.add_argument("--dir", "-d", default=".", help="Repository root (defaults to cwd)")
     p_detect.add_argument("--json", action="store_true", help="Emit the versioned JSON contract")
 
-    p_host_hook = subparsers.add_parser("hook", help="Run a coding-agent integration hook")
-    p_host_hook.add_argument("hook_name", choices=["claude-worktree-create"])
-    p_host_hook.add_argument("hook_args", nargs=argparse.REMAINDER)
-
     subparsers.add_parser(
         "doctor", help="Verify system tools, compilers, and development environment"
     )
 
-    p_config = subparsers.add_parser("config", help="Initialize and manage workspace configuration")
+    p_config = subparsers.add_parser("config", help="Inspect effective workspace configuration")
     from workspace_engine.config.init_config import add_config_arguments
 
     add_config_arguments(p_config)
@@ -236,25 +167,10 @@ def _run_config(args: argparse.Namespace) -> None:
     sys.exit(run_config(args))
 
 
-def _run_hook(args: argparse.Namespace) -> None:
-    if args.hook_name == "claude-worktree-create":
-        from workspace_engine.integrations.claude.worktree_hook import main as hook_main
-
-        sys.exit(hook_main(args.hook_args))
-
-
-def _run_kube(args: argparse.Namespace) -> None:
-    from workspace_engine.cli.kube.main import main as kube_main
-
-    sys.exit(kube_main(args.action))
-
-
 _BUILTIN_HANDLERS = {
     "detect": _run_detect,
     "config": _run_config,
     "doctor": lambda _args: doctor_check(),
-    "hook": _run_hook,
-    "kube": _run_kube,
 }
 
 

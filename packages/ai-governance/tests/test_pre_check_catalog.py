@@ -9,9 +9,11 @@ def test_replacement_patterns_point_to_deterministic_tools() -> None:
         assert advice.startswith("Deterministic alternative:")
 
 
-def test_git_worktree_add_suggests_ws_worktree() -> None:
-    advice = PreCheck.check_command("git worktree add ../x", extra_patterns=replacement_patterns())
-    assert advice is not None and "ws worktree" in advice
+def test_which_stacks_suggests_ws_detect() -> None:
+    advice = PreCheck.check_command(
+        "which java node python go", extra_patterns=replacement_patterns()
+    )
+    assert advice is not None and "ws detect" in advice
 
 
 def test_unrelated_command_has_no_advice() -> None:

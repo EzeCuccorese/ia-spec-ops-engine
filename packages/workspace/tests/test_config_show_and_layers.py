@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -25,15 +26,15 @@ def test_config_show_marks_repo_values_and_defaults(
 ) -> None:
     repo = tmp_path / "repo"
     (repo / ".workspace").mkdir(parents=True)
-    (repo / ".git").mkdir()
-    (repo / ".workspace" / "config.json").write_text(json.dumps({"domain": "acme.io"}))
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+    (repo / ".workspace" / "config.toml").write_text('[gate]\nscope = "staged"\n', encoding="utf-8")
     monkeypatch.chdir(repo)
     assert _show(argparse.Namespace(origin=True, json=True)) == 0
     shown = json.loads(capsys.readouterr().out)
-    assert shown["project.domain"]["origin"] == "repo"
-    assert shown["project.domain"]["source"].endswith(".workspace/config.json")
-    assert shown["project.project_name"] == {
-        "value": "generic",
+    assert shown["gate.scope"]["origin"] == "repo"
+    assert shown["gate.scope"]["source"].endswith(".workspace/config.toml")
+    assert shown["gate.output"] == {
+        "value": "errors",
         "origin": "default",
         "source": "",
     }

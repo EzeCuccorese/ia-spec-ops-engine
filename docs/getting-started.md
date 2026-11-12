@@ -61,7 +61,7 @@ What each Claude hook does:
 
 | Event | Effect |
 |---|---|
-| PreToolUse (Bash) | One-line advice when a deterministic tool replaces the command (for example `git worktree add` → `ws worktree`) |
+| PreToolUse (Bash) | One-line advice when a deterministic tool replaces the command (for example `cat .git/hooks/*` → `ws hooks status`) |
 | PostToolUse (Bash) | Output over 4,000 characters is replaced by a `ws condense` summary (about 600 tokens). The full text is kept and read with `ws log <id>`. Diffs and explicit file reads are never condensed |
 | SessionStart | Injects up to 400 characters about the task bound to this repository/branch |
 | SessionEnd | Appends branch, HEAD and the number of uncommitted files to that task's log |

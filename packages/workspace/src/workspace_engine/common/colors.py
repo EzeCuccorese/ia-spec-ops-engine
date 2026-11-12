@@ -1,11 +1,10 @@
 """
-workspace_engine.common.colors — Unified ANSI color palette and Rich console for Workspace Engine.
+workspace_engine.common.colors — Unified ANSI color palette and plain-text output helpers.
 
-Also hosts a small "agent mode" output helper (`is_agent_mode`, `emit_rows`,
-`truncate`) so that non-interactive `ws` commands emit compact plain text
-when run by an AI coding agent instead of ANSI-heavy Rich tables. This is a
-deliberate, small duplication of `ai_governance.output`: `workspace_engine`
-must not depend on the `ai-governance` package.
+Hosts the "agent mode" output helper (`is_agent_mode`, `emit_rows`,
+`truncate`) so that non-interactive `ws` commands emit compact plain text.
+This is a deliberate, small duplication of `ai_governance.output`:
+`workspace_engine` must not depend on the `ai-governance` package.
 """
 
 from __future__ import annotations
@@ -14,17 +13,10 @@ import sys
 from collections.abc import Sequence
 from typing import TextIO
 
-from rich.console import Console
-from rich.table import Table
-
 from workspace_engine._config_core import AGENT_ENV_MARKERS as AGENT_ENV_MARKERS
 from workspace_engine._config_core import ConfigError
 from workspace_engine._config_core import is_agent_mode as core_is_agent_mode
 from workspace_engine.settings import effective
-
-# Shared Rich Console instance
-console = Console()
-err_console = Console(stderr=True)
 
 DEFAULT_MAX_LINES = 20
 DEFAULT_MAX_CHARS = 1500
@@ -103,30 +95,22 @@ def emit_rows(
     full: bool = False,
     more_hint: str = "",
 ) -> None:
-    """Emits tabular data: a rich table on TTY, or one compact line per row.
+    """Emits tabular data as one compact line per row.
 
-    In agent mode, columns are joined with ``" | "``; the title (if any)
-    and headers (if any) each become their own line above the rows.
+    Columns are joined with ``" | "``; the title (if any) and headers (if any)
+    each become their own line above the rows. In agent mode, output is
+    truncated unless ``full`` is True.
     """
-    if is_agent_mode():
-        lines: list[str] = []
-        if title:
-            lines.append(title)
-        if headers:
-            lines.append(" | ".join(headers))
-        lines.extend(" | ".join(row) for row in rows)
-        text = "\n".join(lines)
-        if not full:
-            text = truncate(text, more_hint=more_hint)
-        print(text)
-        return
-
-    table = Table(title=title, border_style="cyan")
-    for header in headers or []:
-        table.add_column(header)
-    for row in rows:
-        table.add_row(*row)
-    console.print(table)
+    lines: list[str] = []
+    if title:
+        lines.append(title)
+    if headers:
+        lines.append(" | ".join(headers))
+    lines.extend(" | ".join(row) for row in rows)
+    text = "\n".join(lines)
+    if is_agent_mode() and not full:
+        text = truncate(text, more_hint=more_hint)
+    print(text)
 
 
 class Color:

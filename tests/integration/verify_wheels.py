@@ -17,7 +17,6 @@ PACKAGES = {
         "ai_governance",
         ["ai-governance"],
     ),
-    "spec": ("spec", ["spec"]),
     "workspace": ("workspace_engine", ["ws"]),
 }
 
@@ -52,12 +51,10 @@ if "ai_governance" in modules:
     assert taskflow(["link", "wheel-smoke", "Documentation", "https://example.com"]) == 0
     assert taskflow(["close", "wheel-smoke", "--reason", "Verified"]) == 0
 if "workspace_engine" in modules:
-    from workspace_engine.cli.generate_workspace import create_workspace_structure
+    from workspace_engine.services.detect import detect_stacks
     from workspace_engine.services.git_hooks import generate_canonical_pre_push_script
-    target = create_workspace_structure("smoke", pathlib.Path.cwd(), [], {})
-    content = (target / "AGENTS.md").read_text()
-    assert "Dedicated Worktrees" in content
-    assert "claude-yolo" not in content and "docker/scripts/run-unit-tests.sh" not in content
+    pathlib.Path("pyproject.toml").write_text("[project]\\nname = 'smoke'\\n")
+    assert "python" in detect_stacks(".").stacks
     assert generate_canonical_pre_push_script().startswith("#!/usr/bin/env bash")
 """
 

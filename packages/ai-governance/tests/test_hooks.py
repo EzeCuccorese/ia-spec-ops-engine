@@ -30,6 +30,22 @@ def test_stop_gate_blocks_with_condensed_failures(monkeypatch, capsys, tmp_path)
     assert "E assert 1 == 2" in err and "ws log abc123" in err
 
 
+def test_stop_gate_does_not_duplicate_explicit_budget_flag(monkeypatch, tmp_path) -> None:
+    captured_cmd: list[str] = []
+
+    def fake_run(cmd, **_):
+        captured_cmd.extend(cmd)
+        return _Proc(json.dumps({"status": "passed", "text": "ok"}))
+
+    monkeypatch.setenv("AI_GOVERNANCE_GATE_COMMAND", "ws check --changed --json --budget 500")
+    monkeypatch.setattr(hooks.shutil, "which", lambda name: "/bin/ws")
+    monkeypatch.setattr(hooks.subprocess, "run", fake_run)
+    _stdin(monkeypatch, {"cwd": str(tmp_path)})
+    assert hooks.main(["claude", "stop-gate"]) == 0
+    assert captured_cmd.count("--budget") == 1
+    assert captured_cmd[captured_cmd.index("--budget") + 1] == "500"
+
+
 @pytest.mark.parametrize(
     ("payload", "result", "which"),
     [

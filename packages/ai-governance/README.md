@@ -28,9 +28,9 @@ unchanged and a warning is printed instead of removing them.
 
 `install` and `uninstall` take `--scope user|project` (default `project`), one or more
 `--agent claude|codex|antigravity` (repeatable), `--root` (project root, default the current
-directory), `--dry-run` and, for `install`, `--force`. Without `--agent`, an interactive
-terminal asks which agents to use; an agent or a non-interactive shell gets an error instead.
-Nothing ever defaults to all agents.
+directory), `--dry-run` and, for `install`, `--force`. Without `--agent`, the command exits
+with an error requiring you to choose the agent(s) explicitly; nothing ever defaults to all
+agents.
 
 ### User scope — `ai-governance install --scope user --agent <claude|codex|antigravity>`
 

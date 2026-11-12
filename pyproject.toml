@@ -1,12 +1,12 @@
 # ia-spec-ops-engine: uv workspace root. Not a distributable package itself.
 #
-#   uv sync --all-packages        # create .venv with the three packages + dev tools
+#   uv sync --all-packages        # create .venv with both packages + dev tools
 #   uv run pytest                 # run the whole suite
 #   uv pip install -e packages/<pkg>   # install a single package elsewhere
 [project]
 name = "ia-spec-ops-engine"
 version = "1.9.1"
-description = "Workspace root for ai-governance, spec and workspace packages."
+description = "Workspace root for ai-governance and workspace packages."
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
@@ -21,7 +21,6 @@ exclude = ["packages/corporate-rules"]
 
 [tool.uv.sources]
 ai-governance = { workspace = true }
-spec = { workspace = true }
 workspace = { workspace = true }
 
 [dependency-groups]
@@ -31,7 +30,6 @@ dev = [
     "pytest-asyncio",
     "ruff>=0.9",
     "mypy>=1.10",
-    "types-psutil",
 ]
 
 [tool.ruff]
@@ -44,8 +42,8 @@ ignore = ["E501"]
 
 [tool.mypy]
 python_version = "3.11"
-mypy_path = "packages/ai-governance/src:packages/spec/src:packages/workspace/src"
-packages = ["ai_governance", "spec", "workspace_engine"]
+mypy_path = "packages/ai-governance/src:packages/workspace/src"
+packages = ["ai_governance", "workspace_engine"]
 namespace_packages = true
 explicit_package_bases = true
 warn_unused_ignores = true
@@ -57,7 +55,7 @@ no_implicit_optional = true
 ignore_missing_imports = true
 
 [tool.coverage.run]
-source = ["packages/ai-governance/src", "packages/spec/src", "packages/workspace/src"]
+source = ["packages/ai-governance/src", "packages/workspace/src"]
 branch = true
 
 [tool.coverage.report]
@@ -71,9 +69,9 @@ exclude_also = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["packages/ai-governance/src", "packages/spec/src", "packages/workspace/src", "."]
+pythonpath = ["packages/ai-governance/src", "packages/workspace/src", "."]
 python_files = ["test_*.py", "*_test.py"]
-testpaths = ["packages/ai-governance/tests", "packages/spec/tests", "packages/workspace/tests", "packages/workspace/tests_integration", "tests"]
+testpaths = ["packages/ai-governance/tests", "packages/workspace/tests", "tests"]
 addopts = "-ra --strict-markers"
 markers = [
     "integration: end-to-end integration tests",

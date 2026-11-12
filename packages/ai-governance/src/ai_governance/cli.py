@@ -22,7 +22,7 @@ COMMANDS: dict[str, str] = {
     "jira": "Jira issues and transitions in Markdown",
     "confluence": "Confluence pages in Markdown",
     "config": "Show the effective configuration and where each value came from",
-    "completion": "Print the zsh <TAB> completion of ai-governance, ws or spec",
+    "completion": "Print the zsh <TAB> completion of ai-governance or ws",
     "hook": "Agent hook entry point (used by installed hooks)",
 }
 INSTALL_COMMANDS = (

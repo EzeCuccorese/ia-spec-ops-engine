@@ -42,6 +42,7 @@ class Discount:
 
     @classmethod
     def tiered(cls, tiers: list[tuple[int, int]]) -> "Discount": ...
+
     # tiers: list of (min_subtotal_cents, percent_off), highest met threshold wins
 
 

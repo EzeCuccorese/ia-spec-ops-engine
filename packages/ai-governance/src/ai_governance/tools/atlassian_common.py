@@ -56,42 +56,46 @@ def set_profile(name: str | None) -> None:
     _CURRENT_PROFILE = name
 
 
-def load_profile_config(profile_name: str | None = None) -> dict[str, str]:
-    """Loads configuration for the requested profile from memory, config files, or environment."""
-    target = profile_name or _CURRENT_PROFILE or os.environ.get("ATLASSIAN_PROFILE")
-    if not target or target.lower() == "default":
-        return _default_credentials()
-
-    # 1. Check in-memory overrides
-    if target in _PROFILE_OVERRIDES:
-        return dict(_PROFILE_OVERRIDES[target])
-
-    # 2. Check profiles file
-    profiles_paths: list[Path] = []
+def _profile_paths() -> list[Path]:
+    paths: list[Path] = []
     if os.environ.get("ATLASSIAN_PROFILES_FILE"):
-        profiles_paths.append(Path(os.environ["ATLASSIAN_PROFILES_FILE"]))
-    profiles_paths.append(config_dir() / "atlassian.json")
-    profiles_paths.append(legacy_profiles_path())
+        paths.append(Path(os.environ["ATLASSIAN_PROFILES_FILE"]))
+    paths.append(config_dir() / "atlassian.json")
+    paths.append(legacy_profiles_path())
+    return paths
 
+
+def _read_profile_dict(path: Path) -> dict | None:
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _load_profile_from_files(target: str) -> tuple[dict[str, str] | None, set[str]]:
     known: set[str] = set(_PROFILE_OVERRIDES)
-    for p in profiles_paths:
-        if p.is_file():
-            try:
-                data = json.loads(p.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, UnicodeDecodeError, OSError):
-                continue
-            if not isinstance(data, dict):
-                continue
-            known.update(k for k, v in data.items() if isinstance(v, dict))
-            if target in data and isinstance(data[target], dict):
-                prof = data[target]
-                return {
+    for path in _profile_paths():
+        data = _read_profile_dict(path)
+        if data is None:
+            continue
+        known.update(k for k, v in data.items() if isinstance(v, dict))
+        prof = data.get(target)
+        if isinstance(prof, dict):
+            return (
+                {
                     "email": prof.get("email", ""),
                     "token": prof.get("token", prof.get("api_token", "")),
                     "url": prof.get("url", "").rstrip("/"),
-                }
+                },
+                known,
+            )
+    return None, known
 
-    # 3. Check environment variables: ATLASSIAN_{PROFILE}_EMAIL, etc.
+
+def _load_profile_from_env(target: str) -> dict[str, str] | None:
     p_upper = target.upper().replace("-", "_")
     email = os.environ.get(f"ATLASSIAN_{p_upper}_EMAIL") or os.environ.get(
         f"ATLASSIAN_EMAIL_{p_upper}"
@@ -100,14 +104,33 @@ def load_profile_config(profile_name: str | None = None) -> dict[str, str]:
         f"ATLASSIAN_API_TOKEN_{p_upper}"
     )
     url = os.environ.get(f"ATLASSIAN_{p_upper}_URL") or os.environ.get(f"ATLASSIAN_URL_{p_upper}")
+    if not (email or token or url):
+        return None
+    fallback = _default_credentials()
+    return {
+        "email": email or fallback["email"],
+        "token": token or fallback["token"],
+        "url": (url or fallback["url"]).rstrip("/"),
+    }
 
-    if email or token or url:
-        fallback = _default_credentials()
-        return {
-            "email": email or fallback["email"],
-            "token": token or fallback["token"],
-            "url": (url or fallback["url"]).rstrip("/"),
-        }
+
+def load_profile_config(profile_name: str | None = None) -> dict[str, str]:
+    """Loads configuration for the requested profile from memory, config files, or environment."""
+    target = profile_name or _CURRENT_PROFILE or os.environ.get("ATLASSIAN_PROFILE")
+    if not target or target.lower() == "default":
+        return _default_credentials()
+
+    if target in _PROFILE_OVERRIDES:
+        return dict(_PROFILE_OVERRIDES[target])
+
+    from_file, known = _load_profile_from_files(target)
+    if from_file is not None:
+        return from_file
+
+    from_env = _load_profile_from_env(target)
+    if from_env is not None:
+        return from_env
+
     listed = ", ".join(["default", *sorted(known)])
     raise UnknownProfileError(
         f"Unknown Atlassian profile '{target}'. Known profiles: {listed}. "

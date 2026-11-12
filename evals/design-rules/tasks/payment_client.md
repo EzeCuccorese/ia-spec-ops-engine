@@ -81,9 +81,7 @@ class PaymentClient:
         clock=time.monotonic,
     ) -> None: ...
 
-    def charge(
-        self, order_id: str, amount_cents: int, idempotency_key: str
-    ) -> PaymentResult:
+    def charge(self, order_id: str, amount_cents: int, idempotency_key: str) -> PaymentResult:
         """Calls `self.transport.send(order_id, amount_cents,
         idempotency_key)`, retrying per the rules above, using
         `self.sleep(seconds)` for backoff and `self.clock()` to track the

@@ -104,31 +104,45 @@ def condense_with_ws(text: str, command: str, budget: int) -> dict | None:
     return result
 
 
-def condensed_output(payload: dict, cfg: dict) -> tuple[str, dict | str] | None:
-    """Returns (condensed text, replacement tool response) or None to keep the original."""
-    command = (payload.get("tool_input") or {}).get("command", "")
-    if (
+def _should_skip_condense(command: str) -> bool:
+    return bool(
         "#nofrugal" in command
         or os.environ.get("FRUGAL") == "0"
         or SKIP_CONDENSE.match(command)
         or HELP_FLAG.search(command)
-    ):
-        return None
+    )
+
+
+def _extract_tool_text(payload: dict) -> str:
     resp = payload.get("tool_response")
     if isinstance(resp, dict):
         stdout, stderr = resp.get("stdout") or "", resp.get("stderr") or ""
     else:
-        stdout, stderr = payload.get("tool_output") or (resp if isinstance(resp, str) else ""), ""
-    text = stdout + (f"\n{stderr}" if stderr else "")
+        stdout = payload.get("tool_output") or (resp if isinstance(resp, str) else "")
+        stderr = ""
+    return stdout + (f"\n{stderr}" if stderr else "")
+
+
+def _format_condensed_result(result: dict) -> str:
+    note = f"\n[condensed by ws: ws log {result['log_id']} --grep RE | --lines A-B]"
+    return result["text"] + (note if result.get("log_id") else "")
+
+
+def condensed_output(payload: dict, cfg: dict) -> tuple[str, dict | str] | None:
+    """Returns (condensed text, replacement tool response) or None to keep the original."""
+    command = (payload.get("tool_input") or {}).get("command", "")
+    if _should_skip_condense(command):
+        return None
+    text = _extract_tool_text(payload)
     if len(text) <= cfg["threshold_chars"] or len(text) <= cfg.get("budget_chars", 0):
         return None
     result = condense_with_ws(text, command, cfg["budget_chars"])
     if not result or not result.get("truncated") or len(result["text"]) >= len(text):
         return None
-    note = f"\n[condensed by ws: ws log {result['log_id']} --grep RE | --lines A-B]"
-    condensed = result["text"] + (note if result.get("log_id") else "")
+    condensed = _format_condensed_result(result)
     if len(condensed) >= len(text):
         return None
+    resp = payload.get("tool_response")
     if isinstance(resp, dict):
         return condensed, {**resp, "stdout": condensed, "stderr": ""}
     return condensed, condensed

@@ -120,25 +120,7 @@ class Condensed:
     truncated: bool
 
 
-def condense(
-    text: str, command: str = "", exit_code: int | None = None, budget: int = DEFAULT_BUDGET
-) -> Condensed:
-    """Condenses ``text`` for an agent within ``budget`` characters."""
-    profile = profile_for(command)
-    tool = profile.name if profile else "generic"
-    lines = clean_lines(text)
-    summaries = [line for line in lines if profile and profile.summary.search(line)]
-
-    # Only known tools have a trustworthy summary line; generic output (listings, logs)
-    # keeps head, tail and deduped structure instead of collapsing to one line.
-    if exit_code == 0 and profile is not None and len(text) > budget:
-        head = summaries[-1] if summaries else (lines[-1] if lines else "")
-        body = f"✓ {tool}: {head.strip('= ').strip()}" if head else f"✓ {tool}: ok"
-        return Condensed(body, tool, len(text), True)
-    if len(text) <= budget:
-        return Condensed("\n".join(lines), tool, len(text), False)
-
-    signal = profile.signal if profile else _GENERIC_SIGNAL
+def _keep_indices(lines: list[str], signal: re.Pattern[str], summaries: set[str]) -> list[int]:
     keep: set[int] = set(range(min(3, len(lines))))
     keep.update(range(max(0, len(lines) - 8), len(lines)))
     for index, line in enumerate(lines):
@@ -146,19 +128,23 @@ def condense(
             keep.update(range(max(0, index - 2), min(len(lines), index + 7)))
         if line in summaries:
             keep.add(index)
+    return sorted(keep)
 
+
+def _select_with_omissions(lines: list[str], keep: list[int]) -> list[str]:
     selected: list[str] = []
     previous = -1
-    for index in sorted(keep):
+    for index in keep:
         if index != previous + 1:
             selected.append(f"  … {index - previous - 1} lines omitted")
         selected.append(lines[index])
         previous = index
     if previous != len(lines) - 1:
         selected.append(f"  … {len(lines) - previous - 1} lines omitted")
-    compact = dedupe(selected)
+    return selected
 
-    # Budget: keep summaries and the earliest failures; the tail always survives.
+
+def _fit_within_budget(compact: list[str], budget: int) -> str:
     tail = compact[-8:]
     result: list[str] = []
     used = sum(len(line) + 1 for line in tail)
@@ -168,4 +154,29 @@ def condense(
             break
         result.append(line)
         used += len(line) + 1
-    return Condensed("\n".join(result + tail), tool, len(text), True)
+    return "\n".join(result + tail)
+
+
+def _collapse_success(tool: str, lines: list[str], summaries: list[str]) -> str:
+    head = summaries[-1] if summaries else (lines[-1] if lines else "")
+    return f"✓ {tool}: {head.strip('= ').strip()}" if head else f"✓ {tool}: ok"
+
+
+def condense(
+    text: str, command: str = "", exit_code: int | None = None, budget: int = DEFAULT_BUDGET
+) -> Condensed:
+    """Condenses ``text`` for an agent within ``budget`` characters."""
+    profile = profile_for(command)
+    tool = profile.name if profile else "generic"
+    lines = clean_lines(text)
+    summaries = [line for line in lines if profile and profile.summary.search(line)]
+
+    if exit_code == 0 and profile is not None and len(text) > budget:
+        return Condensed(_collapse_success(tool, lines, summaries), tool, len(text), True)
+    if len(text) <= budget:
+        return Condensed("\n".join(lines), tool, len(text), False)
+
+    signal = profile.signal if profile else _GENERIC_SIGNAL
+    keep = _keep_indices(lines, signal, set(summaries))
+    compact = dedupe(_select_with_omissions(lines, keep))
+    return Condensed(_fit_within_budget(compact, budget), tool, len(text), True)
