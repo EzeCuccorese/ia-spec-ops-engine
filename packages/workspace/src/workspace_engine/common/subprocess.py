@@ -49,6 +49,51 @@ def run_git(
     )
 
 
+def _cmd_str(command: str | list[str]) -> str:
+    return command if isinstance(command, str) else " ".join(command)
+
+
+def _build_env(env: dict[str, str] | None, isolated_git: bool) -> dict[str, str]:
+    merged_env = os.environ.copy()
+    if isolated_git:
+        _isolate_git_env(merged_env)
+    if env:
+        merged_env.update(env)
+    return merged_env
+
+
+def _log_process_failure(
+    command: str | list[str],
+    exc: subprocess.CalledProcessError,
+    capture_output: bool,
+    error_message: str | None,
+) -> None:
+    if error_message:
+        log_error(error_message)
+    if capture_output:
+        log_error(f"Error running command: {_cmd_str(command)}")
+        if exc.stderr:
+            print(f"{Color.RED}{exc.stderr.strip()}{Color.RESET}", file=sys.stderr)
+
+
+def _log_run_error(
+    command: str | list[str],
+    exc: BaseException,
+    *,
+    capture_output: bool,
+    error_message: str | None,
+) -> None:
+    if isinstance(exc, subprocess.TimeoutExpired):
+        log_error(f"Timed out ({exc.timeout}s) running: {_cmd_str(command)}")
+        return
+    if isinstance(exc, subprocess.CalledProcessError):
+        _log_process_failure(command, exc, capture_output, error_message)
+        return
+    if error_message:
+        log_error(error_message)
+    log_error(f"Unexpected error: {exc}")
+
+
 def run_command(
     command: str | list[str],
     check: bool = True,
@@ -60,57 +105,30 @@ def run_command(
     timeout: int | None = DEFAULT_COMMAND_TIMEOUT,
     isolated_git: bool = False,
 ) -> str | None:
-    """
-    Runs a system command deterministically with a configurable timeout and clean output capture.
-
-    `command` is never passed through a shell: a string is tokenized with `shlex.split`
-    and a list is used as-is (argv form).
-    """
+    """Runs a system command deterministically with a configurable timeout."""
     if show_command:
-        cmd_str = command if isinstance(command, str) else " ".join(command)
-        print(f"{Color.CYAN}🚀 Running: {cmd_str}{Color.RESET}")
-
-    merged_env = os.environ.copy()
-    if isolated_git:
-        _isolate_git_env(merged_env)
-    if env:
-        merged_env.update(env)
-
+        print(f"{Color.CYAN}🚀 Running: {_cmd_str(command)}{Color.RESET}")
     target_cmd = shlex.split(command) if isinstance(command, str) else command
-
+    pipe = subprocess.PIPE if capture_output else None
     try:
         result = subprocess.run(
             target_cmd,
             check=check,
             text=True,
-            stdout=subprocess.PIPE if capture_output else None,
-            stderr=subprocess.PIPE if capture_output else None,
-            env=merged_env,
+            stdout=pipe,
+            stderr=pipe,
+            env=_build_env(env, isolated_git),
             cwd=str(cwd) if cwd else None,
             timeout=timeout,
         )
         return result.stdout.strip() if capture_output else ""
-    except subprocess.TimeoutExpired:
-        cmd_str = command if isinstance(command, str) else " ".join(command)
-        log_error(f"Timed out ({timeout}s) running: {cmd_str}")
-        if check:
-            raise
-        return None
-    except subprocess.CalledProcessError as e:
-        if error_message:
-            log_error(error_message)
-        if capture_output:
-            cmd_str = command if isinstance(command, str) else " ".join(command)
-            log_error(f"Error running command: {cmd_str}")
-            if e.stderr:
-                print(f"{Color.RED}{e.stderr.strip()}{Color.RESET}", file=sys.stderr)
-        if check:
-            raise
-        return None
-    except (OSError, subprocess.SubprocessError) as e:
-        if error_message:
-            log_error(error_message)
-        log_error(f"Unexpected error: {e}")
+    except (
+        subprocess.TimeoutExpired,
+        subprocess.CalledProcessError,
+        OSError,
+        subprocess.SubprocessError,
+    ) as exc:
+        _log_run_error(command, exc, capture_output=capture_output, error_message=error_message)
         if check:
             raise
         return None
@@ -127,11 +145,7 @@ def run_command_safe(
     Safe wrapper that returns (returncode, stdout, stderr) without raising uncontrolled exceptions.
     """
     target_cmd = shlex.split(cmd) if isinstance(cmd, str) else cmd
-    merged_env = os.environ.copy()
-    if isolated_git:
-        _isolate_git_env(merged_env)
-    if env:
-        merged_env.update(env)
+    merged_env = _build_env(env, isolated_git)
 
     try:
         res = subprocess.run(

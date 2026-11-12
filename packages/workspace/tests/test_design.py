@@ -1464,6 +1464,29 @@ def test_prose_comment_not_flagged_as_todo_or_code() -> None:
     assert commented_code_violations("a.py", "py", source) == []
 
 
+def test_todo_ticket_ignores_strings_hyphenated_names_and_quoted_prose() -> None:
+    py_source = (
+        "# --- todo-ticket --------------------------------------------\n"
+        '# A bare word/prose line (e.g. "Notes", "TODO") parses as a Name\n'
+        's = "x = 1  # TODO fix this later\\n"\n'
+    )
+    assert todo_ticket_violations("a.py", "py", py_source) == []
+    ts_source = '// --- todo-ticket ---\nconst s = "// TODO fix later";\n'
+    assert todo_ticket_violations("a.ts", "ts", ts_source) == []
+    assert len(todo_ticket_violations("a.py", "py", "# todo: remove this\n")) == 1
+    assert len(todo_ticket_violations("a.ts", "ts", "// TODO-cleanup later\n")) == 1
+    assert (
+        len(todo_ticket_violations("a.rs", "rs", "fn parse(s: &'a str) { // TODO handle errors\n"))
+        == 1
+    )
+    assert len(todo_ticket_violations("a.java", "java", 'char c = \'"\'; // TODO "fix"\n')) == 1
+    assert len(todo_ticket_violations("a.go", "go", 's := `a\\`; x := "b" // TODO d\n')) == 1
+    assert len(todo_ticket_violations("a.tsx", "tsx", "<p>Don't</p> // TODO fix\n")) == 1
+    assert (
+        len(todo_ticket_violations("a.py", "py", '"""unterminated\n# TODO fix after error\n')) == 1
+    )
+
+
 def test_python_commented_code_violation() -> None:
     source = "# def old_handler(x):\n#     return x + 1\n"
     violations = commented_code_violations("a.py", "py", source)

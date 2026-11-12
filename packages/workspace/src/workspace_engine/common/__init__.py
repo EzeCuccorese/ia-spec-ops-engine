@@ -22,28 +22,13 @@ from workspace_engine.common.colors import (
     YELLOW,
     Color,
     colorize,
-    console,
     emit_rows,
-    err_console,
     is_agent_mode,
     log_error,
     log_info,
     log_success,
     log_warning,
     truncate,
-)
-from workspace_engine.common.dotenv import parse_dotenv
-from workspace_engine.common.frontmatter import parse_frontmatter
-from workspace_engine.common.process import get_process_cmdline, parse_pid_file
-from workspace_engine.common.project import (
-    ProjectType,
-    detect_fe_framework,
-    detect_project_type,
-    find_project_root,
-    is_go_service,
-    is_rust_service,
-    is_spring_boot_app,
-    read_package_json,
 )
 from workspace_engine.common.subprocess import (
     DEFAULT_COMMAND_TIMEOUT,
@@ -67,8 +52,6 @@ __all__ = [
     "UNDERLINE",
     "RESET",
     "END",
-    "console",
-    "err_console",
     "colorize",
     "log_info",
     "log_success",
@@ -79,20 +62,8 @@ __all__ = [
     "truncate",
     "DEFAULT_MAX_LINES",
     "DEFAULT_MAX_CHARS",
-    "parse_dotenv",
-    "parse_frontmatter",
-    "ProjectType",
-    "find_project_root",
-    "detect_project_type",
-    "read_package_json",
-    "is_spring_boot_app",
-    "is_go_service",
-    "is_rust_service",
-    "detect_fe_framework",
     "DEFAULT_COMMAND_TIMEOUT",
     "run_command",
     "run_command_safe",
     "run_git",
-    "get_process_cmdline",
-    "parse_pid_file",
 ]

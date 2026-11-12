@@ -137,12 +137,10 @@ def read_commits(git_log: str) -> list[Commit]:
 PYPROJECT_VERSION = re.compile(r'^version = "[^"]*"$', re.MULTILINE)
 INIT_VERSION = re.compile(r'^__version__ = "[^"]*"$', re.MULTILINE)
 
-# Files that carry the project version. spec reads its version from package metadata,
-# so only its pyproject needs the bump.
+# Files that carry the project version.
 PYPROJECT_FILES = (
     "pyproject.toml",
     "packages/ai-governance/pyproject.toml",
-    "packages/spec/pyproject.toml",
     "packages/workspace/pyproject.toml",
 )
 INIT_FILES = (

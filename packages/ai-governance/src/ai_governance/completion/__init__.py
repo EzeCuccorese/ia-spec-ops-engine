@@ -1,4 +1,4 @@
-"""zsh <TAB> completion for the engine's CLIs (ai-governance, ws, spec).
+"""zsh <TAB> completion for the engine's CLIs (ai-governance, ws).
 
 Each installed tool is walked inside its own interpreter (``walker.py``), rendered to a
 static ``_<tool>`` function (``zsh.py``) and owned by the installer: written on
@@ -21,7 +21,7 @@ from ..install.agents import Artifact, BlockArtifact, FileArtifact
 from ..paths import data_dir
 from .zsh import render
 
-TOOLS = ("ai-governance", "ws", "spec")
+TOOLS = ("ai-governance", "ws")
 WALKER = Path(__file__).with_name("walker.py")
 WALK_TIMEOUT = 60.0
 
@@ -84,7 +84,7 @@ def artifacts() -> list[Artifact]:
     if not files:
         return []
     body = (
-        "# <TAB> completion for ai-governance, ws and spec (must run before compinit)\n"
+        "# <TAB> completion for ai-governance and ws (must run before compinit)\n"
         f'fpath=("{zsh_dir()}" $fpath)'
     )
     return [*files, BlockArtifact(rc, body, comment="#", prepend=True)]
