@@ -282,7 +282,17 @@ def test_blocked_tasks_cannot_dispatch_rounds(
 ) -> None:
     assert run("block", "TASK-1", "--owner", "dba", "--needs", "a ticket") == 0
     capsys.readouterr()
-    args = ("round", "TASK-1", "dispatch", "--role", "planner", "--agent", "claude", "--prompt", "x")
+    args = (
+        "round",
+        "TASK-1",
+        "dispatch",
+        "--role",
+        "planner",
+        "--agent",
+        "claude",
+        "--prompt",
+        "x",
+    )
     assert run(*args) != 0
     assert "blocked by dba" in capsys.readouterr().err
     assert run("unblock", "TASK-1") == 0
