@@ -17,7 +17,6 @@ order. Without a ``changed`` map (a plain scan) everything is ``legacy``.
 
 from __future__ import annotations
 
-import fnmatch
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -86,12 +85,83 @@ def supported(path: str | Path) -> bool:
     return suffix in SUPPORTED_EXTENSIONS
 
 
-def _excluded(relative: str, patterns: tuple[str, ...]) -> bool:
-    candidate = f"/{relative}"
-    return any(fnmatch.fnmatch(candidate, pattern) for pattern in patterns)
+def _advance_quote(ch: str, in_string: str | None, escape: bool) -> tuple[str | None, bool]:
+    if escape:
+        return in_string, False
+    if ch == "\\" and in_string:
+        return in_string, True
+    if in_string and ch == in_string:
+        return None, False
+    if in_string is None and ch in ('"', "'"):
+        return ch, False
+    return in_string, False
 
 
-def _parameter_count(fn: Any, extension: str) -> int:
+def _extract_php_param_list(text: str) -> str:
+    paren_idx = text.find("(")
+    if paren_idx == -1:
+        return ""
+    depth = 0
+    in_string: str | None = None
+    escape = False
+    param_text: list[str] = []
+    for ch in text[paren_idx:]:
+        in_string, escape = _advance_quote(ch, in_string, escape)
+        if in_string:
+            if depth >= 1:
+                param_text.append(ch)
+            continue
+        if ch == "(":
+            depth += 1
+            if depth == 1:
+                continue
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                break
+        if depth >= 1:
+            param_text.append(ch)
+    return "".join(param_text).strip()
+
+
+def _count_top_level_commas(text: str) -> int:
+    text = text.rstrip().rstrip(",").strip()
+    if not text:
+        return 0
+    depths = {"(": 0, "[": 0, "{": 0}
+    matching = {")": "(", "]": "[", "}": "{"}
+    in_string: str | None = None
+    escape = False
+    commas = 0
+    for ch in text:
+        in_string, escape = _advance_quote(ch, in_string, escape)
+        if in_string:
+            continue
+        if ch in depths:
+            depths[ch] += 1
+        elif ch in matching and depths[matching[ch]] > 0:
+            depths[matching[ch]] -= 1
+        elif ch == "," and all(v == 0 for v in depths.values()):
+            commas += 1
+    return commas + 1
+
+
+def _php_parameter_count(source: str, start_line: int, fn_name: str) -> int:
+    """Extracts the parameter count directly from PHP source around ``start_line``."""
+    lines = source.splitlines(keepends=True)
+    if start_line < 1 or start_line > len(lines):
+        return 0
+    sub_source = "".join(lines[start_line - 1 :])
+    base_name = fn_name.split("::")[-1]
+    idx = sub_source.find(base_name)
+    sub = sub_source[idx + len(base_name) :] if idx != -1 else sub_source
+    param_text = _extract_php_param_list(sub)
+    return _count_top_level_commas(param_text)
+
+
+def _parameter_count(fn: Any, extension: str, source: str = "") -> int:
+    if extension == "php":
+        return _php_parameter_count(source, int(fn.start_line), str(fn.name))
     parameters = list(fn.parameters or [])
     if extension == "py":
         parameters = [p for p in parameters if p not in _PYTHON_IMPLICIT_PARAMS]
@@ -129,7 +199,7 @@ def analyze_source(relative: str, extension: str, source: str) -> list[FunctionM
             end_line=int(fn.end_line),
             complexity=int(fn.cyclomatic_complexity),
             length=int(fn.nloc),
-            args=_parameter_count(fn, extension),
+            args=_parameter_count(fn, extension, source),
             nesting=_nesting_value(fn, extension, source, python_depths),
         )
         for fn in info.function_list
@@ -144,7 +214,7 @@ def analyze_file(root: Path, path: Path) -> list[FunctionMetrics] | None:
         source = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None
-    relative = path.resolve().relative_to(root).as_posix()
+    relative = path.resolve().relative_to(root.resolve()).as_posix()
     return analyze_source(relative, path.suffix.lstrip("."), source)
 
 
@@ -253,14 +323,15 @@ def measure(
 
     ``scope`` turns on the ratchet; without it, every violation is ``legacy``.
     """
+    root_resolved = root.resolve()
     violations: list[Violation] = []
     for path in paths:
         if not path.is_file():
             continue
-        relative = path.resolve().relative_to(root).as_posix()
-        if _excluded(relative, config.exclude) or not supported(path):
+        relative = path.resolve().relative_to(root_resolved).as_posix()
+        if not supported(path):
             continue
-        functions = analyze_file(root, path)
+        functions = analyze_file(root_resolved, path)
         if not functions:
             continue
 

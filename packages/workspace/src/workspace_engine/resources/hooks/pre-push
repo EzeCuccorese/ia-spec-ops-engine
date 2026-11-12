@@ -33,8 +33,9 @@ QG_COMMIT_STYLE="${QG_COMMIT_STYLE:-$(git config --get workspace.commitStyle 2>/
 QG_OUTPUT="${QG_OUTPUT:-errors}"
 PROTECTED_BRANCHES="${QG_PROTECTED:-^(main|master|develop|staging)\$}"
 
-# Repo/user config files (.workspace/config.toml, ~/.config/workspace/config.toml) rank below
-# QG_* and git config: ws prints an assignment only for settings those files decide.
+# Repo/user config files (.workspace/config.toml, ~/.config/workspace/config.toml,
+# ~/.config/workspace/repos/<repo-name>.toml) rank below QG_* and git config: ws prints
+# an assignment only for settings those files decide.
 # ws lives in a per-user directory that IDE and desktop Git clients leave off PATH: look there
 # before loading the config files (not found: the scripts keep their built-in behavior).
 if ! command -v ws >/dev/null 2>&1; then
@@ -43,8 +44,11 @@ if ! command -v ws >/dev/null 2>&1; then
   done
 fi
 if command -v ws >/dev/null 2>&1; then
-  eval "$(ws hooks gate-config --dir "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" 2>/dev/null)" || true
-  PROTECTED_BRANCHES="${QG_PROTECTED:-$PROTECTED_BRANCHES}"
+  RAW_GATE_CONFIG="$(ws hooks gate-config --dir "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" 2>/dev/null)" || RAW_GATE_CONFIG=""
+  if [ -n "$RAW_GATE_CONFIG" ]; then
+    eval "$RAW_GATE_CONFIG" || true
+    PROTECTED_BRANCHES="${QG_PROTECTED:-$PROTECTED_BRANCHES}"
+  fi
 fi
 
 ZERO="0000000000000000000000000000000000000000"
@@ -796,28 +800,79 @@ else
         done < <(changed_files '*.js' '*.jsx' '*.mjs' '*.cjs' '*.ts' '*.tsx' '*.vue' '*.svelte')
       fi
 
-      RUNNER=""
+      IS_MONOREPO=0
       case "$TEST_SCRIPT" in
-        *vitest*) [ -x "$REPO_ROOT/node_modules/.bin/vitest" ] && RUNNER="vitest" ;;
-        *jest*)   [ -x "$REPO_ROOT/node_modules/.bin/jest" ] && RUNNER="jest" ;;
+        *"workspaces run"*|*"workspaces foreach"*|*"pnpm -r"*|*"--recursive"*|*"--workspaces"*)
+          IS_MONOREPO=1
+          ;;
       esac
 
-      if [ "$SCOPED_TESTS" = "1" ] && [ -n "$RUNNER" ] && [ "${#JS_FILES[@]}" -gt 0 ]; then
-        RAN_ANY=1
-        note "$RUNNER scoped to ${#JS_FILES[@]} file(s) from the push"
-        if [ "$RUNNER" = "jest" ]; then
-          run_to "$QG_TIMEOUT" "$REPO_ROOT/node_modules/.bin/jest" --ci --watchAll=false \
-            --passWithNoTests --findRelatedTests "${JS_FILES[@]}" || TESTS_OK=0
-        else
-          run_to "$QG_TIMEOUT" "$REPO_ROOT/node_modules/.bin/vitest" related --run \
-            --passWithNoTests "${JS_FILES[@]}" || TESTS_OK=0
+      if [ "$IS_MONOREPO" = "1" ] || [ -f "$REPO_ROOT/pnpm-workspace.yaml" ]; then
+        IS_MONOREPO=1
+      elif [ -f "$REPO_ROOT/package.json" ]; then
+        if grep -q '"workspaces"' "$REPO_ROOT/package.json" 2>/dev/null; then
+          IS_MONOREPO=1
         fi
-      elif [ "$SCOPED_TESTS" = "1" ] && [ -n "$RUNNER" ]; then
-        note "No JS/TS files in the push, skipping $RUNNER."
+      fi
+
+      if [ "$IS_MONOREPO" = "1" ]; then
+        if [ "$SCOPED_TESTS" = "0" ]; then
+          note "Full test scope requested on monorepo, but full suite is disabled in pre-push hook."
+        elif ! command -v ws >/dev/null 2>&1; then
+          warn "Monorepo test scoping: 'ws' CLI not found on PATH; skipping monorepo tests."
+        else
+          PLAN_LOG="$TMPD/mono-plan.log"
+          if ! ws hooks plan-monorepo-tests --dir "$REPO_ROOT" --files-from "$DIFF_FILES_FILE" > "$TMPD/mono-plan.out" 2> "$PLAN_LOG"; then
+            PLAN_ERR="$(cat "$PLAN_LOG")"
+            warn "Failed to plan monorepo tests (${PLAN_ERR:-unknown error}); skipping."
+          else
+            while IFS=$'\t' read -r type col1 col2 col3 col4 col5 rest; do
+              case "$type" in
+                warn)
+                  warn "$col1"
+                  ;;
+                run)
+                  RAN_ANY=1
+                  pkg="$col1"
+                  pkg_dir="$col2"
+                  runner="$col3"
+                  num_files="$col4"
+                  cmd_args=("$col5")
+                  if [ -n "$rest" ]; then
+                    IFS=$'\t' read -r -a extra_args <<< "$rest"
+                    cmd_args+=("${extra_args[@]}")
+                  fi
+                  note "$runner in $pkg scoped to $num_files file(s)"
+                  (cd "$pkg_dir" && run_to "$QG_TIMEOUT" "${cmd_args[@]}") < /dev/null || TESTS_OK=0
+                  ;;
+              esac
+            done < "$TMPD/mono-plan.out"
+          fi
+        fi
       else
-        RAN_ANY=1
-        [ "$SCOPED_TESTS" = "1" ] && note "Could not scope down '$TEST_SCRIPT'; running the full suite."
-        run_to "$QG_TIMEOUT" "$JS_PM" test || TESTS_OK=0
+        RUNNER=""
+        case "$TEST_SCRIPT" in
+          *vitest*) [ -x "$REPO_ROOT/node_modules/.bin/vitest" ] && RUNNER="vitest" ;;
+          *jest*)   [ -x "$REPO_ROOT/node_modules/.bin/jest" ] && RUNNER="jest" ;;
+        esac
+
+        if [ "$SCOPED_TESTS" = "1" ] && [ -n "$RUNNER" ] && [ "${#JS_FILES[@]}" -gt 0 ]; then
+          RAN_ANY=1
+          note "$RUNNER scoped to ${#JS_FILES[@]} file(s) from the push"
+          if [ "$RUNNER" = "jest" ]; then
+            run_to "$QG_TIMEOUT" "$REPO_ROOT/node_modules/.bin/jest" --ci --watchAll=false \
+              --passWithNoTests --findRelatedTests "${JS_FILES[@]}" || TESTS_OK=0
+          else
+            run_to "$QG_TIMEOUT" "$REPO_ROOT/node_modules/.bin/vitest" related --run \
+              --passWithNoTests "${JS_FILES[@]}" || TESTS_OK=0
+          fi
+        elif [ "$SCOPED_TESTS" = "1" ] && [ -n "$RUNNER" ]; then
+          note "No JS/TS files in the push, skipping $RUNNER."
+        else
+          RAN_ANY=1
+          [ "$SCOPED_TESTS" = "1" ] && note "Could not scope down '$TEST_SCRIPT'; running the full suite."
+          run_to "$QG_TIMEOUT" "$JS_PM" test || TESTS_OK=0
+        fi
       fi
     fi
   fi

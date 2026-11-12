@@ -206,9 +206,10 @@ ws design --changed --json            # per-function complexity/length/args/nest
 It is a ratchet: with `--changed` or `--files-from`, new functions must meet the limits and
 block; legacy functions never block, but a touched one that got worse is reported with its
 base value. Limits, `mode` (`block`/`warn`/`off`) and the enabled checks live in the optional
-`[design]` table of `.ai-governance/config.toml`; with the `architecture` profile,
-`[design.layers]` adds layer-boundary checks. The pre-push gate always runs it scoped to the
-pushed files; skip it for one push with `QG_SKIP=design git push`. Full reference:
+`[design]` table of the unified workspace config files (user global `~/.config/workspace/config.toml`,
+in-repo `.workspace/config.toml`, or personal per-repo `~/.config/workspace/repos/<repo-name>.toml`);
+with the `architecture` profile, `[design.layers]` adds layer-boundary checks. The pre-push gate
+always runs it scoped to the pushed files; skip it for one push with `QG_SKIP=design git push`. Full reference:
 [packages/workspace/README.md](../packages/workspace/README.md#design-limits-ws-design).
 
 ## 6. Health checks

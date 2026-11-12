@@ -13,7 +13,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from ._config_core import Layers, Setting, Value, coerce, load_layers, resolve
+from ._config_core import Layers, Setting, Value, coerce, load_layers, resolve, xdg_dir
 
 APP_NAME = "workspace"
 
@@ -48,6 +48,18 @@ SETTINGS: tuple[Setting, ...] = (
     ),
     Setting("logs.max_entries", 200, "WORKSPACE_LOG_MAX_ENTRIES", "Most `ws log` entries kept"),
     Setting(
+        "gate.scope",
+        "all",
+        "QG_SCOPE",
+        "Scope of linters and tests: all, changed",
+    ),
+    Setting(
+        "gate.output",
+        "errors",
+        "QG_OUTPUT",
+        "Gate output detail level: errors, verbose",
+    ),
+    Setting(
         "output.max_lines",
         20,
         "WORKSPACE_OUTPUT_MAX_LINES",
@@ -80,8 +92,54 @@ def repo_root(start: Path | None = None) -> Path | None:
     return None
 
 
+def stable_repo_name(root: Path) -> str:
+    """Stable repository name across git worktrees of the same repository.
+
+    Derived from the main checkout (parent of `git rev-parse --git-common-dir`), basename.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            raw = proc.stdout.strip()
+            common_dir = Path(raw)
+            if not common_dir.is_absolute():
+                common_dir = (root / common_dir).resolve()
+            else:
+                common_dir = common_dir.resolve()
+            return common_dir.parent.name
+    except (OSError, subprocess.SubprocessError):
+        return root.resolve().name
+    return root.resolve().name
+
+
+def personal_repo_config_path(root: Path) -> Path:
+    """Path to ~/.config/workspace/repos/<repo-name>.toml for the given repository."""
+    name = stable_repo_name(root)
+    return xdg_dir("config", APP_NAME) / "repos" / f"{name}.toml"
+
+
 def layers(root: Path | None = None) -> Layers:
-    return load_layers(APP_NAME, root if root is not None else repo_root(), legacy_json=False)
+    top = root if root is not None else repo_root()
+    base = load_layers(APP_NAME, top, legacy_json=False)
+    if top is None:
+        return base
+    personal_file = personal_repo_config_path(top)
+    if not personal_file.is_file():
+        return base
+    from ._config_core import flatten, read_table
+
+    repo_values = dict(base.repo)
+    repo_sources = dict(base.repo_files)
+    for k, v in flatten(read_table(personal_file, APP_NAME)).items():
+        repo_values[k] = v
+        repo_sources[k] = personal_file
+    return Layers(base.user, repo_values, base.user_files, repo_sources)
 
 
 def _git_config(root: Path, name: str) -> str | None:

@@ -479,8 +479,8 @@ def test_disabled_checks_and_unreadable_inputs_report_nothing(tmp_path: Path) ->
 
 
 def test_test_checks_are_configurable_and_hinted(tmp_path: Path) -> None:
-    (tmp_path / ".ai-governance").mkdir()
-    (tmp_path / ".ai-governance" / "config.toml").write_text(
+    (tmp_path / ".workspace").mkdir()
+    (tmp_path / ".workspace" / "config.toml").write_text(
         '[design]\nchecks = ["test-sleep", "test-mock-only"]\n'
     )
     assert set(TEST_CHECKS) <= set(CHECKS) & set(HINTS)
@@ -494,8 +494,8 @@ def test_test_checks_are_configurable_and_hinted(tmp_path: Path) -> None:
 def test_cli_reports_junk_tests_unless_their_check_is_disabled(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], config: str, code: int
 ) -> None:
-    (tmp_path / ".ai-governance").mkdir()
-    (tmp_path / ".ai-governance" / "config.toml").write_text(config)
+    (tmp_path / ".workspace").mkdir()
+    (tmp_path / ".workspace" / "config.toml").write_text(config)
     (tmp_path / "test_a.py").write_text("def test_a():\n    run()\n")
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)  # untracked = new code
     exit_code = design_cli.design(["--dir", str(tmp_path), "--changed"])

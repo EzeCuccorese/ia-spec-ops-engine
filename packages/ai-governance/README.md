@@ -215,7 +215,8 @@ ai-governance uninstall --scope project --profile architecture     # disable it,
 
 The `architecture` profile also enables the `ws design` layer-boundary check (see
 [the workspace README](../workspace/README.md#design-limits-ws-design)), configured via
-`[design.layers]` in `.ai-governance/config.toml`.
+`[design.layers]` in the unified workspace config files (user global, in-repo `.workspace/config.toml`,
+or personal per-repo `~/.config/workspace/repos/<repo-name>.toml`).
 
 `ai-governance update` removes the rules of a profile that is no longer enabled and reports a
 hint to re-enable it.
