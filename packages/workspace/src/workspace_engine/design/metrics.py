@@ -17,7 +17,6 @@ order. Without a ``changed`` map (a plain scan) everything is ``legacy``.
 
 from __future__ import annotations
 
-import fnmatch
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -84,11 +83,6 @@ def supported(path: str | Path) -> bool:
     """Whether ``path``'s extension is analyzable by lizard."""
     suffix = Path(path).suffix.lstrip(".")
     return suffix in SUPPORTED_EXTENSIONS
-
-
-def _excluded(relative: str, patterns: tuple[str, ...]) -> bool:
-    candidate = f"/{relative}"
-    return any(fnmatch.fnmatch(candidate, pattern) for pattern in patterns)
 
 
 def _advance_quote(ch: str, in_string: str | None, escape: bool) -> tuple[str | None, bool]:
@@ -334,7 +328,7 @@ def measure(
         if not path.is_file():
             continue
         relative = path.resolve().relative_to(root).as_posix()
-        if _excluded(relative, config.exclude) or not supported(path):
+        if not supported(path):
             continue
         functions = analyze_file(root, path)
         if not functions:

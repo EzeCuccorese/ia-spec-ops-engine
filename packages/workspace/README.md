@@ -273,7 +273,7 @@ max_complexity = 12
 max_function_lines = 60
 max_args = 5
 max_nesting = 4
-exclude = ["**/node_modules/**", "**/legacy/**"]   # replaces the default list
+exclude = ["**/legacy/**"]                         # added to the default list (additive across defaults, user, and repo)
 ```
 
 ```bash

@@ -42,14 +42,22 @@ def test_config_show_marks_repo_values_and_defaults(
 def test_design_user_layer_is_overridden_key_by_key_by_the_repo(xdg: Path, tmp_path: Path) -> None:
     (xdg / "workspace").mkdir(parents=True)
     (xdg / "workspace" / "config.toml").write_text(
-        "[design]\nmax_args = 7\nmax_nesting = 5\n", encoding="utf-8"
+        "[design]\nmax_args = 7\nmax_nesting = 5\nexclude = ['user/**']\n", encoding="utf-8"
     )
     root = tmp_path / "repo"
     (root / ".ai-governance").mkdir(parents=True)
-    assert DesignConfig.load(root).max_args == 7
-    (root / ".ai-governance" / "config.toml").write_text("[design]\nmax_args = 2\n")
+    initial = DesignConfig.load(root)
+    assert initial.max_args == 7
+    assert "user/**" in initial.exclude
+    (root / ".ai-governance" / "config.toml").write_text(
+        "[design]\nmax_args = 2\nexclude = ['repo/**']\n"
+    )
     loaded = DesignConfig.load(root)
     assert (loaded.max_args, loaded.max_nesting) == (2, 5)
+    # exclude is additive across defaults, user, and repo without duplicates
+    assert loaded.exclude[: len(initial.exclude) - 1] == initial.exclude[:-1]
+    assert "user/**" in loaded.exclude
+    assert "repo/**" in loaded.exclude
 
 
 def test_global_hook_path_follows_the_shared_xdg_rules(

@@ -312,12 +312,13 @@ def test_php_args_violation(tmp_path: Path) -> None:
 # --- exclude / missing / unsupported -----------------------------------------
 
 
-def test_exclude_globs(tmp_path: Path) -> None:
+def test_exclude_globs(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     vendor = tmp_path / "node_modules"
     vendor.mkdir()
     (vendor / "big.js").write_text(JS_VIOLATING)
-    violations = measure(tmp_path, [vendor / "big.js"], DesignConfig())
-    assert violations == []
+    code = design_cli.design(["--dir", str(tmp_path), str(vendor / "big.js")])
+    assert code == 0
+    assert "big.js" not in capsys.readouterr().out
 
 
 def test_missing_file_skipped(tmp_path: Path) -> None:
@@ -637,6 +638,63 @@ def test_cli_changed_flag_uses_changed_files(
     out = capsys.readouterr().out
     assert code == 0  # unscoped: an audit, never blocks
     assert "1 pre-existing functions over the limits in touched files" in out
+
+
+def test_cli_changed_and_files_from_filters_excluded_hygiene_and_test_quality(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Set up config with exclude = ["**/poc/**", "**/ignore_test.py"]
+    gov = tmp_path / ".ai-governance"
+    gov.mkdir()
+    (gov / "config.toml").write_text(
+        '[design]\nmode = "block"\nexclude = ["**/poc/**", "**/ignore_test.py"]\n',
+        encoding="utf-8",
+    )
+    # File in excluded directory with empty-catch violation
+    poc_dir = tmp_path / "poc"
+    poc_dir.mkdir()
+    poc_file = poc_dir / "service.py"
+    poc_file.write_text("try:\n    pass\nexcept Exception:\n    pass\n")
+
+    # Excluded test file with test-no-assert violation
+    test_file = tmp_path / "ignore_test.py"
+    test_file.write_text("def test_dummy():\n    x = 1\n")
+
+    # Regular non-excluded file with empty catch
+    bad_file = tmp_path / "bad.py"
+    bad_file.write_text("try:\n    pass\nexcept Exception:\n    pass\n")
+
+    monkeypatch.setattr(
+        design_cli,
+        "changed_files",
+        lambda root: ["poc/service.py", "ignore_test.py", "bad.py"],
+    )
+    monkeypatch.setattr(
+        design_cli,
+        "changed_lines",
+        lambda root: {
+            "poc/service.py": {1, 2, 3, 4},
+            "ignore_test.py": {1, 2},
+            "bad.py": {1, 2, 3, 4},
+        },
+    )
+
+    code = design_cli.design(["--dir", str(tmp_path), "--changed"])
+    out = capsys.readouterr().out
+    # Only bad.py should produce a violation; poc/service.py and ignore_test.py are excluded
+    assert "poc/service.py" not in out
+    assert "ignore_test.py" not in out
+    assert "bad.py" in out
+    assert code == 1
+
+    # Verify --files-from also filters out excluded paths
+    list_file = tmp_path / "files.txt"
+    list_file.write_text("poc/service.py\nignore_test.py\n", encoding="utf-8")
+    code2 = design_cli.design(["--dir", str(tmp_path), "--files-from", str(list_file)])
+    out2 = capsys.readouterr().out
+    assert "poc/service.py" not in out2
+    assert "ignore_test.py" not in out2
+    assert code2 == 0
 
 
 # --- new vs. legacy classification -----------------------------------------------
