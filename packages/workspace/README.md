@@ -346,8 +346,10 @@ Each is a `Violation` with `value=1`, `limit=0`, the same new/legacy classificat
 hints (`empty-catch` → handle, rethrow with context, or log with a reason; `todo-ticket` →
 add a ticket reference or do it now; `commented-code` → delete it — version control
 remembers), and the same text/JSON output and exit code as the other metrics. Toggle
-which checks run with `[design].checks` in `.ai-governance/config.toml` (default: all
-twelve); an unknown check name raises:
+which checks run with `[design].checks` in the unified workspace config files
+(default: all twelve; checked in `.workspace/config.toml`, user-global
+`~/.config/workspace/config.toml`, or personal per-repo
+`~/.config/workspace/repos/<repo-name>.toml`); an unknown check name raises:
 
 ```toml
 [design]
