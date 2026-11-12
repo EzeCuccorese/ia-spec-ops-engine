@@ -14,7 +14,7 @@ dependencies = [
     "rich>=13.0.0",
     "psutil>=5.9",
     "ruamel.yaml>=0.18",
-    "lizard>=1.17",
+    "lizard>=1.25",  # first release that parses Dart
 ]
 
 [project.optional-dependencies]
