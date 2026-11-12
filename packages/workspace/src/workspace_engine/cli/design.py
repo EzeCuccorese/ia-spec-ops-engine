@@ -50,8 +50,12 @@ def _walk(root: Path, base: Path, exclude: tuple[str, ...]) -> list[Path]:
         dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d not in skip_dirs)
         for name in file_names:
             candidate = current_path / name
-            relative = f"/{candidate.relative_to(root).as_posix()}"
-            if not any(fnmatch.fnmatch(relative, pattern) for pattern in exclude):
+            rel = candidate.relative_to(root).as_posix()
+            rel_slash = f"/{rel}"
+            if not any(
+                fnmatch.fnmatch(rel, pattern) or fnmatch.fnmatch(rel_slash, pattern)
+                for pattern in exclude
+            ):
                 found.append(candidate)
     return found
 
@@ -64,7 +68,8 @@ def _repo_files(root: Path, exclude: tuple[str, ...]) -> list[Path]:
             c
             for c in candidates
             if not any(
-                fnmatch.fnmatch(f"/{c.relative_to(root).as_posix()}", pattern)
+                fnmatch.fnmatch(c.relative_to(root).as_posix(), pattern)
+                or fnmatch.fnmatch(f"/{c.relative_to(root).as_posix()}", pattern)
                 for pattern in exclude
             )
         ]

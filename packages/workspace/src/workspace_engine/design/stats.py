@@ -32,7 +32,7 @@ _EXT_TO_LANG = _extension_to_language()
 
 def language_of(path: str | Path) -> str:
     """Canonical lizard language name for ``path``."""
-    suffix = Path(path).suffix.lstrip(".")
+    suffix = Path(path).suffix.lstrip(".").lower()
     return _EXT_TO_LANG.get(suffix, suffix or "unknown")
 
 
@@ -90,7 +90,7 @@ def _collect_file_functions(
     except (OSError, UnicodeDecodeError):
         return None
 
-    relative = path.resolve().relative_to(root).as_posix()
+    relative = path.resolve().relative_to(root.resolve()).as_posix()
     ext = path.suffix.lstrip(".")
     split = "test" if is_test_file(relative, ext, source) else "prod"
     lang = language_of(path)
@@ -199,11 +199,13 @@ def _fmt_val(val: float) -> str:
     return f"{int(val)}" if val.is_integer() else f"{val:.1f}"
 
 
-def _format_split_rows(lang: str, split: str, dist: Distribution) -> list[str]:
+def _format_split_rows(
+    lang: str, split: str, dist: Distribution, show_lang: bool = True
+) -> list[str]:
     rows: list[str] = []
     for i, metric in enumerate(METRIC_NAMES):
         m_stats = dist.metrics[metric]
-        lang_col = lang if (split == "prod" and i == 0) else ""
+        lang_col = lang if (show_lang and i == 0) else ""
         split_col = split if i == 0 else ""
         count_col = str(dist.count) if i == 0 else ""
         p50_s = _fmt_val(m_stats.p50)
@@ -228,10 +230,12 @@ def format_stats_table(stats: DesignStats) -> str:
     ]
 
     for lang, splits in stats.by_language.items():
+        first_split = True
         for split in ("prod", "test"):
             dist = splits.get(split)
             if dist and dist.count > 0:
-                lines.extend(_format_split_rows(lang, split, dist))
+                lines.extend(_format_split_rows(lang, split, dist, show_lang=first_split))
+                first_split = False
 
     return "\n".join(lines)
 
