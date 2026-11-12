@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import shlex
 import sys
 from pathlib import Path
 from typing import Literal
@@ -43,14 +42,23 @@ def _dispatch(args: argparse.Namespace) -> int:
     config = load_config([Path(r["path"]) for r in task.repos])
     task, _risk = refresh(store, task, config)
     agent = {"agent": args.agent, "model": args.model} if args.agent else config.role(args.role)
-    request = DispatchRequest(args.role, args.phase or task.phase, args.focus, _prompt(args), agent)
+    request = DispatchRequest(
+        args.role,
+        args.phase or task.phase,
+        args.focus,
+        _prompt(args),
+        agent,
+        rebuts=tuple(args.rebut),
+    )
     plan = plan_dispatch(store, task, config, request)
     if args.json:
         emit_json(plan.argv)
+        saved = f" with its JSON output saved to {plan.launch}"
     else:
-        print(shlex.join(plan.argv))
+        print(plan.line())
+        saved = ""
     print(
-        f"Round {plan.n:03d} reserved. Run the line above, end your turn, then: "
+        f"Round {plan.n:03d} reserved. Run the line above{saved}, end your turn, then: "
         f"taskflow round {task.id} collect --round {plan.n} --dispatch-id <ID from Orca>",
         file=sys.stderr,
     )
