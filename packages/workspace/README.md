@@ -94,7 +94,7 @@ packages/workspace/
 | `ws hooks [install\|status\|uninstall\|run\|test]` | Git hooks and quality gate manager |
 | `ws check` | Run the quality gate with condensed output (`--changed`, `--cache`, `--json`, `--skip`, `--budget`, `--dir`) |
 | `ws changed [--json] [--dir DIR]` | Files changed vs. the base branch plus the working tree |
-| `ws design` | Per-function design metrics and checks (`--changed`, `--files-from`, `--focus`, `--json`, `--verbose`, `--dir`) |
+| `ws design` | Per-function design metrics and checks (`--changed`, `--files-from`, `--focus`, `--stats`, `--suggest`, `--json`, `--verbose`, `--dir`) |
 | `ws run` / `ws log` / `ws condense` | Condensed command output and saved full logs |
 | `ws detect [--json] [--dir DIR]` | Detect repository technology stacks |
 | `ws hook claude-worktree-create` | Run a coding-agent integration hook |
@@ -262,8 +262,9 @@ Defaults: `mode = "block"`, `max_complexity = 10`, `max_function_lines = 40`,
 `max_args = 4`, `max_nesting = 3`. Vendored/generated paths are excluded by default
 (`node_modules`, `vendor`, `dist`, `build`, `target`, `.venv`, `generated`, `*.min.js`).
 
-Configure the optional `[design]` table in `<root>/.ai-governance/config.toml` — this is
-the contract shared with ai-governance; `ws design` never reads or writes the repository's
+Configure the optional `[design]` table in `<root>/.workspace/config.toml` (or user global
+`~/.config/workspace/config.toml` or personal `~/.config/workspace/repos/<repo-name>.toml`) —
+`ws design` never reads or writes the repository's
 own linter configs (eslint, checkstyle, ruff, golangci-lint, ...) to decide its limits:
 
 ```toml
@@ -273,7 +274,7 @@ max_complexity = 12
 max_function_lines = 60
 max_args = 5
 max_nesting = 4
-exclude = ["**/node_modules/**", "**/legacy/**"]   # replaces the default list
+exclude = ["**/legacy/**"]                         # added to the default list (additive across defaults, user, and repo)
 ```
 
 ```bash
@@ -281,6 +282,9 @@ ws design                   # whole repo (git ls-files, or a walk without git)
 ws design --changed         # only files changed vs. the base branch
 ws design src/ pkg/foo.go   # specific files or directories
 ws design --files-from list.txt  # newline-separated paths, relative to --dir (default: the current directory)
+ws design --stats            # metric distribution (p50/p90/p99/max) per language and prod vs test
+ws design --suggest          # propose [design] limits from prod p99, ready to paste (implies --stats)
+ws design --stats --json     # structured stats object; adds "suggested" block with --suggest
 ws design --json            # versioned contract: {schema_version, status, violations, files}
 ws design --changed --verbose  # also list every untouched pre-existing violation
 ```
@@ -342,8 +346,10 @@ Each is a `Violation` with `value=1`, `limit=0`, the same new/legacy classificat
 hints (`empty-catch` → handle, rethrow with context, or log with a reason; `todo-ticket` →
 add a ticket reference or do it now; `commented-code` → delete it — version control
 remembers), and the same text/JSON output and exit code as the other metrics. Toggle
-which checks run with `[design].checks` in `.ai-governance/config.toml` (default: all
-twelve); an unknown check name raises:
+which checks run with `[design].checks` in the unified workspace config files
+(default: all twelve; checked in `.workspace/config.toml`, user-global
+`~/.config/workspace/config.toml`, or personal per-repo
+`~/.config/workspace/repos/<repo-name>.toml`); an unknown check name raises:
 
 ```toml
 [design]
@@ -386,8 +392,8 @@ the checks you want in `[design].checks`, for example:
 checks = ["complexity", "length", "args", "nesting", "empty-catch", "todo-ticket", "commented-code", "test-no-assert"]
 ```
 
-**Layer boundaries (`architecture` profile).** With the ai-governance `architecture`
-profile enabled (top-level `profiles = ["architecture"]` in `.ai-governance/config.toml`),
+**Layer boundaries (`architecture` profile).** With the `architecture`
+profile enabled (top-level `profiles = ["architecture"]` in `.workspace/config.toml` or personal repo config),
 `ws design` also checks that inner layers never import outer ones — using its own
 deterministic import scanner (no external tools) for Java, JS/TS/TSX/JSX/MJS/CJS, Python,
 Go, then Kotlin, C#, PHP, Rust and Dart:
@@ -511,16 +517,20 @@ entry per Kubernetes environment it should be able to read variables from:
 
 ### Configuration layers
 
-Settings resolve as **default < user (`~/.config/workspace/config.toml`) < repo (`<repo>/.workspace/config.toml`) < environment variable < CLI flag**.
-`ws config show [--origin] [--json]` prints the effective values and where each came from;
+Settings resolve across three configuration layers (lowest to highest priority):
+1. **user global**: `~/.config/workspace/config.toml` (XDG)
+2. **in-repo**: `<repo>/.workspace/config.toml`
+3. **personal per-repo (outside working tree)**: `~/.config/workspace/repos/<repo-name>.toml` (stable across git worktrees of the same repo, derived from the main checkout directory name)
+
+Full setting precedence: **default < user file < repo file < personal repo file < git config < environment variable < CLI flag**.
+`ws config show [--origin] [--json]` prints which configuration files were found, the effective values and where each came from;
 the `run-local` project file (`.workspace/config.json`, written by `ws config init`) appears
-there as `project.*`. The `[design]` table also has a user layer
-(`~/.config/workspace/config.toml`) under the repo's `.ai-governance/config.toml`.
+there as `project.*`. The `[design]` table and `profiles` live in the same unified configuration files, and `exclude` is additive across all layers.
 Config, state and data directories follow XDG and accept `WORKSPACE_CONFIG_DIR` /
 `WORKSPACE_STATE_DIR` / `WORKSPACE_DATA_DIR` (and `RUN_LOCAL_*` for `run-local`).
 
 Gate settings sit in the `[gate]` table. Priority for them is
-**env `QG_*` > `git config workspace.*` > repo file > user file > default**, so
+**env `QG_*` > `git config workspace.*` > personal repo file > repo file > user file > default**, so
 `git config workspace.skip tests` and `QG_SKIP=tests` keep working. `git config` keys:
 `workspace.skip`, `workspace.commitStyle`, `workspace.protected`, `workspace.timeout`.
 The pre-push, pre-commit and commit-msg hooks call `ws hooks gate-config`, which prints an
@@ -530,6 +540,8 @@ has gate settings (git config or `.workspace/config.toml`) but the gate is not i
 | Key | Env var | Default | Meaning |
 |---|---|---|---|
 | `gate.skip` | `QG_SKIP` | `[]` | Gate checks to skip: gitleaks,commits,lint,design,tests,all |
+| `gate.scope` | `QG_SCOPE` | `all` | Scope of linters and tests: all, changed |
+| `gate.output` | `QG_OUTPUT` | `errors` | Gate output detail level: errors, verbose |
 | `gate.protected_branches` | `QG_PROTECTED` | `^(main|master|develop|staging)$` | Regex of branches the gate refuses to push to directly |
 | `gate.timeout_seconds` | `QG_TIMEOUT` | `900` | Timeout of each gate step |
 | `gate.commit_style` | `QG_COMMIT_STYLE` | `""` | Set to `conventional` to enforce it |
