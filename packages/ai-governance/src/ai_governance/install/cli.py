@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 from .. import corporate
-from ..output import emit_rows, emit_status, emit_text, is_agent_mode
+from ..output import emit_rows, emit_status, emit_text
 from ..rules.catalog import RuleCatalog
 from . import doctor, probe
 from .agents import AGENTS, capability_table
@@ -26,24 +25,6 @@ from .installer import (
     sync_project,
     uninstall_user,
 )
-
-
-def _valid_choice(part: str, count: int) -> bool:
-    return part.isdigit() and 1 <= int(part) <= count
-
-
-def _pick_agents() -> list[str]:
-    """Interactive choice when --agent is omitted on a TTY; never defaults to all."""
-    if is_agent_mode() or not sys.stdin.isatty():
-        raise ValueError("Choose the agent(s) explicitly: --agent claude|codex|antigravity")
-    names = list(AGENTS)
-    for index, name in enumerate(names, 1):
-        print(f"  {index}. {AGENTS[name].name} ({name})")
-    answer = input("Agents to install (numbers, comma-separated): ").strip()
-    parts = [part.strip() for part in answer.split(",") if part.strip()]
-    if not parts or not all(_valid_choice(p, len(names)) for p in parts):
-        raise ValueError("No valid agent selected.")
-    return [names[int(part) - 1] for part in dict.fromkeys(parts)]
 
 
 def _emit(report: Report, *, dry_run: bool) -> None:
@@ -117,7 +98,9 @@ def _selected_agents(args: argparse.Namespace) -> list[str]:
     """`uninstall --profile` without `--agent` touches no agent at all."""
     if args.cmd == "uninstall" and not args.agent and args.profile:
         return []
-    return args.agent or _pick_agents()
+    if not args.agent:
+        raise ValueError("Choose the agent(s) explicitly: --agent claude|codex|antigravity")
+    return list(args.agent)
 
 
 def _user_report(args: argparse.Namespace, agents: list[str]) -> Report:
