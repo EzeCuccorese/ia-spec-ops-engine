@@ -72,7 +72,8 @@ def test_install_never_prompts_even_on_tty(repo: Path, monkeypatch, capsys) -> N
         "builtins.input", lambda _prompt="": pytest.fail("input() must not be called")
     )
     assert main(["install", "--root", str(repo)]) == 1
-    assert "--agent" in capsys.readouterr().out + capsys.readouterr().err
+    captured = capsys.readouterr()
+    assert "--agent" in captured.out + captured.err
 
 
 def test_probe_cli_build_and_verify(repo: Path, capsys) -> None:
