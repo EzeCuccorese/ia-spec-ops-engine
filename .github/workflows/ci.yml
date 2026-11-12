@@ -51,7 +51,7 @@ jobs:
       - name: Check Design Limits on Changed Files
         if: github.event_name == 'pull_request'
         run: |
-          git fetch origin "${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+          git symbolic-ref refs/remotes/origin/HEAD "refs/remotes/origin/${{ github.base_ref }}"
           uv run ws design --changed
 
       - name: Run Pytest Suite with Coverage

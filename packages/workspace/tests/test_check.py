@@ -97,11 +97,19 @@ def test_check_caches_passing_tree(repo: Path, monkeypatch, capsys) -> None:
     check_cli.check(["--dir", str(repo), "--cache"])
     assert len(calls) == 3
 
-    # A run with --skip must not satisfy a subsequent run without --skip:
+    # A run with --skip or QG_SKIP must not satisfy a subsequent run without skip:
     (repo / "a.txt").write_text("edited again")
     assert check_cli.check(["--dir", str(repo), "--skip", "tests", "--cache", "--json"]) == 0
     capsys.readouterr()
     assert check_cli.check(["--dir", str(repo), "--cache", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "passed"
+
+    (repo / "a.txt").write_text("edited with env skip")
+    monkeypatch.setenv("QG_SKIP", "tests")
+    assert check_cli.check(["--dir", str(repo), "--changed", "--cache", "--json"]) == 0
+    capsys.readouterr()
+    monkeypatch.delenv("QG_SKIP", raising=False)
+    assert check_cli.check(["--dir", str(repo), "--changed", "--cache", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "passed"
 
 

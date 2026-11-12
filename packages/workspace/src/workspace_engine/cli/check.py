@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import tempfile
 from pathlib import Path
 
 from workspace_engine.condense import logs
@@ -14,31 +16,50 @@ from workspace_engine.services.changes import (
     tree_fingerprint,
 )
 from workspace_engine.services.git_hooks import QG_STAGES, local_hook_path, run_quality_gate
+from workspace_engine.settings import get
 
 
 def _pass_marker(root: Path) -> Path:
     return local_hook_path(root).parent.parent / "check-pass"
 
 
-def _cache_entry(root: Path, scope: str, skip: str | None, fingerprint: str) -> str:
-    return f"{root}:{scope}:{skip or ''}:{fingerprint}"
+def _effective_skip(root: Path, flag_skip: str | None) -> str:
+    if flag_skip is not None:
+        items = flag_skip.split(",")
+    else:
+        configured = get("gate.skip", root)
+        items = [str(s) for s in configured] if isinstance(configured, list) else []
+    return ",".join(sorted({s.strip() for s in items if s.strip() and s.strip() != "none"}))
+
+
+def _cache_entry(root: Path, scope: str, skip: str, fingerprint: str) -> str:
+    return f"{root}:{scope}:{skip}:{fingerprint}"
+
+
+def _read_entries(marker: Path) -> list[str]:
+    if not marker.is_file():
+        return []
+    return [
+        line.strip() for line in marker.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
 
 
 def _is_cached(marker: Path, entry: str) -> bool:
-    if not marker.is_file():
-        return False
-    return entry in {line.strip() for line in marker.read_text().splitlines() if line.strip()}
+    return entry in _read_entries(marker)
 
 
 def _record_cache(marker: Path, entry: str) -> None:
-    existing = (
-        [line.strip() for line in marker.read_text().splitlines() if line.strip()]
-        if marker.is_file()
-        else []
-    )
+    existing = _read_entries(marker)
     updated = [line for line in existing if line != entry][-15:] + [entry]
     marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text("\n".join(updated) + "\n")
+    fd, tmp_path = tempfile.mkstemp(dir=marker.parent, prefix=".check-pass-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write("\n".join(updated) + "\n")
+        os.replace(tmp_path, marker)
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 def _build_check_parser() -> argparse.ArgumentParser:
@@ -76,7 +97,7 @@ def check(argv: list[str]) -> int:
     scope = "changed" if args.changed else "all"
     fingerprint = tree_fingerprint(root)
     marker = _pass_marker(root)
-    entry = _cache_entry(root, scope, args.skip, fingerprint)
+    entry = _cache_entry(root, scope, _effective_skip(root, args.skip), fingerprint)
 
     if args.cache and _is_cached(marker, entry):
         status, code, text, log_id = "skipped", 0, "✓ gate: unchanged since last pass", None

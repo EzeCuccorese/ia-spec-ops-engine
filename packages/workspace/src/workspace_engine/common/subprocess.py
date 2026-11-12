@@ -145,11 +145,7 @@ def run_command_safe(
     Safe wrapper that returns (returncode, stdout, stderr) without raising uncontrolled exceptions.
     """
     target_cmd = shlex.split(cmd) if isinstance(cmd, str) else cmd
-    merged_env = os.environ.copy()
-    if isolated_git:
-        _isolate_git_env(merged_env)
-    if env:
-        merged_env.update(env)
+    merged_env = _build_env(env, isolated_git)
 
     try:
         res = subprocess.run(
