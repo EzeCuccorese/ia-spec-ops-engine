@@ -31,6 +31,25 @@ def atomic_json_write(path: Path, value: dict[str, Any]) -> None:
             temporary.unlink(missing_ok=True)
 
 
+def _normalize_config_data(data: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(data)
+    for field_name in ("daily_thresholds_pct", "monthly_thresholds_pct"):
+        if field_name in normalized:
+            normalized[field_name] = tuple(int(value) for value in normalized[field_name])
+    if "holiday_dates" in normalized:
+        normalized["holiday_dates"] = tuple(str(value) for value in normalized["holiday_dates"])
+    return normalized
+
+
+def _filter_known_fields(
+    known_fields: dict[str, Any], data: dict[str, Any], path: Path
+) -> dict[str, Any]:
+    ignored = sorted(set(data) - set(known_fields))
+    if ignored:
+        print(f"warning: ignoring unknown key(s) in {path}: {', '.join(ignored)}", file=sys.stderr)
+    return {key: value for key, value in data.items() if key in known_fields}
+
+
 @dataclass(frozen=True)
 class UsageConfig:
     monthly_budget_usd: float = 100.0
@@ -61,19 +80,9 @@ class UsageConfig:
         data = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             raise ValueError("Telemetry config must be a JSON object")
-        for field_name in ("daily_thresholds_pct", "monthly_thresholds_pct"):
-            if field_name in data:
-                data[field_name] = tuple(int(value) for value in data[field_name])
-        if "holiday_dates" in data:
-            data["holiday_dates"] = tuple(str(value) for value in data["holiday_dates"])
-        ignored = sorted(set(data) - set(cls.__dataclass_fields__))
-        if ignored:
-            print(
-                f"warning: ignoring unknown key(s) in {path}: {', '.join(ignored)}", file=sys.stderr
-            )
-        config = cls(
-            **{key: value for key, value in data.items() if key in cls.__dataclass_fields__}
-        )
+        normalized = _normalize_config_data(data)
+        known = _filter_known_fields(cls.__dataclass_fields__, normalized, path)
+        config = cls(**known)
         if config.monthly_budget_usd <= 0 or config.calibration <= 0:
             raise ValueError("Budget and calibration must be greater than zero")
         return config
@@ -86,6 +95,14 @@ class UsageConfig:
         atomic_json_write(path, data)
 
 
+@dataclass(frozen=True)
+class _ThresholdCheck:
+    label: str
+    cost: float
+    limit: float
+    thresholds: tuple[int, ...]
+
+
 class ThresholdTracker:
     @staticmethod
     def _crossed(percent: float, thresholds: tuple[int, ...], notified: list[int]) -> int | None:
@@ -93,6 +110,15 @@ class ThresholdTracker:
             value for value in sorted(thresholds) if percent >= value and value not in notified
         ]
         return matches[-1] if matches else None
+
+    @classmethod
+    def _check_period(cls, check: _ThresholdCheck, notified: list[int]) -> str | None:
+        pct = check.cost / check.limit * 100 if check.limit else 0.0
+        hit = cls._crossed(pct, check.thresholds, notified)
+        if hit is None:
+            return None
+        notified.append(hit)
+        return f"{check.label} estimated usage crossed {hit}% (${check.cost:.2f})."
 
     @classmethod
     def evaluate(
@@ -112,18 +138,15 @@ class ThresholdTracker:
         daily_budget = float(summary.get("daily_budget_usd") or 0)
         day_cost = float(summary.get("today_cost_usd") or 0)
         month_cost = float(summary.get("month_cost_usd") or 0)
-        month_limit = config.effective_monthly_limit
-        daily_pct = day_cost / daily_budget * 100 if daily_budget else 0.0
-        monthly_pct = month_cost / month_limit * 100 if month_limit else 0.0
-        messages: list[str] = []
-        hit = cls._crossed(daily_pct, config.daily_thresholds_pct, day_notified)
-        if hit is not None:
-            day_notified.append(hit)
-            messages.append(f"Daily estimated usage crossed {hit}% (${day_cost:.2f}).")
-        hit = cls._crossed(monthly_pct, config.monthly_thresholds_pct, month_notified)
-        if hit is not None:
-            month_notified.append(hit)
-            messages.append(f"Monthly estimated usage crossed {hit}% (${month_cost:.2f}).")
+        daily = _ThresholdCheck("Daily", day_cost, daily_budget, config.daily_thresholds_pct)
+        monthly = _ThresholdCheck(
+            "Monthly", month_cost, config.effective_monthly_limit, config.monthly_thresholds_pct
+        )
+        candidates = (
+            cls._check_period(daily, day_notified),
+            cls._check_period(monthly, month_notified),
+        )
+        messages = [msg for msg in candidates if msg is not None]
         updated = {
             "day": day_key,
             "day_notified": sorted(set(day_notified)),

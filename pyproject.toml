@@ -73,6 +73,7 @@ pythonpath = ["packages/ai-governance/src", "packages/workspace/src", "."]
 python_files = ["test_*.py", "*_test.py"]
 testpaths = ["packages/ai-governance/tests", "packages/workspace/tests", "tests"]
 addopts = "-ra --strict-markers"
+asyncio_default_fixture_loop_scope = "function"
 markers = [
     "integration: end-to-end integration tests",
 ]

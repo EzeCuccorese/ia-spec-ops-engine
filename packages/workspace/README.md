@@ -146,8 +146,8 @@ failure (`ws log <id>`); `--skip` takes the same stage names as `QG_SKIP`.
 Measures every function's cyclomatic complexity, length (NLOC), parameter count and max
 nesting depth via lizard — one deterministic engine
 covering Java, JavaScript/TypeScript/TSX/JSX, Python, Go, Kotlin, C#, PHP, Rust, Swift,
-Scala, Ruby, C/C++ and more (priority for tests and docs here: Java, JS/TS, Python, Go,
-then the rest). **Dart is not supported by lizard**, so `.dart` files are skipped.
+Scala, Ruby, C/C++, Dart and more (priority for tests and docs here: Java, JS/TS, Python, Go,
+then the rest).
 Python's `self`/`cls` are not counted as parameters.
 
 Defaults: `mode = "block"`, `max_complexity = 10`, `max_function_lines = 40`,
