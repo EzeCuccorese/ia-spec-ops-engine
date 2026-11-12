@@ -1479,6 +1479,8 @@ def test_todo_ticket_ignores_strings_hyphenated_names_and_quoted_prose() -> None
         len(todo_ticket_violations("a.rs", "rs", "fn parse(s: &'a str) { // TODO handle errors\n"))
         == 1
     )
+    assert len(todo_ticket_violations("a.java", "java", 'char c = \'"\'; // TODO "fix"\n')) == 1
+    assert len(todo_ticket_violations("a.go", "go", 's := `a\\`; x := "b" // TODO d\n')) == 1
     assert len(todo_ticket_violations("a.tsx", "tsx", "<p>Don't</p> // TODO fix\n")) == 1
     assert (
         len(todo_ticket_violations("a.py", "py", '"""unterminated\n# TODO fix after error\n')) == 1

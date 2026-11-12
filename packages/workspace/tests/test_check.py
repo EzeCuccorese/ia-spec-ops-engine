@@ -112,6 +112,13 @@ def test_check_caches_passing_tree(repo: Path, monkeypatch, capsys) -> None:
     assert check_cli.check(["--dir", str(repo), "--changed", "--cache", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "passed"
 
+    # A broken .workspace/config.toml must not crash ws check; it runs uncached:
+    cfg = repo / ".workspace"
+    cfg.mkdir()
+    (cfg / "config.toml").write_text("not = [valid toml", encoding="utf-8")
+    assert check_cli.check(["--dir", str(repo), "--changed", "--cache", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "passed"
+
 
 def test_check_failure_is_condensed_with_log(repo: Path, monkeypatch, capsys) -> None:
     noise = "\n".join(f"step {i} ok" for i in range(500))

@@ -10,13 +10,11 @@ with ``value=1``, ``limit=0``, classified ``new``/``legacy`` like the other metr
 from __future__ import annotations
 
 import ast
-import io
 import re
 import textwrap
-import tokenize
 from pathlib import Path
 
-from .metrics import Violation, _advance_quote
+from .metrics import Violation
 
 TICKET_RE = re.compile(r"[A-Z][A-Z0-9]+-\d+|#\d+|https?://\S+")
 TODO_RE = re.compile(r"(?<![\"'`\w-])(TODO|FIXME|XXX)(?!-ticket\b)(?![\"'`\w])", re.IGNORECASE)
@@ -275,67 +273,22 @@ def _comment_style(extension: str) -> str | None:
     return None
 
 
-_SINGLE_QUOTE_CHAR_ONLY = frozenset({"rs", "java", "kt", "kts", "cs", "go", "swift", "scala"})
-
-
-def _is_word_apostrophe(line: str, index: int) -> bool:
-    if index == 0 or index + 1 >= len(line):
-        return False
-    prev_ch, next_ch = line[index - 1], line[index + 1]
-    if not (prev_ch.isalnum() and next_ch.isalnum()):
-        return False
-    return not (prev_ch in "rRbBfFuU" and (index == 1 or not line[index - 2].isalnum()))
-
-
-def _can_open_quote(line: str, index: int, ch: str, extension: str) -> bool:
-    if ch not in ('"', "'", "`"):
-        return False
-    if ch == "'" and (extension in _SINGLE_QUOTE_CHAR_ONLY or _is_word_apostrophe(line, index)):
-        return False
-    return ch in line[index + 1 :]
-
-
-def _trailing_comment(line: str, style: str, extension: str = "") -> str | None:
-    marker = "//" if style == "c" else "#"
-    in_quote: str | None = None
-    escaped = False
-    for i, ch in enumerate(line):
-        if in_quote is None:
-            if line.startswith(marker, i):
-                return line[i + len(marker) :]
-            if _can_open_quote(line, i, ch, extension):
-                in_quote = ch
-        else:
-            in_quote, escaped = _advance_quote(ch, in_quote, escaped)
-    return None
-
-
-def _line_comments(source: str, style: str, extension: str) -> list[tuple[int, str]]:
-    result: list[tuple[int, str]] = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        text = _trailing_comment(line, style, extension)
-        if text is not None:
-            result.append((i, text))
-    return result
-
-
-def _python_comments(source: str) -> list[tuple[int, str]]:
-    try:
-        return [
-            (lineno, tok_str[1:])
-            for tok_type, tok_str, (lineno, _), _, _ in tokenize.generate_tokens(
-                io.StringIO(source).readline
-            )
-            if tok_type == tokenize.COMMENT
-        ]
-    except (tokenize.TokenError, IndentationError):
-        return _line_comments(source, "hash", "py")
-
-
 def _comments_by_line(extension: str, source: str, style: str) -> list[tuple[int, str]]:
-    if extension == "py":
-        return _python_comments(source)
-    return _line_comments(source, style, extension)
+    from lizard_languages import get_reader_for
+    from lizard_languages.code_reader import CodeReader
+
+    marker = "//" if style == "c" else "#"
+    reader = get_reader_for(f"a.{extension}") or CodeReader
+    tokens = list(reader.generate_tokens(source))
+    if not tokens and extension == "php":
+        tokens = list(CodeReader.generate_tokens(source))
+    lineno = 1
+    result: list[tuple[int, str]] = []
+    for token in tokens:
+        if token.startswith(marker):
+            result.append((lineno, token[len(marker) :]))
+        lineno += token.count("\n")
+    return result
 
 
 def todo_ticket_violations(

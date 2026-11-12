@@ -2,9 +2,6 @@
 
 Layers (lowest to highest): default < ``~/.config/workspace/config.toml`` <
 ``<repo>/.workspace/config.toml`` < environment variable < CLI flag.
-
-``config.json`` next to those files is the ``run-local`` project file (``ws config init``),
-not a settings layer: ``project.*`` keys in ``ws config show`` come from it.
 """
 
 from __future__ import annotations

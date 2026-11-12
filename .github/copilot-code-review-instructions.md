@@ -3,10 +3,9 @@
 When reviewing Pull Requests in this repository, follow these standards:
 
 ## Repository Architecture & Scope
-- This repository contains independent Python packages:
-  - `packages/ai-governance`: rules, telemetry, task flow (taskflow), context-frugality tools.
-  - `packages/workspace`: Git worktree management, quality gates, environment tools.
-  - `packages/spec`: specification workflows and agent adapters.
+- This repository contains two independent Python packages:
+  - `packages/ai-governance`: rules, telemetry, task flow (taskflow), context-frugality tools, and Atlassian utilities.
+  - `packages/workspace`: deterministic quality gates (`ws check`, `ws hooks`), design limits (`ws design`), stack detection (`ws detect`), and command condensation (`ws run`, `ws condense`, `ws log`).
 - Keep dependencies isolated between packages; do not create circular or unnecessary cross-dependencies.
 
 ## Code Quality & Python Standards

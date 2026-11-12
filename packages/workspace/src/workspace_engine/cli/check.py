@@ -8,6 +8,7 @@ import os
 import tempfile
 from pathlib import Path
 
+from workspace_engine._config_core import ConfigError
 from workspace_engine.condense import logs
 from workspace_engine.condense.engine import condense
 from workspace_engine.services.changes import (
@@ -23,11 +24,14 @@ def _pass_marker(root: Path) -> Path:
     return local_hook_path(root).parent.parent / "check-pass"
 
 
-def _effective_skip(root: Path, flag_skip: str | None) -> str:
+def _effective_skip(root: Path, flag_skip: str | None) -> str | None:
     if flag_skip is not None:
         items = flag_skip.split(",")
     else:
-        configured = get("gate.skip", root)
+        try:
+            configured = get("gate.skip", root)
+        except (ConfigError, ValueError):
+            return None
         items = [str(s) for s in configured] if isinstance(configured, list) else []
     return ",".join(sorted({s.strip() for s in items if s.strip() and s.strip() != "none"}))
 
@@ -42,10 +46,6 @@ def _read_entries(marker: Path) -> list[str]:
     return [
         line.strip() for line in marker.read_text(encoding="utf-8").splitlines() if line.strip()
     ]
-
-
-def _is_cached(marker: Path, entry: str) -> bool:
-    return entry in _read_entries(marker)
 
 
 def _record_cache(marker: Path, entry: str) -> None:
@@ -76,9 +76,8 @@ def _build_check_parser() -> argparse.ArgumentParser:
 
 
 def _execute_gate(
-    root: Path, args: argparse.Namespace, marker: Path, entry: str
+    root: Path, scope: str, args: argparse.Namespace, entry: str | None
 ) -> tuple[str, int, str, str | None]:
-    scope = "changed" if args.changed else "all"
     captured: list[str] = []
     code = run_quality_gate(root, scope=scope, skip=args.skip, output="errors", capture=captured)
     output = captured[0] if captured else ""
@@ -86,7 +85,8 @@ def _execute_gate(
     log_id = logs.save(output, "ws check") if code != 0 else None
     status = "passed" if code == 0 else "failed"
     if code == 0:
-        _record_cache(marker, entry)
+        if entry is not None:
+            _record_cache(_pass_marker(root), entry)
         text = "✓ gate: passed"
     return status, code, text, log_id
 
@@ -96,13 +96,13 @@ def check(argv: list[str]) -> int:
     root = Path(args.dir).resolve()
     scope = "changed" if args.changed else "all"
     fingerprint = tree_fingerprint(root)
-    marker = _pass_marker(root)
-    entry = _cache_entry(root, scope, _effective_skip(root, args.skip), fingerprint)
+    skip_key = _effective_skip(root, args.skip)
+    entry = _cache_entry(root, scope, skip_key, fingerprint) if skip_key is not None else None
 
-    if args.cache and _is_cached(marker, entry):
+    if args.cache and entry is not None and entry in _read_entries(_pass_marker(root)):
         status, code, text, log_id = "skipped", 0, "✓ gate: unchanged since last pass", None
     else:
-        status, code, text, log_id = _execute_gate(root, args, marker, entry)
+        status, code, text, log_id = _execute_gate(root, scope, args, entry)
 
     if args.json:
         payload = {
