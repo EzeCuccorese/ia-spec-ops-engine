@@ -937,8 +937,8 @@ def test_design_stage_passes_in_warn_mode(tmp_path: Path) -> None:
     assert install_git_hooks(target_dir=project_dir)["success"] is True
     bin_dir = tmp_path / "bin"
     _write_ws_shim(bin_dir)
-    (project_dir / ".ai-governance").mkdir()
-    (project_dir / ".ai-governance" / "config.toml").write_text('[design]\nmode = "warn"\n')
+    (project_dir / ".workspace").mkdir()
+    (project_dir / ".workspace" / "config.toml").write_text('[design]\nmode = "warn"\n')
     _commit_complex_function(project_dir, "test(fixture): add complex function, warn mode")
 
     proc = _push_with_gate_custom(

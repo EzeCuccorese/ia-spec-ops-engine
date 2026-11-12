@@ -136,8 +136,8 @@ def test_config_defaults(tmp_path: Path) -> None:
 
 
 def test_config_overrides(tmp_path: Path) -> None:
-    (tmp_path / ".ai-governance").mkdir()
-    (tmp_path / ".ai-governance" / "config.toml").write_text(
+    (tmp_path / ".workspace").mkdir()
+    (tmp_path / ".workspace" / "config.toml").write_text(
         '[design]\nmode = "warn"\nmax_complexity = 20\n'
     )
     config = DesignConfig.load(tmp_path)
@@ -164,8 +164,8 @@ def test_config_overrides(tmp_path: Path) -> None:
     ],
 )
 def test_config_rejects_invalid_design_table(tmp_path: Path, toml: str, match: str) -> None:
-    (tmp_path / ".ai-governance").mkdir()
-    (tmp_path / ".ai-governance" / "config.toml").write_text(toml)
+    (tmp_path / ".workspace").mkdir()
+    (tmp_path / ".workspace" / "config.toml").write_text(toml)
     with pytest.raises(ValueError, match=match):
         DesignConfig.load(tmp_path)
 
@@ -382,8 +382,8 @@ def test_cli_json(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_cli_warn_mode_exit_zero(git_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    (git_repo / ".ai-governance").mkdir()
-    (git_repo / ".ai-governance" / "config.toml").write_text('[design]\nmode = "warn"\n')
+    (git_repo / ".workspace").mkdir()
+    (git_repo / ".workspace" / "config.toml").write_text('[design]\nmode = "warn"\n')
     (git_repo / "deep.py").write_text(PY_VIOLATING)
     code = design_cli.design(["--dir", str(git_repo), "--changed"])
     out = capsys.readouterr().out
@@ -392,8 +392,8 @@ def test_cli_warn_mode_exit_zero(git_repo: Path, capsys: pytest.CaptureFixture[s
 
 
 def test_cli_off_mode(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    (tmp_path / ".ai-governance").mkdir()
-    (tmp_path / ".ai-governance" / "config.toml").write_text('[design]\nmode = "off"\n')
+    (tmp_path / ".workspace").mkdir()
+    (tmp_path / ".workspace" / "config.toml").write_text('[design]\nmode = "off"\n')
     code = design_cli.design(["--dir", str(tmp_path)])
     out = capsys.readouterr().out
     assert code == 0
@@ -563,8 +563,8 @@ def test_measure_skips_unparseable_file(tmp_path: Path, content: bytes, name: st
 
 
 def test_config_no_design_table_returns_defaults(tmp_path: Path) -> None:
-    (tmp_path / ".ai-governance").mkdir()
-    (tmp_path / ".ai-governance" / "config.toml").write_text("[other]\nkey = 1\n")
+    (tmp_path / ".workspace").mkdir()
+    (tmp_path / ".workspace" / "config.toml").write_text("[other]\nkey = 1\n")
     config = DesignConfig.load(tmp_path)
     assert config == DesignConfig()
 
@@ -644,7 +644,7 @@ def test_cli_changed_and_files_from_filters_excluded_hygiene_and_test_quality(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Set up config with exclude = ["**/poc/**", "**/ignore_test.py"]
-    gov = tmp_path / ".ai-governance"
+    gov = tmp_path / ".workspace"
     gov.mkdir()
     (gov / "config.toml").write_text(
         '[design]\nmode = "block"\nexclude = ["**/poc/**", "**/ignore_test.py"]\n',
@@ -1115,8 +1115,8 @@ _LAYERS = LayersConfig(order=("adapters", "application", "domain"), paths={})
 
 
 def _write_config(root: Path, extra: str = "") -> None:
-    (root / ".ai-governance").mkdir(exist_ok=True)
-    (root / ".ai-governance" / "config.toml").write_text(
+    (root / ".workspace").mkdir(exist_ok=True)
+    (root / ".workspace" / "config.toml").write_text(
         'profiles = ["architecture"]\n[design.layers]\norder = ["adapters", "application", "domain"]\n'
         + extra
     )
@@ -1334,8 +1334,8 @@ def test_cli_profile_off_no_layer_check(tmp_path: Path, capsys: pytest.CaptureFi
 def test_cli_profile_on_no_layers_configured_note(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    (tmp_path / ".ai-governance").mkdir()
-    (tmp_path / ".ai-governance" / "config.toml").write_text('profiles = ["architecture"]\n')
+    (tmp_path / ".workspace").mkdir()
+    (tmp_path / ".workspace" / "config.toml").write_text('profiles = ["architecture"]\n')
     (tmp_path / "small.py").write_text(PY_CLEAN)
     code = design_cli.design(["--dir", str(tmp_path), str(tmp_path / "small.py")])
     out = capsys.readouterr().out
@@ -1498,8 +1498,8 @@ def test_config_checks_default_enables_all(tmp_path: Path) -> None:
 
 
 def test_config_checks_subset_disables_others(tmp_path: Path) -> None:
-    (tmp_path / ".ai-governance").mkdir()
-    (tmp_path / ".ai-governance" / "config.toml").write_text('[design]\nchecks = ["complexity"]\n')
+    (tmp_path / ".workspace").mkdir()
+    (tmp_path / ".workspace" / "config.toml").write_text('[design]\nchecks = ["complexity"]\n')
     config = DesignConfig.load(tmp_path)
     assert config.checks == ("complexity",)
 
@@ -1596,8 +1596,8 @@ def test_hygiene_violations_skips_undecodable_file(tmp_path: Path) -> None:
 def test_cli_checks_disabled_skips_hygiene(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    (tmp_path / ".ai-governance").mkdir()
-    (tmp_path / ".ai-governance" / "config.toml").write_text(
+    (tmp_path / ".workspace").mkdir()
+    (tmp_path / ".workspace" / "config.toml").write_text(
         '[design]\nchecks = ["complexity", "length", "args", "nesting"]\n'
     )
     (tmp_path / "A.java").write_text(

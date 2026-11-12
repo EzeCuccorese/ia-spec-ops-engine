@@ -177,18 +177,46 @@ def add_config_arguments(parser: argparse.ArgumentParser) -> None:
 
 def _show(args: argparse.Namespace) -> int:
     """``ws config show``: settings plus the ``run-local`` project keys, with their origin."""
-    from workspace_engine._config_core import ConfigError, Value, render_show
+    from workspace_engine._config_core import ConfigError, Value, render_show, xdg_dir
     from workspace_engine.run_local.constants import project_config_origins
-    from workspace_engine.settings import effective
+    from workspace_engine.settings import effective, personal_repo_config_path, repo_root
+
+    root = repo_root()
+    found_files: list[Path] = []
+    user_file = xdg_dir("config", "workspace") / "config.toml"
+    if user_file.is_file():
+        found_files.append(user_file)
+    if root is not None:
+        repo_file = root / ".workspace" / "config.toml"
+        if repo_file.is_file():
+            found_files.append(repo_file)
+        personal_file = personal_repo_config_path(root)
+        if personal_file.is_file():
+            found_files.append(personal_file)
 
     try:
-        values = effective()
-        project = project_config_origins()
+        values = effective(root)
+        project = project_config_origins(root)
     except (ConfigError, ValueError) as exc:
         log_error(str(exc))
         return 1
+
     values.update({f"project.{k}": Value(*v) for k, v in project.items()})
-    print(render_show(values, origin=args.origin, as_json=args.json))
+
+    if not getattr(args, "json", False):
+        if found_files:
+            print(f"Config files found ({len(found_files)}):")
+            for f in found_files:
+                print(f"  {f}")
+            print()
+        else:
+            print("No config files found.\n")
+
+    print(
+        render_show(
+            values, origin=getattr(args, "origin", False), as_json=getattr(args, "json", False)
+        )
+    )
     return 0
 
 

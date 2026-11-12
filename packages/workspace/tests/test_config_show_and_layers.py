@@ -45,11 +45,11 @@ def test_design_user_layer_is_overridden_key_by_key_by_the_repo(xdg: Path, tmp_p
         "[design]\nmax_args = 7\nmax_nesting = 5\nexclude = ['user/**']\n", encoding="utf-8"
     )
     root = tmp_path / "repo"
-    (root / ".ai-governance").mkdir(parents=True)
+    (root / ".workspace").mkdir(parents=True)
     initial = DesignConfig.load(root)
     assert initial.max_args == 7
     assert "user/**" in initial.exclude
-    (root / ".ai-governance" / "config.toml").write_text(
+    (root / ".workspace" / "config.toml").write_text(
         "[design]\nmax_args = 2\nexclude = ['repo/**']\n"
     )
     loaded = DesignConfig.load(root)

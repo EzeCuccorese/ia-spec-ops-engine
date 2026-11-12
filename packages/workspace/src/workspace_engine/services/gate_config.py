@@ -20,8 +20,10 @@ SHELL_VARIABLES = {
     "gate.protected_branches": "QG_PROTECTED",
     "gate.timeout_seconds": "QG_TIMEOUT",
     "gate.commit_style": "QG_COMMIT_STYLE",
+    "gate.scope": "QG_SCOPE",
+    "gate.output": "QG_OUTPUT",
 }
-FILE_ORIGINS = ("user", "repo", "git")  # everything below the environment
+FILE_ORIGINS = ("user", "repo", "personal", "git")  # everything below the environment
 
 
 def _text(value: Value) -> str:

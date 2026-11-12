@@ -262,8 +262,9 @@ Defaults: `mode = "block"`, `max_complexity = 10`, `max_function_lines = 40`,
 `max_args = 4`, `max_nesting = 3`. Vendored/generated paths are excluded by default
 (`node_modules`, `vendor`, `dist`, `build`, `target`, `.venv`, `generated`, `*.min.js`).
 
-Configure the optional `[design]` table in `<root>/.ai-governance/config.toml` — this is
-the contract shared with ai-governance; `ws design` never reads or writes the repository's
+Configure the optional `[design]` table in `<root>/.workspace/config.toml` (or user global
+`~/.config/workspace/config.toml` or personal `~/.config/workspace/repos/<repo-name>.toml`) —
+`ws design` never reads or writes the repository's
 own linter configs (eslint, checkstyle, ruff, golangci-lint, ...) to decide its limits:
 
 ```toml
@@ -389,8 +390,8 @@ the checks you want in `[design].checks`, for example:
 checks = ["complexity", "length", "args", "nesting", "empty-catch", "todo-ticket", "commented-code", "test-no-assert"]
 ```
 
-**Layer boundaries (`architecture` profile).** With the ai-governance `architecture`
-profile enabled (top-level `profiles = ["architecture"]` in `.ai-governance/config.toml`),
+**Layer boundaries (`architecture` profile).** With the `architecture`
+profile enabled (top-level `profiles = ["architecture"]` in `.workspace/config.toml` or personal repo config),
 `ws design` also checks that inner layers never import outer ones — using its own
 deterministic import scanner (no external tools) for Java, JS/TS/TSX/JSX/MJS/CJS, Python,
 Go, then Kotlin, C#, PHP, Rust and Dart:
@@ -514,16 +515,20 @@ entry per Kubernetes environment it should be able to read variables from:
 
 ### Configuration layers
 
-Settings resolve as **default < user (`~/.config/workspace/config.toml`) < repo (`<repo>/.workspace/config.toml`) < environment variable < CLI flag**.
-`ws config show [--origin] [--json]` prints the effective values and where each came from;
+Settings resolve across three configuration layers (lowest to highest priority):
+1. **user global**: `~/.config/workspace/config.toml` (XDG)
+2. **in-repo**: `<repo>/.workspace/config.toml`
+3. **personal per-repo (outside working tree)**: `~/.config/workspace/repos/<repo-name>.toml` (stable across git worktrees of the same repo, derived from the main checkout directory name)
+
+Full setting precedence: **default < user file < repo file < personal repo file < git config < environment variable < CLI flag**.
+`ws config show [--origin] [--json]` prints which configuration files were found, the effective values and where each came from;
 the `run-local` project file (`.workspace/config.json`, written by `ws config init`) appears
-there as `project.*`. The `[design]` table also has a user layer
-(`~/.config/workspace/config.toml`) under the repo's `.ai-governance/config.toml`.
+there as `project.*`. The `[design]` table and `profiles` live in the same unified configuration files, and `exclude` is additive across all layers.
 Config, state and data directories follow XDG and accept `WORKSPACE_CONFIG_DIR` /
 `WORKSPACE_STATE_DIR` / `WORKSPACE_DATA_DIR` (and `RUN_LOCAL_*` for `run-local`).
 
 Gate settings sit in the `[gate]` table. Priority for them is
-**env `QG_*` > `git config workspace.*` > repo file > user file > default**, so
+**env `QG_*` > `git config workspace.*` > personal repo file > repo file > user file > default**, so
 `git config workspace.skip tests` and `QG_SKIP=tests` keep working. `git config` keys:
 `workspace.skip`, `workspace.commitStyle`, `workspace.protected`, `workspace.timeout`.
 The pre-push, pre-commit and commit-msg hooks call `ws hooks gate-config`, which prints an
@@ -533,6 +538,8 @@ has gate settings (git config or `.workspace/config.toml`) but the gate is not i
 | Key | Env var | Default | Meaning |
 |---|---|---|---|
 | `gate.skip` | `QG_SKIP` | `[]` | Gate checks to skip: gitleaks,commits,lint,design,tests,all |
+| `gate.scope` | `QG_SCOPE` | `all` | Scope of linters and tests: all, changed |
+| `gate.output` | `QG_OUTPUT` | `errors` | Gate output detail level: errors, verbose |
 | `gate.protected_branches` | `QG_PROTECTED` | `^(main|master|develop|staging)$` | Regex of branches the gate refuses to push to directly |
 | `gate.timeout_seconds` | `QG_TIMEOUT` | `900` | Timeout of each gate step |
 | `gate.commit_style` | `QG_COMMIT_STYLE` | `""` | Set to `conventional` to enforce it |

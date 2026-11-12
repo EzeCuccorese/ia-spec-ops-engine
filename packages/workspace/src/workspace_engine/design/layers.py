@@ -1,8 +1,8 @@
 """
 workspace_engine.design.layers — Architecture layer-boundary check for ``ws design``.
 
-Runs only when the ai-governance ``architecture`` profile is enabled (top-level
-``profiles = [...]`` in ``.ai-governance/config.toml``) and ``[design.layers]`` is
+Runs only when the architecture profile is enabled (top-level
+``profiles = [...]`` in ``.workspace/config.toml`` or personal repo config) and ``[design.layers]`` is
 configured. A deterministic, no-external-tools import scanner per language (priority
 Java, JS/TS, Python, Go, then Kotlin, C#, PHP, Rust, Dart) resolves each import to a
 repo-relative pseudo-path and flags an inner layer importing an outer one.
