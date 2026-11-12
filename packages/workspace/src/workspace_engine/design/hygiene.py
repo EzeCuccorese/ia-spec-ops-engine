@@ -17,7 +17,7 @@ from pathlib import Path
 from .metrics import Violation
 
 TICKET_RE = re.compile(r"[A-Z][A-Z0-9]+-\d+|#\d+|https?://\S+")
-TODO_RE = re.compile(r"\b(TODO|FIXME|XXX)\b", re.IGNORECASE)
+TODO_RE = re.compile(r"(?<![\"'`\w-])(TODO|FIXME|XXX)(?!-ticket\b)(?![\"'`\w])", re.IGNORECASE)
 
 _STATEMENT_KEYWORDS = (
     "return",
@@ -89,9 +89,7 @@ _GO_ERR_IF = re.compile(r"\bif\s+err\s*!=\s*nil\s*\{")
 _RUST_ERR_ARM = re.compile(r"Err\s*\(\s*_?\s*\)\s*=>\s*(\{\s*\}|\(\s*\))")
 
 _C_LINE_COMMENT_FULL = re.compile(r"^\s*//(.*)$")
-_C_LINE_COMMENT_TRAILING = re.compile(r"//(.*)$")
 _HASH_LINE_COMMENT_FULL = re.compile(r"^\s*#(.*)$")
-_HASH_LINE_COMMENT_TRAILING = re.compile(r"#(.*)$")
 
 
 def _looks_like_code(text: str) -> bool:
@@ -275,10 +273,22 @@ def _comment_style(extension: str) -> str | None:
     return None
 
 
-def _trailing_comment(line: str, style: str) -> str | None:
-    pattern = _C_LINE_COMMENT_TRAILING if style == "c" else _HASH_LINE_COMMENT_TRAILING
-    match = pattern.search(line)
-    return match.group(1) if match else None
+def _comments_by_line(extension: str, source: str, style: str) -> list[tuple[int, str]]:
+    from lizard_languages import get_reader_for
+    from lizard_languages.code_reader import CodeReader
+
+    marker = "//" if style == "c" else "#"
+    reader = get_reader_for(f"a.{extension}") or CodeReader
+    tokens = list(reader.generate_tokens(source))
+    if not tokens and extension == "php":
+        tokens = list(CodeReader.generate_tokens(source))
+    lineno = 1
+    result: list[tuple[int, str]] = []
+    for token in tokens:
+        if token.startswith(marker):
+            result.append((lineno, token[len(marker) :]))
+        lineno += token.count("\n")
+    return result
 
 
 def todo_ticket_violations(
@@ -288,10 +298,7 @@ def todo_ticket_violations(
     if style is None:
         return []
     violations = []
-    for i, line in enumerate(source.splitlines(), start=1):
-        text = _trailing_comment(line, style)
-        if text is None:
-            continue
+    for i, text in _comments_by_line(extension, source, style):
         if TODO_RE.search(text) and not TICKET_RE.search(text):
             violations.append(
                 Violation(

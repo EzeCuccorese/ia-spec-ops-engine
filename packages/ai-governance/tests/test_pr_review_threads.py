@@ -160,16 +160,13 @@ def _content(repo: Path) -> dict:
     return tomllib.loads((repo / ".ai-governance" / "taskflow.toml").read_text())
 
 
-@pytest.mark.parametrize("error", [EOFError, KeyboardInterrupt])
-def test_closing_the_trust_prompt_is_a_refusal_not_a_traceback(
-    untrusted_repo: Path, monkeypatch: pytest.MonkeyPatch, error: type[BaseException]
+def test_trust_without_yes_refuses_without_prompting(
+    untrusted_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _terminal(monkeypatch)
-
-    def closed(prompt: str = "") -> str:
-        raise error
-
-    monkeypatch.setattr("builtins.input", closed)
+    monkeypatch.setattr(
+        "builtins.input", lambda _prompt="": pytest.fail("input() must not be called")
+    )
     assert cli.cmd_trust(argparse.Namespace(repo=str(untrusted_repo), yes=False)) == 1
     assert not is_trusted(untrusted_repo, _content(untrusted_repo))
 

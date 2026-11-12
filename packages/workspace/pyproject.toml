@@ -5,14 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "workspace"
 version = "1.9.1"
-description = "Deterministic workspace manager, Git worktree isolation, local environment orchestrator, builds and Kubernetes manager."
+description = "Deterministic quality gates, design limits, stack detection, and command condensation for coding agents."
 license = "MIT"
 license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "rich>=13.0.0",
-    "psutil>=5.9",
     "ruamel.yaml>=0.18",
     "lizard>=1.25.0",  # first release that parses Dart
 ]

@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -36,24 +38,28 @@ jobs:
 
       - name: Run Ruff Lint
         run: |
-          uv run ruff check packages/ tests/
+          uv run ruff check packages/ tests/ evals/ .github/scripts/
 
       - name: Run Ruff Format Check
         run: |
-          uv run ruff format --check packages/ tests/
+          uv run ruff format --check packages/ tests/ evals/ .github/scripts/
 
       - name: Run Mypy
         run: |
           uv run mypy
+
+      - name: Check Design Limits on Changed Files
+        if: github.event_name == 'pull_request'
+        run: |
+          git symbolic-ref refs/remotes/origin/HEAD "refs/remotes/origin/${{ github.base_ref }}"
+          uv run ws design --changed
 
       - name: Run Pytest Suite with Coverage
         run: |
           uv run python -m pytest -q --cov --cov-report=term-missing:skip-covered \
             --cov-report=json:coverage.json \
             packages/ai-governance/tests \
-            packages/spec/tests \
             packages/workspace/tests \
-            packages/workspace/tests_integration \
             tests
 
       # Coverage may not drop against the target branch; there is no fixed floor,
@@ -64,9 +70,7 @@ jobs:
           git fetch --depth=1 origin "${{ github.base_ref }}"
           git worktree add ../base FETCH_HEAD
           (cd ../base && uv sync --all-packages -q && uv run python -m pytest -q -p no:cacheprovider \
-            --cov --cov-report=json:../base-coverage.json \
-            packages/ai-governance/tests packages/spec/tests packages/workspace/tests \
-            packages/workspace/tests_integration tests > /dev/null)
+            --cov --cov-report=json:../base-coverage.json > /dev/null)
           python3 - <<'PY'
           import json
           head = json.load(open("coverage.json"))["totals"]["percent_covered"]
@@ -79,12 +83,10 @@ jobs:
         run: |
           uv run ai-governance --help
           uv run ws --help
-          uv run spec --help
 
       - name: Build Monorepo Wheels
         run: |
           uv build packages/ai-governance --wheel --out-dir dist
-          uv build packages/spec --wheel --out-dir dist
           uv build packages/workspace --wheel --out-dir dist
 
       - name: Verify Wheel Hermeticity & CLI in Isolated Environment

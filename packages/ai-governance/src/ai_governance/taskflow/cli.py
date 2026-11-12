@@ -724,24 +724,20 @@ def _show_pending(repo: Path, pending: PendingTrust) -> None:
 
 
 def _user_confirms(repo: Path, assume_yes: bool) -> bool:
-    """Approval needs a person at a terminal: --yes only skips the question."""
+    """Approval needs a person at a terminal passing --yes explicitly."""
     if _agent_markers() or not (sys.stdin.isatty() and sys.stdout.isatty()):
         emit_status(
             "error",
             "These commands run with your permissions: approve them yourself in an interactive "
-            f"terminal (ai-governance taskflow trust --repo {repo})",
+            f"terminal (ai-governance taskflow trust --repo {repo} --yes)",
         )
         return False
     if assume_yes:
         return True
-    try:
-        answer = input("Run these checks for this repository? [y/N] ")
-    except (EOFError, KeyboardInterrupt):
-        print()  # the terminal closed or the user hit Ctrl-C: that is a refusal, not a crash
-        answer = ""
-    if answer.strip().lower() == "y":
-        return True
-    emit_status("warn", "Not trusted")
+    emit_status(
+        "warn",
+        f"Not trusted: pass --yes to approve (ai-governance taskflow trust --repo {repo} --yes)",
+    )
     return False
 
 
