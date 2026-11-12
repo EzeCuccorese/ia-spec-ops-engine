@@ -1464,6 +1464,17 @@ def test_prose_comment_not_flagged_as_todo_or_code() -> None:
     assert commented_code_violations("a.py", "py", source) == []
 
 
+def test_todo_ticket_ignores_strings_hyphenated_names_and_quoted_prose() -> None:
+    py_source = (
+        "# --- todo-ticket --------------------------------------------\n"
+        '# A bare word/prose line (e.g. "Notes", "TODO") parses as a Name\n'
+        's = "x = 1  # TODO fix this later\\n"\n'
+    )
+    assert todo_ticket_violations("a.py", "py", py_source) == []
+    ts_source = '// --- todo-ticket ---\nconst s = "// TODO fix later";\n'
+    assert todo_ticket_violations("a.ts", "ts", ts_source) == []
+
+
 def test_python_commented_code_violation() -> None:
     source = "# def old_handler(x):\n#     return x + 1\n"
     violations = commented_code_violations("a.py", "py", source)

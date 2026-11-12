@@ -20,7 +20,28 @@ def _pass_marker(root: Path) -> Path:
     return local_hook_path(root).parent.parent / "check-pass"
 
 
-def check(argv: list[str]) -> int:
+def _cache_entry(root: Path, scope: str, skip: str | None, fingerprint: str) -> str:
+    return f"{root}:{scope}:{skip or ''}:{fingerprint}"
+
+
+def _is_cached(marker: Path, entry: str) -> bool:
+    if not marker.is_file():
+        return False
+    return entry in {line.strip() for line in marker.read_text().splitlines() if line.strip()}
+
+
+def _record_cache(marker: Path, entry: str) -> None:
+    existing = (
+        [line.strip() for line in marker.read_text().splitlines() if line.strip()]
+        if marker.is_file()
+        else []
+    )
+    updated = [line for line in existing if line != entry][-15:] + [entry]
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("\n".join(updated) + "\n")
+
+
+def _build_check_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ws check", description="Run the quality gate")
     parser.add_argument("--dir", "-d", default=".", help="Repository root")
     parser.add_argument("--changed", action="store_true", help="Lint/test only changed files")
@@ -30,31 +51,37 @@ def check(argv: list[str]) -> int:
         "--cache", action="store_true", help="Skip when the tree is unchanged since the last pass"
     )
     parser.add_argument("--json", action="store_true", help="Emit the versioned JSON contract")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def _execute_gate(
+    root: Path, args: argparse.Namespace, marker: Path, entry: str
+) -> tuple[str, int, str, str | None]:
+    scope = "changed" if args.changed else "all"
+    captured: list[str] = []
+    code = run_quality_gate(root, scope=scope, skip=args.skip, output="errors", capture=captured)
+    output = captured[0] if captured else ""
+    text = condense(output, "ws check", code, args.budget).text
+    log_id = logs.save(output, "ws check") if code != 0 else None
+    status = "passed" if code == 0 else "failed"
+    if code == 0:
+        _record_cache(marker, entry)
+        text = "✓ gate: passed"
+    return status, code, text, log_id
+
+
+def check(argv: list[str]) -> int:
+    args = _build_check_parser().parse_args(argv)
     root = Path(args.dir).resolve()
+    scope = "changed" if args.changed else "all"
     fingerprint = tree_fingerprint(root)
     marker = _pass_marker(root)
+    entry = _cache_entry(root, scope, args.skip, fingerprint)
 
-    if args.cache and marker.is_file() and marker.read_text().strip() == fingerprint:
+    if args.cache and _is_cached(marker, entry):
         status, code, text, log_id = "skipped", 0, "✓ gate: unchanged since last pass", None
     else:
-        captured: list[str] = []
-        code = run_quality_gate(
-            root,
-            scope="changed" if args.changed else "all",
-            skip=args.skip,
-            output="errors",
-            capture=captured,
-        )
-        output = captured[0] if captured else ""
-        result = condense(output, "ws check", code, args.budget)
-        text = result.text
-        log_id = logs.save(output, "ws check") if code != 0 else None
-        status = "passed" if code == 0 else "failed"
-        if code == 0:
-            marker.parent.mkdir(parents=True, exist_ok=True)
-            marker.write_text(fingerprint)
-            text = "✓ gate: passed"
+        status, code, text, log_id = _execute_gate(root, args, marker, entry)
 
     if args.json:
         payload = {

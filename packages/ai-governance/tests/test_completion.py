@@ -182,7 +182,6 @@ def test_walk_skips_missing_or_unusable_tools(
 ) -> None:
     _on_path(monkeypatch, tmp_path, "ws", "echo not a shebang")
     assert completion.walk("ws") is None
-    assert completion.walk("spec") is None
     _on_path(monkeypatch, tmp_path, "ws", "#!/nonexistent/python")
     assert completion.walk("ws") is None
     assert completion.main(["zsh", "ws"]) == 1

@@ -41,6 +41,21 @@ def test_changed_files_includes_commits_and_working_tree(repo: Path) -> None:
     assert changes.changed_files(repo) == ["a.txt", "b.txt", "new.txt"]
 
 
+def test_changed_files_preserves_paths_with_spaces(repo: Path) -> None:
+    spaced_dir = repo / "dir with spaces"
+    spaced_dir.mkdir()
+    committed = spaced_dir / "committed file.txt"
+    committed.write_text("c")
+    _git(repo, "add", str(committed))
+    _git(repo, "commit", "-q", "-m", "spaced")
+    untracked = spaced_dir / "untracked file.txt"
+    untracked.write_text("u")
+    assert changes.changed_files(repo) == [
+        "dir with spaces/committed file.txt",
+        "dir with spaces/untracked file.txt",
+    ]
+
+
 def test_fingerprint_changes_with_untracked_content(repo: Path) -> None:
     first = changes.tree_fingerprint(repo)
     assert changes.tree_fingerprint(repo) == first
@@ -51,25 +66,43 @@ def test_fingerprint_changes_with_untracked_content(repo: Path) -> None:
 
 
 def test_check_caches_passing_tree(repo: Path, monkeypatch, capsys) -> None:
-    calls: list[str] = []
+    calls: list[tuple[str, str | None]] = []
 
     def fake_gate(root, scope="all", skip=None, output="errors", capture=None, **_):
-        calls.append(scope)
+        calls.append((scope, skip))
         capture.append("all good")
         return 0
 
     monkeypatch.setattr(check_cli, "run_quality_gate", fake_gate)
     assert check_cli.check(["--dir", str(repo), "--changed", "--cache", "--json"]) == 0
     first = json.loads(capsys.readouterr().out)
-    assert first["status"] == "passed" and calls == ["changed"]
+    assert first["status"] == "passed" and calls == [("changed", None)]
 
+    # Same scope/skip hits the cache:
+    assert check_cli.check(["--dir", str(repo), "--changed", "--cache", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "skipped"
+    assert calls == [("changed", None)]
+
+    # Full run (scope="all") must NOT be skipped after only a --changed pass:
+    assert check_cli.check(["--dir", str(repo), "--cache", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "passed"
+    assert calls == [("changed", None), ("all", None)]
+
+    # Repeat of full run hits the cache:
     assert check_cli.check(["--dir", str(repo), "--cache", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "skipped"
-    assert calls == ["changed"]
+    assert len(calls) == 2
 
     (repo / "a.txt").write_text("edited")
     check_cli.check(["--dir", str(repo), "--cache"])
-    assert len(calls) == 2
+    assert len(calls) == 3
+
+    # A run with --skip must not satisfy a subsequent run without --skip:
+    (repo / "a.txt").write_text("edited again")
+    assert check_cli.check(["--dir", str(repo), "--skip", "tests", "--cache", "--json"]) == 0
+    capsys.readouterr()
+    assert check_cli.check(["--dir", str(repo), "--cache", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "passed"
 
 
 def test_check_failure_is_condensed_with_log(repo: Path, monkeypatch, capsys) -> None:

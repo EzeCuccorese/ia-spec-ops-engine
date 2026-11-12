@@ -117,12 +117,6 @@ REPLACEMENTS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
         "resume the task bound to this repository/branch",
         ("git log to reconstruct task state",),
     ),
-    (
-        "ws-worktree",
-        "ws worktree <repo> <target> <branch>",
-        "create an isolated worktree with workspace conventions",
-        ("git worktree add <path>",),
-    ),
     ("ws-hooks", "ws hooks status", "inspect the quality gate", ("cat .git/hooks/*",)),
     (
         "ws-detect",

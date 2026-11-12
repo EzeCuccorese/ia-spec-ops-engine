@@ -261,6 +261,12 @@ def _claude_session_end() -> int:
     return 0
 
 
+def _with_budget_arg(args: list[str], budget: object) -> list[str]:
+    if any(arg == "--budget" or arg.startswith("--budget=") for arg in args):
+        return args
+    return [*args, "--budget", str(budget)]
+
+
 def _claude_stop_gate() -> int:
     """Project quality gate on turn end: exit 2 + condensed failures blocks stopping."""
     payload = _payload()
@@ -273,7 +279,7 @@ def _claude_stop_gate() -> int:
         return 0
     budget = settings["hooks.gate_budget_chars"].value
     proc = subprocess.run(
-        [program, *command[1:], "--budget", str(budget)],
+        [program, *_with_budget_arg(command[1:], budget)],
         cwd=_cwd(payload),
         capture_output=True,
         text=True,

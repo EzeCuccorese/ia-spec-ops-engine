@@ -31,14 +31,28 @@ def base_ref(root: Path) -> str | None:
     return None
 
 
+def _unquote_git_path(raw: str) -> str:
+    text = raw.strip()
+    if len(text) >= 2 and text[0] == '"' and text[-1] == '"':
+        return text[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+    return text
+
+
 def changed_files(root: Path) -> list[str]:
     """Committed changes since the base plus staged, unstaged and untracked files."""
     files: set[str] = set()
     base = base_ref(root)
     if base:
-        files.update(_git(root, "diff", "--name-only", f"{base}...HEAD").split())
-    for line in _git(root, "status", "--porcelain", "--untracked-files=all").splitlines():
-        path = line[3:].split(" -> ")[-1].strip()
+        diff_out = _git(root, "-c", "core.quotePath=false", "diff", "--name-only", f"{base}...HEAD")
+        for line in diff_out.splitlines():
+            cleaned = _unquote_git_path(line)
+            if cleaned:
+                files.add(cleaned)
+    status_out = _git(
+        root, "-c", "core.quotePath=false", "status", "--porcelain", "--untracked-files=all"
+    )
+    for line in status_out.splitlines():
+        path = _unquote_git_path(line[3:].split(" -> ")[-1])
         if path:
             files.add(path)
     return sorted(files)
@@ -47,14 +61,16 @@ def changed_files(root: Path) -> list[str]:
 def tree_fingerprint(root: Path) -> str:
     """Changes whenever HEAD or any tracked/untracked working-tree content changes."""
     head = _git(root, "rev-parse", "HEAD").strip()
-    status = _git(root, "status", "--porcelain", "--untracked-files=all")
+    status = _git(
+        root, "-c", "core.quotePath=false", "status", "--porcelain", "--untracked-files=all"
+    )
     diff = _git(root, "diff", "HEAD")
     digest = hashlib.sha256()
     for part in (head, status, diff):
         digest.update(part.encode("utf-8", "replace"))
     for line in status.splitlines():
         if line.startswith("??"):
-            path = root / line[3:].strip()
+            path = root / _unquote_git_path(line[3:])
             if path.is_file():
                 digest.update(path.read_bytes())
     return digest.hexdigest()[:16]

@@ -1,4 +1,4 @@
-"""The shared config core is copied, not imported: the three copies must never drift."""
+"""The shared config core is copied, not imported: both copies must never drift."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ ROOT = Path(__file__).resolve().parents[1] / "packages"
 COPIES = (
     ROOT / "ai-governance" / "src" / "ai_governance" / "_config_core.py",
     ROOT / "workspace" / "src" / "workspace_engine" / "_config_core.py",
-    ROOT / "spec" / "src" / "spec" / "_config_core.py",
 )
 
 
