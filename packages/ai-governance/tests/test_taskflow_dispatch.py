@@ -915,9 +915,12 @@ def _receipt(dispatch_id: str, agent: str, model: str) -> dict[str, object]:
     return {"ok": True, "result": result}
 
 
-def _launch(world: OrcaWorld, n: int, agent: str, model: str, dispatch_id: str = "D1") -> None:
-    receipt = json.dumps(_receipt(dispatch_id, agent, model))
-    Path(world.dispatch_json(n)["launch"]).write_text(receipt, encoding="utf-8")
+def _launch(world: OrcaWorld, n: int, agent: str, model: str) -> None:
+    _write_launch(world, n, _receipt("D1", agent, model))
+
+
+def _write_launch(world: OrcaWorld, n: int, receipt: dict[str, object]) -> None:
+    Path(world.dispatch_json(n)["launch"]).write_text(json.dumps(receipt), encoding="utf-8")
 
 
 def test_printed_line_saves_the_launch_receipt(world: OrcaWorld) -> None:
@@ -951,6 +954,11 @@ def test_rebut_refuses_unknown_and_invalid_rounds(world: OrcaWorld) -> None:
     assert world.collect(1, "D1").code == 1
     invalid = world.run(*PLANNER, "--rebut", "1")
     assert invalid.code == 1 and "is invalid and cannot be cross-examined" in invalid.text
+    world.store.mutate(
+        TASK, lambda t: t.rounds.append({"n": 2, "agent": "codex", "state": "valid"})
+    )
+    missing_file = world.run(*PLANNER, "--rebut", "2")
+    assert missing_file.code == 1 and "has no recorded round file" in missing_file.text
 
 
 def test_launch_receipt_with_another_model_refuses_collect(world: OrcaWorld) -> None:
@@ -962,7 +970,7 @@ def test_launch_receipt_with_another_model_refuses_collect(world: OrcaWorld) -> 
     assert world.task().rounds == []
     _launch(world, 1, "codex", "opus")
     assert "not as the dispatched provider 'claude'" in world.collect(1, "D1").text
-    _launch(world, 1, "claude", "opus", dispatch_id="OTHER")
+    _write_launch(world, 1, _receipt("OTHER", "claude", "opus"))
     assert "belongs to dispatch OTHER, not D1" in world.collect(1, "D1").text
     assert world.task().rounds == []
     _launch(world, 1, "claude", "opus")
@@ -1015,6 +1023,21 @@ def test_change_lines_and_scratch_are_recorded(world: OrcaWorld) -> None:
     assert record["scratch_used"] is True and record["verdict"] == "block"
     text = Path(str(record["file"])).read_text(encoding="utf-8")
     assert "Required changes:" in text and f"Scratch evidence: {scratch}" in text
+
+
+def test_unreadable_scratch_is_not_marked_used(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from ai_governance.taskflow.collect import _used_scratch
+
+    scratch_dir = tmp_path / "scratch"
+    scratch_dir.mkdir()
+
+    def boom(self: Path) -> None:
+        raise PermissionError("inaccessible")
+
+    monkeypatch.setattr(Path, "iterdir", boom)
+    assert _used_scratch({"scratch": str(scratch_dir)}) is False
 
 
 def test_spec_offers_the_scratch_folder_and_change_format(world: OrcaWorld) -> None:
