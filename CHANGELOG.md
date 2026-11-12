@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.9.0 - 2026-11-12
+
+### Features
+- Add cross-examination rounds, launch receipt check, CHANGE lines and scratch in taskflow.
+
+### Fixes
+- Bind the launch receipt to its dispatch and read Orca's real schema in taskflow.
+- Keep receipt fields on a partial launch override and harden scratch and rebut reads in taskflow.
+- Avoid direct index on round file and cover error paths in taskflow.
+
 ## 1.8.0 - 2026-11-06
 
 ### Features
