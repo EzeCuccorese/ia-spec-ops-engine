@@ -259,3 +259,49 @@ def test_plan_monorepo_test_runs_invalid_root_package_json(tmp_path: Path) -> No
 def test_matches_glob_direct() -> None:
     assert matches_glob("packages/foo", "packages/*")
     assert not matches_glob("packages/foo/bar", "packages/*")
+
+
+def test_format_monorepo_plan(tmp_path: Path) -> None:
+    from workspace_engine.services.monorepo import format_monorepo_plan
+
+    _setup_mixed_monorepo(tmp_path)
+    changed = [
+        "packages/pkg-a/src/index.ts",
+        "packages/pkg-b/src/lib.ts",
+        "packages/pkg-c/src/other.ts",
+        "packages/unknown-pkg/file.ts",
+        "root-config.json",
+    ]
+    plan = plan_monorepo_test_runs(tmp_path, changed)
+    output = format_monorepo_plan(plan)
+    lines = output.splitlines()
+
+    assert lines[0] == "monorepo\t1"
+    assert "warn\tChanges outside any package (root-config.json): skipping." in lines
+    assert (
+        "warn\tCould not resolve file to a workspace package (packages/unknown-pkg/file.ts); skipping."
+        in lines
+    )
+    assert (
+        "warn\tUnknown test runner for package 'packages/pkg-c' (no jest/vitest found); skipping."
+        in lines
+    )
+
+    run_a_line = next(line for line in lines if line.startswith("run\tpackages/pkg-a\t"))
+    assert (
+        "\tvitest\t1\tyarn\trun\tvitest\trelated\t--run\t--passWithNoTests\tsrc/index.ts"
+        in run_a_line
+    )
+
+    run_b_line = next(line for line in lines if line.startswith("run\tpackages/pkg-b\t"))
+    assert (
+        "\tjest\t1\tyarn\trun\tjest\t--ci\t--watchAll=false\t--passWithNoTests\t--findRelatedTests\tsrc/lib.ts"
+        in run_b_line
+    )
+
+
+def test_format_monorepo_plan_not_monorepo() -> None:
+    from workspace_engine.services.monorepo import MonorepoTestPlan, format_monorepo_plan
+
+    plan = MonorepoTestPlan(is_monorepo=False)
+    assert format_monorepo_plan(plan) == "monorepo\t0"

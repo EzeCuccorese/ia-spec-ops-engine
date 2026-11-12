@@ -301,3 +301,25 @@ def plan_monorepo_test_runs(root: Path, changed_files: list[str]) -> MonorepoTes
         unknown_runner_packages=unknown_runners,
         skipped_outside_package=skipped_outside,
     )
+
+
+def format_monorepo_plan(plan: MonorepoTestPlan) -> str:
+    """Formats the monorepo test plan as tab-separated lines for shell consumption."""
+    lines: list[str] = [f"monorepo\t{1 if plan.is_monorepo else 0}"]
+    if not plan.is_monorepo:
+        return "\n".join(lines)
+
+    for f in plan.skipped_outside_package:
+        lines.append(f"warn\tChanges outside any package ({f}): skipping.")
+    for f in plan.unresolved_files:
+        lines.append(f"warn\tCould not resolve file to a workspace package ({f}); skipping.")
+    for pkg in plan.unknown_runner_packages:
+        lines.append(
+            f"warn\tUnknown test runner for package '{pkg}' (no jest/vitest found); skipping."
+        )
+
+    for r in plan.runs:
+        parts = ["run", r.package, r.package_dir, r.runner, str(len(r.files)), *r.command]
+        lines.append("\t".join(parts))
+
+    return "\n".join(lines)

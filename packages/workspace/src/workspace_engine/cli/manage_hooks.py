@@ -130,9 +130,7 @@ def _skip_command(target: Path, action: str, stages: str | None) -> int:
 
 
 def _plan_monorepo_tests_action(target: Path, files_file: str | None) -> int:
-    import json
-
-    from workspace_engine.services.monorepo import plan_monorepo_test_runs
+    from workspace_engine.services.monorepo import format_monorepo_plan, plan_monorepo_test_runs
 
     changed_paths: list[str] = []
     if files_file and Path(files_file).is_file():
@@ -142,23 +140,7 @@ def _plan_monorepo_tests_action(target: Path, files_file: str | None) -> int:
             if line.strip()
         ]
     plan = plan_monorepo_test_runs(target.resolve(), changed_paths)
-    payload = {
-        "is_monorepo": plan.is_monorepo,
-        "runs": [
-            {
-                "package": r.package,
-                "package_dir": r.package_dir,
-                "runner": r.runner,
-                "command": r.command,
-                "files": r.files,
-            }
-            for r in plan.runs
-        ],
-        "unresolved_files": plan.unresolved_files,
-        "unknown_runner_packages": plan.unknown_runner_packages,
-        "skipped_outside_package": plan.skipped_outside_package,
-    }
-    print(json.dumps(payload))
+    print(format_monorepo_plan(plan))
     return 0
 
 

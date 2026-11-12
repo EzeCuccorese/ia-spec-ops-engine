@@ -796,49 +796,54 @@ else
         done < <(changed_files '*.js' '*.jsx' '*.mjs' '*.cjs' '*.ts' '*.tsx' '*.vue' '*.svelte')
       fi
 
-      MONO_PLAN=""
-      if [ "$SCOPED_TESTS" = "1" ] && command -v ws >/dev/null 2>&1; then
-        MONO_PLAN="$(ws hooks plan-monorepo-tests --dir "$REPO_ROOT" --files-from "$DIFF_FILES_FILE" 2>/dev/null || true)"
+      IS_MONOREPO=0
+      case "$TEST_SCRIPT" in
+        *"workspaces run"*|*"workspaces foreach"*|*"pnpm -r"*|*"--recursive"*|*"--workspaces"*)
+          IS_MONOREPO=1
+          ;;
+      esac
+
+      if [ "$IS_MONOREPO" = "1" ] || [ -f "$REPO_ROOT/pnpm-workspace.yaml" ]; then
+        IS_MONOREPO=1
+      elif [ -f "$REPO_ROOT/package.json" ]; then
+        if grep -q '"workspaces"' "$REPO_ROOT/package.json" 2>/dev/null; then
+          IS_MONOREPO=1
+        fi
       fi
-      IS_MONOREPO="$(echo "$MONO_PLAN" | node -e "let d=''; process.stdin.on('data', c=>d+=c); process.stdin.on('end', ()=>{ try { const j=JSON.parse(d); console.log(j.is_monorepo ? '1' : '0'); } catch(e){ console.log('0'); } });" 2>/dev/null || echo "0")"
 
       if [ "$IS_MONOREPO" = "1" ]; then
-        # Monorepo test scoping
-        # 1. Print warnings for skipped outside package
-        while IFS= read -r f; do
-          [ -n "$f" ] && warn "Changes outside any package ($f): skipping."
-        done < <(echo "$MONO_PLAN" | node -e "let d=''; process.stdin.on('data', c=>d+=c); process.stdin.on('end', ()=>{ try { const j=JSON.parse(d); (j.skipped_outside_package||[]).forEach(f=>console.log(f)); } catch(e){} });" 2>/dev/null)
-
-        # 2. Print warnings for unresolved files
-        while IFS= read -r f; do
-          [ -n "$f" ] && warn "Could not resolve file to a workspace package ($f); skipping."
-        done < <(echo "$MONO_PLAN" | node -e "let d=''; process.stdin.on('data', c=>d+=c); process.stdin.on('end', ()=>{ try { const j=JSON.parse(d); (j.unresolved_files||[]).forEach(f=>console.log(f)); } catch(e){} });" 2>/dev/null)
-
-        # 3. Print warnings for unknown runner packages
-        while IFS= read -r pkg; do
-          [ -n "$pkg" ] && warn "Unknown test runner for package '$pkg' (no jest/vitest found); skipping."
-        done < <(echo "$MONO_PLAN" | node -e "let d=''; process.stdin.on('data', c=>d+=c); process.stdin.on('end', ()=>{ try { const j=JSON.parse(d); (j.unknown_runner_packages||[]).forEach(p=>console.log(p)); } catch(e){} });" 2>/dev/null)
-
-        # 4. Execute scoped runs
-        NUM_RUNS="$(echo "$MONO_PLAN" | node -e "let d=''; process.stdin.on('data', c=>d+=c); process.stdin.on('end', ()=>{ try { const j=JSON.parse(d); console.log((j.runs||[]).length); } catch(e){ console.log('0'); } });" 2>/dev/null || echo "0")"
-        if [ "$NUM_RUNS" -gt 0 ]; then
-          RAN_ANY=1
-          idx=0
-          while [ "$idx" -lt "$NUM_RUNS" ]; do
-            pkg="$(echo "$MONO_PLAN" | node -e "let d=''; process.stdin.on('data', c=>d+=c); process.stdin.on('end', ()=>{ try { const j=JSON.parse(d); console.log(j.runs[$idx].package); } catch(e){} });")"
-            pkg_dir="$(echo "$MONO_PLAN" | node -e "let d=''; process.stdin.on('data', c=>d+=c); process.stdin.on('end', ()=>{ try { const j=JSON.parse(d); console.log(j.runs[$idx].package_dir); } catch(e){} });")"
-            runner="$(echo "$MONO_PLAN" | node -e "let d=''; process.stdin.on('data', c=>d+=c); process.stdin.on('end', ()=>{ try { const j=JSON.parse(d); console.log(j.runs[$idx].runner); } catch(e){} });")"
-            num_files="$(echo "$MONO_PLAN" | node -e "let d=''; process.stdin.on('data', c=>d+=c); process.stdin.on('end', ()=>{ try { const j=JSON.parse(d); console.log(j.runs[$idx].files.length); } catch(e){} });")"
-
-            cmd_args=()
-            while IFS= read -r arg; do
-              [ -n "$arg" ] && cmd_args+=("$arg")
-            done < <(echo "$MONO_PLAN" | node -e "let d=''; process.stdin.on('data', c=>d+=c); process.stdin.on('end', ()=>{ try { const j=JSON.parse(d); j.runs[$idx].command.forEach(a=>console.log(a)); } catch(e){} });")
-
-            note "$runner in $pkg scoped to $num_files file(s)"
-            (cd "$pkg_dir" && run_to "$QG_TIMEOUT" "${cmd_args[@]}") || TESTS_OK=0
-            idx=$((idx + 1))
-          done
+        if [ "$SCOPED_TESTS" = "0" ]; then
+          note "Full test scope requested on monorepo, but full suite is disabled in pre-push hook."
+        elif ! command -v ws >/dev/null 2>&1; then
+          warn "Monorepo test scoping: 'ws' CLI not found on PATH; skipping monorepo tests."
+        else
+          PLAN_LOG="$TMPD/mono-plan.log"
+          if ! ws hooks plan-monorepo-tests --dir "$REPO_ROOT" --files-from "$DIFF_FILES_FILE" > "$TMPD/mono-plan.out" 2> "$PLAN_LOG"; then
+            PLAN_ERR="$(cat "$PLAN_LOG")"
+            warn "Failed to plan monorepo tests (${PLAN_ERR:-unknown error}); skipping."
+          else
+            while IFS=$'\t' read -r type col1 col2 col3 col4 col5 rest; do
+              case "$type" in
+                warn)
+                  warn "$col1"
+                  ;;
+                run)
+                  RAN_ANY=1
+                  pkg="$col1"
+                  pkg_dir="$col2"
+                  runner="$col3"
+                  num_files="$col4"
+                  cmd_args=("$col5")
+                  if [ -n "$rest" ]; then
+                    IFS=$'\t' read -r -a extra_args <<< "$rest"
+                    cmd_args+=("${extra_args[@]}")
+                  fi
+                  note "$runner in $pkg scoped to $num_files file(s)"
+                  (cd "$pkg_dir" && run_to "$QG_TIMEOUT" "${cmd_args[@]}") || TESTS_OK=0
+                  ;;
+              esac
+            done < "$TMPD/mono-plan.out"
+          fi
         fi
       else
         RUNNER=""
