@@ -16,7 +16,7 @@ members = [
 
 [[package]]
 name = "ai-governance"
-version = "1.9.0"
+version = "1.9.1"
 source = { editable = "packages/ai-governance" }
 dependencies = [
     { name = "marklas" },
@@ -234,7 +234,7 @@ toml = [
 
 [[package]]
 name = "ia-spec-ops-engine"
-version = "1.9.0"
+version = "1.9.1"
 source = { virtual = "." }
 
 [package.dev-dependencies]
@@ -664,7 +664,7 @@ wheels = [
 
 [[package]]
 name = "spec"
-version = "1.9.0"
+version = "1.9.1"
 source = { editable = "packages/spec" }
 
 [package.optional-dependencies]
@@ -754,7 +754,7 @@ wheels = [
 
 [[package]]
 name = "workspace"
-version = "1.9.0"
+version = "1.9.1"
 source = { editable = "packages/workspace" }
 dependencies = [
     { name = "lizard" },
@@ -773,7 +773,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "lizard", specifier = ">=1.25" },
+    { name = "lizard", specifier = ">=1.25.0" },
     { name = "psutil", specifier = ">=5.9" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'" },
