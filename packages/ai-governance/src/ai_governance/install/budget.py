@@ -41,6 +41,18 @@ def _user_content(text: str) -> str:
     return text.strip()
 
 
+def _entry_costs(kind: str, path: Path) -> tuple[int, int]:
+    text = path.read_text(encoding="utf-8")
+    if kind == "block":
+        agent_bytes = len(_block(text).encode("utf-8"))
+        user_text = _user_content(text) if path.name == "AGENTS.md" else ""
+        user_bytes = len(user_text.encode("utf-8")) if user_text else 0
+        return agent_bytes, user_bytes
+    if _always_loaded(path, text):
+        return len(text.encode("utf-8")), 0
+    return 0, 0
+
+
 def fixed_cost(ledger: Ledger) -> dict[str, int]:
     """Bytes per owner (each agent, ``project`` = shared, ``user_custom`` = user custom) loaded at session start."""
     totals: dict[str, int] = {}
@@ -50,17 +62,8 @@ def fixed_cost(ledger: Ledger) -> dict[str, int]:
             continue
         if entry["kind"] == "hooks":
             continue
-        text = path.read_text(encoding="utf-8")
-        size = 0
-        if entry["kind"] == "block":
-            size = len(_block(text).encode("utf-8"))
-            if path.name == "AGENTS.md":
-                user_text = _user_content(text)
-                if user_text:
-                    totals["user_custom"] = totals.get("user_custom", 0) + len(
-                        user_text.encode("utf-8")
-                    )
-        elif _always_loaded(path, text):
-            size = len(text.encode("utf-8"))
-        totals[entry["agent"]] = totals.get(entry["agent"], 0) + size
+        agent_bytes, user_bytes = _entry_costs(entry["kind"], path)
+        if user_bytes:
+            totals["user_custom"] = totals.get("user_custom", 0) + user_bytes
+        totals[entry["agent"]] = totals.get(entry["agent"], 0) + agent_bytes
     return totals

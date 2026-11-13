@@ -305,9 +305,7 @@ def test_timeouts_and_network_errors_are_reported(mock_urlopen, monkeypatch, cap
     )
     mock_urlopen.side_effect = http_err
 
-    with pytest.raises(SystemExit) as exc_http:
-        jira.get("/issue/SECRET-1")
-    assert exc_http.value.code != 0
+    assert jira.main(["issue", "SECRET-1"]) != 0
     captured = capsys.readouterr()
     assert "HTTP 403 Error" in captured.err
     # MUST NOT LEAK SECRET TOKEN
@@ -319,9 +317,7 @@ def test_timeouts_and_network_errors_are_reported(mock_urlopen, monkeypatch, cap
     mock_urlopen.side_effect = TimeoutError(
         f"Connection to https://company.atlassian.net timed out with {secret_token}"
     )
-    with pytest.raises(SystemExit) as exc_timeout:
-        confluence.get("/content/123")
-    assert exc_timeout.value.code != 0
+    assert confluence.main(["read", "123"]) != 0
     captured_timeout = capsys.readouterr()
     assert "timed out" in captured_timeout.err.lower()
     assert secret_token not in captured_timeout.err
