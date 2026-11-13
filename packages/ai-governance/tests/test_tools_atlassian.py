@@ -265,3 +265,28 @@ def test_cli_entrypoints_catch_request_errors(mock_urlopen, monkeypatch, capsys)
 
     assert confluence.main(["read", "12345"]) == 1
     assert "Network error" in capsys.readouterr().err
+
+
+@patch("urllib.request.urlopen")
+def test_execute_request_http_error_replaces_non_utf8_bytes(mock_urlopen, monkeypatch):
+    import email.message
+    import io
+    import urllib.error
+
+    from ai_governance.tools import atlassian_common
+
+    monkeypatch.setenv("ATLASSIAN_EMAIL", "test@example.com")
+    monkeypatch.setenv("ATLASSIAN_API_TOKEN", "fake_token")
+    monkeypatch.setenv("ATLASSIAN_URL", "https://company.atlassian.net")
+    mock_urlopen.side_effect = urllib.error.HTTPError(
+        "https://company.atlassian.net/rest/api/3/issue/BAD-1",
+        502,
+        "Bad Gateway",
+        email.message.Message(),
+        io.BytesIO(b"\xff\xfe gateway error"),
+    )
+
+    with pytest.raises(atlassian_common.AtlassianRequestError, match="HTTP 502 Error"):
+        atlassian_common.execute_request(
+            "GET", "https://company.atlassian.net/rest/api/3/issue/BAD-1"
+        )

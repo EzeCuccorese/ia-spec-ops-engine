@@ -241,7 +241,7 @@ def execute_request(
             body = resp.read().decode()
             return json.loads(body) if body else {}
     except urllib.error.HTTPError as e:
-        err = _format_error_body(e.read().decode())
+        err = _format_error_body(e.read().decode("utf-8", errors="replace"))
         sanitized = sanitize_secrets(err)
         raise AtlassianRequestError(
             f"HTTP {e.code} Error calling {method} {url}:\n{sanitized}"
