@@ -342,6 +342,32 @@
       "user_scope": true
     },
     {
+      "id": "18-surgical-changes",
+      "category": "1-core",
+      "file": "1-core/18-surgical-changes.md",
+      "description": "Surgical changes: minimal diff, no drive-by edits, approval before touching foreign or shared code",
+      "triggers": {
+        "globs": [
+          "**/*"
+        ]
+      },
+      "stacks": [],
+      "user_scope": true
+    },
+    {
+      "id": "19-pull-requests",
+      "category": "1-core",
+      "file": "1-core/19-pull-requests.md",
+      "description": "Pull request descriptions: one outcome per PR, fixed section order, one owner per open item",
+      "triggers": {
+        "globs": [
+          "**/*"
+        ]
+      },
+      "stacks": [],
+      "user_scope": true
+    },
+    {
       "id": "production-risk-window",
       "category": "1-core",
       "file": "1-core/production-risk-window.md",

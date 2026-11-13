@@ -5,3 +5,4 @@
 - **Versioned Schema Migrations**: Use Flyway, Liquibase, or Mongock. Prohibit `ddl-auto: update` in production.
 - **Idempotency**: Every migration must be safely re-runnable ($ times) without failures or duplicate records.
 - **Business Keys**: Never hardcode MongoDB ObjectIds across environments; use domain business keys.
+- **Out-of-Order Versions**: A migration whose version is lower than the last applied one may be skipped silently; check the order before deploying and bump the version if needed.
