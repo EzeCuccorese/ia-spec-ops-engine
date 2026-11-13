@@ -13,15 +13,15 @@ def _hooks_status(*, local: bool, global_: bool) -> dict[str, dict[str, bool]]:
 
 
 @pytest.mark.parametrize("agent_mode", [True, False], ids=["agent", "human"])
-def test_doctor_check_tool_discovery_matrix(
-    monkeypatch, capsys, agent_mode: bool
-) -> None:
+def test_doctor_check_tool_discovery_matrix(monkeypatch, capsys, agent_mode: bool) -> None:
     available_symbol = "Available" if agent_mode else "✓ Available"
     missing_symbol = "Not Found" if agent_mode else "⚠ Not Found"
     present = {"git": "/usr/bin/git", "uv": "/opt/bin/uv"}
     monkeypatch.setattr(main, "is_agent_mode", lambda: agent_mode)
     monkeypatch.setattr(main.shutil, "which", lambda tool: present.get(tool))
-    monkeypatch.setattr(git_hooks, "get_hooks_status", lambda: _hooks_status(local=False, global_=False))
+    monkeypatch.setattr(
+        git_hooks, "get_hooks_status", lambda: _hooks_status(local=False, global_=False)
+    )
 
     main.doctor_check()
     out = capsys.readouterr().out

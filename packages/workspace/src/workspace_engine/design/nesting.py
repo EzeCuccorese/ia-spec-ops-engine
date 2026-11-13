@@ -172,7 +172,9 @@ def _strip_strings_and_comments(text: str) -> str:
 
 def _open_brace(buffer: str, depth: int, max_depth: int, stack: list[bool]) -> tuple[int, int]:
     normalized = re.sub(r"\s+", " ", buffer.strip())
-    is_control = bool(_CHAIN_CONTINUATION.match(normalized)) or bool(_CONTROL_KEYWORDS.search(buffer))
+    is_control = bool(_CHAIN_CONTINUATION.match(normalized)) or bool(
+        _CONTROL_KEYWORDS.search(buffer)
+    )
     stack.append(is_control)
     if is_control:
         depth += 1

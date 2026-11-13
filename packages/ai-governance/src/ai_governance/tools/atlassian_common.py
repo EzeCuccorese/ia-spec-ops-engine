@@ -248,11 +248,7 @@ def execute_request(
         ) from e
     except urllib.error.URLError as e:
         sanitized = sanitize_secrets(str(e.reason))
-        raise AtlassianRequestError(
-            f"Network error calling {method} {url}: {sanitized}"
-        ) from e
+        raise AtlassianRequestError(f"Network error calling {method} {url}: {sanitized}") from e
     except TimeoutError as e:
         sanitized = sanitize_secrets(str(e))
-        raise AtlassianRequestError(
-            f"Timeout error calling {method} {url}: {sanitized}"
-        ) from e
+        raise AtlassianRequestError(f"Timeout error calling {method} {url}: {sanitized}") from e
