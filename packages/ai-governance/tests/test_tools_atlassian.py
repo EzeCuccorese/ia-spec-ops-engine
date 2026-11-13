@@ -22,16 +22,20 @@ def _without_credentials(monkeypatch, tmp_path):
 
 
 def test_jira_check_env_missing(monkeypatch, tmp_path):
+    from ai_governance.tools.atlassian_common import AtlassianConfigError
+
     _without_credentials(monkeypatch, tmp_path)
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(AtlassianConfigError, match="ATLASSIAN_EMAIL"):
         jira.check_env()
 
 
 def test_confluence_check_env_missing(monkeypatch, tmp_path):
+    from ai_governance.tools.atlassian_common import AtlassianConfigError
+
     _without_credentials(monkeypatch, tmp_path)
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(AtlassianConfigError, match="ATLASSIAN_EMAIL"):
         confluence.check_env()
 
 
@@ -181,8 +185,10 @@ def test_confluence_cmd_search_pagination(mock_urlopen, monkeypatch, capsys):
 
 
 @patch("urllib.request.urlopen")
-def test_atlassian_urlerror_handling(mock_urlopen, monkeypatch, capsys):
+def test_atlassian_urlerror_handling(mock_urlopen, monkeypatch):
     import urllib.error
+
+    from ai_governance.tools.atlassian_common import AtlassianRequestError
 
     monkeypatch.setenv("ATLASSIAN_EMAIL", "test@example.com")
     monkeypatch.setenv("ATLASSIAN_API_TOKEN", "fake_token")
@@ -190,15 +196,11 @@ def test_atlassian_urlerror_handling(mock_urlopen, monkeypatch, capsys):
 
     mock_urlopen.side_effect = urllib.error.URLError("Connection refused")
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(AtlassianRequestError, match="Network error"):
         jira.get("/issue/FAIL-1")
-    err = capsys.readouterr().err
-    assert "Network error" in err
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(AtlassianRequestError, match="Network error"):
         confluence.get("/content/FAIL-1")
-    err = capsys.readouterr().err
-    assert "Network error" in err
 
 
 def test_unknown_profile_raises_with_known_list(monkeypatch, tmp_path):
@@ -229,3 +231,62 @@ def test_legacy_profiles_file_is_still_read(monkeypatch, tmp_path):
     legacy.mkdir(parents=True)
     (legacy / "profiles.json").write_text('{"old": {"email": "o", "token": "t", "url": "u/"}}')
     assert atlassian_common.load_profile_config("old") == {"email": "o", "token": "t", "url": "u"}
+
+
+def test_check_env_unknown_profile_raises_config_error(monkeypatch, tmp_path):
+    from ai_governance.tools import atlassian_common
+
+    _without_credentials(monkeypatch, tmp_path)
+    monkeypatch.setenv("ATLASSIAN_PROFILE", "missing-prof")
+    with pytest.raises(atlassian_common.AtlassianConfigError, match="missing-prof"):
+        atlassian_common.check_env()
+
+
+def test_cli_entrypoints_catch_atlassian_errors(monkeypatch, tmp_path, capsys):
+    _without_credentials(monkeypatch, tmp_path)
+    assert jira.main(["issue", "PROJ-1"]) == 1
+    assert "Missing required environment variables" in capsys.readouterr().err
+
+    assert confluence.main(["read", "12345"]) == 1
+    assert "Missing required environment variables" in capsys.readouterr().err
+
+
+@patch("urllib.request.urlopen")
+def test_cli_entrypoints_catch_request_errors(mock_urlopen, monkeypatch, capsys):
+    import urllib.error
+
+    monkeypatch.setenv("ATLASSIAN_EMAIL", "test@example.com")
+    monkeypatch.setenv("ATLASSIAN_API_TOKEN", "fake_token")
+    monkeypatch.setenv("ATLASSIAN_URL", "https://company.atlassian.net")
+    mock_urlopen.side_effect = urllib.error.URLError("Connection refused")
+
+    assert jira.main(["issue", "FAIL-1"]) == 1
+    assert "Network error" in capsys.readouterr().err
+
+    assert confluence.main(["read", "12345"]) == 1
+    assert "Network error" in capsys.readouterr().err
+
+
+@patch("urllib.request.urlopen")
+def test_execute_request_http_error_replaces_non_utf8_bytes(mock_urlopen, monkeypatch):
+    import email.message
+    import io
+    import urllib.error
+
+    from ai_governance.tools import atlassian_common
+
+    monkeypatch.setenv("ATLASSIAN_EMAIL", "test@example.com")
+    monkeypatch.setenv("ATLASSIAN_API_TOKEN", "fake_token")
+    monkeypatch.setenv("ATLASSIAN_URL", "https://company.atlassian.net")
+    mock_urlopen.side_effect = urllib.error.HTTPError(
+        "https://company.atlassian.net/rest/api/3/issue/BAD-1",
+        502,
+        "Bad Gateway",
+        email.message.Message(),
+        io.BytesIO(b"\xff\xfe gateway error"),
+    )
+
+    with pytest.raises(atlassian_common.AtlassianRequestError, match="HTTP 502 Error"):
+        atlassian_common.execute_request(
+            "GET", "https://company.atlassian.net/rest/api/3/issue/BAD-1"
+        )

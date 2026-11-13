@@ -100,6 +100,24 @@ def _react_dependency(package_json: Path) -> bool:
     return "react" in deps
 
 
+def _scan_subdirs(base: Path, current_path: Path, dirs: list[str], result: Detection) -> None:
+    for directory in dirs:
+        rel = str((current_path / directory).relative_to(base))
+        for stack, names in DIR_MARKERS.items():
+            if directory in names:
+                result.add(stack, rel)
+
+
+def _scan_files(base: Path, current_path: Path, file_names: list[str], result: Detection) -> None:
+    for name in sorted(file_names):
+        relative = str((current_path / name).relative_to(base))
+        for stack, patterns in FILE_MARKERS.items():
+            if any(fnmatch.fnmatch(name, pattern) for pattern in patterns):
+                result.add(stack, relative)
+        if name == "package.json" and _react_dependency(current_path / name):
+            result.add("react", relative)
+
+
 def detect_stacks(root: str | Path) -> Detection:
     """Detects stacks under ``root`` (depth-limited, deterministic order)."""
     base = Path(root).resolve()
@@ -112,15 +130,6 @@ def detect_stacks(root: str | Path) -> Detection:
         dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS and not d.startswith("."))
         if depth >= MAX_DEPTH:
             dirs[:] = []
-        for directory in dirs:
-            for stack, names in DIR_MARKERS.items():
-                if directory in names:
-                    result.add(stack, str((current_path / directory).relative_to(base)))
-        for name in sorted(file_names):
-            relative = str((current_path / name).relative_to(base))
-            for stack, patterns in FILE_MARKERS.items():
-                if any(fnmatch.fnmatch(name, pattern) for pattern in patterns):
-                    result.add(stack, relative)
-            if name == "package.json" and _react_dependency(current_path / name):
-                result.add("react", relative)
+        _scan_subdirs(base, current_path, dirs, result)
+        _scan_files(base, current_path, file_names, result)
     return result

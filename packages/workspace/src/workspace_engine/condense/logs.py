@@ -59,6 +59,17 @@ def latest() -> str:
     return files[-1].stem
 
 
+def _filter_lines(numbered: list[tuple[int, str]], lines: str) -> list[tuple[int, str]]:
+    start, _, end = lines.partition("-")
+    low, high = int(start), int(end or start)
+    return [(n, line) for n, line in numbered if low <= n <= high]
+
+
+def _filter_grep(numbered: list[tuple[int, str]], grep: str) -> list[tuple[int, str]]:
+    pattern = re.compile(grep, re.IGNORECASE)
+    return [(n, line) for n, line in numbered if pattern.search(line)]
+
+
 def read(log_id: str, *, grep: str | None = None, lines: str | None = None) -> str:
     if log_id == "--last":
         log_id = latest()
@@ -67,10 +78,7 @@ def read(log_id: str, *, grep: str | None = None, lines: str | None = None) -> s
     content = (logs_dir() / f"{log_id}.log").read_text(encoding="utf-8").splitlines()
     numbered = list(enumerate(content, 1))
     if lines:
-        start, _, end = lines.partition("-")
-        low, high = int(start), int(end or start)
-        numbered = [(n, line) for n, line in numbered if low <= n <= high]
+        numbered = _filter_lines(numbered, lines)
     if grep:
-        pattern = re.compile(grep, re.IGNORECASE)
-        numbered = [(n, line) for n, line in numbered if pattern.search(line)]
+        numbered = _filter_grep(numbered, grep)
     return "\n".join(f"{n}: {line}" for n, line in numbered)
