@@ -138,19 +138,7 @@ def _plan_monorepo_tests_action(target: Path, files_file: str | None) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    if argv is None:
-        argv = sys.argv[1:]
-        if argv and argv[0] == "hooks":
-            argv = argv[1:]
-
-    parser = argparse.ArgumentParser(
-        prog="ws hooks",
-        description="Multi-stack Git Hooks & Quality Gate Manager for Workspace Engine",
-    )
-    sub = parser.add_subparsers(dest="action", help="Action to perform")
-
-    # install
+def _add_basic_parsers(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     p_inst = sub.add_parser("install", help="Install multi-stack pre-push hook")
     p_inst.add_argument(
         "--global",
@@ -161,18 +149,29 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_inst.add_argument("--dir", "-d", help="Repository root directory (defaults to cwd)")
 
-    # status
     p_stat = sub.add_parser("status", help="Query local and global hook status")
     p_stat.add_argument("--dir", "-d", help="Repository root directory")
 
-    # uninstall
     p_uninst = sub.add_parser("uninstall", help="Uninstall pre-push hook")
     p_uninst.add_argument(
         "--global", "-g", dest="is_global", action="store_true", help="Uninstall global hook"
     )
     p_uninst.add_argument("--dir", "-d", help="Repository root directory")
 
-    # run
+    p_cfg = sub.add_parser(
+        "gate-config", help="Shell assignments for the gate settings the config files decide"
+    )
+    p_cfg.add_argument("--dir", "-d", help="Repository root directory")
+
+    p_test = sub.add_parser("test", help="Test Quality Gate execution in current repository")
+    p_test.add_argument("--dir", "-d", help="Repository root directory")
+
+    p_mono = sub.add_parser("plan-monorepo-tests", help="Plan scoped test commands for JS monorepo")
+    p_mono.add_argument("--dir", "-d", help="Repository root directory")
+    p_mono.add_argument("--files-from", help="File listing changed files")
+
+
+def _add_run_and_skip_parsers(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     p_run = sub.add_parser("run", help="Run the Quality Gate on-demand without git push")
     p_run.add_argument(
         "--scope",
@@ -181,10 +180,7 @@ def main(argv: list[str] | None = None) -> int:
         default="all",
         help="Scope of linters and tests (all or changed)",
     )
-    p_run.add_argument(
-        "--skip",
-        help=f"Comma-separated checks to skip ({','.join(QG_STAGES)})",
-    )
+    p_run.add_argument("--skip", help=f"Comma-separated checks to skip ({','.join(QG_STAGES)})")
     p_run.add_argument(
         "--timeout",
         "-t",
@@ -192,11 +188,7 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Timeout in seconds per step (default: gate.timeout_seconds, 900)",
     )
-    p_run.add_argument(
-        "--style",
-        choices=["conventional"],
-        help="Commit message style validation",
-    )
+    p_run.add_argument("--style", choices=["conventional"], help="Commit message style validation")
     p_run.add_argument(
         "--output",
         choices=["errors", "verbose"],
@@ -205,7 +197,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_run.add_argument("--dir", "-d", help="Repository root directory")
 
-    # skip
     p_skip = sub.add_parser(
         "skip", help="Per-repo default for skipped checks (e.g. tests run in CI)"
     )
@@ -215,54 +206,42 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_skip.add_argument("--dir", "-d", help="Repository root directory")
 
-    # gate-config (used by the hook scripts)
-    p_cfg = sub.add_parser(
-        "gate-config", help="Shell assignments for the gate settings the config files decide"
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="ws hooks",
+        description="Multi-stack Git Hooks & Quality Gate Manager for Workspace Engine",
     )
-    p_cfg.add_argument("--dir", "-d", help="Repository root directory")
+    sub = parser.add_subparsers(dest="action", help="Action to perform")
+    _add_basic_parsers(sub)
+    _add_run_and_skip_parsers(sub)
+    return parser
 
-    # test
-    p_test = sub.add_parser("test", help="Test Quality Gate execution in current repository")
-    p_test.add_argument("--dir", "-d", help="Repository root directory")
 
-    # plan-monorepo-tests
-    p_mono = sub.add_parser("plan-monorepo-tests", help="Plan scoped test commands for JS monorepo")
-    p_mono.add_argument("--dir", "-d", help="Repository root directory")
-    p_mono.add_argument("--files-from", help="File listing changed files")
-
-    args = parser.parse_args(argv)
-
-    if not args.action or args.action == "status":
-        target = Path(getattr(args, "dir", None) or Path.cwd())
-        render_hooks_status(target)
+def _install_action(target: Path, is_global: bool) -> int:
+    res = install_git_hooks(target_dir=target, is_global=is_global)
+    if res["success"]:
+        log_success(f"Git hook successfully installed at: {res['hook_path']}")
         return 0
+    log_error(f"Error installing Git hook: {res['message']}")
+    return 1
 
-    target = Path(args.dir) if getattr(args, "dir", None) else Path.cwd()
 
+def _dispatch_action(args: argparse.Namespace, target: Path) -> int:
     if args.action == "install":
-        res = install_git_hooks(target_dir=target, is_global=args.is_global)
-        if res["success"]:
-            log_success(f"Git hook successfully installed at: {res['hook_path']}")
-            return 0
-        else:
-            log_error(f"Error installing Git hook: {res['message']}")
-            return 1
-
-    elif args.action == "uninstall":
+        return _install_action(target, args.is_global)
+    if args.action == "uninstall":
         res = uninstall_git_hooks(target_dir=target, is_global=args.is_global)
         log_success(res["message"])
         return 0
-
-    elif args.action == "gate-config":
+    if args.action == "gate-config":
         assignments = shell_assignments(target.resolve())
         if assignments:
             print(assignments)
         return 0
-
-    elif args.action == "skip":
+    if args.action == "skip":
         return _skip_command(target, args.skip_action, args.stages)
-
-    elif args.action == "run":
+    if args.action == "run":
         return run_quality_gate(
             target_dir=target,
             scope=args.scope,
@@ -271,18 +250,25 @@ def main(argv: list[str] | None = None) -> int:
             commit_style=args.style,
             output=args.output,
         )
-
-    elif args.action == "test":
-        return run_quality_gate(
-            target_dir=target,
-            scope="all",
-            timeout=120,
-        )
-
-    elif args.action == "plan-monorepo-tests":
+    if args.action == "test":
+        return run_quality_gate(target_dir=target, scope="all", timeout=120)
+    if args.action == "plan-monorepo-tests":
         return _plan_monorepo_tests_action(target, getattr(args, "files_from", None))
-
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+        if argv and argv[0] == "hooks":
+            argv = argv[1:]
+
+    args = _build_parser().parse_args(argv)
+    target = Path(args.dir) if getattr(args, "dir", None) else Path.cwd()
+    if not args.action or args.action == "status":
+        render_hooks_status(target)
+        return 0
+    return _dispatch_action(args, target)
 
 
 if __name__ == "__main__":

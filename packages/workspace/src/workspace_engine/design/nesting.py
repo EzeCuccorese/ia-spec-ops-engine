@@ -83,28 +83,33 @@ def _visit_body(stmts: list[ast.stmt], depth: int) -> int:
     return best
 
 
+def _visit_if(node: ast.If, depth: int) -> int:
+    inner_depth = depth + 1
+    best = max(inner_depth, _visit_body(node.body, inner_depth))
+    if len(node.orelse) == 1 and isinstance(node.orelse[0], ast.If):
+        return max(best, _visit(node.orelse[0], depth))  # elif: same level as its if
+    return max(best, _visit_body(node.orelse, inner_depth))
+
+
+def _visit_nest(node: ast.AST, depth: int) -> int:
+    inner_depth = depth + 1
+    best = inner_depth
+    for attr in ("body", "orelse", "finalbody"):
+        best = max(best, _visit_body(getattr(node, attr, []) or [], inner_depth))
+    for handler in getattr(node, "handlers", []) or []:
+        best = max(best, _visit_body(handler.body, inner_depth))
+    for case in getattr(node, "cases", []) or []:
+        best = max(best, _visit_body(case.body, inner_depth))
+    return best
+
+
 def _visit(node: ast.AST, depth: int) -> int:
     if isinstance(node, _PY_SCOPE_NODE_TYPES):
         return depth  # measured as its own function
     if isinstance(node, ast.If):
-        inner_depth = depth + 1
-        best = inner_depth
-        best = max(best, _visit_body(node.body, inner_depth))
-        if len(node.orelse) == 1 and isinstance(node.orelse[0], ast.If):
-            best = max(best, _visit(node.orelse[0], depth))  # elif: same level as its if
-        else:
-            best = max(best, _visit_body(node.orelse, inner_depth))
-        return best
+        return _visit_if(node, depth)
     if isinstance(node, _PY_NEST_NODE_TYPES):
-        inner_depth = depth + 1
-        best = inner_depth
-        for attr in ("body", "orelse", "finalbody"):
-            best = max(best, _visit_body(getattr(node, attr, []) or [], inner_depth))
-        for handler in getattr(node, "handlers", []) or []:
-            best = max(best, _visit_body(handler.body, inner_depth))
-        for case in getattr(node, "cases", []) or []:
-            best = max(best, _visit_body(case.body, inner_depth))
-        return best
+        return _visit_nest(node, depth)
     best = depth
     for child in ast.iter_child_nodes(node):
         if isinstance(child, ast.stmt):
@@ -122,31 +127,64 @@ def python_nesting(source: str) -> dict[int, int]:
     return results
 
 
+def _skip_line_comment(text: str, i: int) -> int:
+    n = len(text)
+    while i < n and text[i] != "\n":
+        i += 1
+    return i
+
+
+def _skip_block_comment(text: str, i: int) -> int:
+    n = len(text)
+    i += 2
+    while i < n and text[i : i + 2] != "*/":
+        i += 1
+    return i + 2
+
+
+def _skip_quoted(text: str, i: int, quote: str) -> int:
+    n = len(text)
+    i += 1
+    while i < n and text[i] != quote:
+        i += 2 if text[i] == "\\" and i + 1 < n else 1
+    return i + 1
+
+
 def _strip_strings_and_comments(text: str) -> str:
     out: list[str] = []
     i, n = 0, len(text)
     while i < n:
         two = text[i : i + 2]
         if two == "//":
-            while i < n and text[i] != "\n":
-                i += 1
+            i = _skip_line_comment(text, i)
             continue
         if two == "/*":
-            i += 2
-            while i < n and text[i : i + 2] != "*/":
-                i += 1
-            i += 2
+            i = _skip_block_comment(text, i)
             continue
         char = text[i]
         if char in ("'", '"', "`"):
-            i += 1
-            while i < n and text[i] != char:
-                i += 2 if text[i] == "\\" and i + 1 < n else 1
-            i += 1
+            i = _skip_quoted(text, i, char)
             continue
         out.append(char)
         i += 1
     return "".join(out)
+
+
+def _open_brace(buffer: str, depth: int, max_depth: int, stack: list[bool]) -> tuple[int, int]:
+    normalized = re.sub(r"\s+", " ", buffer.strip())
+    is_control = bool(_CHAIN_CONTINUATION.match(normalized)) or bool(
+        _CONTROL_KEYWORDS.search(buffer)
+    )
+    stack.append(is_control)
+    if is_control:
+        depth += 1
+        max_depth = max(max_depth, depth)
+    return depth, max_depth
+
+
+def _close_brace(depth: int, stack: list[bool]) -> int:
+    was_control = stack.pop() if stack else False
+    return depth - 1 if was_control else depth
 
 
 def brace_nesting(text: str) -> int:
@@ -161,28 +199,14 @@ def brace_nesting(text: str) -> int:
         if char == "(":
             paren_depth += 1
             buffer += char
-            continue
-        if char == ")":
+        elif char == ")":
             paren_depth = max(0, paren_depth - 1)
             buffer += char
-            continue
-        if char == "{":
-            normalized = re.sub(r"\s+", " ", buffer.strip())
-            if _CHAIN_CONTINUATION.match(normalized):
-                depth += 1
-                stack.append(True)
-                max_depth = max(max_depth, depth)
-            else:
-                is_control = bool(_CONTROL_KEYWORDS.search(buffer))
-                stack.append(is_control)
-                if is_control:
-                    depth += 1
-                    max_depth = max(max_depth, depth)
+        elif char == "{":
+            depth, max_depth = _open_brace(buffer, depth, max_depth, stack)
             buffer = ""
         elif char == "}":
-            was_control = stack.pop() if stack else False
-            if was_control:
-                depth -= 1
+            depth = _close_brace(depth, stack)
             buffer = ""
         elif char == ";" and paren_depth == 0:
             buffer = ""

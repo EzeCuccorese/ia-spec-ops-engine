@@ -83,6 +83,7 @@ def test_post_bash_replaces_large_output_with_ws_summary(monkeypatch, capsys) ->
         ("pytest #nofrugal", BIG, {"schema_version": 1, "text": "t", "truncated": True}),
         ("pytest", BIG, None),  # ws missing -> original output kept
     ],
+    ids=["short-output", "git-diff", "cat-log", "nofrugal-tag", "ws-missing"],
 )
 def test_post_bash_keeps_output(monkeypatch, capsys, command, stdout, result) -> None:
     payload = {"tool_input": {"command": command}, "tool_response": {"stdout": stdout}}

@@ -7,11 +7,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import tempfile
 from collections.abc import Callable, Sequence
 from pathlib import Path
+
+_LOGGER = logging.getLogger(__name__)
 
 LOCKFILES = (
     "package-lock.json",
@@ -157,6 +160,46 @@ def replacement_patterns() -> tuple[tuple[str, Callable[[str], bool], str], ...]
     return tuple(patterns)
 
 
+def _warnings_path(runtime_dir: Path | None, session_id: str | None) -> Path | None:
+    if not runtime_dir or not session_id:
+        return None
+    safe_session = hashlib.sha256(str(session_id).encode("utf-8")).hexdigest()[:24]
+    return runtime_dir / "sessions" / f"{safe_session}.json"
+
+
+def _load_warned(warnings_file: Path | None) -> set[str]:
+    if not warnings_file or not warnings_file.exists():
+        return set()
+    try:
+        return set(json.loads(warnings_file.read_text(encoding="utf-8")))
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError, TypeError):
+        return set()
+
+
+def _save_warned(warnings_file: Path | None, warned: set[str]) -> None:
+    if not warnings_file:
+        return
+    temporary: Path | None = None
+    try:
+        warnings_file.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=warnings_file.parent,
+            delete=False,
+        ) as handle:
+            json.dump(sorted(warned), handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+            temporary = Path(handle.name)
+        temporary.replace(warnings_file)
+    except OSError as exc:
+        _LOGGER.debug("Unable to persist pre-check warnings to %s: %s", warnings_file, exc)
+    finally:
+        if temporary and temporary.exists():
+            temporary.unlink(missing_ok=True)
+
+
 class PreCheck:
     @staticmethod
     def check_command(
@@ -168,42 +211,13 @@ class PreCheck:
         if not command or "#nofrugal" in command or os.environ.get("FRUGAL") == "0":
             return None
 
-        warned: set[str] = set()
-        warnings_file = None
-        if runtime_dir and session_id:
-            safe_session = hashlib.sha256(str(session_id).encode("utf-8")).hexdigest()[:24]
-            warnings_file = runtime_dir / "sessions" / f"{safe_session}.json"
-            if warnings_file.exists():
-                try:
-                    warned = set(json.loads(warnings_file.read_text(encoding="utf-8")))
-                except (json.JSONDecodeError, UnicodeDecodeError, OSError, TypeError):
-                    warned = set()
+        warnings_file = _warnings_path(runtime_dir, session_id)
+        warned = _load_warned(warnings_file)
 
         for pid, matcher, advice in (*PATTERNS, *extra_patterns):
-            if pid in warned:
+            if pid in warned or not matcher(command):
                 continue
-            if matcher(command):
-                if warnings_file:
-                    try:
-                        warnings_file.parent.mkdir(parents=True, exist_ok=True)
-                        warned.add(pid)
-                        temporary: Path | None = None
-                        try:
-                            with tempfile.NamedTemporaryFile(
-                                mode="w",
-                                encoding="utf-8",
-                                dir=warnings_file.parent,
-                                delete=False,
-                            ) as handle:
-                                json.dump(sorted(warned), handle)
-                                handle.flush()
-                                os.fsync(handle.fileno())
-                                temporary = Path(handle.name)
-                            temporary.replace(warnings_file)
-                        finally:
-                            if temporary and temporary.exists():
-                                temporary.unlink(missing_ok=True)
-                    except OSError:
-                        pass
-                return advice
+            warned.add(pid)
+            _save_warned(warnings_file, warned)
+            return advice
         return None

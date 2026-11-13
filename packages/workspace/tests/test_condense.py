@@ -1,9 +1,11 @@
 import io
 import os
 import stat
+import subprocess
 import sys
 
 import pytest
+from workspace_engine.common.subprocess import DEFAULT_COMMAND_TIMEOUT
 from workspace_engine.condense import cli, logs
 from workspace_engine.condense.engine import clean_lines, condense, dedupe, profile_for
 
@@ -173,3 +175,70 @@ def test_ws_log_last(capsys) -> None:
     assert "ERROR here" in capsys.readouterr().out
     assert logs.latest() == last
     assert cli.show_log([]) == 1
+
+
+def test_ws_run_timeout_returns_124_and_saves_truncated_partial_output(monkeypatch, capsys) -> None:
+    partial_out = "\n".join(f"line {i}" for i in range(120)).encode("utf-8")
+    partial_err = b"ERROR: stalled on step\xff"
+
+    def fake_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(
+            cmd=args[0],
+            timeout=kwargs["timeout"],
+            output=partial_out,
+            stderr=partial_err,
+        )
+
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+    code = cli.run(["--timeout", "3", "--budget", "300", "--", "sleep", "10"])
+    captured = capsys.readouterr()
+
+    assert code == 124
+    assert "ERROR: command timed out after 3s: sleep 10" in captured.err
+    assert "exit=124" in captured.out
+    assert "ws log " in captured.out
+    log_id = captured.out.rsplit("ws log ", 1)[1].split()[0]
+    saved = logs.read(log_id)
+    assert "line 0" in saved
+    assert "stalled on step" in saved
+
+
+def test_ws_run_timeout_handles_str_and_none_streams(monkeypatch, capsys) -> None:
+    def fake_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(
+            cmd=args[0],
+            timeout=kwargs["timeout"],
+            output="partial text",
+            stderr=None,
+        )
+
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+    code = cli.run(["--timeout", "2", "--", "echo", "hi"])
+    captured = capsys.readouterr()
+
+    assert code == 124
+    assert "partial text" in captured.out
+    assert "ws log" not in captured.out
+    assert "exit=124" in captured.out
+    assert "timed out after 2s" in captured.err
+
+
+@pytest.mark.parametrize(
+    ("extra_args", "expected_timeout"),
+    [
+        ([], DEFAULT_COMMAND_TIMEOUT),
+        (["--timeout", "15"], 15),
+        (["--timeout", "0"], None),
+        (["--timeout", "-5"], None),
+    ],
+)
+def test_ws_run_timeout_flag_values(monkeypatch, extra_args, expected_timeout) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_run(*args, **kwargs):
+        seen["timeout"] = kwargs["timeout"]
+        return subprocess.CompletedProcess(args[0], 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+    assert cli.run([*extra_args, "--", "echo", "ok"]) == 0
+    assert seen["timeout"] == expected_timeout

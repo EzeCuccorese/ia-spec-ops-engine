@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import re
 import sys
@@ -19,9 +20,22 @@ from ..paths import config_dir
 from ..settings import effective
 
 DEFAULT_TIMEOUT_SECONDS = 30.0
+logger = logging.getLogger(__name__)
 
 
-class UnknownProfileError(LookupError):
+class AtlassianError(Exception):
+    """Base exception for Atlassian client errors."""
+
+
+class AtlassianConfigError(AtlassianError):
+    """Raised when Atlassian configuration or credentials are invalid or missing."""
+
+
+class AtlassianRequestError(AtlassianError):
+    """Raised when an Atlassian API request fails due to HTTP, network, or timeout errors."""
+
+
+class UnknownProfileError(AtlassianConfigError, LookupError):
     """Raised when a named Atlassian profile is not defined anywhere."""
 
 
@@ -148,8 +162,7 @@ def check_env() -> None:
     try:
         cfg = load_profile_config()
     except UnknownProfileError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        raise AtlassianConfigError(f"Error: {exc}") from exc
     missing: list[str] = []
     if not cfg.get("email"):
         missing.append("ATLASSIAN_EMAIL")
@@ -158,13 +171,11 @@ def check_env() -> None:
     if not cfg.get("url"):
         missing.append("ATLASSIAN_URL")
     if missing:
-        print(
+        lines = [
             "Error: Missing required environment variables or profile configuration:",
-            file=sys.stderr,
-        )
-        for v in missing:
-            print(f'  export {v}="..."', file=sys.stderr)
-        sys.exit(1)
+            *(f'  export {v}="..."' for v in missing),
+        ]
+        raise AtlassianConfigError("\n".join(lines))
 
 
 def auth_header() -> dict[str, str]:
@@ -209,6 +220,15 @@ def read_input_text(source: str, *, allow_bare_path: bool = True) -> str:
     return source
 
 
+def _format_error_body(raw: str) -> str:
+    try:
+        msg = json.loads(raw)
+        return json.dumps(msg, indent=2)
+    except json.JSONDecodeError as exc:
+        logger.debug("Atlassian error response is not JSON: %s", exc)
+        return raw
+
+
 def execute_request(
     method: str, url: str, payload: dict | list | None = None, timeout: float | None = None
 ) -> dict | list:
@@ -221,20 +241,14 @@ def execute_request(
             body = resp.read().decode()
             return json.loads(body) if body else {}
     except urllib.error.HTTPError as e:
-        err = e.read().decode()
-        try:
-            msg = json.loads(err)
-            err = json.dumps(msg, indent=2)
-        except json.JSONDecodeError:
-            pass
+        err = _format_error_body(e.read().decode("utf-8", errors="replace"))
         sanitized = sanitize_secrets(err)
-        print(f"HTTP {e.code} Error calling {method} {url}:\n{sanitized}", file=sys.stderr)
-        sys.exit(1)
+        raise AtlassianRequestError(
+            f"HTTP {e.code} Error calling {method} {url}:\n{sanitized}"
+        ) from e
     except urllib.error.URLError as e:
         sanitized = sanitize_secrets(str(e.reason))
-        print(f"Network error calling {method} {url}: {sanitized}", file=sys.stderr)
-        sys.exit(1)
+        raise AtlassianRequestError(f"Network error calling {method} {url}: {sanitized}") from e
     except TimeoutError as e:
         sanitized = sanitize_secrets(str(e))
-        print(f"Timeout error calling {method} {url}: {sanitized}", file=sys.stderr)
-        sys.exit(1)
+        raise AtlassianRequestError(f"Timeout error calling {method} {url}: {sanitized}") from e

@@ -27,6 +27,21 @@ class ClaudeUsageStatus:
     status_label: str
 
 
+def _evaluate_variance(
+    actual_spend_usd: float | None, expected_spend_usd: float
+) -> tuple[float | None, bool | None, str]:
+    if actual_spend_usd is None:
+        return None, None, "unknown"
+    variance = actual_spend_usd - expected_spend_usd
+    is_under = variance <= 0.0
+    label = (
+        f"OK ({-variance:+.2f} USD margin)"
+        if is_under
+        else f"EXCEEDED ({variance:+.2f} USD variance)"
+    )
+    return variance, is_under, label
+
+
 class ClaudeUsageCalculator:
     @staticmethod
     def count_business_days(
@@ -69,30 +84,7 @@ class ClaudeUsageCalculator:
 
         pace_ratio = elapsed_b_days / total_b_days if total_b_days > 0 else 0.0
         expected_spend = monthly_budget_usd * pace_ratio
-
-        if actual_spend_usd is None:
-            return ClaudeUsageStatus(
-                year=target.year,
-                month=target.month,
-                day=target.day,
-                total_business_days=total_b_days,
-                elapsed_business_days=elapsed_b_days,
-                days_remaining=days_remaining,
-                pace_ratio=pace_ratio,
-                expected_spend_usd=expected_spend,
-                actual_spend_usd=None,
-                variance_usd=None,
-                is_under_budget=None,
-                status_label="unknown",
-            )
-
-        variance = actual_spend_usd - expected_spend
-        is_under = variance <= 0.0
-
-        if is_under:
-            status_label = f"OK ({-variance:+.2f} USD margin)"
-        else:
-            status_label = f"EXCEEDED ({variance:+.2f} USD variance)"
+        variance, is_under, status_label = _evaluate_variance(actual_spend_usd, expected_spend)
 
         return ClaudeUsageStatus(
             year=target.year,

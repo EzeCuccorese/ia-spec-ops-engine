@@ -37,6 +37,7 @@ from typing import Any
 
 # ── Configuration & Profiles (Shared with Atlassian Common) ─────────────────
 from ai_governance.tools.atlassian_common import (
+    AtlassianError,
     atlassian_timeout,
     auth_header,
     execute_request,
@@ -457,7 +458,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.profile:
         set_profile(args.profile)
-    HANDLERS[args.command](args, parser)
+    try:
+        HANDLERS[args.command](args, parser)
+    except AtlassianError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     return 0
 
 

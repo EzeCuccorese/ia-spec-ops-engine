@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import stat
@@ -33,6 +34,7 @@ from .blocks import BlockInjector
 LEDGER_SCHEMA = 1
 START = f"<!-- {MARKER}:start -->"
 END = f"<!-- {MARKER}:end -->"
+logger = logging.getLogger(__name__)
 
 
 def sha256(text: str) -> str:
@@ -120,8 +122,8 @@ class Ledger:
                 full = self.resolve(str(path))
                 resolved = full.parent.resolve() / full.name
                 return resolved.relative_to(self.base.resolve()).as_posix()
-            except ValueError:
-                pass
+            except ValueError as exc:
+                logger.debug("Path %s is outside ledger base %s: %s", path, self.base, exc)
         return str(path)
 
     def resolve(self, key: str) -> Path:

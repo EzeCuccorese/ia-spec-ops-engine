@@ -147,6 +147,38 @@ def _merge_design_tables(
     return merged
 
 
+def _collect_profiles(sources: Sequence[dict | None]) -> tuple[str, ...]:
+    raw_profiles: list[object] = []
+    for src in sources:
+        if src is not None:
+            p = src.get("profiles")
+            if isinstance(p, list):
+                raw_profiles = p
+    return tuple(str(p) for p in raw_profiles)
+
+
+def _validate_design_table(table: dict, default_mode: str) -> str:
+    unknown = set(table) - _FIELDS
+    if unknown:
+        raise ValueError(f"[design] has unknown key(s): {', '.join(sorted(unknown))}")
+    mode = str(table.get("mode", default_mode))
+    if mode not in MODES:
+        raise ValueError(f"[design].mode must be one of {MODES}, got {mode!r}")
+    return mode
+
+
+def _parse_checks(raw_checks: Sequence[object] | None) -> tuple[str, ...]:
+    if raw_checks is None:
+        return CHECKS
+    checks = tuple(str(c) for c in raw_checks)
+    unknown_checks = set(checks) - set(CHECKS)
+    if unknown_checks:
+        raise ValueError(
+            f"[design].checks has unknown check(s): {', '.join(sorted(unknown_checks))}"
+        )
+    return checks
+
+
 @dataclass(frozen=True)
 class DesignConfig:
     mode: str = "block"
@@ -169,35 +201,15 @@ class DesignConfig:
         repo_table = _design_table(repo, "[design]")
         personal_table = _design_table(personal, "personal config")
 
-        raw_profiles: list[object] = []
-        for src in (user, repo, personal, user_table, repo_table, personal_table):
-            if src is not None:
-                p = src.get("profiles")
-                if isinstance(p, list):
-                    raw_profiles = p
-        profiles = tuple(str(p) for p in raw_profiles)
-
+        profiles = _collect_profiles((user, repo, personal, user_table, repo_table, personal_table))
         if user_table is None and repo_table is None and personal_table is None:
             return cls(profiles=profiles)
+
         table: dict = _merge_design_tables(user_table, repo_table, personal_table)
-        unknown = set(table) - _FIELDS
-        if unknown:
-            raise ValueError(f"[design] has unknown key(s): {', '.join(sorted(unknown))}")
-        mode = str(table.get("mode", cls.mode))
-        if mode not in MODES:
-            raise ValueError(f"[design].mode must be one of {MODES}, got {mode!r}")
+        mode = _validate_design_table(table, cls.mode)
         exclude = table.get("exclude")
         layers_table = table.get("layers")
-        raw_checks = table.get("checks")
-        if raw_checks is not None:
-            checks = tuple(str(c) for c in raw_checks)
-            unknown_checks = set(checks) - set(CHECKS)
-            if unknown_checks:
-                raise ValueError(
-                    f"[design].checks has unknown check(s): {', '.join(sorted(unknown_checks))}"
-                )
-        else:
-            checks = CHECKS
+        checks = _parse_checks(table.get("checks"))
         return cls(
             mode=mode,
             max_complexity=int(table.get("max_complexity", cls.max_complexity)),

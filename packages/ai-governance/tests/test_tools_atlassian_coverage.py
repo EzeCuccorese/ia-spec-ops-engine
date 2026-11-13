@@ -903,7 +903,7 @@ def test_execute_request_http_error_json_body(mock_urlopen: MagicMock) -> None:
     err_resp = MagicMock()
     err_resp.read.return_value = json.dumps({"errorMessages": ["Bad request"]}).encode()
     mock_urlopen.side_effect = urllib.error.HTTPError("http://x", 400, "Bad Request", {}, err_resp)
-    with pytest.raises(SystemExit):
+    with pytest.raises(atlassian_common.AtlassianRequestError, match="HTTP 400 Error"):
         atlassian_common.execute_request("GET", "http://x")
 
 
@@ -912,14 +912,14 @@ def test_execute_request_http_error_non_json_body(mock_urlopen: MagicMock) -> No
     err_resp = MagicMock()
     err_resp.read.return_value = b"plain text error"
     mock_urlopen.side_effect = urllib.error.HTTPError("http://x", 500, "Server Error", {}, err_resp)
-    with pytest.raises(SystemExit):
+    with pytest.raises(atlassian_common.AtlassianRequestError, match="plain text error"):
         atlassian_common.execute_request("GET", "http://x")
 
 
 @patch("urllib.request.urlopen")
 def test_execute_request_timeout_error(mock_urlopen: MagicMock) -> None:
     mock_urlopen.side_effect = TimeoutError("timed out")
-    with pytest.raises(SystemExit):
+    with pytest.raises(atlassian_common.AtlassianRequestError, match="Timeout error"):
         atlassian_common.execute_request("GET", "http://x")
 
 

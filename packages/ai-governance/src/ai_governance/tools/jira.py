@@ -35,6 +35,7 @@ from datetime import datetime
 from typing import Any
 
 from ai_governance.tools.atlassian_common import (
+    AtlassianError,
     atlassian_timeout,
     auth_header,
     execute_request,
@@ -344,6 +345,32 @@ def _all_sprints(board_id: int) -> list[dict[str, Any]]:
         start += len(values)
 
 
+def _resolve_active_sprint(sprints: list[dict[str, Any]], board_id: Any) -> dict[str, Any]:
+    match = next((s for s in sprints if s.get("state") == "active"), None)
+    if not match:
+        print(f"❌ No active sprint found on board {board_id}.", file=sys.stderr)
+        sys.exit(1)
+    return match
+
+
+def _resolve_sprint(sprints: list[dict[str, Any]], board_id: Any, name: str) -> dict[str, Any]:
+    if name.lower() == "active":
+        return _resolve_active_sprint(sprints, board_id)
+
+    matches = [s for s in sprints if name.lower() in s.get("name", "").lower()]
+    if not matches:
+        available = [f"'{s['name']}' ({s.get('state')})" for s in sprints]
+        print(f"❌ Sprint '{name}' not found on board {board_id}.", file=sys.stderr)
+        print(f"   Available sprints: {', '.join(available) or 'none'}", file=sys.stderr)
+        sys.exit(1)
+    if len(matches) > 1:
+        available = [f"'{s['name']}' (id: {s.get('id')})" for s in matches]
+        print(f"❌ Ambiguous sprint '{name}': multiple sprints match.", file=sys.stderr)
+        print(f"   Available choices: {', '.join(available)}", file=sys.stderr)
+        sys.exit(1)
+    return matches[0]
+
+
 def cmd_sprint(key: str, name: str) -> None:
     """Moves an issue to a sprint."""
     project = key.split("-")[0]
@@ -354,26 +381,7 @@ def cmd_sprint(key: str, name: str) -> None:
     board_id = boards[0]["id"]
 
     sprints = _all_sprints(board_id)
-
-    if name.lower() == "active":
-        match = next((s for s in sprints if s.get("state") == "active"), None)
-        if not match:
-            print(f"❌ No active sprint found on board {board_id}.", file=sys.stderr)
-            sys.exit(1)
-    else:
-        matches = [s for s in sprints if name.lower() in s.get("name", "").lower()]
-        if not matches:
-            available = [f"'{s['name']}' ({s.get('state')})" for s in sprints]
-            print(f"❌ Sprint '{name}' not found on board {board_id}.", file=sys.stderr)
-            print(f"   Available sprints: {', '.join(available) or 'none'}", file=sys.stderr)
-            sys.exit(1)
-        elif len(matches) > 1:
-            available = [f"'{s['name']}' (id: {s.get('id')})" for s in matches]
-            print(f"❌ Ambiguous sprint '{name}': multiple sprints match.", file=sys.stderr)
-            print(f"   Available choices: {', '.join(available)}", file=sys.stderr)
-            sys.exit(1)
-        else:
-            match = matches[0]
+    match = _resolve_sprint(sprints, board_id, name)
 
     sprint_id = match["id"]
     sprint_name = match["name"]
@@ -538,7 +546,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.profile:
         set_profile(args.profile)
-    HANDLERS[args.command](args, parser)
+    try:
+        HANDLERS[args.command](args, parser)
+    except AtlassianError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     return 0
 
 
