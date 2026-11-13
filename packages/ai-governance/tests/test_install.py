@@ -151,6 +151,8 @@ def test_user_scope_install_renders_general_tool_rules(home: Path) -> None:
         "15-tool-confidentiality",
         "16-git-branch-ownership",
         "17-quality-gate",
+        "18-surgical-changes",
+        "19-pull-requests",
     ]
 
     # Initial install for all three agents
