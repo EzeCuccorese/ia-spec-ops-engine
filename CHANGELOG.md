@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.1 - 2026-11-13
+
+### Fixes
+- Add run timeout, domain exceptions, and complexity cleanup.
+- Decode HTTP error bodies with replacement on invalid UTF-8.
+
 ## 2.0.0 - 2026-11-12
 
 ### Breaking changes
