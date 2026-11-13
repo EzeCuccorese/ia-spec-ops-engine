@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.0 - 2026-11-13
+
+### Features
+- Add surgical-changes and pull-requests core rules.
+
+### Fixes
+- Add run timeout, domain exceptions, and complexity cleanup.
+
 ## 2.0.0 - 2026-11-12
 
 ### Breaking changes
