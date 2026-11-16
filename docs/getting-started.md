@@ -53,7 +53,7 @@ What gets written for Claude Code:
 | `~/.claude/rules/ai-governance.md` | ≤1 KB of global instructions: prefer `ws`/`ai-governance` tools, frugal reads, delegation to `scout`/`researcher` | Yes, every session |
 | `~/.claude/agents/scout.md` | Read-only subagent on `haiku`, effort `medium`, for exploration, reading and summaries (no web tools) | Only its name and description |
 | `~/.claude/agents/researcher.md` | Read-only subagent on `sonnet`, effort `medium`, for web research | Only its name and description |
-| `~/.claude/skills/{taskflow,test-audit}/SKILL.md` | How to use the task flow; how to write and prune tests | Only their names and descriptions |
+| `~/.claude/skills/{taskflow,test-audit}/SKILL.md` | How to use the task flow; how to write, review and prune tests | Only their names and descriptions |
 | `~/.claude/settings.json` (merged) | Four hooks: `PreToolUse`/`PostToolUse` (Bash), `SessionStart`, `SessionEnd`, all as `ai-governance hook claude <event>` | Only what each hook returns (see below) |
 | `~/.local/state/ai-governance/installed.json` | Ownership ledger and the list of projects you install | No |
 

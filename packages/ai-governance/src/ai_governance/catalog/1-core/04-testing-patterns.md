@@ -7,5 +7,6 @@
 - Mock only across architectural boundaries; a mock never implements the behavior under test.
 - One test per contract at the cheapest real layer; merge variants into parametrized cases.
 - No assertion-free tests, self-comparisons, expected values computed by the code under test, or tests that only hit lines.
+- No tests of language behavior, log wording or signatures; same bar for review asks.
 - No production seams used only by tests. No sleeps or real clocks: inject time, poll.
 - Arrange-Act-Assert, one behavior per test.

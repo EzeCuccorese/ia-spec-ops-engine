@@ -113,6 +113,16 @@ already ask for unit tests.
 uv run python evals/design-rules/run.py --conditions tests-none,tests-rules,tests-gate,tests-rules+gate --reps 3
 ```
 
+The three default tasks do not invite junk tests (every condition scored 0 test
+violations). `order_notifier` does: logging, error wrapping, a plain DTO and a
+repository error that only passes through. It is opt-in, so the stored results
+of the default matrix stay comparable; judge it by `test_functions_added` and
+test LOC, since the `test-*` checks do not see log-level or pass-through tests:
+
+```bash
+uv run python evals/design-rules/run.py --tasks order_notifier --conditions tests-none,tests-rules,tests-gate,tests-rules+gate --reps 3
+```
+
 Extra per-run CSV columns: `test_loc_added` / `prod_loc_added` (`.py` lines
 added, split by test path: a `tests/` dir, `test_*.py`, `*_test.py`,
 `conftest.py`), `test_functions_added` (added `def test...` lines in test
