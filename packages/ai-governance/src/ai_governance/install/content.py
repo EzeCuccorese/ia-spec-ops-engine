@@ -117,8 +117,8 @@ name: test-audit
 description: Gate new tests, answer test requests from reviewers, prune low-value tests. Use when writing, reviewing or auditing tests.
 ---
 A test earns its cost only if a credible production bug makes it fail.
-Before writing one, or when a reviewer asks, answer: what contract does it protect, what regression fails it, why isn't it already covered, does it need a test-only seam? Any gap: don't write it; decline a reviewer with the reason.
-Junk: language behavior, log wording, signatures, restated constants, a mock asserting itself, self-comparison, no or unfailable asserts, a sibling copy, a generic "throws".
+Before writing one or when a reviewer asks, answer: what contract does it protect, what regression fails it, why isn't it already covered, does it need a test-only seam? Any gap: don't write it; decline a reviewer with the reason.
+Junk: language behavior, log level or wording, signatures, restated constants, a mock asserting itself, self-comparison, no/unfailable asserts, a sibling copy, a generic "throws".
 Keep the sole guard of a contract (API, migration, security, a log an alert keys on); name it.
 Audit read-only until the ledger is done; judge assertions not names: R retain, F fix, C consolidate, D delete (name the proof that remains). Break production code to confirm the keeper fails, then restore. Re-argue each D. Report removed and kept. `ws design` flags mechanical junk.
 """
