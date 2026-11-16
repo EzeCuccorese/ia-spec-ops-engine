@@ -428,36 +428,31 @@ def sync_personal_rules(root: Path | None = None, *, dry_run: bool = False) -> R
         for spec in specs
         for artifact in spec.personal_artifacts(current_rules)
     ]
-    report = Report()
-    desired_keys = {("link", ledger.key(owned.artifact.path)) for owned in desired}
-    ledger.entries = _without_stale_links(
-        ledger, desired_keys, _is_personal_entry, report=report, dry_run=dry_run
-    )
-
-    for owned in desired:
-        if isinstance(owned.artifact, LinkArtifact):
-            _apply_link(owned.agent, owned.artifact, ledger, report, dry_run, force=False)
-
-    ledger.save(report, dry_run)
-    return report
+    return _reconcile_links(ledger, desired, _is_personal_entry, dry_run=dry_run)
 
 
-def _without_stale_links(
+def _reconcile_links(
     ledger: Ledger,
-    desired_keys: set[tuple[str, str]],
+    desired: list[Owned],
     owns: Callable[[Ledger, dict[str, Any]], bool],
     *,
-    report: Report,
-    dry_run: bool,
-) -> list[dict[str, Any]]:
-    """The ledger entries to keep: owned links no longer wanted are removed from disk first."""
+    dry_run: bool = False,
+) -> Report:
+    """Removes stale links matching ``owns``, applies ``desired`` links, and saves the ledger."""
+    report = Report()
+    desired_keys = {("link", ledger.key(owned.artifact.path)) for owned in desired}
     kept: list[dict[str, Any]] = []
     for entry in ledger.entries:
         stale = owns(ledger, entry) and ("link", entry["path"]) not in desired_keys
         if stale and _remove_entry(entry, ledger, report, dry_run):
             continue
         kept.append(entry)
-    return kept
+    ledger.entries = kept
+    for owned in desired:
+        if isinstance(owned.artifact, LinkArtifact):
+            _apply_link(owned.agent, owned.artifact, ledger, report, dry_run, force=False)
+    ledger.save(report, dry_run)
+    return report
 
 
 def _is_skill_link(agent: str, path: Path, target: str = "") -> bool:
@@ -502,16 +497,7 @@ def sync_skill_links(*, dry_run: bool = False) -> Report:
         for spec in specs
         for artifact in spec.skill_link_artifacts(sources)
     ]
-    report = Report()
-    desired_keys = {("link", ledger.key(owned.artifact.path)) for owned in desired}
-    ledger.entries = _without_stale_links(
-        ledger, desired_keys, _is_skill_entry, report=report, dry_run=dry_run
-    )
-    for owned in desired:
-        if isinstance(owned.artifact, LinkArtifact):
-            _apply_link(owned.agent, owned.artifact, ledger, report, dry_run, force=False)
-    ledger.save(report, dry_run)
-    return report
+    return _reconcile_links(ledger, desired, _is_skill_entry, dry_run=dry_run)
 
 
 def install_user(

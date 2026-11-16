@@ -167,7 +167,7 @@ def list_skills() -> int:
 def add_skill(source_dir: Path, name: str | None = None) -> int:
     if not _is_skill_dir(source_dir):
         raise SkillError(f"{source_dir} is not a skill directory: no {SKILL_FILE} inside")
-    skill_name = _check_name(name or source_dir.resolve().name)
+    skill_name = _check_name(source_dir.resolve().name if name is None else name)
     existing = {s.name: s for s in collect()}
     if skill_name in existing or skill_name in bundled_names():
         raise SkillError(f"Skill '{skill_name}' already exists; remove it first or pick --name")
