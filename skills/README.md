@@ -3,8 +3,9 @@
 Personal third-party skills live here (`skills/<name>/SKILL.md`, plus optional scripts and
 supporting files) and are **versioned in git**.
 
-Each skill lives in this single directory and is exposed to every installed agent through a
-directory symlink:
+Each skill lives in this single source directory and is synced into every installed agent as a
+managed directory copy tracked in the ownership ledger (edit the skill here and run
+`ai-governance skills sync` to propagate updates):
 
 - Claude Code: `~/.claude/skills/<name>`
 - Codex: `~/.agents/skills/<name>`

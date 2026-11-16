@@ -40,9 +40,10 @@ Layout of `<company>/`:
 - `scripts/*` — files linked into `~/.local/bin` (override with `AI_GOVERNANCE_BIN_DIR`);
   they are removed when the last installed agent is uninstalled. If two packs ship a script
   with the same name, the first pack alphabetically wins and the install warns.
-- `skills/<name>/SKILL.md` — company-specific skills (plus optional scripts/files), exposed as
-  directory symlinks into `~/.claude/skills/<name>`, `~/.agents/skills/<name>` (Codex) and
-  `~/.gemini/config/skills/<name>` (Antigravity). Corporate skills stay gitignored inside this
+- `skills/<name>/SKILL.md` — company-specific skills (plus optional scripts/files), synced as
+  managed directory copies into `~/.claude/skills/<name>`, `~/.agents/skills/<name>` (Codex) and
+  `~/.gemini/config/skills/<name>` (Antigravity). Edit the source here and run
+  `ai-governance skills sync` to update the copies. Corporate skills stay gitignored inside this
   folder and must never exist in git (use [`skills/`](../../skills) at the repo root only for
   personal skills).
 

@@ -75,7 +75,7 @@ installed after step 8 verifies them.
 **Company packs (optional)**: every folder under `packages/corporate-rules/<company>/` (or
 under `AI_GOVERNANCE_CORPORATE_DIR`) is installed by this same command: its `rules/*.md` become
 always-on rules, its `scripts/*` are linked into `~/.local/bin`, and its `skills/<name>/` become
-directory symlinks alongside personal skills. Company packs are gitignored and must never exist
+managed directory copies alongside personal skills. Company packs are gitignored and must never exist
 in git. Pass every agent you use in one install, because only the named agents get their pack
 rules refreshed. See [packages/corporate-rules/README.md](../packages/corporate-rules/README.md).
 
@@ -149,17 +149,19 @@ registered project.
 
 ## Skills (optional)
 
-Keep each third-party skill in one directory and link it into Claude Code, Codex and Antigravity:
+Keep each third-party skill in one source directory and sync managed copies into Claude Code, Codex and Antigravity:
 
 ```bash
-ai-governance skills add ./demo-skill        # copies it into skills/, then links it
-ai-governance skills list                    # linked / missing / foreign per agent
+ai-governance skills add ./demo-skill        # copies it into skills/, then syncs to agents
+ai-governance skills list                    # synced / outdated / edited / missing / foreign per agent
+ai-governance skills sync                    # update agent copies after editing the source
 ai-governance skills migrate --dry-run       # plan to adopt skills already in ~/.claude/skills etc.
 ```
 
 Personal skills live in [`skills/`](../skills) at the repo root (versioned in git); corporate
-skills live in `packages/corporate-rules/<company>/skills/` (gitignored, never in git). Agents
-receive directory symlinks to that single real copy. Externally managed Orca skills
+skills live in `packages/corporate-rules/<company>/skills/` (gitignored, never in git). Edit a
+skill in its source directory and run `ai-governance skills sync` to propagate changes (`doctor`
+warns if a copy is `outdated` or `edited`). Externally managed Orca skills
 (`orchestration`, `orca-cli`, `orca-computer-use`, `computer-use`) stay with Orca and are
 ignored by `ai-governance skills`.
 

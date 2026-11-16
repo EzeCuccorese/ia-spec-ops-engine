@@ -11,14 +11,17 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..corporate import CorporateRule
 from ..frontmatter import _FRONTMATTER_RE
 from ..personal import PersonalRule
 from ..rules.catalog import RuleDefinition
 from ..settings import get as setting
-from ..skills import SkillSource
 from . import content
+
+if TYPE_CHECKING:
+    from ..skills import SkillSource
 
 MARKER = "ai-governance"
 HOOK_COMMAND_PREFIX = "ai-governance hook"
@@ -88,7 +91,15 @@ class LinkArtifact:
     target: str
 
 
-Artifact = FileArtifact | BlockArtifact | HooksArtifact | LinkArtifact
+@dataclass(frozen=True)
+class DirArtifact:
+    """A managed directory copy owned by ai-governance, synced from ``source``."""
+
+    path: Path
+    source: Path
+
+
+Artifact = FileArtifact | BlockArtifact | HooksArtifact | LinkArtifact | DirArtifact
 
 # Single source of truth for project rules: every agent reads them from here.
 RULES_DIR = Path(".agents") / "rules"
@@ -167,15 +178,15 @@ class AgentSpec:
         raise NotImplementedError
 
     def skills_dir(self) -> Path | None:
-        """Where the agent loads user skills from; None when no skill is linked for it."""
+        """Where the agent loads user skills from; None when no skill is copied for it."""
         return None
 
-    def skill_link_artifacts(self, sources: list[SkillSource]) -> list[Artifact]:
-        """One directory symlink per skill source, pointing at its single real directory."""
+    def skill_copy_artifacts(self, sources: list[SkillSource]) -> list[Artifact]:
+        """One managed directory copy per skill source, synced from its source directory."""
         folder = self.skills_dir()
         if folder is None:
             return []
-        return [LinkArtifact(folder / source.name, str(source.path)) for source in sources]
+        return [DirArtifact(folder / source.name, source.path) for source in sources]
 
     # -- project scope -------------------------------------------------------
     def project_artifacts(

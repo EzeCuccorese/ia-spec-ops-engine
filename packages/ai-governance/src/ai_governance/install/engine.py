@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import stat
 import tempfile
 from dataclasses import dataclass, field
@@ -24,6 +25,7 @@ from .agents import (
     MARKER,
     Artifact,
     BlockArtifact,
+    DirArtifact,
     FileArtifact,
     HookEntry,
     HooksArtifact,
@@ -39,6 +41,22 @@ logger = logging.getLogger(__name__)
 
 def sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def tree_digest(root: Path) -> str:
+    """Content fingerprint of a directory: relative paths, executable bits, bytes and link targets."""
+    digest = hashlib.sha256()
+    for path in sorted(root.rglob("*")):
+        digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        if path.is_symlink():
+            digest.update(b"L" + os.readlink(path).encode("utf-8"))
+        elif path.is_file():
+            mode_tag = b"X" if path.stat().st_mode & 0o111 else b"F"
+            digest.update(mode_tag + path.read_bytes())
+        else:
+            digest.update(b"D")
+    return digest.hexdigest()
 
 
 def _read(path: Path) -> str | None:
@@ -217,24 +235,36 @@ def sync(
     desired_keys = {(_kind(owned.artifact), ledger.key(owned.artifact.path)) for owned in desired}
     kept: list[dict[str, Any]] = []
     for entry in ledger.entries:
-        if entry["agent"] not in agents_in_scope or (entry["kind"], entry["path"]) in desired_keys:
+        upgrading = entry["kind"] == "link" and ("dir", entry["path"]) in desired_keys
+        if (
+            entry["agent"] not in agents_in_scope
+            or (entry["kind"], entry["path"]) in desired_keys
+            or upgrading
+        ):
             kept.append(entry)
             continue
         if not _remove_entry(entry, ledger, report, dry_run):
             kept.append(entry)
     ledger.entries = kept
 
+    flags = _ApplyFlags(dry_run=dry_run, force=force)
     for owned in desired:
-        artifact = owned.artifact
-        if isinstance(artifact, FileArtifact):
-            _apply_file(owned.agent, artifact, ledger, report, dry_run, force)
-        elif isinstance(artifact, LinkArtifact):
-            _apply_link(owned.agent, artifact, ledger, report, dry_run, force)
-        elif isinstance(artifact, BlockArtifact):
-            _apply_block(owned.agent, artifact, ledger, report, dry_run)
-        else:
-            _apply_hooks(owned.agent, artifact, ledger, report, dry_run)
+        _apply_owned(owned, ledger, report, flags)
     return report
+
+
+def _apply_owned(owned: Owned, ledger: Ledger, report: Report, flags: _ApplyFlags) -> None:
+    artifact = owned.artifact
+    if isinstance(artifact, FileArtifact):
+        _apply_file(owned.agent, artifact, ledger, report, flags.dry_run, flags.force)
+    elif isinstance(artifact, LinkArtifact):
+        _apply_link(owned.agent, artifact, ledger, report, flags.dry_run, flags.force)
+    elif isinstance(artifact, DirArtifact):
+        _apply_dir(owned, ledger, report, flags)
+    elif isinstance(artifact, BlockArtifact):
+        _apply_block(owned.agent, artifact, ledger, report, flags.dry_run)
+    else:
+        _apply_hooks(owned.agent, artifact, ledger, report, flags.dry_run)
 
 
 def _kind(artifact: Artifact) -> str:
@@ -244,6 +274,8 @@ def _kind(artifact: Artifact) -> str:
         return "block"
     if isinstance(artifact, LinkArtifact):
         return "link"
+    if isinstance(artifact, DirArtifact):
+        return "dir"
     return "hooks"
 
 
@@ -319,6 +351,85 @@ def _apply_link(
     _record(
         ledger,
         {"agent": agent, "kind": "link", "path": ledger.key(path), "target": artifact.target},
+    )
+
+
+@dataclass(frozen=True)
+class _ApplyFlags:
+    dry_run: bool = False
+    force: bool = False
+
+
+def _copy_dir_tree(source: Path, dest: Path) -> None:
+    if dest.is_symlink() or dest.is_file():
+        dest.unlink()
+    elif dest.exists():
+        shutil.rmtree(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source, dest, symlinks=True)
+
+
+def _dir_conflict(
+    path: Path, prev_dir: dict[str, Any] | None, prev_link: dict[str, Any] | None
+) -> str | None:
+    if not (path.exists() or path.is_symlink()):
+        return None
+    if prev_dir is not None:
+        edited = path.is_symlink() or not path.is_dir() or tree_digest(path) != prev_dir["sha256"]
+        return (
+            f"{path} was edited locally; kept your version (use --force to replace)."
+            if edited
+            else None
+        )
+    if prev_link is not None and path.is_symlink():
+        return None
+    return (
+        f"{path} exists and was not created by ai-governance; left untouched "
+        "(use --force to replace it)."
+    )
+
+
+def _dir_action(
+    path: Path, prev_dir: dict[str, Any] | None, target_sha: str, conflict: str | None
+) -> str:
+    if conflict:
+        return "replaced"
+    if not (path.exists() or path.is_symlink()):
+        return "created"
+    if prev_dir is not None and prev_dir["sha256"] == target_sha:
+        return "unchanged"
+    return "updated"
+
+
+def _apply_dir(
+    owned: Owned, ledger: Ledger, report: Report, flags: _ApplyFlags | None = None
+) -> None:
+    artifact = owned.artifact
+    if not isinstance(artifact, DirArtifact):
+        return
+    flags = flags or _ApplyFlags()
+    path = artifact.path
+    target_sha = tree_digest(artifact.source)
+    prev_dir = ledger.find("dir", path)
+    conflict = _dir_conflict(path, prev_dir, ledger.find("link", path))
+    if conflict and not flags.force:
+        report.warnings.append(conflict)
+        return
+    action = _dir_action(path, prev_dir, target_sha, conflict)
+    if action != "unchanged" and not flags.dry_run:
+        _copy_dir_tree(artifact.source, path)
+    report.add(action, path)
+    key = ledger.key(path)
+    ledger.entries = [e for e in ledger.entries if (e["kind"], e["path"]) != ("link", key)]
+    _record(
+        ledger,
+        {
+            "agent": owned.agent,
+            "kind": "dir",
+            "path": key,
+            "sha256": target_sha,
+            "source": str(artifact.source),
+        },
     )
 
 
@@ -454,10 +565,25 @@ def _remove_hooks_entry(
     return True
 
 
+def _remove_dir_entry(entry: dict[str, Any], ledger: Ledger, report: Report, dry_run: bool) -> bool:
+    path = ledger.resolve(entry["path"])
+    if not path.exists() and not path.is_symlink():
+        return True
+    if path.is_symlink() or not path.is_dir() or tree_digest(path) != entry["sha256"]:
+        report.warnings.append(f"{path} was edited locally; not removed.")
+        return False
+    if not dry_run:
+        shutil.rmtree(path)
+        _prune_empty_parents(path.parent, ledger.base)
+    report.add("removed", path)
+    return True
+
+
 _REMOVE_HANDLERS = {
     "link": _remove_link_entry,
     "file": _remove_file_entry,
     "block": _remove_block_entry,
+    "dir": _remove_dir_entry,
 }
 
 

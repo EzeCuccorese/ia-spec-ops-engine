@@ -118,7 +118,7 @@ An existing but empty root, or a pack deselected by config, still removes as nor
 | | Antigravity: `~/.gemini/config/rules/ai-governance-<company>-<name>.md` (symlink to the same file; its `trigger: always_on` front matter is what Antigravity reads) |
 | | Codex: `$CODEX_HOME/ai-governance/company/<company>-<name>.md` (symlink to the same file; the `AGENTS.md` block tells Codex to read them once per session) |
 | `scripts/*` | Symlinks in `~/.local/bin` (`AI_GOVERNANCE_BIN_DIR`), removed when the last installed agent is uninstalled |
-| `skills/<name>/` | Directory symlinks in `~/.claude/skills/<name>`, `~/.agents/skills/<name>` (Codex) and `~/.gemini/config/skills/<name>` (Antigravity) |
+| `skills/<name>/` | Managed directory copies in `~/.claude/skills/<name>`, `~/.agents/skills/<name>` (Codex) and `~/.gemini/config/skills/<name>` (Antigravity) |
 
 Rules are refreshed only for the agents named in that install: other installed agents keep
 the previous pack's rules until they are installed again, so pass every agent you use
@@ -157,34 +157,37 @@ ai-governance personal rm <name>                                               #
 
 ### Skills
 
-A third-party skill is a directory (`SKILL.md` plus optional scripts) that lives in exactly one
-place and reaches every installed agent through a directory symlink. It is never copied into an
-agent directory or bundled in the engine. Sources:
+A third-party skill is a directory (`SKILL.md` plus optional scripts) that lives in one source
+directory and is copied into every installed agent as a managed directory copy tracked in the
+ownership ledger (agents such as Antigravity cannot read skill files across symlinks outside
+their config directory). Sources:
 
 - **Personal skills (versioned in git):** `skills/<name>/` at the repository root (or
   `$AI_GOVERNANCE_PERSONAL_DIR/skills/<name>/` when set).
 - **Corporate skills (gitignored, never in git):** `packages/corporate-rules/<pack>/skills/<name>/`
   for each selected company pack (or `$AI_GOVERNANCE_CORPORATE_DIR/<pack>/skills/<name>/`).
 
-Names must be unique across bundled, company and personal skills; a collision is an error. Links
+Names must be unique across bundled, company and personal skills; a collision is an error. Copies
 go to `~/.claude/skills/<name>`, `~/.agents/skills/<name>` (Codex) and
-`~/.gemini/config/skills/<name>` (Antigravity). A path that already exists and is not ours is
-left untouched; `install`, `sync` and `uninstall` keep the links in step with the ledger.
+`~/.gemini/config/skills/<name>` (Antigravity). Edit a skill in its source directory and run
+`ai-governance skills sync` to propagate updates. Locally edited copies and foreign entries are
+never overwritten silently (`--force` replaces them); `ai-governance doctor` warns when a copy is
+`outdated` or `edited`. `install`, `sync` and `uninstall` keep the copies in step with the ledger.
 Externally managed entries (`synced` and Orca skills: `orchestration`, `orca-cli`,
 `orca-computer-use`, `computer-use`) are ignored and cannot be added or migrated.
 
 ```
-ai-governance skills list                                  # source, path and linked/missing/foreign per agent
-ai-governance skills add <dir> [--name N]                  # copy into skills/, then link
-ai-governance skills rm <name>                             # personal skills only: delete from skills/ and unlink
-ai-governance skills sync                                  # reconcile links for every source
+ai-governance skills list                                  # source, path and synced/outdated/edited/missing/foreign per agent
+ai-governance skills add <dir> [--name N]                  # copy into skills/, then sync to agents
+ai-governance skills rm <name>                             # personal skills only: delete from skills/ and remove copies
+ai-governance skills sync [--force]                        # reconcile managed copies for every source
 ai-governance skills migrate [--dry-run] [--pack P] [--from PATH] [name ...]  # adopt skills already in agent dirs
 ```
 
 `migrate` scans `~/.claude/skills`, `~/.agents/skills`, `~/.codex/skills` and `~/.gemini/config/skills`, follows (possibly
 relative) symlinks to the real directory, moves it into `skills/` (or `<pack>/skills/` with
-`--pack`), deletes the other copies and old links, and links it again. If real copies differ it
-changes nothing for that name unless `--from` picks one.
+`--pack`), deletes the other copies and old links, and creates managed copies in each installed
+agent. If real copies differ it changes nothing for that name unless `--from` picks one.
 
 ### Generated entry files (Claude Code)
 
@@ -264,7 +267,7 @@ hint to re-enable it.
 | `ai-governance budget [--root DIR]` | Fixed context bytes (~tokens) loaded every session, per agent plus a `project` row for the shared rules and `AGENTS.md` block |
 | `ai-governance probe --agent <a> [--dir DIR]` then `--verify --seen <tokens>` | Proves on this machine which instruction locations the agent loads and which hooks fire. Codex/Antigravity hooks are installed only after a verified probe |
 | `ai-governance rules list` / `rules show <id>` / `rules profiles` | Browse the rule catalog and opt-in profiles |
-| `ai-governance skills <subcommand>` | Keep each third-party skill in one directory and link it into Claude, Codex and Antigravity (see above) |
+| `ai-governance skills <subcommand>` | Keep each third-party skill in one source directory and copy it into Claude, Codex and Antigravity (see above) |
 | `ai-governance taskflow <subcommand>` | Task tracking and the multi-agent plan/validate/work/judge flow (see below) |
 | `ai-governance telemetry <subcommand>` | Local Claude Code spend estimates (`ai-governance telemetry --help`) |
 | `ai-governance jira ...` / `confluence ...` | Atlassian as compact Markdown (`jira` / `confluence` without arguments print their usage) |

@@ -28,6 +28,7 @@ from .agents import (
     RULES_DIR,
     AgentSpec,
     BlockArtifact,
+    DirArtifact,
     FileArtifact,
     LinkArtifact,
     antigravity_rules_dir,
@@ -37,7 +38,16 @@ from .agents import (
     render_canonical_rule,
     resolve_agents,
 )
-from .engine import Ledger, Owned, Report, _apply_link, _remove_entry, sync
+from .engine import (
+    Ledger,
+    Owned,
+    Report,
+    _apply_dir,
+    _apply_link,
+    _ApplyFlags,
+    _remove_entry,
+    sync,
+)
 
 PROJECT_DIR = ".ai-governance"
 PROJECT_OWNER = "project"
@@ -455,37 +465,54 @@ def _reconcile_links(
     return report
 
 
-def _is_skill_link(agent: str, path: Path, target: str = "") -> bool:
+def _is_skill_path(agent: str, path: Path) -> bool:
     spec = AGENTS.get(agent)
     return spec is not None and spec.skills_dir() is not None and path.parent == spec.skills_dir()
 
 
 def _is_skill_entry(ledger: Ledger, entry: dict[str, Any]) -> bool:
-    return entry.get("kind") == "link" and _is_skill_link(
+    return entry.get("kind") in ("dir", "link") and _is_skill_path(
         str(entry.get("agent", "")), ledger.resolve(str(entry.get("path", "")))
     )
+
+
+def _skill_entries_to_keep(ledger: Ledger, agents: set[str]) -> list[Owned]:
+    kept: list[Owned] = []
+    for entry in ledger.entries:
+        agent = str(entry.get("agent", ""))
+        if agent not in agents:
+            continue
+        path = ledger.resolve(str(entry.get("path", "")))
+        if not _is_skill_path(agent, path):
+            continue
+        kind = entry.get("kind")
+        if kind == "dir" and entry.get("source") and Path(str(entry["source"])).is_dir():
+            kept.append(Owned(agent, DirArtifact(path, Path(str(entry["source"])))))
+        elif kind == "link" and entry.get("target"):
+            kept.append(Owned(agent, LinkArtifact(path, str(entry["target"]))))
+    return kept
 
 
 def _skill_desired(
     specs: list[AgentSpec], ledger: Ledger, report: Report, pack_names: list[str] | None
 ) -> list[Owned]:
-    """Skill links for the agents; a collision keeps the links already installed."""
+    """Skill copies for the agents; a collision keeps the skills already installed."""
     try:
         sources = skills.collect(pack_names=pack_names)
     except skills.SkillError as exc:
         report.warnings.append(str(exc))
-        return _entries_to_keep(ledger, {spec.id for spec in specs}, _is_skill_link)
-    return [Owned(spec.id, a) for spec in specs for a in spec.skill_link_artifacts(sources)]
+        return _skill_entries_to_keep(ledger, {spec.id for spec in specs})
+    return [Owned(spec.id, a) for spec in specs for a in spec.skill_copy_artifacts(sources)]
 
 
 def skill_agents() -> list[AgentSpec]:
-    """Installed agents that load skills from a directory this command links into."""
+    """Installed agents that load skills from a directory this command copies into."""
     specs = resolve_agents(sorted(installed_agents(global_ledger())))
     return [spec for spec in specs if spec.skills_dir() is not None]
 
 
-def sync_skill_links(*, dry_run: bool = False) -> Report:
-    """Reconciles skill directory symlinks across the installed agents.
+def sync_skill_links(*, dry_run: bool = False, force: bool = False) -> Report:
+    """Reconciles managed skill copies across the installed agents.
 
     Raises ``skills.SkillError`` on a name collision, before touching anything.
     """
@@ -495,9 +522,22 @@ def sync_skill_links(*, dry_run: bool = False) -> Report:
     desired = [
         Owned(spec.id, artifact)
         for spec in specs
-        for artifact in spec.skill_link_artifacts(sources)
+        for artifact in spec.skill_copy_artifacts(sources)
     ]
-    return _reconcile_links(ledger, desired, _is_skill_entry, dry_run=dry_run)
+    report = Report()
+    desired_paths = {ledger.key(owned.artifact.path) for owned in desired}
+    kept: list[dict[str, Any]] = []
+    for entry in ledger.entries:
+        stale = _is_skill_entry(ledger, entry) and entry["path"] not in desired_paths
+        if stale and _remove_entry(entry, ledger, report, dry_run):
+            continue
+        kept.append(entry)
+    ledger.entries = kept
+    flags = _ApplyFlags(dry_run=dry_run, force=force)
+    for owned in desired:
+        _apply_dir(owned, ledger, report, flags)
+    ledger.save(report, dry_run)
+    return report
 
 
 def install_user(

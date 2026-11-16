@@ -1,16 +1,15 @@
-"""Third-party skills: each one lives in exactly one directory and is linked into the agents.
+"""Third-party skills: each one lives in one source directory and is copied into the agents.
 
 A skill is a directory holding ``SKILL.md`` plus optional scripts and files. Personal skills
 live in ``skills/<name>/`` at the repository root (versioned in git, or
 ``$AI_GOVERNANCE_PERSONAL_DIR/skills/<name>/`` when overridden); company pack skills live in
 ``packages/corporate-rules/<pack>/skills/<name>/`` (gitignored, never committed to git).
-Agents see each skill through a directory symlink, never a copy.
+Agents receive managed directory copies tracked in the ownership ledger.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import os
 import re
 import shutil
@@ -25,6 +24,7 @@ from .personal import personal_skills_dir
 
 if TYPE_CHECKING:
     from .install.agents import AgentSpec
+    from .install.engine import Ledger
 
 SKILL_FILE = "SKILL.md"
 ORCA_SKILLS = frozenset({"orchestration", "orca-cli", "orca-computer-use", "computer-use"})
@@ -106,7 +106,7 @@ def _check_name(name: str) -> str:
     return name
 
 
-def _sync_and_emit() -> None:
+def _sync_and_emit(*, force: bool = False) -> None:
     from .install.installer import skill_agents, sync_skill_links
 
     if not skill_agents():
@@ -114,25 +114,42 @@ def _sync_and_emit() -> None:
             "warn", "No agent installed: run `ai-governance install --scope user --agent <a>`."
         )
         return
-    emit_text("\n".join(sync_skill_links().lines()), full=True)
+    emit_text("\n".join(sync_skill_links(force=force).lines()), full=True)
 
 
 # -- list ----------------------------------------------------------------------------
 
 
-def _link_state(folder: Path, source: SkillSource) -> str:
-    entry = folder / source.name
-    if entry.is_symlink() and os.readlink(entry) == str(source.path):
-        return "linked"
-    return "foreign" if entry.exists() or entry.is_symlink() else "missing"
+def _copy_state(folder: Path, source_name: str, source_sha: str, ledger: Ledger) -> str:
+    from .install.engine import tree_digest
+
+    entry = folder / source_name
+    if not (entry.exists() or entry.is_symlink()):
+        return "missing"
+    recorded = ledger.find("dir", entry)
+    if recorded is None:
+        if ledger.find("link", entry) is not None and entry.is_symlink():
+            return "outdated"
+        return "foreign"
+    if entry.is_symlink() or not entry.is_dir():
+        return "edited"
+    current_sha = tree_digest(entry)
+    if current_sha != recorded.get("sha256"):
+        return "edited"
+    if current_sha != source_sha:
+        return "outdated"
+    return "synced"
 
 
-def _agent_states(specs: list[AgentSpec], source: SkillSource) -> str:
+def _agent_states(specs: list[AgentSpec], source: SkillSource, ledger: Ledger) -> str:
+    from .install.engine import tree_digest
+
+    source_sha = tree_digest(source.path)
     parts = []
     for spec in specs:
         folder = spec.skills_dir()
         if folder is not None:
-            parts.append(f"{spec.id}={_link_state(folder, source)}")
+            parts.append(f"{spec.id}={_copy_state(folder, source.name, source_sha, ledger)}")
     return ", ".join(parts) or "no agent installed"
 
 
@@ -150,11 +167,12 @@ def _foreign_entries(specs: list[AgentSpec], known: set[str]) -> list[tuple[str,
 
 
 def list_skills() -> int:
-    from .install.installer import skill_agents
+    from .install.installer import global_ledger, skill_agents
 
     sources = collect()
     specs = skill_agents()
-    rows = [(s.name, s.layer, str(s.path), _agent_states(specs, s)) for s in sources]
+    ledger = global_ledger()
+    rows = [(s.name, s.layer, str(s.path), _agent_states(specs, s, ledger)) for s in sources]
     known = {s.name for s in sources} | bundled_names()
     rows.extend(_foreign_entries(specs, known))
     if not rows:
@@ -206,8 +224,8 @@ def remove_skill(name: str) -> int:
     return 0
 
 
-def sync_skills() -> int:
-    _sync_and_emit()
+def sync_skills(*, force: bool = False) -> int:
+    _sync_and_emit(force=force)
     return 0
 
 
@@ -222,18 +240,6 @@ def _home_skill_dirs() -> list[Path]:
         home / ".codex" / "skills",
         home / ".gemini" / "config" / "skills",
     ]
-
-
-def _tree_digest(root: Path) -> str:
-    """Content fingerprint of a directory: relative names, file bytes and link targets."""
-    digest = hashlib.sha256()
-    for path in sorted(root.rglob("*")):
-        digest.update(path.relative_to(root).as_posix().encode())
-        if path.is_symlink():
-            digest.update(os.readlink(path).encode())
-        elif path.is_file():
-            digest.update(path.read_bytes())
-    return digest.hexdigest()
 
 
 def _entry_key(entry: Path) -> tuple[str, str]:
@@ -253,16 +259,13 @@ def _locations(name: str) -> list[Path]:
 
 
 def _candidate_names(sources: list[SkillSource]) -> list[str]:
-    skip = IGNORED_ENTRIES | bundled_names()
-    linked = {(s.name, s.path) for s in sources}
+    skip = IGNORED_ENTRIES | bundled_names() | {s.name for s in sources}
     names: set[str] = set()
     for folder in _home_skill_dirs():
         for entry in folder.iterdir() if folder.is_dir() else []:
             if entry.name.startswith(".") or entry.name in skip:
                 continue
-            if not (entry.is_symlink() or _is_skill_dir(entry)):
-                continue
-            if (entry.name, Path(os.path.realpath(entry))) not in linked:
+            if entry.is_symlink() or _is_skill_dir(entry):
                 names.add(entry.name)
     return sorted(names)
 
@@ -276,11 +279,13 @@ class MigrationPlan:
 
 
 def _real_copies(locations: list[Path]) -> dict[Path, str]:
+    from .install.engine import tree_digest
+
     copies: dict[Path, str] = {}
     for entry in locations:
         real = Path(os.path.realpath(entry))
         if _is_skill_dir(real) and real not in copies:
-            copies[real] = _tree_digest(real)
+            copies[real] = tree_digest(real)
     return copies
 
 
@@ -346,7 +351,7 @@ def _plan_lines(plan: MigrationPlan, prefix: str) -> list[str]:
     for spec in skill_agents():
         folder = spec.skills_dir()
         if folder is not None:
-            lines.append(f"{prefix}link {folder / plan.name} -> {plan.destination.resolve()}")
+            lines.append(f"{prefix}copy {plan.destination.resolve()} -> {folder / plan.name}")
     return lines
 
 
@@ -401,16 +406,19 @@ def migrate_skills(options: MigrateOptions) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ai-governance skills",
-        description="Keep each skill in one directory and link it into the installed agents.",
+        description="Keep each skill in one source directory and copy it into the installed agents.",
     )
     sub = parser.add_subparsers(dest="action")
-    sub.add_parser("list", help="Skills, their source and per-agent link state")
-    add_p = sub.add_parser("add", help="Copy a skill directory into the personal store and link it")
+    sub.add_parser("list", help="Skills, their source and per-agent copy state")
+    add_p = sub.add_parser("add", help="Copy a skill directory into the personal store and sync it")
     add_p.add_argument("directory", type=Path, help="Directory holding SKILL.md")
     add_p.add_argument("--name", help="Skill name (default: the directory name)")
-    rm_p = sub.add_parser("rm", help="Remove a personal skill and its links")
+    rm_p = sub.add_parser("rm", help="Remove a personal skill and its agent copies")
     rm_p.add_argument("name", help="Personal skill name")
-    sub.add_parser("sync", help="Reconcile the links for every skill source")
+    sync_p = sub.add_parser("sync", help="Reconcile managed copies for every skill source")
+    sync_p.add_argument(
+        "--force", action="store_true", help="Overwrite locally edited copies or foreign entries"
+    )
     mig_p = sub.add_parser("migrate", help="Adopt skills already present in agent directories")
     mig_p.add_argument("names", nargs="*", help="Skill names (default: every unmanaged one)")
     mig_p.add_argument("--dry-run", action="store_true", help="Print the plan, change nothing")
@@ -429,7 +437,7 @@ def _run(args: argparse.Namespace) -> int:
     if args.action == "rm":
         return remove_skill(args.name)
     if args.action == "sync":
-        return sync_skills()
+        return sync_skills(force=args.force)
     return migrate_skills(MigrateOptions(args.names, args.dry_run, args.pack, args.picked))
 
 
