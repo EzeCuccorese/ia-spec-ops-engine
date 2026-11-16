@@ -39,6 +39,7 @@ def test_defaults_are_the_previous_hardcoded_values() -> None:
         "planner": {"agent": "antigravity", "model": "gemini-4-argon-high"},
         "validator": {"agent": "codex", "model": "gpt-6.1-sol"},
         "builder": {"agent": "claude", "model": ""},
+        "debater": {"agent": "codex", "model": "gpt-6.1-sol"},
     }
     assert FlowConfig().judges == (
         {"focus": "correctness", "agent": "codex", "model": "gpt-6.1-sol"},

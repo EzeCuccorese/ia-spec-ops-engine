@@ -294,7 +294,8 @@ verdicts and approvals are stale, and the next command.
 | `summary`, `step add\|done\|remove`, `fact`, `decide --why`, `note`, `link`, `reference`, `friction` | Record what a later session needs |
 | `bind <id> --repo P [--integration-branch B] [--pr N]`, `unbind` | Bind repositories/worktrees |
 | `stamp <id> [--remote]` | Code stamp of the bound repositories (HEAD + every changed path) and risk by path |
-| `round <id> dispatch --role planner\|validator [--rebut N]`, `round <id> collect --round N --dispatch-id D`, `round <id> abort` / `round <id> record` | Reserve a reader round and print its Orca worker-start line (the engine never launches an agent), settle it from its worker or abort it / log a round run elsewhere (context only). `--rebut N` (repeatable) makes it a cross-examination of settled rounds. The line saves Orca's receipt to `runs/N/launch.json` and collect refuses a round Orca launched on another provider or model; workers may run throwaway scripts in `runs/N/scratch/`, and `CHANGE: path:line - fix` lines of a review are stored in the round record. `round <id> run` is gone: it is a hidden stub that exits 2 and points here |
+| `round <id> dispatch --role planner\|validator [--rebut N] [--web] [--artifact P]`, `round <id> collect --round N --dispatch-id D`, `round <id> abort` / `round <id> record` | Reserve a reader round and print its Orca worker-start line (the engine never launches an agent), settle it from its worker or abort it / log a round run elsewhere (context only). `--rebut N` (repeatable) makes it a cross-examination of settled rounds; `--web` allows external web research with required URLs; `--artifact P` (repeatable) lists files the worker must inspect. The line saves Orca's receipt to `runs/N/launch.json` and collect refuses a round Orca launched on another provider or model; workers may run throwaway scripts in `runs/N/scratch/`, and `CHANGE: path:line - fix` lines of a review are stored in the round record. `round <id> run` is gone: it is a hidden stub that exits 2 and points here |
+| `debate <id> open --topic-file F --agents a,b [--model a=m] [--web] [--artifact P]`, `debate <id> cross`, `debate <id> status`, `debate <id> close [--partial]` | Run a multi-provider design debate: dispatch independent thesis rounds, dispatch all-against-all cross-examination rounds, inspect seat state, or write `synthesis.md` (and record open points as steps) |
 | `tdd <id> red\|green --cmd "..."`, `tdd <id> skip` | Mandatory test-first evidence; skipping needs the user's approval |
 | `judge <id> [--focus F]` | Runs the checks on a throwaway `git worktree` of HEAD, then prints the Orca worker line of every required judge (a reader of the real checkout; settle with `round collect`) |
 | `phase <id> <phase>`, `block`/`unblock`, `close [--abandon]` | Move through the gates |
@@ -349,14 +350,22 @@ Files are TOML (`[frugality]` / `threshold_chars = 4000`). Older JSON files keep
 | `hooks.gate_timeout_seconds` | `AI_GOVERNANCE_GATE_TIMEOUT_SECONDS` | `900` | Timeout of the turn-end quality gate |
 | `taskflow.timeout_seconds` | `AI_GOVERNANCE_CHECK_TIMEOUT_SECONDS` | `1800` | Timeout of each check, judge and TDD command |
 | `taskflow.allowed_agents` | `AI_GOVERNANCE_ALLOWED_AGENTS` | `antigravity, codex, claude` | Agents taskflow may use, comma separated (user level; a repo's `.ai-governance/config.toml` `[taskflow] allowed_agents` can only narrow it) |
+| `taskflow.denied_models` | `AI_GOVERNANCE_DENIED_MODELS` | `[]` | Models taskflow must never launch, comma separated (a repo file can only add to it) |
 | `taskflow.planner_agent` | `AI_GOVERNANCE_PLANNER_AGENT` | `antigravity` | Agent of the planner role (user level only: a repo cannot change it) |
 | `taskflow.planner_model` | `AI_GOVERNANCE_PLANNER_MODEL` | `gemini-4-argon-high` | Model of the planner role (user level only: a repo cannot change it) |
+| `taskflow.planner_effort` | `AI_GOVERNANCE_PLANNER_EFFORT` | `""` | Effort of the planner role (user level only: a repo cannot change it) |
 | `taskflow.validator_agent` | `AI_GOVERNANCE_VALIDATOR_AGENT` | `codex` | Agent of the validator role (user level only: a repo cannot change it) |
 | `taskflow.validator_model` | `AI_GOVERNANCE_VALIDATOR_MODEL` | `gpt-6.1-sol` | Model of the validator role (user level only: a repo cannot change it) |
+| `taskflow.validator_effort` | `AI_GOVERNANCE_VALIDATOR_EFFORT` | `""` | Effort of the validator role (user level only: a repo cannot change it) |
 | `taskflow.builder_agent` | `AI_GOVERNANCE_BUILDER_AGENT` | `claude` | Agent of the builder role (user level only: a repo cannot change it) |
 | `taskflow.builder_model` | `AI_GOVERNANCE_BUILDER_MODEL` | `""` | Model of the builder role (user level only: a repo cannot change it) |
+| `taskflow.builder_effort` | `AI_GOVERNANCE_BUILDER_EFFORT` | `""` | Effort of the builder role (user level only: a repo cannot change it) |
 | `taskflow.judge_agent` | `AI_GOVERNANCE_JUDGE_AGENT` | `codex` | Agent of the judge role (user level only: a repo cannot change it) |
 | `taskflow.judge_model` | `AI_GOVERNANCE_JUDGE_MODEL` | `gpt-6.1-sol` | Model of the judge role (user level only: a repo cannot change it) |
+| `taskflow.judge_effort` | `AI_GOVERNANCE_JUDGE_EFFORT` | `""` | Effort of the judge role (user level only: a repo cannot change it) |
+| `taskflow.debater_agent` | `AI_GOVERNANCE_DEBATER_AGENT` | `codex` | Agent of the debater role (user level only: a repo cannot change it) |
+| `taskflow.debater_model` | `AI_GOVERNANCE_DEBATER_MODEL` | `gpt-6.1-sol` | Model of the debater role (user level only: a repo cannot change it) |
+| `taskflow.debater_effort` | `AI_GOVERNANCE_DEBATER_EFFORT` | `""` | Effort of the debater role (user level only: a repo cannot change it) |
 | `agents.codex_scout_model` | `AI_GOVERNANCE_CODEX_SCOUT_MODEL` | `gpt-6-luna` | Model of the Codex scout subagent written at install |
 | `risk_window.cutoff_hour` | `AI_GOVERNANCE_RISK_WINDOW_CUTOFF_HOUR` | `16` | Cutoff hour (0-23) of the production risk window, Monday to Thursday |
 | `risk_window.friday_cutoff_hour` | `AI_GOVERNANCE_RISK_WINDOW_FRIDAY_CUTOFF_HOUR` | `13` | Cutoff hour (0-23) of the production risk window on Friday |

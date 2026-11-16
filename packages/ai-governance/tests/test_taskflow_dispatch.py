@@ -31,7 +31,12 @@ from ai_governance.taskflow.guide import GUIDE
 from ai_governance.taskflow.models import Task
 from ai_governance.taskflow.orca import OrcaError, _run, orca_command
 from ai_governance.taskflow.parser import build_parser
-from ai_governance.taskflow.prompts import READ_ONLY_LIMIT, VERDICT_INSTRUCTION
+from ai_governance.taskflow.prompts import (
+    READ_ONLY_LIMIT,
+    VERDICT_INSTRUCTION,
+    WEB_INSTRUCTION,
+    artifact_instruction,
+)
 from ai_governance.taskflow.store import TaskStore
 from orca_fakes import TASK, OrcaWorld, _make_repo, decode_cursor, flag, make_world, world
 from orca_real_samples import REAL_LIST, REAL_SHOW_LIVE, REAL_SHOW_RELEASED
@@ -1045,3 +1050,333 @@ def test_spec_offers_the_scratch_folder_and_change_format(world: OrcaWorld) -> N
     spec = (world.run_dir(1) / "spec.md").read_text(encoding="utf-8")
     assert str(world.run_dir(1) / "scratch") in spec
     assert "CHANGE: <path>:<line> - <what to change>" in spec
+
+
+# -- web, artifacts, effort, denied models, debater role ------------------------------------------
+def _baseline_spec(world: OrcaWorld, role: str, n: int) -> str:
+    run = world.run_dir(n)
+    nonce = world.dispatch_json(n)["nonce"]
+    read_only = (
+        "Do not modify files, commit, push or run commands that change the repository or the "
+        "environment. Do not delegate to subagents. Mark each claim as seen/assumed/unknown.\n\n"
+    )
+    plan_line = "Latest plan: none yet for this task.\n" if role == "validator" else ""
+    header = (
+        f"Role: {role}. Task {TASK}: Fix status.\n"
+        "Only this task: ignore other tasks' files under the taskflow store.\n"
+        f"Goal: goal\nRounds of this task: {world.store.rounds_dir(TASK)}\n"
+        f"{plan_line}Repository {world.repo} (branch feat/TASK-1-x)\n\n"
+    )
+    verdict = (
+        "\n\nBefore a `concerns` or `block` verdict, list every required change on its own line "
+        "as `CHANGE: <path>:<line> - <what to change>`.\n"
+        "End your answer with one line exactly like `VERDICT: pass`, `VERDICT: concerns` or "
+        "`VERDICT: block` (block = changes required or evidence missing)."
+        if role == "validator"
+        else ""
+    )
+    footer = (
+        "\n\nHow to report (a taskflow round of this task; the coordinating session collects it):\n"
+        f"1. First action: write the single line `ROUND {nonce} DISPATCH <your Orca Dispatch ID>` "
+        f"to {run / 'receipt.txt'} (your Dispatch ID is in the task Orca gave you).\n"
+        f"2. Write your final answer to {run / 'answer.txt'}.\n"
+        f"To prove a claim you may create and run throwaway scripts under {run / 'scratch'} "
+        "(outside every repository); nothing there changes the repositories.\n"
+        "Do not modify any file in the repositories or in the taskflow store other than those "
+        f"two files and that folder. Ignore every other task's files.\n(task {TASK})\n"
+    )
+    return read_only + header + "do it" + verdict + footer
+
+
+def test_without_web_or_artifact_spec_matches_baseline(world: OrcaWorld) -> None:
+    world.dispatch("planner", "claude")
+    world.dispatch("validator", "codex")
+    for n, role in ((1, "planner"), (2, "validator")):
+        spec = (world.run_dir(n) / "spec.md").read_text(encoding="utf-8")
+        assert spec == _baseline_spec(world, role, n)
+        assert "You may research the web" not in spec
+        assert "Open each of these files" not in spec
+        record = world.dispatch_json(n)
+        assert record["web"] is False and record["artifacts"] == []
+
+
+def test_web_and_repeatable_artifact_in_spec_and_dispatch_json(
+    world: OrcaWorld, tmp_path: Path
+) -> None:
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    first = artifacts / "screen.png"
+    second = artifacts / "sub" / "preview.html"
+    second.parent.mkdir()
+    first.write_bytes(b"\x89PNG\r\n")
+    second.write_text("<html>ok</html>", encoding="utf-8")
+    rel_second = os.path.relpath(second, world.repo)
+    made = world.dispatch(
+        "planner", "claude", "", "--web", "--artifact", str(first), "--artifact", rel_second
+    )
+    spec = (world.run_dir(made.n) / "spec.md").read_text(encoding="utf-8")
+    resolved = [str(first.resolve()), str(second.resolve())]
+    assert WEB_INSTRUCTION in spec
+    assert artifact_instruction(resolved) in spec
+    record = world.dispatch_json(made.n)
+    assert record["web"] is True and record["artifacts"] == resolved
+
+
+def _bad_artifact(base: Path, kind: str) -> tuple[Path, Path | None]:
+    if kind == "missing":
+        return base / "missing.png", None
+    if kind == "directory":
+        folder = base / "dir"
+        folder.mkdir()
+        return folder, None
+    if kind == "dangling":
+        link = base / "dangling.png"
+        link.symlink_to(base / "nowhere.png")
+        return link, None
+    secret = base / "unreadable.png"
+    secret.write_bytes(b"data")
+    secret.chmod(0)
+    return secret, secret
+
+
+@pytest.mark.parametrize("kind", ["missing", "directory", "dangling", "unreadable"])
+def test_invalid_artifact_refused_without_reserving_round(
+    world: OrcaWorld, tmp_path: Path, kind: str
+) -> None:
+    target, restore = _bad_artifact(tmp_path, kind)
+    try:
+        res = world.run(*PLANNER, "--artifact", str(target))
+    finally:
+        if restore is not None:
+            restore.chmod(0o600)
+    assert res.code == 1 and "artifact not found or unreadable" in res.text
+    assert not (world.store.task_dir(TASK) / "runs").exists()
+    assert not list(world.store.rounds_dir(TASK).glob("[0-9]*.md"))
+    assert not (world.store.root / "seals").exists()
+
+
+def test_role_effort_reaches_worker_start_argv_after_model(
+    world: OrcaWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plain = world.dispatch("validator", "codex")
+    assert "--effort" not in plain.argv
+    assert world.dispatch_json(plain.n)["effort"] == ""
+
+    monkeypatch.setenv("AI_GOVERNANCE_VALIDATOR_EFFORT", "medium")
+    val = world.run(
+        "round", TASK, "dispatch", "--role", "validator", "--focus", "v2", "--prompt", "p"
+    )
+    assert val.code == 0, val.text
+    val_argv = shlex.split(val.out.strip())
+    assert val_argv.index("--effort") == val_argv.index("--model") + 2
+    assert flag(val_argv, "--effort") == "medium"
+    assert world.dispatch_json(2)["effort"] == "medium"
+
+    monkeypatch.setenv("AI_GOVERNANCE_PLANNER_EFFORT", "high")
+    plan = world.run(
+        "round",
+        TASK,
+        "dispatch",
+        "--role",
+        "planner",
+        "--agent",
+        "codex",
+        "--model",
+        "gpt-6.1-sol",
+        "--prompt",
+        "p",
+    )
+    assert plan.code == 0, plan.text
+    plan_argv = shlex.split(plan.out.strip())
+    assert plan_argv.index("--effort") == plan_argv.index("--model") + 2
+    assert flag(plan_argv, "--effort") == "high"
+
+
+def test_role_effort_without_model_is_refused_and_works_with_model(
+    world: OrcaWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AI_GOVERNANCE_PLANNER_EFFORT", "high")
+    refused = world.run(
+        "round", TASK, "dispatch", "--role", "planner", "--agent", "claude", "--prompt", "p"
+    )
+    assert refused.code == 1 and "effort requires a model" in refused.text
+    assert not (world.store.task_dir(TASK) / "runs").exists()
+
+    with_model = world.run(
+        "round",
+        TASK,
+        "dispatch",
+        "--role",
+        "planner",
+        "--agent",
+        "claude",
+        "--model",
+        "claude-sonnet-4",
+        "--prompt",
+        "p",
+    )
+    assert with_model.code == 0, with_model.text
+    argv = shlex.split(with_model.out.strip())
+    assert argv.index("--effort") == argv.index("--model") + 2
+    assert flag(argv, "--effort") == "high"
+    assert world.dispatch_json(1)["effort"] == "high"
+
+
+def test_denied_models_refused_at_dispatch_explicit_and_default(
+    world: OrcaWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AI_GOVERNANCE_DENIED_MODELS", "gpt-6.1-sol,blocked-claude")
+    explicit = world.run(
+        "round",
+        TASK,
+        "dispatch",
+        "--role",
+        "planner",
+        "--agent",
+        "claude",
+        "--model",
+        "blocked-claude",
+        "--prompt",
+        "p",
+    )
+    assert explicit.code == 1 and "taskflow.denied_models" in explicit.text
+
+    implicit_claude = world.run(
+        "round", TASK, "dispatch", "--role", "planner", "--agent", "claude", "--prompt", "p"
+    )
+    assert implicit_claude.code == 1 and "taskflow.denied_models" in implicit_claude.text
+
+    implicit_agent = world.run(
+        "round", TASK, "dispatch", "--role", "validator", "--agent", "codex", "--prompt", "p"
+    )
+    assert implicit_agent.code == 1 and "taskflow.denied_models" in implicit_agent.text
+
+    monkeypatch.setenv("AI_GOVERNANCE_VALIDATOR_MODEL", "")
+    implicit_role = world.run("round", TASK, "dispatch", "--role", "validator", "--prompt", "p")
+    assert implicit_role.code == 1 and "taskflow.denied_models" in implicit_role.text
+    assert not (world.store.task_dir(TASK) / "runs").exists()
+    assert not (world.store.root / "seals").exists()
+
+
+def test_collect_refuses_denied_effective_model_in_launch_receipt(
+    world: OrcaWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AI_GOVERNANCE_DENIED_MODELS", "forbidden-model")
+    world.dispatch("planner", "claude", "a", "--model", "claude-sonnet-4")
+    world.finish(1, "D1")
+    receipt = {
+        "ok": True,
+        "result": {
+            "dispatchId": "D1",
+            "launch": {"effective": {"agent": "claude", "model": "anthropic/FORBIDDEN-MODEL"}},
+        },
+    }
+    _write_launch(world, 1, receipt)
+    before = world.snapshot()
+    refused = world.collect(1, "D1")
+    assert refused.code == 1 and "taskflow.denied_models" in refused.text
+    assert world.snapshot() == before and world.task().rounds == []
+
+    monkeypatch.delenv("AI_GOVERNANCE_DENIED_MODELS")
+    world.dispatch("validator", "codex", focus="b")
+    world.finish(2, "D2", answer="ok\nVERDICT: pass\n", agent="codex")
+    _write_launch(world, 2, _receipt("D2", "codex", "gpt-6.1-sol"))
+    monkeypatch.setenv("AI_GOVERNANCE_DENIED_MODELS", "gpt-6.1-sol")
+    before_two = world.snapshot()
+    late = world.collect(2, "D2")
+    assert late.code == 1 and "taskflow.denied_models" in late.text
+    assert world.snapshot() == before_two and world.task().rounds == []
+
+
+def test_collect_refuses_denied_or_corrupt_launch_without_dispatch_id(
+    world: OrcaWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AI_GOVERNANCE_DENIED_MODELS", "forbidden-model")
+    world.dispatch("planner", "claude", "a", "--model", "claude-sonnet-4")
+    world.finish(1, "D1")
+    launch = Path(world.dispatch_json(1)["launch"])
+    before_missing = world.snapshot()
+    missing = world.collect(1, "D1")
+    assert missing.code == 1 and "has no verified model in launch receipt" in missing.text
+    assert world.snapshot() == before_missing and world.task().rounds == []
+
+    partials = [
+        {"ok": False, "result": {"launch": {"effective": {"model": "anthropic/FORBIDDEN-MODEL"}}}},
+        {"ok": True, "result": {"launch": {"effective": {"model": "forbidden-model"}}}},
+    ]
+    for payload in partials:
+        _write_launch(world, 1, payload)
+        before = world.snapshot()
+        res = world.collect(1, "D1")
+        assert res.code == 1 and "taskflow.denied_models" in res.text
+        assert world.snapshot() == before and world.task().rounds == []
+
+    launch.write_text("{corrupt", encoding="utf-8")
+    before = world.snapshot()
+    corrupt = world.collect(1, "D1")
+    assert corrupt.code == 1 and "while taskflow.denied_models is active" in corrupt.text
+    assert world.snapshot() == before and world.task().rounds == []
+
+
+def test_collect_refuses_unverified_allowed_model_and_fifo_when_denied_active(
+    world: OrcaWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AI_GOVERNANCE_DENIED_MODELS", "forbidden-model")
+    world.dispatch("planner", "claude", "a", "--model", "claude-sonnet-4")
+    world.finish(1, "D1")
+    launch = Path(world.dispatch_json(1)["launch"])
+    unverified = [
+        {
+            "ok": False,
+            "result": {"dispatchId": "D1", "agent": "claude", "model": "claude-sonnet-4"},
+        },
+        {"ok": True, "result": {"agent": "claude", "model": "claude-sonnet-4"}},
+    ]
+    for payload in unverified:
+        _write_launch(world, 1, payload)
+        res = world.collect(1, "D1")
+        assert res.code == 1
+        assert "has no verified model in launch receipt" in res.text
+
+    launch.unlink(missing_ok=True)
+    os.mkfifo(launch)
+    try:
+        fifo = world.collect(1, "D1")
+        assert fifo.code == 1
+        assert "while taskflow.denied_models is active" in fifo.text
+        assert world.task().rounds == []
+    finally:
+        launch.unlink(missing_ok=True)
+
+
+def test_debater_dispatch_and_collect_on_manual_and_same_provider(world: OrcaWorld) -> None:
+    same_val = world.run(
+        "round", TASK, "dispatch", "--role", "validator", "--agent", "claude", "--prompt", "p"
+    )
+    assert same_val.code == 1 and "would both use provider 'claude'" in same_val.text
+
+    deb = world.dispatch("debater", "claude")
+    spec = (world.run_dir(deb.n) / "spec.md").read_text(encoding="utf-8")
+    assert VERDICT_INSTRUCTION not in spec
+    world.finish(
+        deb.n, f"D{deb.n}", answer="Checked store.\nPOSITION: Keep rounds flat.\n", agent="claude"
+    )
+    assert world.collect(deb.n, f"D{deb.n}").code == 0
+    rec = world.record(deb.n)
+    assert (rec["role"], rec["state"], rec["verdict"]) == ("debater", "valid", "info")
+    assert rec["position"] == "Keep rounds flat."
+    assert "- Position: Keep rounds flat." in Path(str(rec["file"])).read_text(encoding="utf-8")
+
+    assert world.run("new", "MAN-1", "--title", "Manual", "--workflow", "manual").code == 0
+    assert world.run("bind", "MAN-1", "--repo", str(world.repo)).code == 0
+    man_val = world.run(
+        "round", "MAN-1", "dispatch", "--role", "validator", "--agent", "codex", "--prompt", "p"
+    )
+    assert man_val.code == 1 and "Manual tasks have no agent rounds" in man_val.text
+    world.task_id = "MAN-1"
+    man_deb = world.dispatch("debater", "codex")
+    world.finish(
+        man_deb.n, "DM1", answer="Manual analysis.\nPOSITION: Stay manual.\n", agent="codex"
+    )
+    assert world.collect(man_deb.n, "DM1").code == 0
+    assert world.record(man_deb.n)["position"] == "Stay manual."

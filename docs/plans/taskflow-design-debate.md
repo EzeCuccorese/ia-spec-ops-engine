@@ -1,7 +1,7 @@
 # Plan: design debate mode for taskflow
 
-Status: planned, not started. Written against `main` at `22d02da`. Line numbers below are
-from that commit; re-check them before editing.
+Status: implemented on `docs/taskflow-design-debate-plan` (validated against `main` at `1bd575b`; Section 6 live Orca acceptance run pending active Orca desktop daemon).
+Line numbers below are from the initial baseline `22d02da`; check current lines before editing.
 
 ## 1. Outcome
 
@@ -73,15 +73,18 @@ All paths are under `packages/ai-governance/src/ai_governance/`.
 - Budget: the bundled `taskflow` skill text must stay at or under 1024 bytes
   (`tests/test_taskflow_agents.py:485`). It is 978 bytes now: 46 bytes free.
 
-Not verified, check before relying on it:
+Verified during implementation:
 
-- Whether a model deny-list already exists somewhere outside `taskflow/` and `settings.py`
-  (only a keyword search was done).
-- Whether the installed Orca CLI accepts `--effort` on `orchestration worker-start`.
-- Whether `round dispatch` works on a task whose workflow is `manual`.
-- How collect decides that a round without a verdict line (the planner's) is valid.
-- Whether several launch lines can be run and collected in any order (it looks so: collect
-  takes a dispatch id).
+- No prior `denied_models` setting or model deny-list existed anywhere in the repository
+  before Delivery 4.
+- `orca orchestration worker-start --help` confirms `--effort <level>` exists and requires
+  `--model`.
+- `manual` workflow is blocked for `planner`/`validator`/`judge` (`Manual tasks have no agent
+  rounds`) and allowed for `debater`.
+- `collect` (`_outcome`) marks non-verdict rounds (`planner` and `debater`) `valid` with
+  verdict `info` when the worker ends `succeeded` on a clean tree.
+- Parallel multi-seat dispatch (distinct `focus` per `(role, phase, focus)`) and any-order
+  `collect` (by `--round` and `--dispatch-id`) are verified.
 
 ## 4. Design decisions
 
@@ -143,7 +146,7 @@ taskflow debate <id> status
 - Records the cross round numbers in `debate.json`.
 
 `status`: one line per seat with thesis round, cross round and state
-(`pending`, `collected`, `invalid`).
+(`pending`, `collected`, `invalid`, `dropped`).
 
 Prompt text (new constants in `taskflow/prompts.py`, wording may be tightened):
 
@@ -199,13 +202,17 @@ Command: `taskflow debate <id> close [--partial]`
   the `POSITION:` line of every thesis round.
 - Writes `synthesis.md` in the task directory and prints its path. Running it again
   rewrites the same content (no timestamps in the body).
+- Records each `open` entry into `task.steps` (prefixed with `[debate]` or `[debate #N]`
+  for later debates, idempotent on repeated `close` runs).
 - Marks the debate closed in `debate.json`, so a new one can be opened.
 
 Sections of `synthesis.md`, in this order:
 
 1. Topic (first lines of the topic file) and seats (focus, agent, model, rounds).
 2. Matrix: rows are authors, columns are targets, each cell is the count of
-   `refuted / agreed / open`. A seat with no `REBUT:` lines gets `no structured lines`.
+   `refuted / agreed / open`. A seat with zero `REBUT:` lines (`not lines and not malformed`)
+   gets `no structured lines`; a seat whose `REBUT:` lines are all malformed or target invalid
+   rounds shows `0 / 0 / 0` (with details under Missing).
 3. Refutations: one line per `refuted` entry with author, target, claim and evidence.
 4. Position changes: each `CHANGED:` line, and for each seat the thesis `POSITION` next to
    the cross `POSITION`.
@@ -263,8 +270,8 @@ Precondition: run `orca orchestration worker-start --help` and confirm `--effort
 which values it takes. If it does not exist, drop the effort half and ship the deny-list.
 
 - Settings `taskflow.<role>_effort` (empty by default; empty adds nothing to the launch
-  line) for planner, validator, judge and debater. `--effort <value>` goes after `--model`
-  in `orca.worker_start_argv`.
+  line) for planner, validator, builder, judge and debater. `--effort <value>` goes after
+  `--model` in `orca.worker_start_argv`.
 - Setting `taskflow.denied_models`: list of model ids, empty by default. A dispatch whose
   model is in the list is refused with the setting named in the message. On collect, a
   launch receipt whose effective model is in the list fails the same way as a mismatch.
@@ -280,6 +287,28 @@ Tests:
 - A denied model is refused at dispatch for a role and for a debate seat.
 - A receipt reporting a denied effective model fails collect.
 - A repository config cannot shorten the user's deny-list.
+
+### Implementation note (consolidated branch)
+
+All 4 deliveries are implemented together on `docs/taskflow-design-debate-plan` for
+consolidated review (validated against `main` at `1bd575b`):
+
+- **Delivery 4 `--effort` and `denied_models` fail-closed rules:** Because
+  `orca orchestration worker-start --help` confirms `--effort <level>` requires `--model`,
+  `orca.worker_start_argv` refuses `--effort` without a non-empty `model`, and dispatch/seat
+  validation requires an explicit or default model whenever `taskflow.<role>_effort` or
+  `taskflow.denied_models` is active (resolving built-in defaults such as `codex` ->
+  `gpt-6.1-sol`, and refusing implicit empty-model launches such as `claude` without
+  `--model`). At `collect`, an active deny-list also requires a verified launched model in
+  `launch.json`, and `matches_denied_model` matches exact `provider/model` entries as well as
+  unprefixed model names with or without any `provider/` prefix (mismatched explicit prefixes
+  such as `a/x` vs `b/x` stay distinct).
+- **`debate.py` provider and artifact checks:** `assign_seats` enforces at least 2 distinct
+  providers when opening a debate (`open`), and `_valid_cross_seats` re-checks that at
+  least 2 valid thesis seats AND at least 2 distinct providers remain after dropping
+  invalid seats before `cross` dispatches. `debate.json` records `topic_sha` and
+  `artifact_digests` (SHA-256 per regular artifact file via `_resolve_artifact_digests`),
+  and `_cross_topic` / `_cross_artifacts` re-verify those digests before `cross` runs.
 
 ## 6. Acceptance run (after each delivery, on a real machine)
 
@@ -317,12 +346,18 @@ Report, per step: done, failed with the exact line, or could not be verified and
   iterating; the pre-push checks run the rest.
 - The engine never launches an agent. No subprocess call to an agent CLI in `taskflow/`.
 
-## 8. Open questions for the owner
+## 8. Owner decisions & open questions
 
-- Should `debater` be allowed to share the builder's provider? This plan says yes, because
-  a debate happens before there is a builder's work to be independent from.
-- Should `close` also record the open points as taskflow decisions pending approval, or
-  only write the document? This plan only writes the document.
+- Should `debater` be allowed to share the builder's provider? **Yes (confirmed)**: a debate
+  happens before there is a builder's work to be independent from, while the debate itself
+  still requires at least two distinct providers.
+- Should `close` also record the open points in taskflow, or only write the document?
+  **Both (confirmed)**: `close` writes `synthesis.md` and records each `open` point into
+  `task.steps` (prefixed with `[debate]`, deduplicated for idempotency).
 - A fourth provider launched through another agent CLI (for example a model reached through
   an editor's agent) only needs its id in `taskflow.allowed_agents`. It is untested; try it
   apart from these deliveries.
+- **Consolidated delivery status:** All 4 deliveries are implemented on
+  `docs/taskflow-design-debate-plan` for consolidated review. See the Section 5
+  implementation note for Delivery 4 `--effort` without `--model` behavior and
+  `debate.py` distinct-provider + artifact-digest checks.

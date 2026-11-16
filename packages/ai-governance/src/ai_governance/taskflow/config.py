@@ -23,7 +23,10 @@ from ..settings import effective
 from .agents import (
     DEFAULT_MODELS,
     HUMAN,
+    REPO_FILE,
     Allowed,
+    AllowedAgentsError,
+    _read_repo_toml,
     fallback_agent,
     provider,
     read_regular_text,
@@ -37,11 +40,12 @@ CONFIG_NAME = "taskflow.toml"
 REPO_CONFIG = Path(".ai-governance") / CONFIG_NAME
 
 
-ROLE_NAMES = ("planner", "validator", "builder")
+ROLE_NAMES = ("planner", "validator", "builder", "debater")
+EFFORT_ROLES = ("planner", "validator", "builder", "judge", "debater")
 
 
 def default_roles(found: dict | None = None) -> dict[str, JsonDict]:
-    """Planner, validator and builder: the ``taskflow.<role>_agent/_model`` settings."""
+    """Planner, validator, builder and debater: the ``taskflow.<role>_agent/_model`` settings."""
     found = found or effective()
     return {
         role: {
@@ -50,6 +54,30 @@ def default_roles(found: dict | None = None) -> dict[str, JsonDict]:
         }
         for role in ROLE_NAMES
     }
+
+
+def default_efforts(found: dict | None = None) -> dict[str, str]:
+    """Reasoning effort per role: the ``taskflow.<role>_effort`` settings."""
+    found = found or effective()
+    return {role: str(found[f"taskflow.{role}_effort"].value).strip() for role in EFFORT_ROLES}
+
+
+def normalize_model(model: str) -> str:
+    """Normalized model identifier: stripped and lower-cased."""
+    return str(model).strip().lower()
+
+
+def matches_denied_model(model: str, denied: Iterable[str]) -> bool:
+    """True when ``model`` matches any entry in ``denied`` (ignoring optional ``provider/``)."""
+    norm = normalize_model(model)
+    if not norm:
+        return False
+    entries = {item for raw in denied if (item := normalize_model(raw))}
+    if norm in entries:
+        return True
+    if "/" in norm:
+        return norm.split("/", 1)[1] in entries
+    return any("/" in entry and entry.split("/", 1)[1] == norm for entry in entries)
 
 
 def default_judges(found: dict | None = None) -> list[JsonDict]:
@@ -95,6 +123,22 @@ class FlowConfig:
     repo_reductions: tuple[str, ...] = ()
     # Agents allowed for the bound repositories: the user's set narrowed by each repo file.
     allowed: Allowed = field(default_factory=lambda: _default_allowed())
+    efforts: dict[str, str] = field(default_factory=default_efforts)
+    denied_models: frozenset[str] = field(default_factory=frozenset)
+    denied_model_problems: tuple[str, ...] = ()
+
+    normalize_model = staticmethod(normalize_model)
+    matches_denied_model = staticmethod(matches_denied_model)
+
+    def effort(self, role: str) -> str:
+        return str(self.efforts.get(role, "")).strip()
+
+    def model_error(self, model: str) -> str | None:
+        if self.denied_model_problems:
+            return "; ".join(self.denied_model_problems)
+        if matches_denied_model(model, self.denied_models):
+            return f"model '{model}' is denied by taskflow.denied_models"
+        return None
 
     def role(self, name: str) -> JsonDict:
         if name == "judge":
@@ -123,6 +167,9 @@ class FlowConfig:
         if self.workflow not in WORKFLOWS:
             errors.append(f"workflow must be one of {', '.join(WORKFLOWS)}")
         errors += self.allowed.errors()
+        for problem in self.denied_model_problems:
+            if problem not in errors:
+                errors.append(problem)
         errors += self._allowed_errors()
         errors += self._judge_errors()
         errors += self._validator_errors()
@@ -197,7 +244,7 @@ def _narrowed(found: dict, allowed: Allowed) -> dict:
     reports them, they are never swapped."""
     result = dict(found)
     builder = _swap(result, "builder", allowed, "")
-    for role in ("planner", "validator", "judge"):
+    for role in ("planner", "validator", "judge", "debater"):
         _swap(result, role, allowed, builder)
     return result
 
@@ -571,6 +618,163 @@ def _owner(user_path: Path) -> tuple[str, str]:
     return ("user" if user_path.is_file() else "default", str(user_path))
 
 
+@dataclass(frozen=True)
+class _DeniedModels:
+    models: frozenset[str]
+    problems: tuple[str, ...] = ()
+    extended_by: tuple[str, ...] = ()
+    from_user_taskflow: bool = False
+
+
+def _parse_denied_list(raw: object, where: str, *, allow_csv: bool = False) -> frozenset[str]:
+    if allow_csv and isinstance(raw, str):
+        items: list[object] | tuple[object, ...] = [
+            part.strip() for part in raw.split(",") if part.strip()
+        ]
+    elif isinstance(raw, list | tuple):
+        items = raw
+    else:
+        raise ValueError(f"{where}: denied_models must be a list of model names")
+    found: set[str] = set()
+    for item in items:
+        if not isinstance(item, str):
+            raise ValueError(f"{where}: denied_models holds a non-string item {item!r}")
+        norm = normalize_model(item)
+        if not norm:
+            raise ValueError(f"{where}: denied_models holds an empty model name")
+        found.add(norm)
+    return frozenset(found)
+
+
+def _read_denied_field(raw: object, where: str) -> frozenset[str]:
+    if raw is None:
+        return frozenset()
+    if not isinstance(raw, dict):
+        return _parse_denied_list(raw, where)
+    if not raw:
+        return frozenset()
+    key = "models" if "models" in raw else "denied_models"
+    if key not in raw:
+        raise ValueError(f"{where}: [denied_models] must define 'models'")
+    return _parse_denied_list(raw[key], where)
+
+
+def _read_taskflow_denied(data: JsonDict, where: str) -> frozenset[str]:
+    found = set(_read_denied_field(data.get("denied_models"), where))
+    table = data.get("taskflow")
+    if table is None:
+        return frozenset(found)
+    if not isinstance(table, dict):
+        raise ValueError(f"{where}: [taskflow] must be a table")
+    if "denied_models" in table:
+        found |= _parse_denied_list(table["denied_models"], where)
+    return frozenset(found)
+
+
+def _read_repo_config_denied(repo: Path) -> frozenset[str]:
+    path = repo / REPO_FILE
+    where = str(path)
+    try:
+        os.lstat(path.parent)
+    except FileNotFoundError:
+        return frozenset()
+    except OSError as exc:
+        raise ValueError(f"{where}: cannot read it ({exc})") from exc
+    data = _read_repo_toml(path)
+    if data is None:
+        return frozenset()
+    table = data.get("taskflow")
+    if table is None:
+        return frozenset()
+    if not isinstance(table, dict):
+        raise ValueError(f"{where}: [taskflow] must be a table")
+    if "denied_models" not in table:
+        return frozenset()
+    return _parse_denied_list(table["denied_models"], where)
+
+
+def _repo_denied_entries(
+    repo: Path, local: JsonDict, trusted: bool
+) -> tuple[list[tuple[str, frozenset[str]]], list[str]]:
+    entries: list[tuple[str, frozenset[str]]] = []
+    errs: list[str] = []
+    try:
+        cfg = _read_repo_config_denied(repo)
+    except (AllowedAgentsError, ValueError) as exc:
+        errs.append(str(exc))
+    else:
+        if cfg:
+            entries.append((str(repo / REPO_FILE), cfg))
+    if trusted:
+        try:
+            tf = _read_taskflow_denied(local, str(repo / REPO_CONFIG))
+        except ValueError as exc:
+            errs.append(str(exc))
+        else:
+            if tf:
+                entries.append((str(repo / REPO_CONFIG), tf))
+    return entries, errs
+
+
+def _setting_denied(found: dict, problems: list[str]) -> set[str]:
+    try:
+        return set(
+            _parse_denied_list(
+                found["taskflow.denied_models"].value, "taskflow.denied_models", allow_csv=True
+            )
+        )
+    except ValueError as exc:
+        problems.append(str(exc))
+        return set()
+
+
+def _user_taskflow_denied(user: JsonDict, user_path: Path, problems: list[str]) -> frozenset[str]:
+    try:
+        return _read_taskflow_denied(user, str(user_path))
+    except ValueError as exc:
+        problems.append(str(exc))
+        return frozenset()
+
+
+def _resolve_denied(
+    found: dict,
+    user_info: tuple[JsonDict, Path, tuple[str, ...]],
+    files: list[tuple[Path, JsonDict, bool]],
+) -> _DeniedModels:
+    user, user_path, user_problems = user_info
+    problems = list(user_problems)
+    denied = _setting_denied(found, problems)
+    user_tm = _user_taskflow_denied(user, user_path, problems)
+    denied |= user_tm
+    extended_by: list[str] = []
+    for repo, local, trusted in files:
+        entries, errs = _repo_denied_entries(repo, local, trusted)
+        problems.extend(errs)
+        for source, items in entries:
+            if not items <= denied:
+                denied |= items
+                extended_by.append(source)
+    return _DeniedModels(frozenset(denied), tuple(problems), tuple(extended_by), bool(user_tm))
+
+
+def _resolve_controls(
+    user_info: tuple[JsonDict, Path],
+    found: dict,
+    repo_files: list[tuple[Path, JsonDict, bool]],
+    marks: dict[str, tuple[str, str]],
+) -> tuple[_RepoLayers, _Controls, JsonDict]:
+    user, user_path = user_info
+    controls = _user_controls(user, found)
+    baseline = controls.summary()  # the user's own policy, before any repository
+    _mark_user_controls(controls, marks, _owner(user_path))
+    trusted_runner = {
+        "agent": found["taskflow.judge_agent"].value,
+        "model": found["taskflow.judge_model"].value,
+    }
+    layers = _apply_repos(repo_files, controls, (trusted_runner, marks))
+    return layers, controls, baseline
+
+
 def _build(
     repos: list[Path],
     user_file: Path | None,
@@ -585,16 +789,10 @@ def _build(
     settings = _settings(user_path, active, legacy_roles)
     allowed = resolve_allowed(settings["taskflow.allowed_agents"].value, repos, problems)
     found = _narrowed(settings, allowed)
-    controls = _user_controls(user, found)
-    baseline = controls.summary()  # the user's own policy, before any repository
+    repo_files = _repo_files(locals_, active)
+    denied = _resolve_denied(found, (user, user_path, problems), repo_files)
     marks = origins if origins is not None else {}
-    owner = _owner(user_path)
-    _mark_user_controls(controls, marks, owner)
-    trusted_runner = {
-        "agent": found["taskflow.judge_agent"].value,
-        "model": found["taskflow.judge_model"].value,
-    }
-    layers = _apply_repos(_repo_files(locals_, active), controls, (trusted_runner, marks))
+    layers, controls, baseline = _resolve_controls((user, user_path), found, repo_files, marks)
     config = FlowConfig(
         workflow=str(user.get("workflow", "tri-agent")),
         roles=_merged_roles(legacy_roles, found),
@@ -606,11 +804,27 @@ def _build(
         pending_trust=tuple(layers.pending),
         repo_reductions=tuple(sorted(layers.reductions)),
         allowed=allowed,
+        efforts=default_efforts(found),
+        denied_models=denied.models,
+        denied_model_problems=denied.problems,
     )
-    return config, _rows(config, found, marks)
+    return config, _rows(config, found, marks, (denied, user_path))
 
 
-def _setting_rows(config: FlowConfig, found: dict) -> dict[str, Value]:
+def _denied_row(config: FlowConfig, found: dict, denied: _DeniedModels, user_path: Path) -> Value:
+    if config.denied_model_problems:
+        return Value([], "blocked", "; ".join(config.denied_model_problems))
+    if denied.extended_by:
+        return Value(sorted(config.denied_models), "repo (extended)", denied.extended_by[0])
+    listed = found["taskflow.denied_models"]
+    if listed.origin == "default" and denied.from_user_taskflow:
+        return Value(sorted(config.denied_models), "user", str(user_path))
+    return Value(sorted(config.denied_models), listed.origin, listed.source)
+
+
+def _setting_rows(
+    config: FlowConfig, found: dict, denied_info: tuple[_DeniedModels, Path]
+) -> dict[str, Value]:
     rows: dict[str, Value] = {}
     for role in ROLE_NAMES:
         for attribute in ("agent", "model"):
@@ -618,6 +832,9 @@ def _setting_rows(config: FlowConfig, found: dict) -> dict[str, Value]:
             rows[f"taskflow.{role}_{attribute}"] = Value(
                 config.roles[role][attribute], got.origin, got.source
             )
+    for role in EFFORT_ROLES:
+        got = found[f"taskflow.{role}_effort"]
+        rows[f"taskflow.{role}_effort"] = Value(config.effort(role), got.origin, got.source)
     listed = found["taskflow.allowed_agents"]
     if config.allowed.errors():
         listed = Value([], "blocked", "; ".join(config.allowed.errors()))
@@ -626,6 +843,8 @@ def _setting_rows(config: FlowConfig, found: dict) -> dict[str, Value]:
             sorted(config.allowed.agents), "repo (narrowed)", config.allowed.narrowed_by[0]
         )
     rows["taskflow.allowed_agents"] = listed
+    denied, user_path = denied_info
+    rows["taskflow.denied_models"] = _denied_row(config, found, denied, user_path)
     timeout = found["taskflow.timeout_seconds"]
     rows["taskflow.timeout_seconds"] = Value(config.timeout_seconds, timeout.origin, timeout.source)
     return rows
@@ -659,9 +878,14 @@ def _row_value(origin: str, in_force: object) -> object:
     return in_force
 
 
-def _rows(config: FlowConfig, found: dict, marks: dict[str, tuple[str, str]]) -> dict[str, Value]:
+def _rows(
+    config: FlowConfig,
+    found: dict,
+    marks: dict[str, tuple[str, str]],
+    denied_info: tuple[_DeniedModels, Path],
+) -> dict[str, Value]:
     """``config show`` rows, all taken from the resolved ``config`` itself."""
-    rows = _setting_rows(config, found)
+    rows = _setting_rows(config, found, denied_info)
     values = _control_values(config)
     for key, (origin, source) in marks.items():
         value = _row_value(origin, values.get(key))
@@ -683,6 +907,8 @@ def _settings(user_path: Path, repos: list[Path], legacy_roles: dict[str, JsonDi
         if role in legacy_roles:
             legacy[f"taskflow.{role}_agent"] = legacy_roles[role].get("agent", "")
             legacy[f"taskflow.{role}_model"] = legacy_roles[role].get("model", "")
+            if "effort" in legacy_roles[role]:
+                legacy[f"taskflow.{role}_effort"] = legacy_roles[role].get("effort", "")
     repo_extra = {repo / REPO_CONFIG: "taskflow" for repo in repos}
     return effective(
         repos[0] if repos else None,

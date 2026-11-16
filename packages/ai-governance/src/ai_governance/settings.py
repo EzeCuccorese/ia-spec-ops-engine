@@ -77,6 +77,12 @@ SETTINGS: tuple[Setting, ...] = (
         "AI_GOVERNANCE_ALLOWED_AGENTS",
         "Agents taskflow may use, comma separated (user level; a repo file can only narrow it)",
     ),
+    Setting(
+        "taskflow.denied_models",
+        [],
+        "AI_GOVERNANCE_DENIED_MODELS",
+        "Models taskflow must never launch, comma separated (a repo file can only add to it)",
+    ),
     *(
         Setting(
             f"taskflow.{role}_{field}",
@@ -89,8 +95,9 @@ SETTINGS: tuple[Setting, ...] = (
             ("validator", "codex", "gpt-6.1-sol"),
             ("builder", "claude", ""),
             ("judge", "codex", "gpt-6.1-sol"),
+            ("debater", "codex", "gpt-6.1-sol"),
         )
-        for field, default in (("agent", agent), ("model", model))
+        for field, default in (("agent", agent), ("model", model), ("effort", ""))
     ),
     Setting(
         "agents.codex_scout_model",
@@ -150,7 +157,9 @@ USER_ONLY_PREFIXES = (
     "taskflow.validator_",
     "taskflow.builder_",
     "taskflow.judge_",
+    "taskflow.debater_",
     "taskflow.allowed_agents",  # a repository narrows it through its own strict reader
+    "taskflow.denied_models",
     "agents.",
     "hooks.",  # hooks.gate_command picks the program the automatic stop hook runs
     "corporate.",  # which company packs get installed
