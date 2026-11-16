@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.2.0 - 2026-11-16
+
+### Features
+- Add skills CLI, test-audit review mode, and changed-scope gate defaults.
+
 ## 2.1.0 - 2026-11-13
 
 ### Features
