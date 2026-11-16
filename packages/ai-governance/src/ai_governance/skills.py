@@ -253,8 +253,11 @@ def _candidate_names(sources: list[SkillSource]) -> list[str]:
     names: set[str] = set()
     for folder in _home_skill_dirs():
         for entry in folder.iterdir() if folder.is_dir() else []:
-            adopted = (entry.name, Path(os.path.realpath(entry))) in linked
-            if not entry.name.startswith(".") and entry.name not in skip and not adopted:
+            if entry.name.startswith(".") or entry.name in skip:
+                continue
+            if not (entry.is_symlink() or _is_skill_dir(entry)):
+                continue
+            if (entry.name, Path(os.path.realpath(entry))) not in linked:
                 names.add(entry.name)
     return sorted(names)
 
@@ -326,7 +329,11 @@ def _plan_lines(plan: MigrationPlan, prefix: str) -> list[str]:
     from .install.installer import skill_agents
 
     lines = [f"{prefix}move {plan.chosen} -> {plan.destination}"]
-    lines.extend(f"{prefix}delete {entry}" for entry in plan.locations if entry != plan.chosen)
+    lines.extend(
+        f"{prefix}delete {entry}"
+        for entry in plan.locations
+        if entry.is_symlink() or Path(os.path.realpath(entry)) != plan.chosen
+    )
     for spec in skill_agents():
         folder = spec.skills_dir()
         if folder is not None:

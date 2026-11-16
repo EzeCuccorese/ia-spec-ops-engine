@@ -1,4 +1,4 @@
-"""Skills: one real directory per skill, exposed to Claude and Codex through symlinks."""
+"""Skills: one real directory per skill, exposed to Claude, Codex and Antigravity via symlinks."""
 
 from __future__ import annotations
 
@@ -236,3 +236,108 @@ def test_migrate_leaves_bundled_and_dot_entries_alone(installed: Path, store: Pa
     assert (bundled / "SKILL.md").is_file() and not bundled.is_symlink()
     assert (installed / ".agents" / "skills" / ".system").is_dir()
     assert [p.name for p in store.iterdir()] == ["legacy"]
+
+
+def test_cli_lifecycle_list_states_and_errors(
+    installed: Path, store: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert skills.main([]) == 0
+    assert skills.main(["list"]) == 0
+    assert "No skills found" in capsys.readouterr().out
+
+    origin = _make_skill(tmp_path / "src", "demo-skill")
+    assert skills.main(["add", str(origin)]) == 0
+    _codex(installed, "demo-skill").unlink()
+    _make_skill(installed / ".claude" / "skills", "extra")
+    capsys.readouterr()
+
+    assert skills.main(["list"]) == 0
+    listed = capsys.readouterr().out
+    assert "claude=linked" in listed and "codex=missing" in listed and "extra" in listed
+
+    assert skills.main(["sync"]) == 0
+    assert _codex(installed, "demo-skill").is_symlink()
+    assert skills.main(["rm", "demo-skill"]) == 0
+    assert skills.main(["rm", "demo-skill"]) == 1
+
+
+def test_sync_warns_when_no_agents_installed(
+    home: Path, store: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _make_skill(store, "demo-skill")
+    assert skills.sync_skills() == 0
+    captured = capsys.readouterr()
+    assert "No agent installed" in captured.out + captured.err
+
+
+def test_skill_validation_and_unknown_pack_errors(
+    installed: Path, store: Path, tmp_path: Path
+) -> None:
+    origin = _make_skill(tmp_path / "src", "demo-skill")
+    for bad_name in ("", "bad name"):
+        with pytest.raises(SkillError, match="Invalid skill name"):
+            skills.add_skill(origin, name=bad_name)
+    assert skills.add_skill(origin) == 0
+    with pytest.raises(SkillError, match="already exists"):
+        skills.add_skill(origin)
+    (tmp_path / "corporate").mkdir()
+    with pytest.raises(SkillError, match="Unknown corporate pack"):
+        skills.collect(pack_names=["unknown"])
+
+
+def test_migrate_skips_non_skills_and_handles_edge_errors(
+    installed: Path, store: Path, tmp_path: Path
+) -> None:
+    claude_skills = installed / ".claude" / "skills"
+    claude_skills.mkdir(parents=True, exist_ok=True)
+    (claude_skills / "README.md").write_text("docs\n")
+    (claude_skills / "empty-dir").mkdir()
+
+    legacy = _make_skill(installed / ".agents" / "skills", "legacy")
+    (legacy / "alias").symlink_to("SKILL.md")
+    assert skills.main(["migrate"]) == 0
+    assert (store / "legacy" / "alias").is_symlink()
+
+    (claude_skills / "broken").symlink_to(tmp_path / "missing")
+    assert skills.migrate_skills(MigrateOptions(names=["broken"])) == 1
+    assert skills.migrate_skills(MigrateOptions(names=["legacy"])) == 1  # already provided
+    assert skills.migrate_skills(MigrateOptions(names=["absent"])) == 1  # not found
+    with pytest.raises(SkillError, match="--from needs exactly one"):
+        skills.migrate_skills(MigrateOptions(names=["a", "b"], picked=tmp_path))
+
+    dup = _make_skill(installed / ".agents" / "skills", "dup")
+    assert skills.migrate_skills(MigrateOptions(names=["dup"], picked=tmp_path / "other")) == 1
+    (store / "dup").mkdir()
+    assert dup.is_dir() and skills.migrate_skills(MigrateOptions(names=["dup"])) == 1
+
+
+def test_migrate_dry_run_under_symlinked_home_omits_self_delete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    real_home = tmp_path / "real-home"
+    real_home.mkdir()
+    link_home = tmp_path / "link-home"
+    link_home.symlink_to(real_home)
+    monkeypatch.setattr(Path, "home", lambda: link_home)
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("AI_GOVERNANCE_CONFIG_DIR", str(tmp_path / "cfg"))
+    monkeypatch.setenv("AI_GOVERNANCE_PERSONAL_DIR", str(tmp_path / "personal"))
+    install_user(["claude"])
+    _make_skill(link_home / ".claude" / "skills", "legacy")
+    capsys.readouterr()
+
+    assert skills.migrate_skills(MigrateOptions(dry_run=True)) == 0
+    out = capsys.readouterr().out
+    assert "move " in out and "delete " not in out
+
+
+def test_install_keeps_existing_skill_links_on_collision(
+    installed: Path, store: Path, tmp_path: Path
+) -> None:
+    _make_skill(store, "demo-skill")
+    install_user(AGENT_IDS)
+    _make_skill(tmp_path / "corporate" / "acme" / "skills", "demo-skill")
+
+    report = install_user(AGENT_IDS)
+    assert any("provided twice" in w for w in report.warnings)
+    assert _claude(installed, "demo-skill").is_symlink()
