@@ -124,6 +124,13 @@ def test_sync_protects_locally_edited_copy_unless_forced(
     _make_skill(store, "demo-skill")
     skills.sync_skills()
     claude_copy = _claude(installed, "demo-skill")
+    (claude_copy / ".DS_Store").write_bytes(b"junk")
+    pycache = claude_copy / "__pycache__"
+    pycache.mkdir()
+    (pycache / "mod.cpython-311.pyc").write_bytes(b"pyc")
+    assert skills.list_skills() == 0
+    assert "claude=synced" in capsys.readouterr().out
+
     (claude_copy / "SKILL.md").write_text("local edit\n")
     capsys.readouterr()
 

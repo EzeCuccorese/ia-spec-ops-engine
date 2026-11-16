@@ -43,11 +43,21 @@ def sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+_TRANSIENT_NAMES = frozenset({".DS_Store", "__pycache__"})
+
+
+def _is_transient(rel: Path) -> bool:
+    return any(part in _TRANSIENT_NAMES for part in rel.parts) or rel.suffix == ".pyc"
+
+
 def tree_digest(root: Path) -> str:
     """Content fingerprint of a directory: relative paths, executable bits, bytes and link targets."""
     digest = hashlib.sha256()
     for path in sorted(root.rglob("*")):
-        digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+        rel = path.relative_to(root)
+        if _is_transient(rel):
+            continue
+        digest.update(rel.as_posix().encode("utf-8"))
         digest.update(b"\0")
         if path.is_symlink():
             digest.update(b"L" + os.readlink(path).encode("utf-8"))
@@ -366,7 +376,12 @@ def _copy_dir_tree(source: Path, dest: Path) -> None:
     elif dest.exists():
         shutil.rmtree(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(source, dest, symlinks=True)
+    shutil.copytree(
+        source,
+        dest,
+        symlinks=True,
+        ignore=shutil.ignore_patterns(".DS_Store", "__pycache__", "*.pyc"),
+    )
 
 
 def _dir_conflict(

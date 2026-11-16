@@ -17,7 +17,7 @@ COMMANDS: dict[str, str] = {
     "probe": "Verify on this machine what an agent loads and which hooks fire",
     "rules": "Browse the engineering-rules catalog (list, show, profiles)",
     "personal": "Manage personal preference rules across agents (list, add, rm, migrate)",
-    "skills": "Keep each third-party skill in one place and link it into agents (list, add, rm, sync, migrate)",
+    "skills": "Keep each third-party skill in one place and copy it into agents (list, add, rm, sync, migrate)",
     "taskflow": "Task tracking and the plan/validate/work/judge flow across agents",
     "telemetry": "Claude spend estimates (claude-usage), prices and threshold alerts",
     "jira": "Jira issues and transitions in Markdown",
