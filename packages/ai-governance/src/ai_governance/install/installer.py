@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .. import __version__, corporate, personal
+from .. import __version__, corporate, personal, skills
 from ..frontmatter import check_frontmatter
 from ..paths import state_dir
 from ..rules.catalog import RuleCatalog, RuleDefinition
@@ -28,6 +28,7 @@ from .agents import (
     RULES_DIR,
     AgentSpec,
     BlockArtifact,
+    DirArtifact,
     FileArtifact,
     LinkArtifact,
     antigravity_rules_dir,
@@ -37,7 +38,16 @@ from .agents import (
     render_canonical_rule,
     resolve_agents,
 )
-from .engine import Ledger, Owned, Report, _apply_link, _remove_entry, sync
+from .engine import (
+    Ledger,
+    Owned,
+    Report,
+    _apply_dir,
+    _apply_link,
+    _ApplyFlags,
+    _remove_entry,
+    sync,
+)
 
 PROJECT_DIR = ".ai-governance"
 PROJECT_OWNER = "project"
@@ -428,35 +438,106 @@ def sync_personal_rules(root: Path | None = None, *, dry_run: bool = False) -> R
         for spec in specs
         for artifact in spec.personal_artifacts(current_rules)
     ]
+    return _reconcile_links(ledger, desired, _is_personal_entry, dry_run=dry_run)
+
+
+def _reconcile_links(
+    ledger: Ledger,
+    desired: list[Owned],
+    owns: Callable[[Ledger, dict[str, Any]], bool],
+    *,
+    dry_run: bool = False,
+) -> Report:
+    """Removes stale links matching ``owns``, applies ``desired`` links, and saves the ledger."""
     report = Report()
     desired_keys = {("link", ledger.key(owned.artifact.path)) for owned in desired}
-    ledger.entries = _without_stale_personal_links(
-        ledger, desired_keys, report=report, dry_run=dry_run
-    )
-
+    kept: list[dict[str, Any]] = []
+    for entry in ledger.entries:
+        stale = owns(ledger, entry) and ("link", entry["path"]) not in desired_keys
+        if stale and _remove_entry(entry, ledger, report, dry_run):
+            continue
+        kept.append(entry)
+    ledger.entries = kept
     for owned in desired:
         if isinstance(owned.artifact, LinkArtifact):
             _apply_link(owned.agent, owned.artifact, ledger, report, dry_run, force=False)
-
     ledger.save(report, dry_run)
     return report
 
 
-def _without_stale_personal_links(
-    ledger: Ledger,
-    desired_keys: set[tuple[str, str]],
-    *,
-    report: Report,
-    dry_run: bool,
-) -> list[dict[str, Any]]:
-    """The ledger entries to keep: personal links no longer wanted are removed from disk first."""
+def _is_skill_path(agent: str, path: Path) -> bool:
+    spec = AGENTS.get(agent)
+    return spec is not None and spec.skills_dir() is not None and path.parent == spec.skills_dir()
+
+
+def _is_skill_entry(ledger: Ledger, entry: dict[str, Any]) -> bool:
+    return entry.get("kind") in ("dir", "link") and _is_skill_path(
+        str(entry.get("agent", "")), ledger.resolve(str(entry.get("path", "")))
+    )
+
+
+def _skill_entries_to_keep(ledger: Ledger, agents: set[str]) -> list[Owned]:
+    kept: list[Owned] = []
+    for entry in ledger.entries:
+        agent = str(entry.get("agent", ""))
+        if agent not in agents:
+            continue
+        path = ledger.resolve(str(entry.get("path", "")))
+        if not _is_skill_path(agent, path):
+            continue
+        kind = entry.get("kind")
+        if kind == "dir" and entry.get("source") and Path(str(entry["source"])).is_dir():
+            kept.append(Owned(agent, DirArtifact(path, Path(str(entry["source"])))))
+        elif kind == "link" and entry.get("target"):
+            kept.append(Owned(agent, LinkArtifact(path, str(entry["target"]))))
+    return kept
+
+
+def _skill_desired(
+    specs: list[AgentSpec], ledger: Ledger, report: Report, pack_names: list[str] | None
+) -> list[Owned]:
+    """Skill copies for the agents; a collision keeps the skills already installed."""
+    try:
+        sources = skills.collect(pack_names=pack_names)
+    except skills.SkillError as exc:
+        report.warnings.append(str(exc))
+        return _skill_entries_to_keep(ledger, {spec.id for spec in specs})
+    return [Owned(spec.id, a) for spec in specs for a in spec.skill_copy_artifacts(sources)]
+
+
+def skill_agents() -> list[AgentSpec]:
+    """Installed agents that load skills from a directory this command copies into."""
+    specs = resolve_agents(sorted(installed_agents(global_ledger())))
+    return [spec for spec in specs if spec.skills_dir() is not None]
+
+
+def sync_skill_links(*, dry_run: bool = False, force: bool = False) -> Report:
+    """Reconciles managed skill copies across the installed agents.
+
+    Raises ``skills.SkillError`` on a name collision, before touching anything.
+    """
+    ledger = global_ledger()
+    specs = skill_agents()
+    sources = skills.collect()
+    desired = [
+        Owned(spec.id, artifact)
+        for spec in specs
+        for artifact in spec.skill_copy_artifacts(sources)
+    ]
+    report = Report()
+    desired_paths = {ledger.key(owned.artifact.path) for owned in desired}
     kept: list[dict[str, Any]] = []
     for entry in ledger.entries:
-        stale = _is_personal_entry(ledger, entry) and ("link", entry["path"]) not in desired_keys
+        stale = _is_skill_entry(ledger, entry) and entry["path"] not in desired_paths
         if stale and _remove_entry(entry, ledger, report, dry_run):
             continue
         kept.append(entry)
-    return kept
+    ledger.entries = kept
+    flags = _ApplyFlags(dry_run=dry_run, force=force)
+    for owned in desired:
+        _apply_dir(owned, ledger, report, flags)
+    ledger.save(report, dry_run)
+    return report
 
 
 def install_user(
@@ -481,6 +562,7 @@ def install_user(
         desired.extend(_language_rules(spec, language_rules))
     desired.extend(_corporate_desired(specs, ledger, report, corporate_names))
     desired.extend(_personal_desired(specs, ledger, report, dry_run=dry_run))
+    desired.extend(_skill_desired(specs, ledger, report, corporate_names))
     desired.extend(_completions())
     scope = {spec.id for spec in specs} | {SCRIPTS_OWNER, COMPLETIONS_OWNER, SCHEDULE_OWNER}
     if not dry_run:

@@ -114,19 +114,13 @@ description: Resume, record and run multi-session tasks (plan, validate, work, j
 TEST_AUDIT_SKILL = """\
 ---
 name: test-audit
-description: Gate new tests and prune redundant ones. Use when writing tests or when asked to audit or shrink a test suite.
+description: Gate new tests, answer test requests from reviewers, prune low-value tests. Use when writing, reviewing or auditing tests.
 ---
-Writing a test: answer first, or don't write it.
-1. What observable behavior or contract does it protect?
-2. What credible regression makes it fail?
-3. Why doesn't existing coverage already catch it?
-Never add production seams used only by tests.
-
-Auditing (read-only until the ledger is done): mark each test by its assertions, not its name:
-R retain (contract + bug it catches) · F fix a vacuous assert · C consolidate (name the absorbing test) · D delete (name the proof that remains).
-Keep one test per contract, at the cheapest real boundary. Slow or static is not a reason to delete.
-Before deleting, break the production code on purpose and confirm the keeper fails; restore it.
-Prefer net-negative LOC. `ws design` flags the mechanical junk (no asserts, mock-only, duplicates, sleeps).
+A test earns its cost only if a credible production bug makes it fail.
+Before writing one or when a reviewer asks, answer: what contract does it protect, what regression fails it, why isn't it already covered, does it need a test-only seam? Any gap: don't write it; decline a reviewer with the reason.
+Junk: language behavior, log level or wording, signatures, restated constants, a mock asserting itself, self-comparison, no/unfailable asserts, a sibling copy, a generic "throws".
+Keep the sole guard of a contract (API, migration, security, a log an alert keys on); name it.
+Audit read-only until the ledger is done; judge assertions not names: R retain, F fix, C consolidate, D delete (name the proof that remains). Break production code to confirm the keeper fails, then restore. Re-argue each D. Report removed and kept. `ws design` flags mechanical junk.
 """
 
 SKILLS = {"taskflow": TASKFLOW_SKILL, "test-audit": TEST_AUDIT_SKILL}

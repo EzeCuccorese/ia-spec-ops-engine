@@ -53,7 +53,7 @@ def test_run_quality_gate_defaults_and_keywords_only(
 ) -> None:
     git_hooks.run_quality_gate(target_dir=tmp_path, skip="tests")
     env = gate_calls[0]["env"]
-    assert (env["QG_SCOPE"], env["QG_OUTPUT"], env["QG_SKIP"]) == ("all", "errors", "tests")
+    assert (env["QG_SCOPE"], env["QG_OUTPUT"], env["QG_SKIP"]) == ("changed", "errors", "tests")
     assert "QG_TIMEOUT" not in env and gate_calls[0]["capture_output"] is False
 
 

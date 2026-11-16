@@ -1,6 +1,6 @@
 # Corporate rules
 
-Company-specific, always-on rules and scripts. A company is just a folder here: every
+Company-specific, always-on rules, scripts and skills. A company is just a folder here: every
 folder present is installed by the regular user install, with no flag to pass.
 
 ```bash
@@ -9,7 +9,8 @@ ai-governance install --scope user --agent claude --agent antigravity   # the en
 
 Packs are gitignored: they live only in the local checkout (read by the editable install,
 `uv tool install --editable ./packages/ai-governance`) or in `AI_GOVERNANCE_CORPORATE_DIR`,
-so company content never reaches this repository. Changing companies means swapping the
+so company rules, scripts and corporate skills never reach git (unlike personal skills, which
+live versioned in [`skills/`](../../skills)). Changing companies means swapping the
 folder and running the install again: the old pack's files are removed, the new one's added.
 Only the agents named in that install are refreshed, so pass every agent you use; the others
 keep the previous pack's rules until their next install.
@@ -39,6 +40,12 @@ Layout of `<company>/`:
 - `scripts/*` — files linked into `~/.local/bin` (override with `AI_GOVERNANCE_BIN_DIR`);
   they are removed when the last installed agent is uninstalled. If two packs ship a script
   with the same name, the first pack alphabetically wins and the install warns.
+- `skills/<name>/SKILL.md` — company-specific skills (plus optional scripts/files), synced as
+  managed directory copies into `~/.claude/skills/<name>`, `~/.agents/skills/<name>` (Codex) and
+  `~/.gemini/config/skills/<name>` (Antigravity). Edit the source here and run
+  `ai-governance skills sync` to update the copies. Corporate skills stay gitignored inside this
+  folder and must never exist in git (use [`skills/`](../../skills) at the repo root only for
+  personal skills).
 
 Packs never hold credentials: tokens, passwords and personal data stay in the environment or
 the OS keychain.

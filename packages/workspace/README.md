@@ -89,8 +89,8 @@ Repos whose CI already runs the full suite can skip a stage by default: `ws hook
 (also `show` and `clear`). It is stored in the repo's shared git config, so every worktree of the
 repo inherits it, and only the `pre-push` gate reads it. `QG_SKIP` in the environment overrides it.
 
-Skip stages with `QG_SKIP=gitleaks,commits,lint,design,tests` (`all` skips every stage), and
-scope linters and tests to the pushed files with `QG_SCOPE=changed`.
+Skip stages with `QG_SKIP=gitleaks,commits,lint,design,tests` (`all` skips every stage).
+Linters and tests are scoped to the pushed files by default (`QG_SCOPE=changed`); pass `QG_SCOPE=all` to run the full repository.
 
 Conventional Commits are **opt-in per repository**, so a global install never imposes a style
 on projects with their own conventions: `git config workspace.commitStyle conventional` turns
@@ -272,7 +272,7 @@ has gate settings (git config or `.workspace/config.toml`) but the gate is not i
 | Key | Env var | Default | Meaning |
 |---|---|---|---|
 | `gate.skip` | `QG_SKIP` | `[]` | Gate checks to skip: gitleaks,commits,lint,design,tests,all |
-| `gate.scope` | `QG_SCOPE` | `all` | Scope of linters and tests: all, changed |
+| `gate.scope` | `QG_SCOPE` | `changed` | Scope of linters and tests: all, changed |
 | `gate.output` | `QG_OUTPUT` | `errors` | Gate output detail level: errors, verbose |
 | `gate.protected_branches` | `QG_PROTECTED` | `^(main\|master\|develop\|staging)$` | Regex of branches the gate refuses to push to directly |
 | `gate.timeout_seconds` | `QG_TIMEOUT` | `900` | Timeout of each gate step |

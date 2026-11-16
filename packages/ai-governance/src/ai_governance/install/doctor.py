@@ -7,11 +7,12 @@ import os
 import re
 import shutil
 from pathlib import Path
+from typing import Any
 
 from .. import personal
 from ..frontmatter import check_frontmatter
 from .agents import HOOK_COMMAND_PREFIX, resolve_agents
-from .engine import END, START, Ledger, sha256
+from .engine import END, START, Ledger, sha256, tree_digest
 from .installer import (
     PROJECT_DIR,
     ProjectConfig,
@@ -25,6 +26,16 @@ OK, WARN, FAIL = "OK", "WARN", "FAIL"
 Row = tuple[str, str, str]
 
 
+def _dir_row(label: str, path: Path, entry: dict[str, Any]) -> Row | None:
+    if path.is_symlink() or not path.is_dir() or tree_digest(path) != entry["sha256"]:
+        return (label, WARN, f"edited locally {path}")
+    source_raw = str(entry.get("source", ""))
+    source = Path(source_raw) if source_raw else None
+    if source is None or not source.is_dir() or tree_digest(source) != entry["sha256"]:
+        return (label, WARN, f"outdated {path} (source changed; run `ai-governance skills sync`)")
+    return None
+
+
 def _ledger_rows(ledger: Ledger, scope: str) -> list[Row]:
     rows: list[Row] = []
     for entry in ledger.entries:
@@ -32,6 +43,10 @@ def _ledger_rows(ledger: Ledger, scope: str) -> list[Row]:
         label = f"{scope}:{entry['agent']}"
         if not path.exists():
             rows.append((label, FAIL, f"missing {path}"))
+        elif entry["kind"] == "dir":
+            row = _dir_row(label, path, entry)
+            if row is not None:
+                rows.append(row)
         elif (
             entry["kind"] == "file" and sha256(path.read_text(encoding="utf-8")) != entry["sha256"]
         ):

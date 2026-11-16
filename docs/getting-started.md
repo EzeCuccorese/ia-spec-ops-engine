@@ -34,8 +34,8 @@ ws --help
 - **What it does**: installs two binaries in `~/.local/bin`: `ai-governance` and `ws`.
 - **Expect**: both `--help` outputs list their subcommands.
 - Nothing is configured yet for any agent.
-- If you will use company packs (step 2), install `ai-governance` with
-  `uv tool install --editable ./packages/ai-governance` instead: packs are read from the
+- If you will use company packs (step 2) or personal skills in `skills/`, install `ai-governance`
+  with `uv tool install --editable ./packages/ai-governance` instead: they are read from the
   checkout.
 
 ## 2. User scope (global) for one agent
@@ -53,7 +53,7 @@ What gets written for Claude Code:
 | `~/.claude/rules/ai-governance.md` | ≤1 KB of global instructions: prefer `ws`/`ai-governance` tools, frugal reads, delegation to `scout`/`researcher` | Yes, every session |
 | `~/.claude/agents/scout.md` | Read-only subagent on `haiku`, effort `medium`, for exploration, reading and summaries (no web tools) | Only its name and description |
 | `~/.claude/agents/researcher.md` | Read-only subagent on `sonnet`, effort `medium`, for web research | Only its name and description |
-| `~/.claude/skills/{taskflow,test-audit}/SKILL.md` | How to use the task flow; how to write and prune tests | Only their names and descriptions |
+| `~/.claude/skills/{taskflow,test-audit}/SKILL.md` | How to use the task flow; how to write, review and prune tests | Only their names and descriptions |
 | `~/.claude/settings.json` (merged) | Four hooks: `PreToolUse`/`PostToolUse` (Bash), `SessionStart`, `SessionEnd`, all as `ai-governance hook claude <event>` | Only what each hook returns (see below) |
 | `~/.local/state/ai-governance/installed.json` | Ownership ledger and the list of projects you install | No |
 
@@ -74,9 +74,10 @@ installed after step 8 verifies them.
 
 **Company packs (optional)**: every folder under `packages/corporate-rules/<company>/` (or
 under `AI_GOVERNANCE_CORPORATE_DIR`) is installed by this same command: its `rules/*.md` become
-always-on rules for Claude Code and Antigravity, and its `scripts/*` are linked into
-`~/.local/bin`. Pass every agent you use in one install, because only the named agents get
-their pack rules refreshed. See [packages/corporate-rules/README.md](../packages/corporate-rules/README.md).
+always-on rules, its `scripts/*` are linked into `~/.local/bin`, and its `skills/<name>/` become
+managed directory copies alongside personal skills. Company packs are gitignored and must never exist
+in git. Pass every agent you use in one install, because only the named agents get their pack
+rules refreshed. See [packages/corporate-rules/README.md](../packages/corporate-rules/README.md).
 
 **Check**:
 
@@ -145,6 +146,24 @@ ai-governance update --check && echo "up to date"   # exit 1 when something is s
 refreshes content from the installed package version. A rule you edited by hand is kept and
 reported. After upgrading the package, `ai-governance update --all` refreshes every
 registered project.
+
+## Skills (optional)
+
+Keep each third-party skill in one source directory and sync managed copies into Claude Code, Codex and Antigravity:
+
+```bash
+ai-governance skills add ./demo-skill        # copies it into skills/, then syncs to agents
+ai-governance skills list                    # synced / outdated / edited / missing / foreign per agent
+ai-governance skills sync                    # update agent copies after editing the source
+ai-governance skills migrate --dry-run       # plan to adopt skills already in ~/.claude/skills etc.
+```
+
+Personal skills live in [`skills/`](../skills) at the repo root (versioned in git); corporate
+skills live in `packages/corporate-rules/<company>/skills/` (gitignored, never in git). Edit a
+skill in its source directory and run `ai-governance skills sync` to propagate changes (`doctor`
+warns if a copy is `outdated` or `edited`). Externally managed Orca skills
+(`orchestration`, `orca-cli`, `orca-computer-use`, `computer-use`) stay with Orca and are
+ignored by `ai-governance skills`.
 
 ## Profiles (optional)
 
