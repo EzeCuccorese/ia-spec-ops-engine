@@ -146,6 +146,18 @@ refreshes content from the installed package version. A rule you edited by hand 
 reported. After upgrading the package, `ai-governance update --all` refreshes every
 registered project.
 
+## Skills (optional)
+
+Keep each third-party skill in one directory and link it into Claude Code and Codex:
+
+```bash
+ai-governance skills add ./demo-skill        # copies it into the personal store, then links it
+ai-governance skills list                    # linked / missing / foreign per agent
+ai-governance skills migrate --dry-run       # plan to adopt skills already in ~/.claude/skills etc.
+```
+
+The personal store (`<personal>/skills/`) becomes the only real copy; agents get symlinks.
+
 ## Profiles (optional)
 
 Most rules apply as soon as their stack or path is detected. Three groups are opt-in because

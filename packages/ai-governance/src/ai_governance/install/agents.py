@@ -17,6 +17,7 @@ from ..frontmatter import _FRONTMATTER_RE
 from ..personal import PersonalRule
 from ..rules.catalog import RuleDefinition
 from ..settings import get as setting
+from ..skills import SkillSource
 from . import content
 
 MARKER = "ai-governance"
@@ -165,6 +166,17 @@ class AgentSpec:
         """Path-scoped catalog rules at user level."""
         raise NotImplementedError
 
+    def skills_dir(self) -> Path | None:
+        """Where the agent loads user skills from; None when no skill is linked for it."""
+        return None
+
+    def skill_link_artifacts(self, sources: list[SkillSource]) -> list[Artifact]:
+        """One directory symlink per skill source, pointing at its single real directory."""
+        folder = self.skills_dir()
+        if folder is None:
+            return []
+        return [LinkArtifact(folder / source.name, str(source.path)) for source in sources]
+
     # -- project scope -------------------------------------------------------
     def project_artifacts(
         self, root: Path, rules: list[RuleDefinition], *, gate: bool = False
@@ -220,6 +232,9 @@ def _claude_subagents(agents_dir: Path) -> list[Artifact]:
 
 
 class ClaudeSpec(AgentSpec):
+    def skills_dir(self) -> Path | None:
+        return Path.home() / ".claude" / "skills"
+
     def global_artifacts(self) -> list[Artifact]:
         home = Path.home() / ".claude"
         command = f"{HOOK_COMMAND_PREFIX} claude"
@@ -295,6 +310,10 @@ def _rule_summary(text: str) -> str:
 
 
 class CodexSpec(AgentSpec):
+    def skills_dir(self) -> Path | None:
+        # Documented path; ~/.codex/skills also loads today but is undocumented: never written.
+        return Path.home() / ".agents" / "skills"
+
     def global_artifacts(self) -> list[Artifact]:
         home = codex_home()
         rules_dir = codex_rules_dir()

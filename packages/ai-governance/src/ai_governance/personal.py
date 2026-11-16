@@ -55,6 +55,11 @@ def personal_root() -> Path:
     return config_dir() / PERSONAL_DIR
 
 
+def personal_skills_dir(root: Path | None = None) -> Path:
+    """Where personal skills live: one directory per skill, next to ``rules``."""
+    return (root or personal_root()) / "skills"
+
+
 def is_default_root() -> bool:
     return "AI_GOVERNANCE_PERSONAL_DIR" not in os.environ
 

@@ -62,6 +62,17 @@ class CorporatePack:
             result.append(CorporateRule(self.name, path.stem, content, path.resolve()))
         return result
 
+    def skills(self) -> list[Path]:
+        """Skill directories of the pack: every ``skills/<name>/`` holding a ``SKILL.md``."""
+        folder = self.root / "skills"
+        if not folder.is_dir():
+            return []
+        return sorted(
+            p
+            for p in folder.iterdir()
+            if p.is_dir() and not p.name.startswith(".") and (p / "SKILL.md").is_file()
+        )
+
     def scripts(self) -> list[Path]:
         folder = self.root / "scripts"
         return sorted(p for p in folder.iterdir() if p.is_file()) if folder.is_dir() else []

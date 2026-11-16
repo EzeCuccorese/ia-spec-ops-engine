@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .. import __version__, corporate, personal
+from .. import __version__, corporate, personal, skills
 from ..frontmatter import check_frontmatter
 from ..paths import state_dir
 from ..rules.catalog import RuleCatalog, RuleDefinition
@@ -430,8 +430,8 @@ def sync_personal_rules(root: Path | None = None, *, dry_run: bool = False) -> R
     ]
     report = Report()
     desired_keys = {("link", ledger.key(owned.artifact.path)) for owned in desired}
-    ledger.entries = _without_stale_personal_links(
-        ledger, desired_keys, report=report, dry_run=dry_run
+    ledger.entries = _without_stale_links(
+        ledger, desired_keys, _is_personal_entry, report=report, dry_run=dry_run
     )
 
     for owned in desired:
@@ -442,21 +442,76 @@ def sync_personal_rules(root: Path | None = None, *, dry_run: bool = False) -> R
     return report
 
 
-def _without_stale_personal_links(
+def _without_stale_links(
     ledger: Ledger,
     desired_keys: set[tuple[str, str]],
+    owns: Callable[[Ledger, dict[str, Any]], bool],
     *,
     report: Report,
     dry_run: bool,
 ) -> list[dict[str, Any]]:
-    """The ledger entries to keep: personal links no longer wanted are removed from disk first."""
+    """The ledger entries to keep: owned links no longer wanted are removed from disk first."""
     kept: list[dict[str, Any]] = []
     for entry in ledger.entries:
-        stale = _is_personal_entry(ledger, entry) and ("link", entry["path"]) not in desired_keys
+        stale = owns(ledger, entry) and ("link", entry["path"]) not in desired_keys
         if stale and _remove_entry(entry, ledger, report, dry_run):
             continue
         kept.append(entry)
     return kept
+
+
+def _is_skill_link(agent: str, path: Path, target: str = "") -> bool:
+    spec = AGENTS.get(agent)
+    return spec is not None and spec.skills_dir() is not None and path.parent == spec.skills_dir()
+
+
+def _is_skill_entry(ledger: Ledger, entry: dict[str, Any]) -> bool:
+    return entry.get("kind") == "link" and _is_skill_link(
+        str(entry.get("agent", "")), ledger.resolve(str(entry.get("path", "")))
+    )
+
+
+def _skill_desired(
+    specs: list[AgentSpec], ledger: Ledger, report: Report, pack_names: list[str] | None
+) -> list[Owned]:
+    """Skill links for the agents; a collision keeps the links already installed."""
+    try:
+        sources = skills.collect(pack_names=pack_names)
+    except skills.SkillError as exc:
+        report.warnings.append(str(exc))
+        return _entries_to_keep(ledger, {spec.id for spec in specs}, _is_skill_link)
+    return [Owned(spec.id, a) for spec in specs for a in spec.skill_link_artifacts(sources)]
+
+
+def skill_agents() -> list[AgentSpec]:
+    """Installed agents that load skills from a directory this command links into."""
+    specs = resolve_agents(sorted(installed_agents(global_ledger())))
+    return [spec for spec in specs if spec.skills_dir() is not None]
+
+
+def sync_skill_links(*, dry_run: bool = False) -> Report:
+    """Reconciles skill directory symlinks across the installed agents.
+
+    Raises ``skills.SkillError`` on a name collision, before touching anything.
+    """
+    ledger = global_ledger()
+    specs = skill_agents()
+    sources = skills.collect()
+    desired = [
+        Owned(spec.id, artifact)
+        for spec in specs
+        for artifact in spec.skill_link_artifacts(sources)
+    ]
+    report = Report()
+    desired_keys = {("link", ledger.key(owned.artifact.path)) for owned in desired}
+    ledger.entries = _without_stale_links(
+        ledger, desired_keys, _is_skill_entry, report=report, dry_run=dry_run
+    )
+    for owned in desired:
+        if isinstance(owned.artifact, LinkArtifact):
+            _apply_link(owned.agent, owned.artifact, ledger, report, dry_run, force=False)
+    ledger.save(report, dry_run)
+    return report
 
 
 def install_user(
@@ -481,6 +536,7 @@ def install_user(
         desired.extend(_language_rules(spec, language_rules))
     desired.extend(_corporate_desired(specs, ledger, report, corporate_names))
     desired.extend(_personal_desired(specs, ledger, report, dry_run=dry_run))
+    desired.extend(_skill_desired(specs, ledger, report, corporate_names))
     desired.extend(_completions())
     scope = {spec.id for spec in specs} | {SCRIPTS_OWNER, COMPLETIONS_OWNER, SCHEDULE_OWNER}
     if not dry_run:
