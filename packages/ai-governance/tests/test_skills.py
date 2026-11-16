@@ -341,3 +341,35 @@ def test_install_keeps_existing_skill_links_on_collision(
     report = install_user(AGENT_IDS)
     assert any("provided twice" in w for w in report.warnings)
     assert _claude(installed, "demo-skill").is_symlink()
+
+
+def test_personal_skills_dir_defaults_to_repo_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from ai_governance.personal import personal_skills_dir
+
+    repo_root = Path(__file__).resolve().parents[3]
+    monkeypatch.delenv("AI_GOVERNANCE_PERSONAL_DIR", raising=False)
+    assert personal_skills_dir() == repo_root / "skills"
+    assert personal_skills_dir(tmp_path) == tmp_path / "skills"
+    monkeypatch.setenv("AI_GOVERNANCE_PERSONAL_DIR", str(tmp_path / "custom"))
+    assert personal_skills_dir() == tmp_path / "custom" / "skills"
+
+
+def test_orca_and_bundled_skills_are_ignored_and_rejected(
+    installed: Path, store: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for name in ("orchestration", "orca-cli", "orca-computer-use", "computer-use"):
+        _make_skill(installed / ".agents" / "skills", name)
+    origin = _make_skill(tmp_path / "src", "orca-cli")
+    capsys.readouterr()
+
+    assert skills.migrate_skills(MigrateOptions()) == 0
+    assert not store.exists()
+    assert skills.list_skills() == 0
+    assert "No skills found" in capsys.readouterr().out
+
+    with pytest.raises(SkillError, match="managed externally"):
+        skills.add_skill(origin)
+    assert skills.migrate_skills(MigrateOptions(names=["orca-cli"])) == 1
+    assert skills.migrate_skills(MigrateOptions(names=["test-audit"])) == 1

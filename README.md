@@ -9,20 +9,21 @@ installable Python packages (Python 3.11+):
 
 | Package | CLI | Purpose |
 | --- | --- | --- |
-| [`packages/ai-governance`](packages/ai-governance) | `ai-governance` | Per-agent installer (user/project scopes), engineering rules, corporate packs, agent hooks, task flow (plan/validate/work/judge across agents), Claude spend telemetry, Atlassian utilities |
+| [`packages/ai-governance`](packages/ai-governance) | `ai-governance` | Per-agent installer (user/project scopes), engineering rules, corporate packs, third-party skills, agent hooks, task flow (plan/validate/work/judge across agents), Claude spend telemetry, Atlassian utilities |
 | [`packages/workspace`](packages/workspace) | `ws` | Deterministic execution: stack detection, quality gates, Git hooks, design limits, and condensed command output |
 
 `ai-governance` and `workspace` never import each other; `ai-governance` calls `ws` through
 versioned `--json` contracts and degrades gracefully when it is absent.
 
-Company-specific rule packs live, gitignored, in
+Personal third-party skills live, versioned in git, in [`skills/`](skills). Company-specific
+rule packs (rules, scripts and corporate skills) live, gitignored and never committed to git, in
 [`packages/corporate-rules/<company>/`](packages/corporate-rules) and are installed by
 `ai-governance`. Each package README is the reference for its CLI.
 
 ## Install
 
 ```bash
-uv tool install ./packages/ai-governance   # add --editable to use corporate packs from this checkout
+uv tool install ./packages/ai-governance   # add --editable to use corporate packs and personal skills from this checkout
 uv tool install ./packages/workspace
 ```
 

@@ -1,8 +1,10 @@
 """Third-party skills: each one lives in exactly one directory and is linked into the agents.
 
-A skill is a directory holding ``SKILL.md`` plus optional scripts and files. The single real
-copy lives in the personal store (``<personal root>/skills/<name>/``) or in a company pack
-(``<pack>/skills/<name>/``). Agents see it through a directory symlink, never a copy.
+A skill is a directory holding ``SKILL.md`` plus optional scripts and files. Personal skills
+live in ``skills/<name>/`` at the repository root (versioned in git, or
+``$AI_GOVERNANCE_PERSONAL_DIR/skills/<name>/`` when overridden); company pack skills live in
+``packages/corporate-rules/<pack>/skills/<name>/`` (gitignored, never committed to git).
+Agents see each skill through a directory symlink, never a copy.
 """
 
 from __future__ import annotations
@@ -25,7 +27,8 @@ if TYPE_CHECKING:
     from .install.agents import AgentSpec
 
 SKILL_FILE = "SKILL.md"
-IGNORED_ENTRIES = frozenset({"synced"})
+ORCA_SKILLS = frozenset({"orchestration", "orca-cli", "orca-computer-use", "computer-use"})
+IGNORED_ENTRIES = frozenset({"synced"}) | ORCA_SKILLS
 NAME_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 PERSONAL_LAYER = "personal"
 
@@ -168,6 +171,8 @@ def add_skill(source_dir: Path, name: str | None = None) -> int:
     if not _is_skill_dir(source_dir):
         raise SkillError(f"{source_dir} is not a skill directory: no {SKILL_FILE} inside")
     skill_name = _check_name(source_dir.resolve().name if name is None else name)
+    if skill_name in IGNORED_ENTRIES:
+        raise SkillError(f"Skill '{skill_name}' is managed externally and cannot be added")
     existing = {s.name: s for s in collect()}
     if skill_name in existing or skill_name in bundled_names():
         raise SkillError(f"Skill '{skill_name}' already exists; remove it first or pick --name")
@@ -312,6 +317,10 @@ def _plan(
     name: str, sources: list[SkillSource], pack: str | None, picked: Path | None
 ) -> MigrationPlan:
     _check_name(name)
+    if name in IGNORED_ENTRIES:
+        raise SkillError(f"'{name}' is managed externally and cannot be migrated")
+    if name in bundled_names():
+        raise SkillError(f"'{name}' is a bundled skill and cannot be migrated")
     provider = next((s for s in sources if s.name == name), None)
     if provider is not None:
         raise SkillError(f"'{name}' is already provided by {provider.layer}: {provider.path}")

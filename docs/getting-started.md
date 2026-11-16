@@ -34,8 +34,8 @@ ws --help
 - **What it does**: installs two binaries in `~/.local/bin`: `ai-governance` and `ws`.
 - **Expect**: both `--help` outputs list their subcommands.
 - Nothing is configured yet for any agent.
-- If you will use company packs (step 2), install `ai-governance` with
-  `uv tool install --editable ./packages/ai-governance` instead: packs are read from the
+- If you will use company packs (step 2) or personal skills in `skills/`, install `ai-governance`
+  with `uv tool install --editable ./packages/ai-governance` instead: they are read from the
   checkout.
 
 ## 2. User scope (global) for one agent
@@ -74,9 +74,10 @@ installed after step 8 verifies them.
 
 **Company packs (optional)**: every folder under `packages/corporate-rules/<company>/` (or
 under `AI_GOVERNANCE_CORPORATE_DIR`) is installed by this same command: its `rules/*.md` become
-always-on rules for Claude Code and Antigravity, and its `scripts/*` are linked into
-`~/.local/bin`. Pass every agent you use in one install, because only the named agents get
-their pack rules refreshed. See [packages/corporate-rules/README.md](../packages/corporate-rules/README.md).
+always-on rules, its `scripts/*` are linked into `~/.local/bin`, and its `skills/<name>/` become
+directory symlinks alongside personal skills. Company packs are gitignored and must never exist
+in git. Pass every agent you use in one install, because only the named agents get their pack
+rules refreshed. See [packages/corporate-rules/README.md](../packages/corporate-rules/README.md).
 
 **Check**:
 
@@ -151,12 +152,16 @@ registered project.
 Keep each third-party skill in one directory and link it into Claude Code, Codex and Antigravity:
 
 ```bash
-ai-governance skills add ./demo-skill        # copies it into the personal store, then links it
+ai-governance skills add ./demo-skill        # copies it into skills/, then links it
 ai-governance skills list                    # linked / missing / foreign per agent
 ai-governance skills migrate --dry-run       # plan to adopt skills already in ~/.claude/skills etc.
 ```
 
-The personal store (`<personal>/skills/`) becomes the only real copy; agents get symlinks.
+Personal skills live in [`skills/`](../skills) at the repo root (versioned in git); corporate
+skills live in `packages/corporate-rules/<company>/skills/` (gitignored, never in git). Agents
+receive directory symlinks to that single real copy. Externally managed Orca skills
+(`orchestration`, `orca-cli`, `orca-computer-use`, `computer-use`) stay with Orca and are
+ignored by `ai-governance skills`.
 
 ## Profiles (optional)
 

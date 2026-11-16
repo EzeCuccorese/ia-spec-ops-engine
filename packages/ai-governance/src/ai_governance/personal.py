@@ -56,8 +56,13 @@ def personal_root() -> Path:
 
 
 def personal_skills_dir(root: Path | None = None) -> Path:
-    """Where personal skills live: one directory per skill, next to ``rules``."""
-    return (root or personal_root()) / "skills"
+    """Where personal skills live: ``<repo>/skills`` (tracked in git) or ``$AI_GOVERNANCE_PERSONAL_DIR/skills``."""
+    if root is not None:
+        return root / "skills"
+    explicit = os.environ.get("AI_GOVERNANCE_PERSONAL_DIR")
+    if explicit:
+        return Path(explicit).expanduser() / "skills"
+    return Path(__file__).resolve().parents[4] / "skills"
 
 
 def is_default_root() -> bool:

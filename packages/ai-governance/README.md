@@ -18,11 +18,11 @@ uv tool install ./packages/ai-governance   # CLI: ai-governance
 uv tool install ./packages/workspace       # CLI: ws (recommended)
 ```
 
-Corporate packs are read from the source checkout, so install with
-`uv tool install --editable ./packages/ai-governance` when you use them (or point
-`AI_GOVERNANCE_CORPORATE_DIR` at the packs folder). When the corporate root
-directory does not exist, previously installed corporate rules and scripts are kept
-unchanged and a warning is printed instead of removing them.
+Corporate packs (gitignored) and personal skills (`skills/`, versioned in git) are read from
+the source checkout, so install with `uv tool install --editable ./packages/ai-governance` when
+you use them (or point `AI_GOVERNANCE_CORPORATE_DIR` / `AI_GOVERNANCE_PERSONAL_DIR` at your
+folders). When the corporate root directory does not exist, previously installed corporate rules
+and scripts are kept unchanged and a warning is printed instead of removing them.
 
 ## What gets installed where
 
@@ -103,14 +103,14 @@ to load them. `ai-governance completion zsh [tool]` prints one; skipped without 
 
 ### Corporate packs
 
-Company-specific, always-on rules and scripts live in `packages/corporate-rules/<company>/` of
-the local checkout (gitignored, see [its README](../corporate-rules/README.md)), or wherever
-`AI_GOVERNANCE_CORPORATE_DIR` points. Every pack present is installed by the regular `install --scope user --agent ...`,
-with no extra flag. Removing or swapping the folder and installing again removes
-or swaps its files. When the corporate root directory does not exist, previously
-installed corporate rules and scripts are kept unchanged and the installer prints
-a warning explaining how to set `AI_GOVERNANCE_CORPORATE_DIR`. An existing but empty
-root, or a pack deselected by config, still removes as normal.
+Company-specific, always-on rules, scripts and skills live in `packages/corporate-rules/<company>/`
+of the local checkout (gitignored — company content must never exist in git, see
+[its README](../corporate-rules/README.md)), or wherever `AI_GOVERNANCE_CORPORATE_DIR` points.
+Every pack present is installed by the regular `install --scope user --agent ...`, with no extra
+flag. Removing or swapping the folder and installing again removes or swaps its files. When the
+corporate root directory does not exist, previously installed corporate rules and scripts are kept
+unchanged and the installer prints a warning explaining how to set `AI_GOVERNANCE_CORPORATE_DIR`.
+An existing but empty root, or a pack deselected by config, still removes as normal.
 
 | Pack content | Installed as |
 |---|---|
@@ -118,6 +118,7 @@ root, or a pack deselected by config, still removes as normal.
 | | Antigravity: `~/.gemini/config/rules/ai-governance-<company>-<name>.md` (symlink to the same file; its `trigger: always_on` front matter is what Antigravity reads) |
 | | Codex: `$CODEX_HOME/ai-governance/company/<company>-<name>.md` (symlink to the same file; the `AGENTS.md` block tells Codex to read them once per session) |
 | `scripts/*` | Symlinks in `~/.local/bin` (`AI_GOVERNANCE_BIN_DIR`), removed when the last installed agent is uninstalled |
+| `skills/<name>/` | Directory symlinks in `~/.claude/skills/<name>`, `~/.agents/skills/<name>` (Codex) and `~/.gemini/config/skills/<name>` (Antigravity) |
 
 Rules are refreshed only for the agents named in that install: other installed agents keep
 the previous pack's rules until they are installed again, so pass every agent you use
@@ -158,22 +159,30 @@ ai-governance personal rm <name>                                               #
 
 A third-party skill is a directory (`SKILL.md` plus optional scripts) that lives in exactly one
 place and reaches every installed agent through a directory symlink. It is never copied into an
-agent directory or bundled in the engine. Sources: `<personal>/skills/<name>/` and, for each
-selected company pack, `<pack>/skills/<name>/`. Names must be unique across bundled, company and
-personal skills; a collision is an error. Links go to `~/.claude/skills/<name>` and
-`~/.agents/skills/<name>` (Codex) and `~/.gemini/config/skills/<name>` (Antigravity). A path that already exists and is not
-ours is left untouched; `install`, `sync` and `uninstall` keep the links in step with the ledger.
+agent directory or bundled in the engine. Sources:
+
+- **Personal skills (versioned in git):** `skills/<name>/` at the repository root (or
+  `$AI_GOVERNANCE_PERSONAL_DIR/skills/<name>/` when set).
+- **Corporate skills (gitignored, never in git):** `packages/corporate-rules/<pack>/skills/<name>/`
+  for each selected company pack (or `$AI_GOVERNANCE_CORPORATE_DIR/<pack>/skills/<name>/`).
+
+Names must be unique across bundled, company and personal skills; a collision is an error. Links
+go to `~/.claude/skills/<name>`, `~/.agents/skills/<name>` (Codex) and
+`~/.gemini/config/skills/<name>` (Antigravity). A path that already exists and is not ours is
+left untouched; `install`, `sync` and `uninstall` keep the links in step with the ledger.
+Externally managed entries (`synced` and Orca skills: `orchestration`, `orca-cli`,
+`orca-computer-use`, `computer-use`) are ignored and cannot be added or migrated.
 
 ```
 ai-governance skills list                                  # source, path and linked/missing/foreign per agent
-ai-governance skills add <dir> [--name N]                  # copy into the personal store, then link
-ai-governance skills rm <name>                             # personal skills only: delete store dir and links
+ai-governance skills add <dir> [--name N]                  # copy into skills/, then link
+ai-governance skills rm <name>                             # personal skills only: delete from skills/ and unlink
 ai-governance skills sync                                  # reconcile links for every source
 ai-governance skills migrate [--dry-run] [--pack P] [--from PATH] [name ...]  # adopt skills already in agent dirs
 ```
 
 `migrate` scans `~/.claude/skills`, `~/.agents/skills`, `~/.codex/skills` and `~/.gemini/config/skills`, follows (possibly
-relative) symlinks to the real directory, moves it into the store (or `<pack>/skills/` with
+relative) symlinks to the real directory, moves it into `skills/` (or `<pack>/skills/` with
 `--pack`), deletes the other copies and old links, and links it again. If real copies differ it
 changes nothing for that name unless `--from` picks one.
 
@@ -417,6 +426,7 @@ roles stay user-owned. An unknown `--profile` for Jira/Confluence is now an erro
 | `AI_GOVERNANCE_AGENT` | Force agent (`1`) or human (`0`) output |
 | `CODEX_HOME` | Codex home (default `~/.codex`) |
 | `AI_GOVERNANCE_CORPORATE_DIR` | Where corporate packs are read from (default `packages/corporate-rules` of the checkout) |
+| `AI_GOVERNANCE_PERSONAL_DIR` | Override personal rules root (default `~/.config/ai-governance/personal`) and personal skills parent (`<dir>/skills/`, default `<checkout>/skills/`) |
 | `AI_GOVERNANCE_BIN_DIR` | Where corporate pack scripts are linked (default `~/.local/bin`) |
 | `FRUGAL=0` or `#nofrugal` in a command | Disable condensing for that command |
 | `ATLASSIAN_URL`, `ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN` | Default Jira/Confluence credentials |
