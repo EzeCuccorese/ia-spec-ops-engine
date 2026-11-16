@@ -148,7 +148,7 @@ registered project.
 
 ## Skills (optional)
 
-Keep each third-party skill in one directory and link it into Claude Code and Codex:
+Keep each third-party skill in one directory and link it into Claude Code, Codex and Antigravity:
 
 ```bash
 ai-governance skills add ./demo-skill        # copies it into the personal store, then links it

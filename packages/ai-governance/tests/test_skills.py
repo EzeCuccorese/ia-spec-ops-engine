@@ -52,18 +52,25 @@ def _claude(home: Path, name: str) -> Path:
     return home / ".claude" / "skills" / name
 
 
+def _antigravity(home: Path, name: str) -> Path:
+    return home / ".gemini" / "config" / "skills" / name
+
+
 def _codex(home: Path, name: str) -> Path:
     return home / ".agents" / "skills" / name
 
 
-def test_personal_skill_is_linked_to_claude_and_codex_only(installed: Path, store: Path) -> None:
+def test_personal_skill_is_linked_to_every_agent(installed: Path, store: Path) -> None:
     source = _make_skill(store, "demo-skill")
     skills.sync_skills()
-    for link in (_claude(installed, "demo-skill"), _codex(installed, "demo-skill")):
+    for link in (
+        _claude(installed, "demo-skill"),
+        _codex(installed, "demo-skill"),
+        _antigravity(installed, "demo-skill"),
+    ):
         assert link.is_symlink()
         assert os.readlink(link) == str(source.resolve())
         assert (link / "scripts" / "run.sh").is_file()
-    assert not (installed / ".gemini" / "config" / "skills" / "demo-skill").exists()
     assert not (installed / ".codex" / "skills" / "demo-skill").exists()
 
 

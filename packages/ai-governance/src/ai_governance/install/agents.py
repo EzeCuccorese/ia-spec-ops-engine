@@ -401,6 +401,9 @@ class CodexSpec(AgentSpec):
 
 
 class AntigravitySpec(AgentSpec):
+    def skills_dir(self) -> Path | None:
+        return Path.home() / ".gemini" / "config" / "skills"
+
     def corporate_artifacts(self, rules: list[CorporateRule]) -> list[Artifact]:
         home = antigravity_rules_dir()
         return [

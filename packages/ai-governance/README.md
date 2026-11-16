@@ -161,7 +161,7 @@ place and reaches every installed agent through a directory symlink. It is never
 agent directory or bundled in the engine. Sources: `<personal>/skills/<name>/` and, for each
 selected company pack, `<pack>/skills/<name>/`. Names must be unique across bundled, company and
 personal skills; a collision is an error. Links go to `~/.claude/skills/<name>` and
-`~/.agents/skills/<name>` (Codex); Antigravity gets none. A path that already exists and is not
+`~/.agents/skills/<name>` (Codex) and `~/.gemini/config/skills/<name>` (Antigravity). A path that already exists and is not
 ours is left untouched; `install`, `sync` and `uninstall` keep the links in step with the ledger.
 
 ```
@@ -172,7 +172,7 @@ ai-governance skills sync                                  # reconcile links for
 ai-governance skills migrate [--dry-run] [--pack P] [--from PATH] [name ...]  # adopt skills already in agent dirs
 ```
 
-`migrate` scans `~/.claude/skills`, `~/.agents/skills` and `~/.codex/skills`, follows (possibly
+`migrate` scans `~/.claude/skills`, `~/.agents/skills`, `~/.codex/skills` and `~/.gemini/config/skills`, follows (possibly
 relative) symlinks to the real directory, moves it into the store (or `<pack>/skills/` with
 `--pack`), deletes the other copies and old links, and links it again. If real copies differ it
 changes nothing for that name unless `--from` picks one.
@@ -255,7 +255,7 @@ hint to re-enable it.
 | `ai-governance budget [--root DIR]` | Fixed context bytes (~tokens) loaded every session, per agent plus a `project` row for the shared rules and `AGENTS.md` block |
 | `ai-governance probe --agent <a> [--dir DIR]` then `--verify --seen <tokens>` | Proves on this machine which instruction locations the agent loads and which hooks fire. Codex/Antigravity hooks are installed only after a verified probe |
 | `ai-governance rules list` / `rules show <id>` / `rules profiles` | Browse the rule catalog and opt-in profiles |
-| `ai-governance skills <subcommand>` | Keep each third-party skill in one directory and link it into Claude and Codex (see above) |
+| `ai-governance skills <subcommand>` | Keep each third-party skill in one directory and link it into Claude, Codex and Antigravity (see above) |
 | `ai-governance taskflow <subcommand>` | Task tracking and the multi-agent plan/validate/work/judge flow (see below) |
 | `ai-governance telemetry <subcommand>` | Local Claude Code spend estimates (`ai-governance telemetry --help`) |
 | `ai-governance jira ...` / `confluence ...` | Atlassian as compact Markdown (`jira` / `confluence` without arguments print their usage) |

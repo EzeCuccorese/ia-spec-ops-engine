@@ -211,7 +211,12 @@ def sync_skills() -> int:
 
 def _home_skill_dirs() -> list[Path]:
     home = Path.home()
-    return [home / ".claude" / "skills", home / ".agents" / "skills", home / ".codex" / "skills"]
+    return [
+        home / ".claude" / "skills",
+        home / ".agents" / "skills",
+        home / ".codex" / "skills",
+        home / ".gemini" / "config" / "skills",
+    ]
 
 
 def _tree_digest(root: Path) -> str:
