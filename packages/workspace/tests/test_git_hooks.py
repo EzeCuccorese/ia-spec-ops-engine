@@ -78,6 +78,7 @@ def _run_generated_hook(
             "GIT_CONFIG_GLOBAL": "/dev/null",
             "GIT_CONFIG_SYSTEM": "/dev/null",
             "QG_OUTPUT": output,
+            "QG_SCOPE": "all",
             "QG_SKIP": skip,
         }
     )
@@ -1179,3 +1180,67 @@ def test_monorepo_pre_push_scoped_run_does_not_swallow_stdin(tmp_path: Path) -> 
     executed = log_file.read_text(encoding="utf-8") if log_file.exists() else ""
     assert "pkg-a" in executed
     assert "pkg-b" in executed
+
+
+def _setup_python_scoped_repo(tmp_path: Path) -> tuple[Path, Path, Path]:
+    project_dir = tmp_path / "repo"
+    _init_test_git_repo(project_dir)
+    (project_dir / "pyproject.toml").write_text('[project]\nname = "demo"\n', encoding="utf-8")
+    (project_dir / "src").mkdir()
+    (project_dir / "src" / "alpha.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (project_dir / "tests").mkdir()
+    (project_dir / "tests" / "test_alpha.py").write_text(
+        "def test_alpha(): pass\n", encoding="utf-8"
+    )
+    (project_dir / "tests" / "test_beta.py").write_text("def test_beta(): pass\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(project_dir), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(project_dir), "commit", "-m", "feat: init"], check=True)
+
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+    subprocess.run(
+        ["git", "-C", str(project_dir), "remote", "add", "origin", str(remote)], check=True
+    )
+    subprocess.run(["git", "-C", str(project_dir), "push", "-q", "origin", "main"], check=True)
+
+    subprocess.run(["git", "-C", str(project_dir), "checkout", "-q", "-b", "feature"], check=True)
+    (project_dir / "src" / "alpha.py").write_text("VALUE = 2\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(project_dir), "add", "src/alpha.py"], check=True)
+    subprocess.run(["git", "-C", str(project_dir), "commit", "-m", "fix: update alpha"], check=True)
+
+    log_file = tmp_path / "pytest_args.log"
+    _write_exe(project_dir / ".venv" / "bin" / "pytest", f'echo "$*" >> "{log_file}"\nexit 0\n')
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    return project_dir, log_file, fake_home
+
+
+@requires_config_hooks
+def test_pre_push_defaults_to_changed_scope_and_maps_python_source_to_test(tmp_path: Path) -> None:
+    project_dir, log_file, fake_home = _setup_python_scoped_repo(tmp_path)
+    assert install_git_hooks(target_dir=project_dir)["success"] is True
+
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if not k.startswith(("GIT_", "QG_"))
+        and k not in ("XDG_CONFIG_HOME", "WORKSPACE_CONFIG_DIR")
+    }
+    env.update(
+        HOME=str(fake_home),
+        GIT_CONFIG_GLOBAL="/dev/null",
+        GIT_CONFIG_SYSTEM="/dev/null",
+        QG_SKIP="gitleaks,commits,lint,design",
+        QG_OUTPUT="verbose",
+    )
+    proc = subprocess.run(
+        ["git", "push", "origin", "feature"],
+        cwd=project_dir,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0
+    executed = log_file.read_text(encoding="utf-8") if log_file.exists() else ""
+    assert "tests/test_alpha.py" in executed
+    assert "test_beta.py" not in executed

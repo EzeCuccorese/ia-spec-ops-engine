@@ -6,7 +6,7 @@
 # Git runs it first and the repository's own pre-push hook (Husky, .git/hooks) last.
 #
 # Environment variables:
-#   QG_SCOPE=all|changed        Scope of linters and tests (default: all)
+#   QG_SCOPE=all|changed        Scope of linters and tests (default: changed)
 #   QG_SKIP=a,b,c               Skip checks: gitleaks,commits,lint,design,tests,all
 #                               (per repo: git config workspace.skip tests; the variable wins,
 #                               QG_SKIP=none forces every check for one push)
@@ -19,7 +19,7 @@
 # .workspace/config.toml (repo) and ~/.config/workspace/config.toml (user).
 set -uo pipefail
 
-QG_SCOPE="${QG_SCOPE:-all}"
+QG_SCOPE="${QG_SCOPE:-changed}"
 # QG_SKIP wins when defined (even empty). Otherwise the repo default applies; it lives in the
 # shared git config, so every worktree of the repo gets it.
 if [ "${QG_SKIP+x}" = "x" ]; then
@@ -897,9 +897,22 @@ else
     PY_TEST_FILES=()
     PY_RUN=0
     if [ "$SCOPED_TESTS" = "1" ]; then
+      PY_RAW_TESTS="$TMPD/py-tests"
+      : > "$PY_RAW_TESTS"
+      while IFS= read -r f; do
+        [ -n "$f" ] && [ -f "$f" ] && printf '%s\n' "$f" >> "$PY_RAW_TESTS"
+      done < <(changed_files '*test_*.py' '*_test.py' '*/tests/*.py')
+      while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        stem="$(basename "$f" .py)"
+        case "$stem" in
+          __init__|conftest|test_*|*_test) continue ;;
+        esac
+        git ls-files "test_${stem}.py" "*/test_${stem}.py" "${stem}_test.py" "*/${stem}_test.py" 2>/dev/null >> "$PY_RAW_TESTS"
+      done < <(changed_files '*.py')
       while IFS= read -r f; do
         [ -n "$f" ] && [ -f "$f" ] && PY_TEST_FILES+=("$f")
-      done < <(changed_files '*test_*.py' '*_test.py' '*/tests/*.py')
+      done < <(sort -u "$PY_RAW_TESTS")
       [ "${#PY_TEST_FILES[@]}" -gt 0 ] && PY_RUN=1
     elif find "$REPO_ROOT" -maxdepth 6 -not -path "*/node_modules/*" -not -path "*/.venv/*" \
               -not -path "*/vendor/*" -not -path "*/.git/*" \
@@ -1031,8 +1044,8 @@ if [ "$FAILED" = "1" ]; then
   echo ""
   echo "To skip a specific check (not the whole gate):"
   echo "  QG_SKIP=gitleaks git push          # gitleaks,commits,lint,design,tests"
-  echo "To scope lint and tests to the files in the push:"
-  echo "  QG_SCOPE=changed git push"
+  echo "To run lint and tests on the entire repository:"
+  echo "  QG_SCOPE=all git push"
   exit 1
 fi
 

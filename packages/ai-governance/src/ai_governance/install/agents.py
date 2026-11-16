@@ -11,6 +11,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..corporate import CorporateRule
 from ..frontmatter import _FRONTMATTER_RE
@@ -18,6 +19,9 @@ from ..personal import PersonalRule
 from ..rules.catalog import RuleDefinition
 from ..settings import get as setting
 from . import content
+
+if TYPE_CHECKING:
+    from ..skills import SkillSource
 
 MARKER = "ai-governance"
 HOOK_COMMAND_PREFIX = "ai-governance hook"
@@ -87,7 +91,15 @@ class LinkArtifact:
     target: str
 
 
-Artifact = FileArtifact | BlockArtifact | HooksArtifact | LinkArtifact
+@dataclass(frozen=True)
+class DirArtifact:
+    """A managed directory copy owned by ai-governance, synced from ``source``."""
+
+    path: Path
+    source: Path
+
+
+Artifact = FileArtifact | BlockArtifact | HooksArtifact | LinkArtifact | DirArtifact
 
 # Single source of truth for project rules: every agent reads them from here.
 RULES_DIR = Path(".agents") / "rules"
@@ -165,6 +177,17 @@ class AgentSpec:
         """Path-scoped catalog rules at user level."""
         raise NotImplementedError
 
+    def skills_dir(self) -> Path | None:
+        """Where the agent loads user skills from; None when no skill is copied for it."""
+        return None
+
+    def skill_copy_artifacts(self, sources: list[SkillSource]) -> list[Artifact]:
+        """One managed directory copy per skill source, synced from its source directory."""
+        folder = self.skills_dir()
+        if folder is None:
+            return []
+        return [DirArtifact(folder / source.name, source.path) for source in sources]
+
     # -- project scope -------------------------------------------------------
     def project_artifacts(
         self, root: Path, rules: list[RuleDefinition], *, gate: bool = False
@@ -220,6 +243,9 @@ def _claude_subagents(agents_dir: Path) -> list[Artifact]:
 
 
 class ClaudeSpec(AgentSpec):
+    def skills_dir(self) -> Path | None:
+        return Path.home() / ".claude" / "skills"
+
     def global_artifacts(self) -> list[Artifact]:
         home = Path.home() / ".claude"
         command = f"{HOOK_COMMAND_PREFIX} claude"
@@ -295,6 +321,10 @@ def _rule_summary(text: str) -> str:
 
 
 class CodexSpec(AgentSpec):
+    def skills_dir(self) -> Path | None:
+        # Documented path; ~/.codex/skills also loads today but is undocumented: never written.
+        return Path.home() / ".agents" / "skills"
+
     def global_artifacts(self) -> list[Artifact]:
         home = codex_home()
         rules_dir = codex_rules_dir()
@@ -382,6 +412,9 @@ class CodexSpec(AgentSpec):
 
 
 class AntigravitySpec(AgentSpec):
+    def skills_dir(self) -> Path | None:
+        return Path.home() / ".gemini" / "config" / "skills"
+
     def corporate_artifacts(self, rules: list[CorporateRule]) -> list[Artifact]:
         home = antigravity_rules_dir()
         return [
