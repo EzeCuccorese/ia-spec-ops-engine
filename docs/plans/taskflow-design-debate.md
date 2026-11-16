@@ -1,6 +1,6 @@
 # Plan: design debate mode for taskflow
 
-Status: implemented on `docs/taskflow-design-debate-plan` (validated against `main` at `1bd575b`; Section 6 live Orca acceptance run pending active Orca desktop daemon).
+Status: implemented and live-accepted via Orca on `docs/taskflow-design-debate-plan` (validated against `main` at `1bd575b`; Section 6 run verified with Antigravity and Claude workers in Orca; Codex launch failed locally with `command not found: codex` in Orca PTY).
 Line numbers below are from the initial baseline `22d02da`; check current lines before editing.
 
 ## 1. Outcome
