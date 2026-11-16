@@ -100,7 +100,7 @@ def test_ai_governance_config_ignored(tmp_path: Path, monkeypatch: pytest.Monkey
     )
 
     settings = effective(repo_dir)
-    assert settings["gate.scope"].value == "all"  # default, not legacy_scope
+    assert settings["gate.scope"].value == "changed"  # default, not legacy_scope
     assert "legacy_scope" not in str(settings["gate.scope"].value)
     assert settings["gate.scope"].origin != "repo"
 

@@ -46,7 +46,7 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("logs.max_entries", 200, "WORKSPACE_LOG_MAX_ENTRIES", "Most `ws log` entries kept"),
     Setting(
         "gate.scope",
-        "all",
+        "changed",
         "QG_SCOPE",
         "Scope of linters and tests: all, changed",
     ),

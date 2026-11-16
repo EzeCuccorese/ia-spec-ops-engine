@@ -225,7 +225,7 @@ def _resolve_hook_to_run(root: Path) -> tuple[Path, Path | None]:
 class GateOptions:
     """What ``run_quality_gate`` passes to the hook script (None: the script's own default)."""
 
-    scope: str = "all"
+    scope: str = "changed"
     skip: str | None = None
     timeout: int | None = None
     commit_style: str | None = None
@@ -270,7 +270,7 @@ def _parameters(*specs: tuple[str, object]) -> inspect.Signature:
 # The calling convention of ``run_quality_gate`` (positional or keyword, in this order).
 _GATE_SIGNATURE = _parameters(
     ("target_dir", None),
-    ("scope", "all"),
+    ("scope", "changed"),
     ("skip", None),
     ("timeout", None),
     ("commit_style", None),
@@ -282,7 +282,7 @@ _GATE_SIGNATURE = _parameters(
 def run_quality_gate(*args: object, **kwargs: object) -> int:
     """
     Runs the Git Hooks Quality Gate on demand in the given repository:
-    ``run_quality_gate(target_dir=None, scope="all", skip=None, timeout=None,
+    ``run_quality_gate(target_dir=None, scope="changed", skip=None, timeout=None,
     commit_style=None, output="errors", capture=None)``, each positional or by keyword.
     Returns the pre-push script's exit code. When ``capture`` is a list, the
     combined output is appended to it instead of being streamed.

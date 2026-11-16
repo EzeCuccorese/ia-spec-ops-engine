@@ -177,7 +177,7 @@ def _add_run_and_skip_parsers(sub: argparse._SubParsersAction[argparse.ArgumentP
         "--scope",
         "-s",
         choices=["all", "changed"],
-        default="all",
+        default="changed",
         help="Scope of linters and tests (all or changed)",
     )
     p_run.add_argument("--skip", help=f"Comma-separated checks to skip ({','.join(QG_STAGES)})")
