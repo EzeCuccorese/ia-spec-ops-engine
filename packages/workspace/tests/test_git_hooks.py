@@ -25,34 +25,45 @@ requires_config_hooks = pytest.mark.skipif(
 )
 
 
-def _init_test_git_repo(path: Path) -> None:
-    path.mkdir(parents=True, exist_ok=True)
-    clean_env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    clean_env["GIT_CONFIG_GLOBAL"] = "/dev/null"
-    clean_env["GIT_CONFIG_SYSTEM"] = "/dev/null"
-    clean_env["GIT_AUTHOR_NAME"] = "Test User"
-    clean_env["GIT_AUTHOR_EMAIL"] = "test@example.com"
-    clean_env["GIT_COMMITTER_NAME"] = "Test User"
-    clean_env["GIT_COMMITTER_EMAIL"] = "test@example.com"
+_GIT_TEMPLATE_REPO: Path | None = None
 
-    subprocess.run(
-        ["git", "-C", str(path), "init", "-b", "main"],
-        check=True,
-        capture_output=True,
-        env=clean_env,
-    )
-    subprocess.run(
-        ["git", "-C", str(path), "config", "user.name", "Test User"],
-        check=True,
-        capture_output=True,
-        env=clean_env,
-    )
-    subprocess.run(
-        ["git", "-C", str(path), "config", "user.email", "test@example.com"],
-        check=True,
-        capture_output=True,
-        env=clean_env,
-    )
+
+def _init_test_git_repo(path: Path) -> None:
+    global _GIT_TEMPLATE_REPO
+    if _GIT_TEMPLATE_REPO is None or not _GIT_TEMPLATE_REPO.exists():
+        import atexit
+        import tempfile
+
+        tpl = Path(tempfile.mkdtemp(prefix="ws_git_tpl_"))
+        atexit.register(shutil.rmtree, tpl, True)
+        clean_env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        clean_env["GIT_CONFIG_GLOBAL"] = "/dev/null"
+        clean_env["GIT_CONFIG_SYSTEM"] = "/dev/null"
+        clean_env["GIT_AUTHOR_NAME"] = "Test User"
+        clean_env["GIT_AUTHOR_EMAIL"] = "test@example.com"
+        clean_env["GIT_COMMITTER_NAME"] = "Test User"
+        clean_env["GIT_COMMITTER_EMAIL"] = "test@example.com"
+
+        subprocess.run(
+            ["git", "-C", str(tpl), "init", "-b", "main"],
+            check=True,
+            capture_output=True,
+            env=clean_env,
+        )
+        subprocess.run(
+            ["git", "-C", str(tpl), "config", "user.name", "Test User"],
+            check=True,
+            capture_output=True,
+            env=clean_env,
+        )
+        subprocess.run(
+            ["git", "-C", str(tpl), "config", "user.email", "test@example.com"],
+            check=True,
+            capture_output=True,
+            env=clean_env,
+        )
+        _GIT_TEMPLATE_REPO = tpl
+    shutil.copytree(_GIT_TEMPLATE_REPO, path, dirs_exist_ok=True)
 
 
 def _run_generated_hook(
