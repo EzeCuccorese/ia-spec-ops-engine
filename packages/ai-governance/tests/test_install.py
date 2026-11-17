@@ -465,17 +465,23 @@ def test_antigravity_hooks_path_is_shown_in_full() -> None:
     assert AGENTS["antigravity"].global_hooks.startswith("~/.gemini/config/hooks.json ")
 
 
-def test_antigravity_does_not_install_session_start_and_doctor_reports_gap(home: Path) -> None:
+def test_antigravity_installs_session_start_and_doctor_has_no_gap(home: Path, monkeypatch) -> None:
+    from ai_governance.install import probe
     from ai_governance.install.agents import HooksArtifact
 
+    monkeypatch.setattr(probe, "shell_hooks_verified", lambda _agent: True)
     install_user(["antigravity"])
     spec = AGENTS["antigravity"]
-    for artifact in spec.global_artifacts():
-        if isinstance(artifact, HooksArtifact):
-            assert "SessionStart" not in [e.event for e in artifact.entries]
+    hook_events = [
+        e.event
+        for artifact in spec.global_artifacts()
+        if isinstance(artifact, HooksArtifact)
+        for e in artifact.entries
+    ]
+    assert "SessionStart" in hook_events
 
     rows = check(None)
-    assert any(
+    assert not any(
         c == "user:antigravity" and s == WARN and "no session-start hook event" in d
         for c, s, d in rows
     )

@@ -28,8 +28,10 @@ dev = [
     "pytest>=8.0",
     "pytest-cov",
     "pytest-asyncio",
+    "pytest-xdist>=3.6",
     "ruff>=0.9",
     "mypy>=1.10",
+    "pytest-xdist>=3.8.0",
 ]
 
 [tool.ruff]
@@ -72,7 +74,7 @@ exclude_also = [
 pythonpath = ["packages/ai-governance/src", "packages/workspace/src", "."]
 python_files = ["test_*.py", "*_test.py"]
 testpaths = ["packages/ai-governance/tests", "packages/workspace/tests", "tests"]
-addopts = "-ra --strict-markers"
+addopts = "-ra --strict-markers -n auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
     "integration: end-to-end integration tests",

@@ -176,20 +176,26 @@ class Ledger:
 # -- hooks JSON ------------------------------------------------------------------
 
 
+def _entry_has_command(item: dict[str, Any], command: str) -> bool:
+    if "hooks" in item:
+        return any(hook.get("command") == command for hook in item.get("hooks", []))
+    return item.get("command") == command
+
+
 def _merge_hooks(
     data: dict[str, Any], entries: tuple[HookEntry, ...], name: str | None = None
 ) -> None:
     hooks = data.setdefault(name or "hooks", {})
     for entry in entries:
         groups = hooks.setdefault(entry.event, [])
-        present = any(
-            hook.get("command") == entry.command
-            for group in groups
-            for hook in group.get("hooks", [])
-        )
-        if present:
+        if any(_entry_has_command(item, entry.command) for item in groups):
             continue
-        group: dict[str, Any] = {"hooks": [{"type": "command", "command": entry.command}]}
+        handler = {"type": "command", "command": entry.command}
+        # Antigravity (named group) expects flat handler lists for matcher-less events.
+        if name is not None and entry.matcher is None:
+            groups.append(handler)
+            continue
+        group: dict[str, Any] = {"hooks": [handler]}
         if entry.matcher is not None:
             group = {"matcher": entry.matcher, **group}
         groups.append(group)
@@ -211,9 +217,13 @@ def _remove_hooks(data: dict[str, Any], commands: set[str], name: str | None = N
 
 
 def _without_commands(groups: list[dict[str, Any]], commands: set[str]) -> list[dict[str, Any]]:
-    """Matcher groups minus the given hook commands; groups left empty are dropped."""
+    """Matcher groups or flat handlers minus the given hook commands."""
     kept_groups = []
     for group in groups:
+        if "hooks" not in group:
+            if group.get("command") not in commands:
+                kept_groups.append(group)
+            continue
         kept = [h for h in group.get("hooks", []) if h.get("command") not in commands]
         if kept:
             kept_groups.append({**group, "hooks": kept})

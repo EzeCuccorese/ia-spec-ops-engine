@@ -40,7 +40,12 @@ def _stdin_text() -> str:
 
 
 def _cwd(payload: dict[str, Any]) -> Path:
-    return Path(payload.get("cwd") or Path.cwd())
+    raw = payload.get("cwd")
+    if not raw:
+        paths = payload.get("workspacePaths")
+        if isinstance(paths, list) and paths and isinstance(paths[0], str):
+            raw = paths[0]
+    return Path(raw or Path.cwd())
 
 
 def _claude_pre_tool_use() -> int:
@@ -202,18 +207,28 @@ def _has_task(repo: Path) -> bool:
     return bool(TaskResolver.bound_to(TaskStore().list(), repo))
 
 
-def _claude_session_start() -> int:
-    """Injects 1-3 lines about the task bound to this repository (stdout -> context); in a
-    repository without one, a reminder that code changes start a task, not the edit."""
-    cwd = _cwd(_payload())
+def _session_start_message(cwd: Path) -> str:
     found = _active_task(cwd)
     if found:
         from .taskflow.cli import digest
 
         store, task_id = found
-        print(digest(store, task_id, max_chars=SESSION_CONTEXT_CHARS))
-    elif hint := _session_hint(cwd):
-        print(hint)
+        return digest(store, task_id, max_chars=SESSION_CONTEXT_CHARS)
+    return _session_hint(cwd)
+
+
+def _claude_session_start() -> int:
+    """Injects 1-3 lines about the task bound to this repository (stdout -> context); in a
+    repository without one, a reminder that code changes start a task, not the edit."""
+    if msg := _session_start_message(_cwd(_payload())):
+        print(msg)
+    return 0
+
+
+def _antigravity_session_start() -> int:
+    """Antigravity SessionStart: inject active task summary via ``injectSteps``."""
+    if msg := _session_start_message(_cwd(_payload())):
+        print(json.dumps({"injectSteps": [{"systemMessage": {"systemMessage": msg}}]}))
     return 0
 
 
@@ -372,6 +387,7 @@ HANDLERS: dict[tuple[str, str], Callable[[], int]] = {
     ("claude", "session-end"): _claude_session_end,
     ("codex", "session-start"): _claude_session_start,
     ("codex", "post-tool-use"): _codex_post_tool_use,
+    ("antigravity", "session-start"): _antigravity_session_start,
     ("antigravity", "pre-tool-use"): _antigravity_pre_tool_use,
     ("antigravity", "writer-lease"): _antigravity_writer_lease,
 }
