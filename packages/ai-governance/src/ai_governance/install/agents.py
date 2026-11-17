@@ -449,6 +449,7 @@ class AntigravitySpec(AgentSpec):
             *skill_artifacts(home / "config" / "skills"),
             *self._verified_hooks(
                 home / "config" / "hooks.json",
+                HookEntry("SessionStart", None, f"{HOOK_COMMAND_PREFIX} antigravity session-start"),
                 HookEntry(
                     "PreToolUse", "run_command", f"{HOOK_COMMAND_PREFIX} antigravity pre-tool-use"
                 ),

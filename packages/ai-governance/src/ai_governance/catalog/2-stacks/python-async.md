@@ -1,10 +1,9 @@
 # Python 3.11+ Standards
 
 ## Invariants
-- **Type Annotations**: Provide explicit type hints on all function signatures; validate with `mypy --strict`.
-- **No `Any`**: Type real shapes with unions (`str | dict[str, str] | None`), `TypedDict`, `Protocol` or a model. `dict[str, Any]` only for raw JSON at the edge, parsed into a model right away.
-- **Pydantic v2**: Use immutable Pydantic models (`model_config = ConfigDict(frozen=True)`) for DTOs and config settings.
-- **Pydantic Types, Not Regex**: Type fields and tool/endpoint params with Pydantic types (`EmailStr`, `HttpUrl`, `UUID4`, `PositiveInt`, `Literal[...]`) and let Pydantic reject bad input; no hand-made validation in services.
-- **Errors**: Catch specific exceptions, never bare `except:`; `logging` with lazy `%s` args, never `print`.
-- **Async Safety**: Never perform blocking I/O calls directly inside the asyncio event loop; offload via `asyncio.to_thread`.
-- **Testing**: Write hermetic tests with `pytest` and typed fixtures.
+- **Types**: Explicit hints on all signatures (`mypy --strict`); parameterize `dict[K, V]`/`list[T]`; never shadow builtins.
+- **No `Any`**: Use unions, `TypedDict`, `Protocol` or models; `dict[str, Any]` only for raw JSON at the edge, parsed immediately.
+- **Pydantic v2**: Frozen models (`ConfigDict(frozen=True)`) for DTOs/settings; use Pydantic types (`EmailStr`, `HttpUrl`, `UUID4`, `PositiveInt`, `Literal`) instead of hand-made validation.
+- **Errors & Async**: Catch specific exceptions (never bare `except:`); `logging` with lazy `%s` (never `print`); offload blocking I/O in `asyncio` via `asyncio.to_thread`.
+- **Structure**: Inline 1-line forwarding wrappers unless adding behavior/domain meaning; keep `__init__.py` to imports; set attributes in `__init__`, never via `__dict__`.
+- **Testing**: Hermetic `pytest` tests with typed fixtures.

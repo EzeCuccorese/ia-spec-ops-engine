@@ -47,6 +47,7 @@ def test_always_on_rules_are_security_and_general_tools() -> None:
         "17-quality-gate",
         "18-surgical-changes",
         "19-pull-requests",
+        "20-review-ready-code",
         "circleci",
         "deploy-approvals",
         "production-risk-window",
@@ -66,10 +67,10 @@ def test_fixed_session_cost_for_a_typical_install(monkeypatch, tmp_path: Path) -
     project = fixed_cost(Ledger(root / PROJECT_DIR / "lock.json", base=root))
 
     # Global instructions, the Claude entry blocks and the always-on tool rules.
-    assert user["claude"] <= GLOBAL_MAX + ENTRY_BLOCK_MAX + 11 * (RULE_MAX + 300)
+    assert user["claude"] <= GLOBAL_MAX + ENTRY_BLOCK_MAX + 12 * (RULE_MAX + 300)
     # The always-on rules (read by each agent once) plus the shared AGENTS.md block.
-    assert project["claude"] <= 11 * (RULE_MAX + 300)
-    assert project["project"] <= PROJECT_BLOCK_MAX + 11 * (RULE_MAX + 300)
+    assert project["claude"] <= 12 * (RULE_MAX + 300)
+    assert project["project"] <= PROJECT_BLOCK_MAX + 12 * (RULE_MAX + 300)
 
 
 def test_readme_agents_table_is_generated() -> None:

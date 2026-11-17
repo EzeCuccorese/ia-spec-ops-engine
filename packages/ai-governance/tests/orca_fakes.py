@@ -19,6 +19,7 @@ executable:
 
 from __future__ import annotations
 
+import atexit
 import base64
 import json
 import os
@@ -28,6 +29,7 @@ import socket
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -427,16 +429,24 @@ def _empty_dir(path: Path) -> Path:
     return path
 
 
+_TEMPLATE_REPOS: dict[str, Path] = {}
+
+
 def _make_repo(path: Path, ignore: str = "") -> None:
-    path.mkdir(parents=True)
-    _git(path, "init", "-q", "-b", "feat/TASK-1-x")
-    _git(path, "config", "user.email", "t@example.com")
-    _git(path, "config", "user.name", "T")
-    (path / "app.py").write_text("x = 1\n")
-    if ignore:
-        (path / ".gitignore").write_text(ignore + "\n")
-    _git(path, "add", ".")
-    _git(path, "commit", "-qm", "init")
+    tpl = _TEMPLATE_REPOS.get(ignore)
+    if tpl is None or not tpl.exists():
+        tpl = Path(tempfile.mkdtemp(prefix="orca_repo_tpl_"))
+        atexit.register(shutil.rmtree, tpl, True)
+        _git(tpl, "init", "-q", "-b", "feat/TASK-1-x")
+        _git(tpl, "config", "user.email", "t@example.com")
+        _git(tpl, "config", "user.name", "T")
+        (tpl / "app.py").write_text("x = 1\n")
+        if ignore:
+            (tpl / ".gitignore").write_text(ignore + "\n")
+        _git(tpl, "add", ".")
+        _git(tpl, "commit", "-qm", "init")
+        _TEMPLATE_REPOS[ignore] = tpl
+    shutil.copytree(tpl, path)
 
 
 # Everything Git (and the credential helpers it starts) would read from the caller: cleared
