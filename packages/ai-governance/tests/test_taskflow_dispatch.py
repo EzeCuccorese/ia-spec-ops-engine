@@ -1380,3 +1380,12 @@ def test_debater_dispatch_and_collect_on_manual_and_same_provider(world: OrcaWor
     )
     assert world.collect(man_deb.n, "DM1").code == 0
     assert world.record(man_deb.n)["position"] == "Stay manual."
+
+
+def test_collect_ignores_non_dict_launch_json_when_no_denied_models(world: OrcaWorld) -> None:
+    world.dispatch("planner", "claude", "a", "--model", "claude-sonnet-4")
+    world.finish(1, "D1")
+    Path(world.dispatch_json(1)["launch"]).write_text("[1, 2]", encoding="utf-8")
+    res = world.collect(1, "D1")
+    assert res.code == 0
+    assert world.record(1)["launch_verified"] is False

@@ -3,16 +3,26 @@
 # ruff: noqa: F401, F811
 from __future__ import annotations
 
+import argparse
 import json
 import os
+import shutil
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from ai_governance.taskflow import debate
-from ai_governance.taskflow.control import DispatchError
-from ai_governance.taskflow.debate import TOPIC_MAX_BYTES, debate_path, load_debate
+from ai_governance.taskflow import debate, debate_cli
+from ai_governance.taskflow.config import load_config
+from ai_governance.taskflow.control import DispatchError, UsageRefusal
+from ai_governance.taskflow.debate import (
+    TOPIC_MAX_BYTES,
+    OpenDebateOptions,
+    assign_seats,
+    debate_path,
+    load_debate,
+    open_debate,
+)
 from ai_governance.taskflow.prompts import (
     CROSS_INSTRUCTION,
     THESIS_INSTRUCTION,
@@ -797,3 +807,175 @@ def test_denied_models_refuse_open_via_user_and_repo_config(
     _write_toml(repo_cfg, '[taskflow]\ndenied_models = ["repo-denied"]\n')
     _assert_denied_open(world, topic, ("--model", "claude=repo-denied"))
     assert not user_cfg.exists()
+
+
+def test_debate_cli_json_warnings_and_usage_refusal(
+    world: OrcaWorld, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert artifact_instruction(()) == ""
+    assert world.run("debate", TASK, "status").code == 1
+    assert world.run("debate", TASK, "close").code == 1
+
+    topic = _topic(tmp_path)
+    open_res = world.run(
+        "debate",
+        TASK,
+        "open",
+        "--topic-file",
+        str(topic),
+        "--agents",
+        "claude,,codex,claude",
+        "--json",
+    )
+    assert open_res.code == 0
+    assert json.loads(open_res.out)["debate_id"] == 1
+    assert _settle(world, 1, "D1", _AnswerSpec("claude", "P1.\nPOSITION: A.\n")).code == 0
+    assert _settle(world, 2, "D2", _AnswerSpec("codex", "P2.\nPOSITION: B.\n")).code == 0
+    assert _settle(world, 3, "D3", _AnswerSpec("claude", "bad", state="stopped")).code == 1
+
+    cross_res = world.run("debate", TASK, "cross", "--json")
+    assert cross_res.code == 0 and "WARN: dropped seat 'claude-2'" in cross_res.err
+    assert len(json.loads(cross_res.out)["seats"]) == 2
+
+    def _raise_refusal(_args: argparse.Namespace) -> int:
+        raise UsageRefusal("wrong usage")
+
+    monkeypatch.setattr(debate_cli, "_status", _raise_refusal)
+    assert debate_cli.route(argparse.Namespace(debate_action="status")) == 2
+
+
+def test_debate_guards_for_inputs_task_state_and_midflight_config(
+    world: OrcaWorld, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg = load_config([world.repo])
+    with pytest.raises(DispatchError, match="cannot be empty"):
+        assign_seats(["claude", "  "], None, cfg)
+    with pytest.raises(DispatchError, match="artifact path cannot be empty"):
+        open_debate(
+            world.store,
+            TASK,
+            cfg,
+            OpenDebateOptions(_topic(tmp_path), ("claude", "codex"), artifacts=("  ",)),
+        )
+
+    debate_path(world.store, TASK).write_text("[1, 2]", encoding="utf-8")
+    assert world.run("debate", TASK, "status").code == 1
+    debate_path(world.store, TASK).unlink()
+
+    def _block(task) -> None:
+        task.blocked = {"owner": "ops", "needs": "approval"}
+
+    world.store.mutate(TASK, _block)
+    res_blk = world.run(
+        "debate", TASK, "open", "--topic-file", str(_topic(tmp_path)), "--agents", "claude,codex"
+    )
+    assert res_blk.code == 1 and "blocked by ops" in res_blk.text
+
+    _new_bound_task(world, "TASK-GONE")
+    monkeypatch.chdir(world.base)
+    shutil.rmtree(world.repo)
+    assert (
+        world.run(
+            "debate",
+            "TASK-GONE",
+            "open",
+            "--topic-file",
+            str(_topic(tmp_path)),
+            "--agents",
+            "claude,codex",
+        ).code
+        == 1
+    )
+
+
+@pytest.mark.parametrize(
+    "bad_field", ["flags", "artifacts", "artifact_digests", "topic_sha", "status"]
+)
+def test_debate_cross_rejects_corrupted_or_changed_state_and_midflight_denial(
+    world: OrcaWorld, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bad_field: str
+) -> None:
+    topic = _topic(tmp_path)
+    _open_debate(world, topic, "claude,codex")
+    assert _settle(world, 1, "D1", _AnswerSpec("claude", "T1.\nPOSITION: A.\n")).code == 0
+    assert _settle(world, 2, "D2", _AnswerSpec("codex", "T2.\nPOSITION: B.\n")).code == 0
+
+    state = load_debate(world.store, TASK)
+    if bad_field == "flags":
+        state["flags"] = ["not-a-dict"]
+    elif bad_field == "artifacts":
+        state["flags"] = {"web": False, "artifacts": "not-a-list"}
+    elif bad_field == "artifact_digests":
+        state["artifact_digests"] = ["not-a-dict"]
+    elif bad_field == "topic_sha":
+        topic.write_text("Edited topic.\n", encoding="utf-8")
+    else:
+        state["status"] = "closed"
+    debate.save_debate(world.store, TASK, state)
+    assert world.run("debate", TASK, "cross").code == 1
+
+
+def test_debate_cross_midflight_denial_duplicate_and_save_rollback(
+    world: OrcaWorld, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    topic = _topic(tmp_path)
+    orig_save = debate.save_debate
+    monkeypatch.setattr(debate, "save_debate", lambda *_a: (_ for _ in ()).throw(OSError("disk")))
+    assert (
+        world.run(
+            "debate", TASK, "open", "--topic-file", str(topic), "--agents", "claude,codex"
+        ).code
+        == 1
+    )
+    _check_clean_store(world)
+    monkeypatch.setattr(debate, "save_debate", orig_save)
+
+    _open_debate(world, topic, "claude,codex")
+    assert _settle(world, 1, "D1", _AnswerSpec("claude", "T1.\nPOSITION: A.\n")).code == 0
+    assert _settle(world, 2, "D2", _AnswerSpec("codex", "T2.\nPOSITION: B.\n")).code == 0
+
+    monkeypatch.setenv("AI_GOVERNANCE_DENIED_MODELS", "gpt-6.1-sol")
+    assert world.run("debate", TASK, "cross").code == 1
+    monkeypatch.delenv("AI_GOVERNANCE_DENIED_MODELS")
+    monkeypatch.setenv("AI_GOVERNANCE_ALLOWED_AGENTS", "claude")
+    assert world.run("debate", TASK, "cross").code == 1
+    monkeypatch.delenv("AI_GOVERNANCE_ALLOWED_AGENTS")
+
+    monkeypatch.setattr(debate, "save_debate", lambda *_a: (_ for _ in ()).throw(OSError("disk")))
+    assert world.run("debate", TASK, "cross").code == 1
+    monkeypatch.setattr(debate, "save_debate", orig_save)
+    assert world.run("debate", TASK, "cross").code == 0
+    assert world.run("debate", TASK, "cross").code == 1
+
+
+def test_synthesis_handles_invalid_cross_unreadable_rounds_and_string_drops(
+    world: OrcaWorld, tmp_path: Path
+) -> None:
+    topic = _topic(tmp_path)
+    _open_debate(world, topic, "claude,codex,claude")
+    assert _settle(world, 1, "D1", _AnswerSpec("claude", "T1.\nPOSITION: A.\n")).code == 0
+    assert _settle(world, 2, "D2", _AnswerSpec("codex", "T2.\nPOSITION: B.\n")).code == 0
+    assert _settle(world, 3, "D3", _AnswerSpec("claude", "stopped", state="stopped")).code == 1
+    assert world.run("debate", TASK, "close").code == 1  # cross not dispatched
+
+    assert world.run("debate", TASK, "cross").code == 0
+    assert _settle(world, 4, "D4", _AnswerSpec("claude", "stopped", state="stopped")).code == 1
+    assert (
+        _settle(
+            world,
+            5,
+            "D5",
+            _AnswerSpec("codex", "REBUT: round 001 | c | e | agreed\nPOSITION: B.\n"),
+        ).code
+        == 0
+    )
+
+    state = load_debate(world.store, TASK)
+    state["dropped"].append("manual drop note")
+    debate.save_debate(world.store, TASK, state)
+    Path(world.task().rounds[0]["file"]).unlink()  # unreadable thesis file
+    assert world.run("debate", TASK, "close", "--partial").code == 0
+    text = (world.store.task_dir(TASK) / SYNTHESIS_FILE).read_text(encoding="utf-8")
+    assert "| invalid |" in _section(text, "Cross-Examination Matrix")
+    missing = _section(text, "Missing")
+    assert "Invalid cross round 004" in missing and "Unreadable thesis round file" in missing
+    assert "manual drop note" in missing

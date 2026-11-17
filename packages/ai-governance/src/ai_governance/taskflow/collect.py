@@ -255,6 +255,7 @@ def _read_raw_launch(found: JsonDict, denied: set[str]) -> object | None:
         return None
     if not isinstance(data, dict):
         _fail_if_denied(found, path, denied, "expected a JSON object")
+        return None
     return data
 
 

@@ -521,20 +521,22 @@ def _cross_artifacts(state: JsonDict, flags: JsonDict) -> tuple[str, ...]:
     return tuple(current)
 
 
-def _cross_requests(
-    task: Task,
-    valid_seats: Sequence[JsonDict],
-    state: JsonDict,
-    effort: str,
-) -> list[tuple[SeatSpec, DispatchRequest]]:
+def _cross_flags(state: JsonDict, effort: str) -> tuple[str, _OpenFlags]:
     topic_text = _cross_topic(state)
     raw_flags = state.get("flags", {})
     if not isinstance(raw_flags, dict):
         raise DispatchError("corrupted debate state: flags must be an object")
     flags = dict(raw_flags)
     artifacts = _cross_artifacts(state, flags)
-    web = bool(flags.get("web", False))
-    prompt = topic_text.strip()
+    return topic_text.strip(), _OpenFlags(bool(flags.get("web", False)), artifacts, effort)
+
+
+def _cross_requests(
+    task: Task,
+    valid_seats: Sequence[JsonDict],
+    prompt: str,
+    flags: _OpenFlags,
+) -> list[tuple[SeatSpec, DispatchRequest]]:
     requests: list[tuple[SeatSpec, DispatchRequest]] = []
     for seat in valid_seats:
         focus = str(seat["focus"])
@@ -549,9 +551,9 @@ def _cross_requests(
             prompt=prompt,
             agent={"agent": spec.agent, "model": spec.model},
             rebuts=rebuts,
-            web=web,
-            artifacts=artifacts,
-            effort=effort,
+            web=flags.web,
+            artifacts=flags.artifacts,
+            effort=flags.effort,
         )
         requests.append((spec, req))
     return requests
@@ -599,8 +601,9 @@ def _cross_debate_locked(store: TaskStore, task_id: str, config: FlowConfig) -> 
     valid_seats, dropped, warnings = _valid_cross_seats(state, task, config)
     _check_pending_focuses(store, task, {str(s["focus"]) for s in valid_seats})
     orca.require_orca()
-    requests = _cross_requests(task, valid_seats, state, config.effort("debater"))
+    prompt, flags = _cross_flags(state, config.effort("debater"))
     task, _ = refresh(store, task, config)
+    requests = _cross_requests(task, valid_seats, prompt, flags)
     dispatched = _dispatch_seats(store, task, config, requests)
     try:
         _save_cross_state(store, task_id, state, _CrossSave(dispatched, dropped))
