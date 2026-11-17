@@ -6,6 +6,7 @@ import json
 import os
 import signal
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,7 @@ from ai_governance.install.content import TASKFLOW_SKILL
 from ai_governance.settings import SETTINGS
 from ai_governance.taskflow import gates
 from ai_governance.taskflow.agents import DEFAULT_MODELS, provider
-from ai_governance.taskflow.config import FlowConfig, load_config
+from ai_governance.taskflow.config import FlowConfig, load_config, record_trust
 from ai_governance.taskflow.judge import JudgeError, builders, independent_judges
 from ai_governance.taskflow.models import Task
 
@@ -26,14 +27,11 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("AI_GOVERNANCE_CONFIG_DIR", str(tmp_path / "cfg"))
     monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
-    for name in (
-        "AI_GOVERNANCE_ALLOWED_AGENTS",
-        "AI_GOVERNANCE_PLANNER_AGENT",
-        "AI_GOVERNANCE_VALIDATOR_AGENT",
-        "AI_GOVERNANCE_BUILDER_AGENT",
-        "AI_GOVERNANCE_JUDGE_AGENT",
-    ):
-        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("AI_GOVERNANCE_ALLOWED_AGENTS", raising=False)
+    monkeypatch.delenv("AI_GOVERNANCE_DENIED_MODELS", raising=False)
+    for role in ("PLANNER", "VALIDATOR", "BUILDER", "JUDGE", "DEBATER"):
+        for field in ("AGENT", "MODEL", "EFFORT"):
+            monkeypatch.delenv(f"AI_GOVERNANCE_{role}_{field}", raising=False)
     monkeypatch.chdir(tmp_path)
     return tmp_path / "cfg"
 
@@ -475,9 +473,11 @@ def test_run_refusal_names_the_broken_file(tmp_path: Path) -> None:
 
 def test_default_models_follow_the_settings_defaults() -> None:
     defaults = {s.key: s.default for s in SETTINGS}
-    for role in ("planner", "validator", "builder", "judge"):
+    for role in ("planner", "validator", "builder", "judge", "debater"):
         agent, model = defaults[f"taskflow.{role}_agent"], defaults[f"taskflow.{role}_model"]
         assert DEFAULT_MODELS[str(agent)] == model
+        assert defaults[f"taskflow.{role}_effort"] == ""
+    assert defaults["taskflow.denied_models"] == []
 
 
 def test_installed_skill_states_the_independence_rule() -> None:
@@ -604,3 +604,100 @@ def test_user_source_problem_fails_closed_on_agents_but_preserves_taskflow_toml(
     assert any(r.name == "sec" for r in config.risk_rules)
     assert "pytest tests/auth" in config.checks
     assert any(j["focus"] == "sec-judge" for j in config.judges)
+
+
+# --- effort and denied_models ---------------------------------------------------------------
+
+
+def test_effort_and_denied_models_defaults_are_user_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _repo(
+        tmp_path,
+        "r",
+        '[taskflow]\nplanner_effort = "low"\ndebater_effort = "high"\n',
+    )
+    cfg = load_config([repo])
+    assert cfg.efforts == {r: "" for r in ("planner", "validator", "builder", "judge", "debater")}
+    assert cfg.denied_models == frozenset()
+
+    monkeypatch.setenv("AI_GOVERNANCE_PLANNER_EFFORT", "high")
+    monkeypatch.setenv("AI_GOVERNANCE_DEBATER_EFFORT", "medium")
+    updated = load_config([repo])
+    assert updated.effort("planner") == "high" and updated.effort("debater") == "medium"
+
+
+def test_denied_models_union_across_user_and_repos_never_removes(
+    tmp_path: Path, isolated: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    isolated.mkdir(parents=True, exist_ok=True)
+    (isolated / "config.toml").write_text('[taskflow]\ndenied_models = ["user-cfg-model"]\n')
+    (isolated / "taskflow.toml").write_text('denied_models = ["user-tf-model"]\n')
+    repo_a = _repo(tmp_path, "a", '[taskflow]\ndenied_models = ["repo-cfg-model"]\n')
+    repo_b = _repo(tmp_path, "b", "[taskflow]\ndenied_models = []\n")
+    (repo_b / ".ai-governance" / "taskflow.toml").write_text(
+        'denied_models = ["untrusted-model"]\n'
+    )
+    before = load_config([repo_a, repo_b])
+    assert before.denied_models == frozenset({"user-cfg-model", "user-tf-model", "repo-cfg-model"})
+
+    tf_text = '[taskflow]\ndenied_models = ["trusted-tf-model"]\n'
+    (repo_b / ".ai-governance" / "taskflow.toml").write_text(tf_text)
+    record_trust(repo_b, tomllib.loads(tf_text))
+    trusted = load_config([repo_a, repo_b])
+    assert trusted.denied_models == frozenset(
+        {"user-cfg-model", "user-tf-model", "repo-cfg-model", "trusted-tf-model"}
+    )
+
+    monkeypatch.setenv("AI_GOVERNANCE_DENIED_MODELS", "env-model")
+    with_env = load_config([repo_a, repo_b])
+    assert {"env-model", "user-tf-model", "repo-cfg-model", "trusted-tf-model"} <= set(
+        with_env.denied_models
+    )
+
+
+def _setup_malformed_denied(tmp_path: Path, case: str) -> tuple[Path, str]:
+    repo = _repo(tmp_path, f"bad-{case}", None)
+    if case.startswith("cfg-"):
+        body = {
+            "cfg-str": '[taskflow]\ndenied_models = "m"\n',
+            "cfg-int": "[taskflow]\ndenied_models = [1]\n",
+            "cfg-empty": '[taskflow]\ndenied_models = [""]\n',
+        }[case]
+        (repo / ".ai-governance" / "config.toml").write_text(body, encoding="utf-8")
+        return repo, "config.toml"
+    tf_body = {
+        "tf-str": 'denied_models = "m"\n',
+        "tf-table": '[denied_models]\nwrong = ["m"]\n',
+        "tf-int": "[taskflow]\ndenied_models = [1]\n",
+    }[case]
+    (repo / ".ai-governance" / "taskflow.toml").write_text(tf_body, encoding="utf-8")
+    record_trust(repo, tomllib.loads(tf_body))
+    return repo, "taskflow.toml"
+
+
+@pytest.mark.parametrize(
+    "case", ["cfg-str", "cfg-int", "cfg-empty", "tf-str", "tf-table", "tf-int"]
+)
+def test_malformed_repo_denied_models_fails_closed(tmp_path: Path, case: str) -> None:
+    repo, filename = _setup_malformed_denied(tmp_path, case)
+    cfg = load_config([repo])
+    assert cfg.denied_model_problems
+    assert cfg.model_error("gpt-6.1-sol") is not None
+    assert cfg.model_error("") is not None
+    assert any(filename in err for err in cfg.validate())
+
+
+def test_denied_model_matching_normalizes_case_and_provider_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AI_GOVERNANCE_DENIED_MODELS", "  GPT-6.1-SOL , Anthropic/Claude-Opus-4 ")
+    cfg = load_config([])
+    assert cfg.denied_models == frozenset({"gpt-6.1-sol", "anthropic/claude-opus-4"})
+    assert cfg.model_error("openai/GPT-6.1-SOL") is not None
+    assert cfg.model_error("  GPT-6.1-SOL  ") is not None
+    assert cfg.model_error("claude-opus-4") is not None
+    assert cfg.model_error("Anthropic/CLAUDE-OPUS-4") is not None
+    assert cfg.model_error("openai/claude-opus-4") is None
+    assert cfg.model_error("gpt-6.1-mini") is None
+    assert cfg.model_error("") is None

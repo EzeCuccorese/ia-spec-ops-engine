@@ -24,11 +24,12 @@ from datetime import datetime
 from pathlib import Path
 
 from . import orca
-from .agents import provider
+from .agents import provider, read_regular_text
+from .config import FlowConfig, load_config, matches_denied_model
 from .control import DispatchError, drift
 from .dispatch import read_dispatch, verify_dispatch
 from .models import JsonDict, Task, now_iso
-from .prompts import parse_changes, parse_verdict
+from .prompts import parse_changes, parse_position, parse_verdict
 from .repos import guard
 from .stamp import changed_paths, head_sha, tree_fingerprint
 from .store import TaskStore, atomic_write_text
@@ -55,6 +56,16 @@ class _Settlement:
     record: JsonDict
     text: str
     extra: JsonDict | None = None
+
+
+@dataclass(frozen=True)
+class _CollectEvidence:
+    """Verification metadata collected before writing the settled round record."""
+
+    dispatch_id: str
+    provider_verified: bool
+    transport: str
+    launch_verified: bool
 
 
 class _Lost(Exception):
@@ -184,14 +195,96 @@ def _launched(override: JsonDict, result: JsonDict, key: str) -> str:
     return str(override.get(key) or result.get(key) or "")
 
 
-def _read_launch(found: JsonDict) -> Launch | None:
-    path = Path(str(found.get("launch", "")))
-    if not found.get("launch") or not path.is_file():
+def _model_field(node: object) -> str:
+    raw = node.get("model") if isinstance(node, dict) else None
+    return raw.strip() if isinstance(raw, str) else ""
+
+
+def _raw_launch_models(raw_data: object) -> list[str]:
+    """Collect non-empty model strings from any dict-shaped launch receipt."""
+    if not isinstance(raw_data, dict):
+        return []
+    result = raw_data.get("result")
+    launch = result.get("launch") if isinstance(result, dict) else None
+    effective = launch.get("effective") if isinstance(launch, dict) else None
+    candidates = [_model_field(n) for n in (raw_data, result, effective)]
+    return list(dict.fromkeys(m for m in candidates if m))
+
+
+def _load_round_config(found: JsonDict) -> FlowConfig:
+    repos = [
+        Path(r["path"])
+        for r in found.get("repos") or []
+        if isinstance(r, dict) and r.get("path") and Path(r["path"]).is_dir()
+    ]
+    return load_config(repos)
+
+
+def _combined_denied_models(found: JsonDict) -> set[str]:
+    cfg = _load_round_config(found)
+    if cfg.denied_model_problems:
+        raise DispatchError(
+            f"cannot verify round {found.get('n', '?')}: {'; '.join(cfg.denied_model_problems)}"
+        )
+    return set(cfg.denied_models) | {
+        str(m).strip() for m in found.get("denied_models") or [] if str(m).strip()
+    }
+
+
+def _fail_if_denied(found: JsonDict, path: Path, denied: set[str], why: object) -> None:
+    if denied:
+        raise DispatchError(
+            f"the launch receipt of round {found.get('n', '?')} at {path} cannot be read "
+            f"while taskflow.denied_models is active ({why})"
+        )
+
+
+def _read_raw_launch(found: JsonDict, denied: set[str]) -> object | None:
+    raw_path = found.get("launch")
+    if not raw_path:
         return None
+    path = Path(str(raw_path))
     try:
-        return parse_launch(json.loads(path.read_text(encoding="utf-8")))
-    except (OSError, ValueError):
+        data = json.loads(read_regular_text(path))
+    except FileNotFoundError as exc:
+        if path.is_symlink():
+            _fail_if_denied(found, path, denied, exc)
         return None
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        _fail_if_denied(found, path, denied, exc)
+        return None
+    if not isinstance(data, dict):
+        _fail_if_denied(found, path, denied, "expected a JSON object")
+        return None
+    return data
+
+
+def _verified_launch_model(launch: Launch | None) -> bool:
+    return launch is not None and bool(launch.dispatch_id and launch.agent and launch.model)
+
+
+def _check_denied_models(
+    found: JsonDict, raw_data: object, launch: Launch | None, denied: set[str]
+) -> None:
+    number = found.get("n", "?")
+    launched_models = _raw_launch_models(raw_data)
+    for model in launched_models:
+        if matches_denied_model(model, denied):
+            raise DispatchError(
+                f"Orca launched round {number} on model '{model}', which is denied by "
+                "taskflow.denied_models"
+            )
+    dispatched_model = str(found.get("model") or "").strip()
+    if dispatched_model and matches_denied_model(dispatched_model, denied):
+        raise DispatchError(
+            f"round {number} was dispatched on model '{dispatched_model}', which is denied by "
+            "taskflow.denied_models"
+        )
+    if denied and not _verified_launch_model(launch):
+        raise DispatchError(
+            f"round {number} has no verified model in launch receipt while taskflow.denied_models "
+            "is active"
+        )
 
 
 def launch_verified(found: JsonDict, dispatch_id: str) -> bool:
@@ -200,8 +293,11 @@ def launch_verified(found: JsonDict, dispatch_id: str) -> bool:
 
     No receipt, a receipt that is not a successful start, or one without a dispatch id is
     unverified, not a failure (older dispatches have none). A receipt of another dispatch,
-    or one naming another provider or model, refuses the collect."""
-    launch = _read_launch(found)
+    one naming another provider or model, or a denied model refuses the collect."""
+    denied = _combined_denied_models(found)
+    raw_data = _read_raw_launch(found, denied)
+    launch = parse_launch(raw_data)
+    _check_denied_models(found, raw_data, launch, denied)
     if launch is None or not launch.dispatch_id:
         return False
     _refuse_mismatch(launch, found, dispatch_id)
@@ -282,21 +378,28 @@ def _outcome(found: JsonDict, row: orca.WorkerRow, answer: str) -> tuple[str, st
     return "valid", verdict, ""
 
 
+def _render_extra(record: JsonDict, found: JsonDict) -> str:
+    extra = ""
+    if record.get("rebuts"):
+        extra += (
+            "- Cross-examines rounds: " + ", ".join(f"{n:03d}" for n in record["rebuts"]) + "\n"
+        )
+    if record.get("position"):
+        extra += f"- Position: {record['position']}\n"
+    if record.get("scratch_used"):
+        extra += f"- Scratch evidence: {found['scratch']}\n"
+    if record.get("changes"):
+        extra += "- Required changes:\n" + "".join(f"  - {c}\n" for c in record["changes"])
+    return extra
+
+
 def _render(record: JsonDict, found: JsonDict, answer: str) -> str:
     focus = f" · {record['focus']}" if record.get("focus") else ""
     spec = Path(found["spec"]).read_text(encoding="utf-8")
     check = "provider verified" if record.get("provider_verified") else "provider not verified"
     launch = "launch verified" if record.get("launch_verified") else "launch not verified"
     reason = f": {record['reason']}" if record.get("reason") else ""
-    extra = ""
-    if record.get("rebuts"):
-        extra += (
-            "- Cross-examines rounds: " + ", ".join(f"{n:03d}" for n in record["rebuts"]) + "\n"
-        )
-    if record.get("scratch_used"):
-        extra += f"- Scratch evidence: {found['scratch']}\n"
-    if record.get("changes"):
-        extra += "- Required changes:\n" + "".join(f"  - {c}\n" for c in record["changes"])
+    extra = _render_extra(record, found)
     return (
         f"# Round {record['n']:03d} · {record['phase']} · {record['role']}{focus} · "
         f"{record['agent']} {record['model']}\n\n"
@@ -334,6 +437,24 @@ def _write_settled(store: TaskStore, task_id: str, settlement: _Settlement) -> N
     store.mutate(task_id, settle)
 
 
+def _settled_record(
+    found: JsonDict, row: orca.WorkerRow, answer: str, ev: _CollectEvidence
+) -> JsonDict:
+    state, verdict, reason = _outcome(found, row, answer)
+    reviews = found["role"] in ("validator", "judge")
+    record: JsonDict = {
+        **_base_record(found),
+        **{"verdict": verdict, "state": state, "reason": reason, "session": ev.dispatch_id},
+        **{"provider_verified": ev.provider_verified, "answer_transport": ev.transport},
+        **{"launch_verified": ev.launch_verified, "rebuts": list(found.get("rebuts", []))},
+        **{"changes": parse_changes(answer) if reviews else []},
+        **{"scratch_used": _used_scratch(found)},
+    }
+    if found["role"] == "debater":
+        record["position"] = parse_position(answer, unwrapped=True)
+    return record
+
+
 def collect_round(
     store: TaskStore, ref: RoundRef, dispatch_id: str, answer_file: Path | None = None
 ) -> Settled:
@@ -354,17 +475,8 @@ def collect_round(
             "taskflow control files changed since dispatch (" + ", ".join(changed[:6]) + "): "
             "the round was not settled; inspect the store before going on"
         )
-    launched = launch_verified(found, dispatch_id)
-    state, verdict, reason = _outcome(found, row, answer)
-    reviews = found["role"] in ("validator", "judge")
-    record = {
-        **_base_record(found),
-        **{"verdict": verdict, "state": state, "reason": reason, "session": dispatch_id},
-        **{"provider_verified": verified, "answer_transport": transport},
-        **{"launch_verified": launched, "rebuts": list(found.get("rebuts", []))},
-        **{"changes": parse_changes(answer) if reviews else []},
-        **{"scratch_used": _used_scratch(found)},
-    }
+    ev = _CollectEvidence(dispatch_id, verified, transport, launch_verified(found, dispatch_id))
+    record = _settled_record(found, row, answer, ev)
     try:
         _write_settled(store, task_id, _Settlement(record, _render(record, found, answer)))
     except _Lost as lost:

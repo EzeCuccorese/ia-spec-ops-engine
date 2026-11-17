@@ -68,6 +68,15 @@ One worktree per task: tasks sharing a worktree make `here` ambiguous and review
 contexts. `round dispatch` already prepends the task context (goal, plan path, decisions, facts,
 repos), so a prompt only needs the specific question.
 
+Design debate (any workflow, at least 2 providers, no gates):
+  taskflow debate <ID> open --topic-file <file> --agents <a,b> [--model a=m] [--web] [--artifact P]
+  (run each printed line, end your turn, collect each round, then:)
+  taskflow debate <ID> cross              (every valid seat cross-examines the others)
+  taskflow debate <ID> status             (pending/collected/invalid per seat)
+  taskflow debate <ID> close [--partial]  (writes synthesis.md; records open points as steps)
+`round <ID> dispatch` and `debate <ID> open` accept `--web` (require URLs for external claims)
+and `--artifact <path>` (repeatable; inspect visual/binary files before citing).
+
 Code tasks in taskflow run tri-agent: "different agents" means different Orca sessions (planner,
 validator and each judge) and the builder is the coordinating session. The validator and every judge must also be a different
 provider than the builder; the planner may share the builder's provider. A repository can

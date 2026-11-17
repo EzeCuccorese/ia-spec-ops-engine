@@ -49,6 +49,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         _prompt(args),
         agent,
         rebuts=tuple(args.rebut),
+        web=bool(getattr(args, "web", False)),
+        artifacts=tuple(getattr(args, "artifact", None) or ()),
     )
     plan = plan_dispatch(store, task, config, request)
     if args.json:
