@@ -4,28 +4,28 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark light">
-  <title>ia-spec-ops-engine + Orca — Cómo escalar agentes en equipo</title>
+  <title>ia-spec-ops-engine + Orca — Arquitectura AI-Native</title>
   <style>
     :root {
       color-scheme: dark;
-      --bg-0: #050811;
-      --bg-1: #0b1120;
-      --bg-card: rgba(15, 23, 42, 0.78);
-      --border: rgba(56, 189, 248, 0.22);
-      --border-strong: rgba(56, 189, 248, 0.5);
-      --text: #e2e8f0;
+      --bg-void: #04040a;
+      --bg-panel: rgba(11, 13, 24, 0.72);
+      --bg-panel-strong: rgba(14, 17, 32, 0.9);
+      --border: rgba(0, 245, 212, 0.2);
+      --border-hot: rgba(255, 46, 147, 0.42);
+      --border-strong: rgba(0, 245, 212, 0.55);
+      --text: #eef2ff;
       --text-dim: #94a3b8;
-      --cyan: #22d3ee;
-      --emerald: #34d399;
-      --violet: #a78bfa;
-      --amber: #fbbf24;
-      --rose: #fb7185;
+      --mint: #00f5d4;
+      --plasma: #ff2e93;
+      --violet: #9d4edd;
+      --solar: #ffb703;
       --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
       --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      --scrollbar-track: #070b14;
-      --scrollbar-thumb: #1e3a5f;
+      --scrollbar-track: #05050d;
+      --scrollbar-thumb: #1f2a48;
       scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
-      accent-color: var(--cyan);
+      accent-color: var(--mint);
     }
 
     *, *::before, *::after {
@@ -35,7 +35,7 @@
     html, body {
       margin: 0;
       min-height: 100%;
-      background-color: var(--bg-0);
+      background-color: var(--bg-void);
       color: var(--text);
       font-family: var(--font-sans);
       line-height: 1.55;
@@ -46,47 +46,112 @@
       display: grid;
       grid-template-rows: auto 1fr auto;
       min-height: 100dvh;
-      background-image:
-        radial-gradient(ellipse 80% 50% at 15% -10%, rgba(34, 211, 238, 0.14), transparent 60%),
-        radial-gradient(ellipse 70% 45% at 90% 10%, rgba(167, 139, 250, 0.12), transparent 55%),
-        linear-gradient(rgba(34, 211, 238, 0.03) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(34, 211, 238, 0.03) 1px, transparent 1px);
-      background-size: auto, auto, 44px 44px, 44px 44px;
+      position: relative;
       overflow-x: hidden;
+      background-image:
+        radial-gradient(ellipse 75% 50% at 10% -5%, rgba(0, 245, 212, 0.14), transparent 60%),
+        radial-gradient(ellipse 65% 50% at 92% 8%, rgba(255, 46, 147, 0.14), transparent 58%),
+        radial-gradient(ellipse 55% 40% at 50% 105%, rgba(157, 78, 221, 0.14), transparent 60%),
+        linear-gradient(rgba(0, 245, 212, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(157, 78, 221, 0.03) 1px, transparent 1px);
+      background-size: auto, auto, auto, 48px 48px, 48px 48px;
+    }
+
+    #neuralBg {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.65;
+    }
+
+    .scanlines {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 1;
+      opacity: 0.035;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(255, 255, 255, 0.5) 2px,
+        rgba(255, 255, 255, 0.5) 3px
+      );
     }
 
     :where(a, button, [tabindex]):focus-visible {
-      outline: 2px solid var(--cyan);
+      outline: 2px solid var(--mint);
       outline-offset: 3px;
     }
 
-    @keyframes slide-to-left {
-      to { transform: translateX(-6%); opacity: 0; }
+    /* Futuristic Directional View Transitions */
+    @keyframes hud-out-left {
+      to {
+        transform: translateX(-5%) scale(0.96);
+        opacity: 0;
+        filter: blur(4px);
+      }
     }
-    @keyframes slide-from-right {
-      from { transform: translateX(6%); opacity: 0; }
+    @keyframes hud-in-right {
+      from {
+        transform: translateX(6%) scale(1.02);
+        opacity: 0;
+        filter: blur(4px);
+      }
     }
-    @keyframes slide-to-right {
-      to { transform: translateX(6%); opacity: 0; }
+    @keyframes hud-out-right {
+      to {
+        transform: translateX(5%) scale(0.96);
+        opacity: 0;
+        filter: blur(4px);
+      }
     }
-    @keyframes slide-from-left {
-      from { transform: translateX(-6%); opacity: 0; }
+    @keyframes hud-in-left {
+      from {
+        transform: translateX(-6%) scale(1.02);
+        opacity: 0;
+        filter: blur(4px);
+      }
     }
 
     ::view-transition-group(slide-stage) {
-      animation: 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+      animation: 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
     }
     html:active-view-transition-type(forward)::view-transition-old(slide-stage) {
-      animation-name: slide-to-left;
+      animation-name: hud-out-left;
     }
     html:active-view-transition-type(forward)::view-transition-new(slide-stage) {
-      animation-name: slide-from-right;
+      animation-name: hud-in-right;
     }
     html:active-view-transition-type(backward)::view-transition-old(slide-stage) {
-      animation-name: slide-to-right;
+      animation-name: hud-out-right;
     }
     html:active-view-transition-type(backward)::view-transition-new(slide-stage) {
-      animation-name: slide-from-left;
+      animation-name: hud-in-left;
+    }
+
+    @keyframes card-rise {
+      from {
+        opacity: 0;
+        transform: translateY(14px) scale(0.985);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .slide.active .card,
+      .slide.active .quote-box,
+      .slide.active .svg-wrap,
+      .slide.active pre.terminal {
+        animation: card-rise 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+        animation-delay: calc(var(--stagger, 0) * 55ms);
+      }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -97,94 +162,138 @@
       }
       * {
         transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
       }
     }
 
-    .topbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
-      padding: 0.75rem 1.5rem;
-      border-bottom: 1px solid var(--border);
-      background: rgba(5, 8, 17, 0.84);
-      backdrop-filter: blur(12px);
-      position: sticky;
-      top: 0;
-      z-index: 20;
-    }
-
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      font-family: var(--font-mono);
-      font-size: 0.85rem;
-      letter-spacing: 0.04em;
-    }
-
-    .brand-badge {
-      padding: 0.2rem 0.55rem;
-      border-radius: 999px;
-      border: 1px solid var(--border-strong);
-      background: rgba(34, 211, 238, 0.12);
-      color: var(--cyan);
-      font-weight: 700;
-    }
-
-    .top-nav {
-      display: flex;
-      align-items: center;
-      gap: 0.35rem;
-      flex-wrap: wrap;
-    }
-
-    .dot-btn {
-      min-inline-size: 28px;
-      min-block-size: 28px;
-      padding: 0 0.45rem;
-      border-radius: 6px;
-      border: 1px solid transparent;
-      background: rgba(148, 163, 184, 0.08);
-      color: var(--text-dim);
-      font-family: var(--font-mono);
-      font-size: 0.75rem;
-      cursor: pointer;
-      transition: background-color 0.15s, border-color 0.15s, color 0.15s;
-    }
-
-    .dot-btn:hover {
-      background: rgba(34, 211, 238, 0.12);
-      color: var(--text);
-    }
-
-    .dot-btn[aria-current="step"] {
-      background: rgba(34, 211, 238, 0.2);
-      border-color: var(--cyan);
-      color: var(--cyan);
-      font-weight: 700;
-    }
-
+    /* Progress & Header */
     .progress-track {
       position: fixed;
       top: 0;
       left: 0;
       right: 0;
       height: 3px;
-      background: rgba(148, 163, 184, 0.12);
-      z-index: 30;
+      background: rgba(148, 163, 184, 0.1);
+      z-index: 40;
     }
 
     .progress-fill {
       height: 100%;
-      background: linear-gradient(90deg, var(--cyan), var(--violet), var(--emerald));
       width: 10%;
-      transition: width 0.28s ease;
+      background: linear-gradient(90deg, var(--mint), var(--violet), var(--plasma));
+      box-shadow: 0 0 12px rgba(0, 245, 212, 0.65);
+      transition: width 0.32s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.85rem;
+      padding: 0.7rem 1.4rem;
+      border-bottom: 1px solid var(--border);
+      background: rgba(4, 4, 10, 0.82);
+      backdrop-filter: blur(16px);
+      flex-wrap: wrap;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      letter-spacing: 0.05em;
+    }
+
+    .hud-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.22rem 0.6rem;
+      border-radius: 999px;
+      border: 1px solid var(--border-strong);
+      background: rgba(0, 245, 212, 0.1);
+      color: var(--mint);
+      font-weight: 700;
+    }
+
+    .hud-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--mint);
+      box-shadow: 0 0 8px var(--mint);
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+    }
+
+    .top-nav {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      flex-wrap: wrap;
+    }
+
+    .dot-btn {
+      min-inline-size: 30px;
+      min-block-size: 30px;
+      padding: 0 0.45rem;
+      border-radius: 7px;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      background: rgba(15, 23, 42, 0.65);
+      color: var(--text-dim);
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+      cursor: pointer;
+      transition: border-color 0.18s, background-color 0.18s, color 0.18s, transform 0.15s;
+    }
+
+    .dot-btn:hover {
+      border-color: var(--mint);
+      color: var(--text);
+      transform: translateY(-1px);
+    }
+
+    .dot-btn[aria-current="step"] {
+      background: linear-gradient(135deg, rgba(0, 245, 212, 0.22), rgba(157, 78, 221, 0.22));
+      border-color: var(--mint);
+      color: var(--mint);
+      font-weight: 700;
+      box-shadow: 0 0 14px rgba(0, 245, 212, 0.25);
+    }
+
+    .fx-btn {
+      min-block-size: 30px;
+      padding: 0.2rem 0.65rem;
+      border-radius: 7px;
+      border: 1px solid rgba(157, 78, 221, 0.4);
+      background: rgba(157, 78, 221, 0.12);
+      color: #e9d5ff;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      cursor: pointer;
+    }
+
+    .fx-btn[aria-pressed="false"] {
+      opacity: 0.6;
+      border-color: rgba(148, 163, 184, 0.25);
+    }
+
+    /* Main Stage */
     main.stage {
+      position: relative;
+      z-index: 2;
       view-transition-name: slide-stage;
-      max-width: 1200px;
+      max-width: 1220px;
       width: 100%;
       margin: 0 auto;
       padding: 1.5rem 1.5rem 2rem;
@@ -196,7 +305,7 @@
     .slide {
       display: none;
       flex-direction: column;
-      gap: 1.25rem;
+      gap: 1.2rem;
     }
 
     .slide.active {
@@ -207,44 +316,48 @@
       font-family: var(--font-mono);
       font-size: 0.78rem;
       text-transform: uppercase;
-      letter-spacing: 0.12em;
-      color: var(--cyan);
+      letter-spacing: 0.14em;
+      color: var(--mint);
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.55rem;
     }
 
     .eyebrow::before {
       content: "";
-      width: 20px;
+      width: 24px;
       height: 2px;
-      background: var(--cyan);
+      background: linear-gradient(90deg, var(--mint), var(--plasma));
     }
 
     h1, h2, h3 {
       margin: 0;
-      line-height: 1.15;
+      line-height: 1.14;
     }
 
     .hero-title {
-      font-size: clamp(2rem, 4.4vw, 3.35rem);
-      font-weight: 800;
-      letter-spacing: -0.02em;
-      background: linear-gradient(125deg, #f8fafc 20%, var(--cyan) 65%, var(--violet));
+      font-size: clamp(2.05rem, 4.5vw, 3.5rem);
+      font-weight: 850;
+      letter-spacing: -0.025em;
+      background: linear-gradient(120deg, #ffffff 18%, var(--mint) 55%, var(--plasma) 95%);
       -webkit-background-clip: text;
       background-clip: text;
       color: transparent;
     }
 
     .slide-title {
-      font-size: clamp(1.55rem, 3vw, 2.25rem);
+      font-size: clamp(1.55rem, 3vw, 2.3rem);
       font-weight: 800;
       letter-spacing: -0.015em;
+      background: linear-gradient(110deg, #f8fafc 40%, #c4b5fd);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
     }
 
     .lead {
       margin: 0;
-      font-size: 1.05rem;
+      font-size: 1.04rem;
       color: var(--text-dim);
       max-width: 78ch;
     }
@@ -257,76 +370,101 @@
 
     .grid-3 {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(235px, 1fr));
       gap: 1rem;
     }
 
     .grid-4 {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(195px, 1fr));
       gap: 0.85rem;
     }
 
+    /* Glassmorphic HUD Cards with Mouse Spotlight */
     .card {
-      background: var(--bg-card);
+      position: relative;
+      background:
+        radial-gradient(320px circle at var(--mx, 50%) var(--my, 0%), rgba(0, 245, 212, 0.1), transparent 65%),
+        var(--bg-panel);
       border: 1px solid var(--border);
       border-radius: 14px;
       padding: 1.15rem 1.25rem;
-      backdrop-filter: blur(10px);
+      backdrop-filter: blur(14px);
       display: flex;
       flex-direction: column;
       gap: 0.55rem;
+      transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+    }
+
+    .card:hover {
+      border-color: var(--border-strong);
     }
 
     .card.highlight {
-      border-color: var(--border-strong);
-      box-shadow: 0 0 28px rgba(34, 211, 238, 0.08);
+      border-color: rgba(0, 245, 212, 0.45);
+      box-shadow: 0 0 32px rgba(0, 245, 212, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    }
+
+    .card.highlight::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: 14px;
+      padding: 1px;
+      background: linear-gradient(135deg, rgba(0, 245, 212, 0.45), transparent 45%, rgba(255, 46, 147, 0.4));
+      -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      pointer-events: none;
     }
 
     .card.danger {
-      border-color: rgba(251, 113, 133, 0.35);
-      background: rgba(30, 14, 24, 0.72);
+      border-color: rgba(255, 46, 147, 0.45);
+      background:
+        radial-gradient(280px circle at var(--mx, 50%) var(--my, 0%), rgba(255, 46, 147, 0.12), transparent 65%),
+        rgba(28, 10, 24, 0.78);
     }
 
     .card.success {
-      border-color: rgba(52, 211, 153, 0.38);
-      background: rgba(8, 28, 26, 0.72);
+      border-color: rgba(0, 245, 212, 0.45);
+      background:
+        radial-gradient(280px circle at var(--mx, 50%) var(--my, 0%), rgba(0, 245, 212, 0.12), transparent 65%),
+        rgba(6, 24, 26, 0.78);
     }
 
     .kpi-value {
       font-family: var(--font-mono);
-      font-size: 1.95rem;
+      font-size: 1.85rem;
       font-weight: 800;
-      color: var(--cyan);
-      line-height: 1;
+      color: var(--mint);
+      line-height: 1.05;
     }
 
-    .kpi-value.emerald { color: var(--emerald); }
-    .kpi-value.violet { color: var(--violet); }
-    .kpi-value.amber { color: var(--amber); }
+    .kpi-value.plasma { color: var(--plasma); }
+    .kpi-value.violet { color: #c084fc; }
+    .kpi-value.solar { color: var(--solar); }
 
     .kpi-label {
-      font-size: 0.86rem;
+      font-size: 0.87rem;
       color: var(--text-dim);
     }
 
     .tag {
       display: inline-flex;
       align-items: center;
-      padding: 0.18rem 0.55rem;
+      padding: 0.18rem 0.6rem;
       border-radius: 999px;
       font-family: var(--font-mono);
-      font-size: 0.74rem;
-      border: 1px solid var(--border);
-      background: rgba(34, 211, 238, 0.08);
-      color: var(--cyan);
+      font-size: 0.73rem;
+      border: 1px solid rgba(0, 245, 212, 0.35);
+      background: rgba(0, 245, 212, 0.08);
+      color: var(--mint);
       width: fit-content;
     }
 
-    .tag.emerald { border-color: rgba(52, 211, 153, 0.4); background: rgba(52, 211, 153, 0.1); color: var(--emerald); }
-    .tag.rose { border-color: rgba(251, 113, 133, 0.4); background: rgba(251, 113, 133, 0.1); color: var(--rose); }
-    .tag.violet { border-color: rgba(167, 139, 250, 0.4); background: rgba(167, 139, 250, 0.1); color: var(--violet); }
-    .tag.amber { border-color: rgba(251, 191, 36, 0.4); background: rgba(251, 191, 36, 0.1); color: var(--amber); }
+    .tag.plasma { border-color: rgba(255, 46, 147, 0.45); background: rgba(255, 46, 147, 0.12); color: #ff77b7; }
+    .tag.violet { border-color: rgba(157, 78, 221, 0.5); background: rgba(157, 78, 221, 0.14); color: #d8b4fe; }
+    .tag.solar { border-color: rgba(255, 183, 3, 0.45); background: rgba(255, 183, 3, 0.12); color: #fcd34d; }
 
     code, pre {
       font-family: var(--font-mono);
@@ -334,23 +472,24 @@
 
     code {
       font-size: 0.86em;
-      padding: 0.1em 0.35em;
+      padding: 0.1em 0.36em;
       border-radius: 5px;
       background: rgba(15, 23, 42, 0.9);
-      border: 1px solid rgba(148, 163, 184, 0.2);
-      color: #a5f3fc;
+      border: 1px solid rgba(0, 245, 212, 0.22);
+      color: #7efce8;
     }
 
     pre.terminal {
       margin: 0;
-      padding: 0.95rem 1.05rem;
-      border-radius: 10px;
-      background: #03060d;
-      border: 1px solid rgba(56, 189, 248, 0.25);
+      padding: 1rem 1.1rem;
+      border-radius: 12px;
+      background: rgba(2, 4, 10, 0.92);
+      border: 1px solid rgba(0, 245, 212, 0.28);
+      box-shadow: inset 0 0 24px rgba(0, 245, 212, 0.04);
       color: #cbd5e1;
       font-size: 0.8rem;
       overflow-x: auto;
-      line-height: 1.5;
+      line-height: 1.55;
     }
 
     .btn-row {
@@ -360,43 +499,40 @@
     }
 
     .pill-btn {
-      min-block-size: 36px;
-      padding: 0.42rem 0.85rem;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: rgba(15, 23, 42, 0.85);
+      min-block-size: 38px;
+      padding: 0.45rem 0.9rem;
+      border-radius: 9px;
+      border: 1px solid rgba(148, 163, 184, 0.24);
+      background: rgba(11, 13, 24, 0.85);
       color: var(--text);
       font-family: var(--font-sans);
       font-size: 0.84rem;
       cursor: pointer;
-      transition: border-color 0.15s, background-color 0.15s, color 0.15s;
+      transition: border-color 0.18s, background-color 0.18s, transform 0.15s, box-shadow 0.18s;
     }
 
     .pill-btn:hover {
-      border-color: var(--cyan);
-      background: rgba(34, 211, 238, 0.12);
+      border-color: var(--mint);
+      background: rgba(0, 245, 212, 0.1);
+      transform: translateY(-1px);
     }
 
     .pill-btn[aria-pressed="true"] {
-      border-color: var(--cyan);
-      background: rgba(34, 211, 238, 0.2);
-      color: #ecfeff;
+      border-color: var(--mint);
+      background: linear-gradient(135deg, rgba(0, 245, 212, 0.2), rgba(157, 78, 221, 0.22));
+      color: #ffffff;
       font-weight: 600;
+      box-shadow: 0 0 18px rgba(0, 245, 212, 0.2);
     }
 
     .arch-node {
       cursor: pointer;
       text-align: left;
-      transition: transform 0.15s, border-color 0.15s;
-    }
-
-    .arch-node:hover {
-      border-color: var(--cyan);
     }
 
     .arch-node[aria-pressed="true"] {
-      border-color: var(--emerald);
-      box-shadow: 0 0 22px rgba(52, 211, 153, 0.18);
+      border-color: var(--plasma);
+      box-shadow: 0 0 24px rgba(255, 46, 147, 0.22);
     }
 
     table.data {
@@ -405,22 +541,30 @@
       font-size: 0.88rem;
     }
 
+    table.data caption {
+      text-align: left;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      margin-bottom: 0.5rem;
+    }
+
     table.data th, table.data td {
-      padding: 0.62rem 0.75rem;
-      border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+      padding: 0.6rem 0.75rem;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.14);
       text-align: left;
     }
 
     table.data th {
       font-family: var(--font-mono);
-      font-size: 0.78rem;
+      font-size: 0.76rem;
       text-transform: uppercase;
       letter-spacing: 0.06em;
-      color: var(--cyan);
+      color: var(--mint);
     }
 
     .svg-wrap {
-      background: rgba(3, 6, 13, 0.75);
+      background: rgba(3, 5, 12, 0.85);
       border: 1px solid var(--border);
       border-radius: 14px;
       padding: 0.85rem;
@@ -428,9 +572,9 @@
     }
 
     .quote-box {
-      border-left: 3px solid var(--cyan);
-      padding: 0.65rem 1rem;
-      background: rgba(34, 211, 238, 0.06);
+      border-left: 3px solid var(--plasma);
+      padding: 0.7rem 1.05rem;
+      background: linear-gradient(90deg, rgba(255, 46, 147, 0.1), rgba(157, 78, 221, 0.05));
       border-radius: 0 10px 10px 0;
       font-size: 0.94rem;
     }
@@ -440,23 +584,25 @@
       padding-left: 1.15rem;
       display: flex;
       flex-direction: column;
-      gap: 0.38rem;
+      gap: 0.4rem;
     }
 
     .footer-bar {
+      position: relative;
+      z-index: 20;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 1rem;
-      padding: 0.75rem 1.5rem;
+      padding: 0.75rem 1.4rem;
       border-top: 1px solid var(--border);
-      background: rgba(5, 8, 17, 0.88);
-      backdrop-filter: blur(12px);
+      background: rgba(4, 4, 10, 0.86);
+      backdrop-filter: blur(16px);
     }
 
     .footer-meta {
       font-family: var(--font-mono);
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       color: var(--text-dim);
     }
 
@@ -468,18 +614,20 @@
 
     .nav-btn {
       min-block-size: 38px;
-      padding: 0.45rem 1rem;
+      padding: 0.45rem 1.05rem;
       border-radius: 9px;
       border: 1px solid var(--border-strong);
-      background: rgba(34, 211, 238, 0.12);
-      color: #f8fafc;
+      background: linear-gradient(135deg, rgba(0, 245, 212, 0.16), rgba(157, 78, 221, 0.18));
+      color: #ffffff;
       font-weight: 600;
       font-size: 0.86rem;
       cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.18s;
     }
 
     .nav-btn:hover:not(:disabled) {
-      background: rgba(34, 211, 238, 0.24);
+      transform: translateY(-1px);
+      box-shadow: 0 0 18px rgba(0, 245, 212, 0.25);
     }
 
     .nav-btn:disabled {
@@ -488,12 +636,12 @@
     }
 
     .copy-btn {
-      min-block-size: 32px;
-      padding: 0.25rem 0.65rem;
-      border-radius: 6px;
-      border: 1px solid var(--border);
-      background: rgba(34, 211, 238, 0.1);
-      color: var(--cyan);
+      min-block-size: 34px;
+      padding: 0.28rem 0.75rem;
+      border-radius: 7px;
+      border: 1px solid var(--border-strong);
+      background: rgba(0, 245, 212, 0.12);
+      color: var(--mint);
       font-family: var(--font-mono);
       font-size: 0.75rem;
       cursor: pointer;
@@ -511,16 +659,21 @@
   </style>
 </head>
 <body>
+  <canvas id="neuralBg" aria-hidden="true"></canvas>
+  <div class="scanlines" aria-hidden="true"></div>
   <div class="progress-track" aria-hidden="true">
     <div class="progress-fill" id="progressFill"></div>
   </div>
 
   <header class="topbar">
     <div class="brand">
-      <span class="brand-badge">v2.3.0 + Orca</span>
-      <span>ia-spec-ops-engine · Guía de Adopción para el Equipo</span>
+      <span class="hud-chip"><span class="hud-dot" aria-hidden="true"></span>ENGINE v2.3.0 // ORCA</span>
+      <span>ia-spec-ops-engine · Adopción de Equipo</span>
     </div>
-    <nav class="top-nav" aria-label="Navegación de diapositivas" id="topDots"></nav>
+    <div class="top-actions">
+      <nav class="top-nav" aria-label="Navegación de diapositivas" id="topDots"></nav>
+      <button class="fx-btn" type="button" id="fxToggle" aria-pressed="true">Red neuronal: ON</button>
+    </div>
   </header>
 
   <main class="stage" id="stage">
@@ -528,46 +681,46 @@
 
     <!-- SLIDE 1: HERO -->
     <section class="slide active" data-title="Portada">
-      <span class="eyebrow">01 / Por qué existe esto</span>
-      <h1 class="hero-title">Ya usás agentes en Orca.<br>Ahora dales un motor que no se equivoque.</h1>
+      <span class="eyebrow">01 / Del Prompt Artesanal a Ingeniería Multi-Agente</span>
+      <h1 class="hero-title">Ya usás agentes en Orca.<br>Ahora dales un motor que no improvisa.</h1>
       <p class="lead">
-        Una skill en Markdown le pide al agente que siga buenas prácticas. <strong>ia-spec-ops-engine</strong>
-        se acopla a tu flujo en <strong>Orca</strong> para que todo lo verificable corra en Python
-        (<code>ai-governance</code> + <code>ws</code>) y vos te concentres en diseñar y revisar lo importante.
+        Una skill en Markdown le pide al agente que se porte bien. <strong>ia-spec-ops-engine</strong>
+        se acopla a tu sesión en <strong>Orca</strong> para que todo lo verificable corra en Python
+        (<code>ai-governance</code> + <code>ws</code>) y vos te concentres en diseñar y aprobar lo importante.
       </p>
 
       <div class="grid-4">
-        <div class="card highlight">
+        <div class="card highlight" style="--stagger:0">
           <span class="kpi-value">Orca-First</span>
-          <span class="kpi-label">Orquesta workers reales de Claude, Codex y Antigravity sobre tus worktrees.</span>
+          <span class="kpi-label">Orquesta workers reales de Claude, Codex y Antigravity en tus worktrees.</span>
         </div>
-        <div class="card highlight">
-          <span class="kpi-value emerald">5 Etapas</span>
-          <span class="kpi-label">Pre-push gate rápido: valida solo lo que cambiaste antes de subir el PR.</span>
+        <div class="card highlight" style="--stagger:1">
+          <span class="kpi-value violet">5 Etapas</span>
+          <span class="kpi-label">Pre-push gate veloz: valida solo lo que modificaste antes de subir el PR.</span>
         </div>
-        <div class="card highlight">
-          <span class="kpi-value violet">Contexto Limpio</span>
-          <span class="kpi-label">Condensa builds y tests ruidosos para que tu coordinador no pierda foco.</span>
+        <div class="card highlight" style="--stagger:2">
+          <span class="kpi-value plasma">Contexto Puro</span>
+          <span class="kpi-label">Condensa builds y tests ruidosos para que tu coordinador no pierda el foco.</span>
         </div>
-        <div class="card highlight">
-          <span class="kpi-value amber">Fail-Closed</span>
-          <span class="kpi-label">Si falta un recibo de Orca, cambia un archivo o se cuela un modelo, frena solo.</span>
+        <div class="card highlight" style="--stagger:3">
+          <span class="kpi-value solar">Fail-Closed</span>
+          <span class="kpi-label">Si falta un recibo de Orca, cambia un hash o se cuela un modelo, frena solo.</span>
         </div>
       </div>
 
-      <div class="quote-box">
-        <strong>La promesa para el dev:</strong> menos idas y vueltas en CI/PRs, cero trabajo manual copiando
-        prompts entre pestañas de Orca y un estándar único que funciona igual para todo el equipo.
+      <div class="quote-box" style="--stagger:4">
+        <strong>Por qué lo adopta el equipo:</strong> cero copiar y pegar prompts entre pestañas de Orca,
+        menos idas y vueltas en CI/PRs y un piso técnico compartido sin frenar tu velocidad local.
       </div>
     </section>
 
     <!-- SLIDE 2: SKILL VS MOTOR SIMULATOR -->
     <section class="slide" data-title="Skill vs Motor">
       <span class="eyebrow">02 / Para el dev escéptico del "Con mi Skill me alcanza"</span>
-      <h2 class="slide-title">¿Qué pasa en el día a día cuando dependés solo de una Skill?</h2>
+      <h2 class="slide-title">¿Qué pasa cuando dependés solo de un <code>SKILL.md</code>?</h2>
       <p class="lead">
-        Elegí cualquiera de estos 5 problemas cotidianos trabajando con agentes en Orca y compará cómo
-        reacciona un <code>SKILL.md</code> solo versus tener el Engine atrás.
+        Tocá cualquiera de estos 5 incidentes reales en Orca y compará qué pasa con una skill suelta
+        frente a tener el Engine vigilando por debajo.
       </p>
 
       <div class="btn-row" role="group" aria-label="Escenarios de falla">
@@ -578,17 +731,17 @@
         <button class="pill-btn" type="button" data-scenario="noise" aria-pressed="false">5. Log de 4.000 líneas</button>
       </div>
 
-      <div class="grid-2" id="scenarioView">
-        <div class="card danger">
-          <span class="tag rose">Solo con SKILL.md</span>
+      <div class="grid-2">
+        <div class="card danger" style="--stagger:0">
+          <span class="tag plasma">Solo con SKILL.md</span>
           <h3 id="scenSkillTitle">El worker arranca igual con otro modelo</h3>
           <p id="scenSkillBody">
             La skill pide usar cierto modelo o nivel de razonamiento, pero si el coordinador omite el flag
             o Orca hace fallback, el worker corre con otro modelo y nadie lo detecta.
           </p>
         </div>
-        <div class="card success">
-          <span class="tag emerald">Orca + ia-spec-ops-engine</span>
+        <div class="card success" style="--stagger:1">
+          <span class="tag">Orca + ia-spec-ops-engine</span>
           <h3 id="scenEngineTitle">Validado al lanzar y verificado en <code>launch.json</code></h3>
           <p id="scenEngineBody">
             <code>taskflow.denied_models</code> bloquea antes del dispatch y al recolectar abre <code>launch.json</code>
@@ -597,39 +750,38 @@
         </div>
       </div>
 
-      <pre class="terminal" id="scenTerminal">AI_GOVERNANCE_DENIED_MODELS="gemini-3.8-flash" ai-governance taskflow debate T1 open ...
+      <pre class="terminal" id="scenTerminal" style="--stagger:2">AI_GOVERNANCE_DENIED_MODELS="gemini-3.8-flash" ai-governance taskflow debate T1 open ...
 → ERROR: seat 'antigravity': model 'gemini-3.8-flash' is denied by taskflow.denied_models (exit 1)</pre>
     </section>
 
     <!-- SLIDE 3: ARCHITECTURE WITH ORCA -->
     <section class="slide" data-title="Arquitectura">
-      <span class="eyebrow">03 / Cómo encaja con Orca</span>
+      <span class="eyebrow">03 / Arquitectura Neural + Determinística</span>
       <h2 class="slide-title">Orca ejecuta los workers. El Engine pone las reglas y la memoria.</h2>
       <p class="lead">
         El motor nunca reemplaza a Orca ni lanza agentes por su cuenta: prepara los specs, imprime el
         <code>orca orchestration worker-start</code> exacto y verifica el resultado cuando Orca termina.
-        Hacé clic en cada bloque para ver su rol.
       </p>
 
       <div class="grid-3">
-        <button class="card arch-node" type="button" data-arch="orca" aria-pressed="true">
+        <button class="card arch-node" type="button" data-arch="orca" aria-pressed="true" style="--stagger:0">
           <span class="tag violet">Runtime · Orca</span>
           <h3>Orca Orchestration</h3>
           <p class="kpi-label">Maneja worktrees aislados, terminales, envío de mensajes, <code>worker_done</code> y recibos <code>launch.json</code>.</p>
         </button>
-        <button class="card arch-node" type="button" data-arch="governance" aria-pressed="false">
+        <button class="card arch-node" type="button" data-arch="governance" aria-pressed="false" style="--stagger:1">
           <span class="tag">Gobierno · ai-governance</span>
           <h3><code>taskflow</code> + Reglas + Skills</h3>
           <p class="kpi-label">Estado de tareas, independencia entre roles, debate multi-proveedor y sync real de skills.</p>
         </button>
-        <button class="card arch-node" type="button" data-arch="workspace" aria-pressed="false">
-          <span class="tag emerald">Ejecución · ws</span>
+        <button class="card arch-node" type="button" data-arch="workspace" aria-pressed="false" style="--stagger:2">
+          <span class="tag plasma">Ejecución · ws</span>
           <h3>Quality Gate &amp; Condensador</h3>
           <p class="kpi-label">Corre en cada worktree de Orca: detecta stacks, condensa logs y frena errores antes del push.</p>
         </button>
       </div>
 
-      <div class="card highlight" id="archDetail">
+      <div class="card highlight" id="archDetail" style="--stagger:3">
         <span class="tag violet" id="archTag">Orca · Capa de ejecución</span>
         <h3 id="archTitle">Worktrees limpios y coordinación sin polling manual</h3>
         <p id="archDesc">
@@ -645,11 +797,11 @@ orca orchestration worker-start --spec-file .../runs/001/spec.md \
 
     <!-- SLIDE 4: CONTEXT CLEANLINESS -->
     <section class="slide" data-title="Contexto Limpio">
-      <span class="eyebrow">04 / Productividad diaria del equipo</span>
-      <h2 class="slide-title">Ventana de contexto limpia = agentes que no pierden el hilo</h2>
+      <span class="eyebrow">04 / Atención del Modelo Protegida</span>
+      <h2 class="slide-title">Ventana de contexto limpia = agentes más lúcidos</h2>
       <p class="lead">
         Cuando un build o test vuelca 4.000 líneas en la terminal de Orca, el agente se distrae, compacta
-        antes de tiempo y se olvida de qué estaba haciendo. <code>ws run</code> corta ese ruido de raíz.
+        antes de tiempo y pierde el hilo. <code>ws run</code> corta ese ruido de raíz.
       </p>
 
       <div class="btn-row" role="group" aria-label="Vista de salida de comando">
@@ -657,23 +809,23 @@ orca orchestration worker-start --spec-file .../runs/001/spec.md \
         <button class="pill-btn" type="button" data-logview="condensed" aria-pressed="true">Con ws run (condensado)</button>
       </div>
 
-      <pre class="terminal" id="logPreview">✔ pytest -q (1444 passed in 215.76s)
+      <pre class="terminal" id="logPreview" style="--stagger:0">✔ pytest -q (1444 passed in 215.76s)
   log_id: run_20261116_2104 · 148 KB guardados
   para buscar detalle: ws log run_20261116_2104 --grep "FAILED|ERROR"</pre>
 
       <div class="grid-3">
-        <div class="card">
-          <span class="tag emerald">Menos compactación</span>
+        <div class="card" style="--stagger:1">
+          <span class="tag">Menos compactación</span>
           <h3>Sesiones más largas y lucidas</h3>
           <p class="kpi-label">Tu coordinador en Orca conserva la arquitectura en mente en lugar de llenarse con warnings repetidos.</p>
         </div>
-        <div class="card">
-          <span class="tag">Cero re-corridas</span>
+        <div class="card" style="--stagger:2">
+          <span class="tag violet">Cero re-corridas</span>
           <h3>Log completo siempre a mano</h3>
           <p class="kpi-label">Si hace falta investigar una falla puntual, corrés <code>ws log &lt;id&gt; --grep</code> sin relanzar el suite.</p>
         </div>
-        <div class="card">
-          <span class="tag violet">Visibilidad</span>
+        <div class="card" style="--stagger:3">
+          <span class="tag plasma">Visibilidad</span>
           <h3><code>ai-governance budget</code></h3>
           <p class="kpi-label">Muestra exactamente cuántos bytes fijos cargan tus reglas y skills al abrir cada agente.</p>
         </div>
@@ -682,11 +834,11 @@ orca orchestration worker-start --spec-file .../runs/001/spec.md \
 
     <!-- SLIDE 5: QUALITY GATE & DESIGN -->
     <section class="slide" data-title="Quality Gate">
-      <span class="eyebrow">05 / Cero sorpresas en el PR</span>
-      <h2 class="slide-title">Quality Gate rápido en cada worktree + límites de diseño</h2>
+      <span class="eyebrow">05 / Cero Sorpresas en el PR</span>
+      <h2 class="slide-title">Quality Gate veloz en cada worktree + límites de diseño</h2>
       <p class="lead">
         Con <code>gate.scope = "changed"</code>, el pre-push valida en segundos solo los archivos que
-        modificaste, mientras la suite completa corre en CI. Y convive sin conflictos con Husky o hooks propios.
+        modificaste, mientras la suite completa corre en CI. Convive sin conflictos con Husky o hooks propios.
       </p>
 
       <div class="btn-row" role="group" aria-label="Simulador de Quality Gate">
@@ -694,7 +846,7 @@ orca orchestration worker-start --spec-file .../runs/001/spec.md \
       </div>
 
       <div class="grid-2">
-        <div class="card">
+        <div class="card" style="--stagger:0">
           <table class="data">
             <caption>Etapas del Pre-Push Gate</caption>
             <thead>
@@ -705,20 +857,20 @@ orca orchestration worker-start --spec-file .../runs/001/spec.md \
               </tr>
             </thead>
             <tbody>
-              <tr><td>1. Secrets</td><td>Subir API keys o tokens con <code>gitleaks</code></td><td><span class="tag emerald">PASS</span></td></tr>
-              <tr><td>2. Git Policies</td><td>Pushear a <code>main</code> o romper commits</td><td><span class="tag emerald">PASS</span></td></tr>
-              <tr><td>3. Linters</td><td><code>ruff</code>, <code>mypy</code>, <code>eslint</code> según tu stack</td><td><span class="tag emerald">PASS</span></td></tr>
-              <tr><td>4. Design Limits</td><td>Funciones gigantes o complejas (Lizard)</td><td><span class="tag emerald">PASS</span></td></tr>
-              <tr><td>5. Test Suites</td><td>Tests afectados por tus cambios reales</td><td><span class="tag emerald">PASS</span></td></tr>
+              <tr><td>1. Secrets</td><td>Subir API keys o tokens con <code>gitleaks</code></td><td><span class="tag">PASS</span></td></tr>
+              <tr><td>2. Git Policies</td><td>Pushear a <code>main</code> o romper commits</td><td><span class="tag">PASS</span></td></tr>
+              <tr><td>3. Linters</td><td><code>ruff</code>, <code>mypy</code>, <code>eslint</code> según tu stack</td><td><span class="tag">PASS</span></td></tr>
+              <tr><td>4. Design Limits</td><td>Funciones gigantes o complejas (Lizard)</td><td><span class="tag">PASS</span></td></tr>
+              <tr><td>5. Test Suites</td><td>Tests afectados por tus cambios reales</td><td><span class="tag">PASS</span></td></tr>
             </tbody>
           </table>
         </div>
-        <div class="card highlight">
-          <span class="tag">ws design --changed</span>
+        <div class="card highlight" style="--stagger:1">
+          <span class="tag violet">ws design --changed</span>
           <h3>Chau funciones de 200 líneas generadas por IA</h3>
           <p class="kpi-label">
             Controla complejidad ciclomática (&le; 10), largo (&le; 40 líneas) y tests vacíos ("junk tests").
-            Usa <strong>ratchet</strong>: el código viejo no te frena, pero lo nuevo entra limpio.
+            Usa <strong>ratchet</strong>: el código viejo no te frena, pero lo nuevo entra prolijo.
           </p>
           <pre class="terminal" id="gateOut">$ ws design --changed
 Pre-existing: 1 warning (non-blocking)
@@ -729,57 +881,57 @@ Pre-existing: 1 warning (non-blocking)
 
     <!-- SLIDE 6: TASKFLOW + ORCA LOOP -->
     <section class="slide" data-title="Taskflow + Orca">
-      <span class="eyebrow">06 / Orquestación multi-agente en Orca</span>
+      <span class="eyebrow">06 / Orquestación Multi-Agente en Orca</span>
       <h2 class="slide-title"><code>taskflow</code>: el que programa no se auto-aprueba</h2>
       <p class="lead">
         Tu sesión en Orca actúa como <code>builder</code>. Cuando necesitás validar un plan o juzgar
         cambios, <code>taskflow</code> obliga a que <code>validator</code> y <code>judge</code> corran en otro proveedor en Orca.
       </p>
 
-      <div class="svg-wrap">
+      <div class="svg-wrap" style="--stagger:0">
         <svg role="img" viewBox="0 0 920 175" width="100%" height="175" aria-label="Ciclo taskflow integrado con Orca">
           <defs>
             <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-              <path d="M 0 1 L 10 5 L 0 9 z" fill="#22d3ee"></path>
+              <path d="M 0 1 L 10 5 L 0 9 z" fill="#00f5d4"></path>
             </marker>
           </defs>
-          <rect x="16" y="42" width="175" height="84" rx="12" fill="#0f172a" stroke="#22d3ee" stroke-width="1.5"></rect>
-          <text x="103" y="75" fill="#22d3ee" font-size="13" font-weight="700" text-anchor="middle" font-family="monospace">1. DISPATCH</text>
+          <rect x="16" y="42" width="175" height="84" rx="12" fill="#090d1a" stroke="#00f5d4" stroke-width="1.5"></rect>
+          <text x="103" y="75" fill="#00f5d4" font-size="13" font-weight="700" text-anchor="middle" font-family="monospace">1. DISPATCH</text>
           <text x="103" y="100" fill="#cbd5e1" font-size="12" text-anchor="middle">Sella spec + comando Orca</text>
 
-          <line x1="191" y1="84" x2="248" y2="84" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrow)"></line>
+          <line x1="191" y1="84" x2="248" y2="84" stroke="#00f5d4" stroke-width="2" marker-end="url(#arrow)"></line>
 
-          <rect x="252" y="42" width="180" height="84" rx="12" fill="#0f172a" stroke="#a78bfa" stroke-width="1.5"></rect>
-          <text x="342" y="75" fill="#a78bfa" font-size="13" font-weight="700" text-anchor="middle" font-family="monospace">2. ORCA WORKER</text>
+          <rect x="252" y="42" width="180" height="84" rx="12" fill="#090d1a" stroke="#9d4edd" stroke-width="1.5"></rect>
+          <text x="342" y="75" fill="#d8b4fe" font-size="13" font-weight="700" text-anchor="middle" font-family="monospace">2. ORCA WORKER</text>
           <text x="342" y="100" fill="#cbd5e1" font-size="12" text-anchor="middle">Corre aislado + receipt.txt</text>
 
-          <line x1="432" y1="84" x2="489" y2="84" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrow)"></line>
+          <line x1="432" y1="84" x2="489" y2="84" stroke="#00f5d4" stroke-width="2" marker-end="url(#arrow)"></line>
 
-          <rect x="493" y="42" width="185" height="84" rx="12" fill="#0f172a" stroke="#fbbf24" stroke-width="1.5"></rect>
-          <text x="585" y="75" fill="#fbbf24" font-size="13" font-weight="700" text-anchor="middle" font-family="monospace">3. COLLECT</text>
+          <rect x="493" y="42" width="185" height="84" rx="12" fill="#090d1a" stroke="#ffb703" stroke-width="1.5"></rect>
+          <text x="585" y="75" fill="#ffb703" font-size="13" font-weight="700" text-anchor="middle" font-family="monospace">3. COLLECT</text>
           <text x="585" y="100" fill="#cbd5e1" font-size="12" text-anchor="middle">Valida launch.json + git</text>
 
-          <line x1="678" y1="84" x2="735" y2="84" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrow)"></line>
+          <line x1="678" y1="84" x2="735" y2="84" stroke="#00f5d4" stroke-width="2" marker-end="url(#arrow)"></line>
 
-          <rect x="739" y="42" width="165" height="84" rx="12" fill="#0f172a" stroke="#34d399" stroke-width="1.5"></rect>
-          <text x="821" y="75" fill="#34d399" font-size="13" font-weight="700" text-anchor="middle" font-family="monospace">4. JUDGE</text>
+          <rect x="739" y="42" width="165" height="84" rx="12" fill="#090d1a" stroke="#ff2e93" stroke-width="1.5"></rect>
+          <text x="821" y="75" fill="#ff77b7" font-size="13" font-weight="700" text-anchor="middle" font-family="monospace">4. JUDGE</text>
           <text x="821" y="100" fill="#cbd5e1" font-size="12" text-anchor="middle">VERDICT: pass / block</text>
         </svg>
       </div>
 
       <div class="grid-3">
-        <div class="card">
+        <div class="card" style="--stagger:1">
           <span class="tag violet">Cero sesgo</span>
           <h3>Cruce real de modelos</h3>
           <p class="kpi-label">Si implementa Claude, valida/juzga Codex o Antigravity en su propio worker de Orca.</p>
         </div>
-        <div class="card">
-          <span class="tag amber">Anti-deriva</span>
+        <div class="card" style="--stagger:2">
+          <span class="tag solar">Anti-deriva</span>
           <h3>Huella Git sellada</h3>
           <p class="kpi-label">Si el árbol cambió desde las pruebas o un lector tocó código, <code>collect</code> invalida la ronda.</p>
         </div>
-        <div class="card">
-          <span class="tag emerald">Continuidad</span>
+        <div class="card" style="--stagger:3">
+          <span class="tag">Continuidad</span>
           <h3>Retomá en otra sesión</h3>
           <p class="kpi-label"><code>taskflow here</code> recupera pasos, hechos, decisiones y aprobaciones al instante.</p>
         </div>
@@ -802,7 +954,7 @@ Pre-existing: 1 warning (non-blocking)
       </div>
 
       <div class="grid-2">
-        <div class="card highlight">
+        <div class="card highlight" style="--stagger:0">
           <span class="tag" id="debTag">Fase 1 · Aislamiento + Hashes</span>
           <h3 id="debTitle">Tesis independientes en paralelo dentro de Orca</h3>
           <p id="debDesc">
@@ -814,7 +966,7 @@ Pre-existing: 1 warning (non-blocking)
             <li>Sella <code>topic_sha</code> y SHA-256 de cada artifact en <code>debate.json</code>.</li>
           </ul>
         </div>
-        <pre class="terminal" id="debPreview">taskflow debate mi-diseno open \
+        <pre class="terminal" id="debPreview" style="--stagger:1">taskflow debate mi-diseno open \
   --topic-file tema.md \
   --agents codex,antigravity,claude \
   --web --artifact src/models.py
@@ -826,16 +978,16 @@ Pre-existing: 1 warning (non-blocking)
 
     <!-- SLIDE 8: FAIL-CLOSED SECURITY -->
     <section class="slide" data-title="Seguridad Fail-Closed">
-      <span class="eyebrow">08 / Confiabilidad en equipo</span>
-      <h2 class="slide-title">Seguros internos para que no falle en silencio</h2>
+      <span class="eyebrow">08 / Confiabilidad en Equipo</span>
+      <h2 class="slide-title">Seguros internos para que nada falle en silencio</h2>
       <p class="lead">
         Cuando varios devs corren workers en Orca en paralelo, los casos borde aparecen solos. El Engine
-        está diseñado <em>fail-closed</em>: ante la duda frena limpio y avisa qué pasó.
+        está diseñado <em>fail-closed</em>: ante la duda frena limpio y te explica exactamente qué pasó.
       </p>
 
       <div class="grid-2">
-        <div class="card">
-          <span class="tag rose">Políticas de Modelos</span>
+        <div class="card" style="--stagger:0">
+          <span class="tag plasma">Políticas de Modelos</span>
           <h3><code>denied_models</code> + <code>--effort</code></h3>
           <ul class="clean">
             <li>Un repositorio <strong>nunca</strong> puede relajar la lista de modelos prohibidos del usuario; solo agregar.</li>
@@ -843,8 +995,8 @@ Pre-existing: 1 warning (non-blocking)
             <li><code>--effort</code> se valida siempre junto con un modelo explícito o por defecto.</li>
           </ul>
         </div>
-        <div class="card">
-          <span class="tag emerald">Concurrencia &amp; Rollback</span>
+        <div class="card" style="--stagger:1">
+          <span class="tag">Concurrencia &amp; Rollback</span>
           <h3>Locks separados y cero basura en disco</h3>
           <ul class="clean">
             <li>Lock propio <code>.debate.lock</code> separado de <code>.lock</code> del store (sin interbloqueos).</li>
@@ -854,7 +1006,7 @@ Pre-existing: 1 warning (non-blocking)
         </div>
       </div>
 
-      <div class="quote-box">
+      <div class="quote-box" style="--stagger:2">
         <strong>Resultado para el equipo:</strong> no dependés de que cada persona recuerde mil flags; el repo
         y tu configuración local garantizan las mismas reglas en cada worker de Orca.
       </div>
@@ -862,7 +1014,7 @@ Pre-existing: 1 warning (non-blocking)
 
     <!-- SLIDE 9: ECOSYSTEM FOR DAILY WORK -->
     <section class="slide" data-title="Ecosistema Diario">
-      <span class="eyebrow">09 / Herramientas de todos los días</span>
+      <span class="eyebrow">09 / Herramientas de Todos los Días</span>
       <h2 class="slide-title">Potencia tus Skills actuales y ordena el flujo del equipo</h2>
       <p class="lead">
         No tenés que tirar tus skills ni cambiar cómo trabajás en Orca: el Engine sincroniza tus skills,
@@ -870,7 +1022,7 @@ Pre-existing: 1 warning (non-blocking)
       </p>
 
       <div class="grid-3">
-        <div class="card">
+        <div class="card" style="--stagger:0">
           <span class="tag">skills + personal</span>
           <h3>Copias reales en los 3 agentes</h3>
           <p class="kpi-label">
@@ -878,15 +1030,15 @@ Pre-existing: 1 warning (non-blocking)
             detecta copias <code>outdated</code> o <code>edited</code> y las audita con <code>doctor</code>.
           </p>
         </div>
-        <div class="card">
+        <div class="card" style="--stagger:1">
           <span class="tag violet">jira + confluence</span>
           <h3>Tickets y docs en Markdown</h3>
           <p class="kpi-label">
             Lectura directa sin inflar la ventana de contexto, con aprobación explícita antes de escribir o transicionar un ticket.
           </p>
         </div>
-        <div class="card">
-          <span class="tag amber">doctor + hooks</span>
+        <div class="card" style="--stagger:2">
+          <span class="tag solar">doctor + hooks</span>
           <h3>Diagnóstico en 1 comando</h3>
           <p class="kpi-label">
             <code>ai-governance doctor</code> y <code>ws doctor</code> verifican en segundos si tus hooks, skills, settings y CLI de Orca están sanos.
@@ -897,14 +1049,14 @@ Pre-existing: 1 warning (non-blocking)
 
     <!-- SLIDE 10: TEAM ADOPTION QUICKSTART -->
     <section class="slide" data-title="Cómo Sumarse">
-      <span class="eyebrow">10 / Sumate en 2 minutos</span>
+      <span class="eyebrow">10 / Sumate en 2 Minutos</span>
       <h2 class="slide-title">Cómo instalarlo y usarlo en tu setup con Orca</h2>
       <p class="lead">
         Cada persona del equipo instala los dos paquetes una sola vez con <code>uv tool</code>, activa los
         hooks no invasivos y ya puede lanzar rondas o debates directo desde su sesión en Orca.
       </p>
 
-      <div class="card highlight">
+      <div class="card highlight" style="--stagger:0">
         <button class="copy-btn" type="button" id="copyQuickBtn">Copiar comandos</button>
         <pre class="terminal" id="quickstartCode"># 1. Instalar ambas CLIs desde el repo (en modo editable si usás packs/skills locales)
 uv tool install --editable ./packages/ai-governance
@@ -923,18 +1075,18 @@ ai-governance taskflow debate mi-diseno open --topic-file tema.md --agents claud
       </div>
 
       <div class="grid-3">
-        <div class="card success">
-          <span class="tag emerald">Adopción gradual</span>
+        <div class="card success" style="--stagger:1">
+          <span class="tag">Adopción gradual</span>
           <h3>Sin lock-in</h3>
           <p class="kpi-label">Podés arrancar solo con <code>ws check --changed</code> y sumar <code>taskflow debate</code> cuando lo necesites.</p>
         </div>
-        <div class="card success">
-          <span class="tag emerald">Sin fricción</span>
+        <div class="card success" style="--stagger:2">
+          <span class="tag">Sin fricción</span>
           <h3>Veloz en local</h3>
           <p class="kpi-label">El pre-push revisa solo archivos tocados; no te frena con la suite entera del repo.</p>
         </div>
-        <div class="card success">
-          <span class="tag emerald">Un solo estándar</span>
+        <div class="card success" style="--stagger:3">
+          <span class="tag">Un solo estándar</span>
           <h3>Mismo piso para todos</h3>
           <p class="kpi-label">Cualquiera que clone el repo y corra en Orca comparte diseño, seguridad y calidad.</p>
         </div>
@@ -943,7 +1095,7 @@ ai-governance taskflow debate mi-diseno open --topic-file tema.md --agents claud
   </main>
 
   <footer class="footer-bar">
-    <div class="footer-meta" id="footerMeta">Diapositiva 1 / 10 · Usá &larr; / &rarr; para navegar</div>
+    <div class="footer-meta" id="footerMeta">Diapositiva 1 / 10 · Teclas &larr; / &rarr; o deslizar</div>
     <div class="nav-controls">
       <button class="nav-btn" type="button" id="prevBtn">&larr; Anterior</button>
       <button class="nav-btn" type="button" id="nextBtn">Siguiente &rarr;</button>
@@ -1023,8 +1175,112 @@ ai-governance taskflow debate mi-diseno open --topic-file tema.md --agents claud
         }
       });
 
+      /* Horizontal touch swipe without blocking vertical scroll */
+      let touchStartX = 0;
+      let touchStartY = 0;
+      const stage = document.getElementById("stage");
+      stage.addEventListener("touchstart", (e) => {
+        touchStartX = e.changedTouches[0].screenX;
+        touchStartY = e.changedTouches[0].screenY;
+      }, { passive: true });
+      stage.addEventListener("touchend", (e) => {
+        const dx = e.changedTouches[0].screenX - touchStartX;
+        const dy = e.changedTouches[0].screenY - touchStartY;
+        if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+          goTo(dx < 0 ? current + 1 : current - 1);
+        }
+      }, { passive: true });
+
       applySlide(0);
 
+      /* Spotlight hover on cards */
+      document.addEventListener("pointermove", (e) => {
+        const card = e.target.closest(".card");
+        if (!card) return;
+        const rect = card.getBoundingClientRect();
+        card.style.setProperty("--mx", `${e.clientX - rect.left}px`);
+        card.style.setProperty("--my", `${e.clientY - rect.top}px`);
+      }, { passive: true });
+
+      /* Lightweight Neural Canvas with Pause Control + Reduced Motion support */
+      const canvas = document.getElementById("neuralBg");
+      const ctx = canvas.getContext("2d");
+      const fxToggle = document.getElementById("fxToggle");
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+      let fxEnabled = !reducedMotion.matches;
+      let rafId = 0;
+      let nodes = [];
+
+      function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        const count = Math.min(34, Math.max(16, Math.floor(window.innerWidth / 45)));
+        nodes = Array.from({ length: count }, (_, i) => ({
+          x: Math.random() * canvas.width,
+          y: Math.random() * canvas.height,
+          vx: (Math.random() - 0.5) * 0.35,
+          vy: (Math.random() - 0.5) * 0.35,
+          color: i % 3 === 0 ? "rgba(255, 46, 147, 0.55)" : "rgba(0, 245, 212, 0.55)",
+        }));
+      }
+
+      function drawFrame(animate) {
+        if (!ctx) return;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        for (let i = 0; i < nodes.length; i++) {
+          const a = nodes[i];
+          if (animate) {
+            a.x += a.vx;
+            a.y += a.vy;
+            if (a.x < 0 || a.x > canvas.width) a.vx *= -1;
+            if (a.y < 0 || a.y > canvas.height) a.vy *= -1;
+          }
+          for (let j = i + 1; j < nodes.length; j++) {
+            const b = nodes[j];
+            const dist = Math.hypot(a.x - b.x, a.y - b.y);
+            if (dist < 170) {
+              ctx.strokeStyle = `rgba(0, 245, 212, ${(1 - dist / 170) * 0.16})`;
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(a.x, a.y);
+              ctx.lineTo(b.x, b.y);
+              ctx.stroke();
+            }
+          }
+          ctx.fillStyle = a.color;
+          ctx.beginPath();
+          ctx.arc(a.x, a.y, 1.8, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        if (animate && fxEnabled) {
+          rafId = requestAnimationFrame(() => drawFrame(true));
+        }
+      }
+
+      function syncFxState() {
+        cancelAnimationFrame(rafId);
+        fxToggle.setAttribute("aria-pressed", String(fxEnabled));
+        fxToggle.textContent = fxEnabled ? "Red neuronal: ON" : "Red neuronal: OFF";
+        canvas.style.opacity = fxEnabled ? "0.65" : "0.18";
+        drawFrame(fxEnabled);
+      }
+
+      fxToggle.addEventListener("click", () => {
+        fxEnabled = !fxEnabled;
+        syncFxState();
+      });
+      reducedMotion.addEventListener("change", (e) => {
+        fxEnabled = !e.matches;
+        syncFxState();
+      });
+      window.addEventListener("resize", () => {
+        resizeCanvas();
+        if (!fxEnabled) drawFrame(false);
+      });
+      resizeCanvas();
+      syncFxState();
+
+      /* Slide 2: Scenarios */
       const scenarios = {
         model: {
           st: "El worker arranca igual con otro modelo",
@@ -1076,6 +1332,7 @@ ai-governance taskflow debate mi-diseno open --topic-file tema.md --agents claud
         });
       });
 
+      /* Slide 3: Architecture inspector */
       const archData = {
         orca: {
           tag: "Orca · Capa de ejecución",
@@ -1109,6 +1366,7 @@ ai-governance taskflow debate mi-diseno open --topic-file tema.md --agents claud
         });
       });
 
+      /* Slide 4: Log toggle */
       const logViews = {
         raw: "$ pytest\n============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.2.0\ncollected 1444 items\npackages/ai-governance/tests/test_agents.py ......................... [ 12%]\npackages/ai-governance/tests/test_budget.py ......................... [ 19%]\n[... 3.180 líneas más de warnings, deprecation notices y progreso ...]\n1444 passed, 88 warnings in 215.76s  <-- 148 KB inundando tu ventana de contexto",
         condensed: "✔ pytest -q (1444 passed in 215.76s)\n  log_id: run_20261116_2104 · 148 KB guardados\n  para buscar detalle: ws log run_20261116_2104 --grep \"FAILED|ERROR\"",
@@ -1121,12 +1379,14 @@ ai-governance taskflow debate mi-diseno open --topic-file tema.md --agents claud
         });
       });
 
+      /* Slide 5: Gate simulator */
       const runGateBtn = document.getElementById("runGateBtn");
       runGateBtn.addEventListener("click", () => {
         const out = document.getElementById("gateOut");
         out.textContent = "$ ws check --changed\n[1/5] Security & Secrets ... PASS (0.4s)\n[2/5] Git Policies       ... PASS (0.1s)\n[3/5] Linters & Types    ... PASS (1.2s)\n[4/5] Design Limits      ... PASS (0.8s)\n[5/5] Scoped Test Suites ... PASS (48 passed)\n🚀 Listo para pushear.";
       });
 
+      /* Slide 7: Debate phases */
       const debatePhases = {
         open: {
           tag: "Fase 1 · Aislamiento + Hashes",
@@ -1172,6 +1432,7 @@ ai-governance taskflow debate mi-diseno open --topic-file tema.md --agents claud
         });
       });
 
+      /* Slide 10: Copy quickstart */
       const copyBtn = document.getElementById("copyQuickBtn");
       copyBtn.addEventListener("click", async () => {
         const text = document.getElementById("quickstartCode").textContent;
