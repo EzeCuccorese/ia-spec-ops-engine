@@ -1244,3 +1244,40 @@ def test_pre_push_defaults_to_changed_scope_and_maps_python_source_to_test(tmp_p
     executed = log_file.read_text(encoding="utf-8") if log_file.exists() else ""
     assert "tests/test_alpha.py" in executed
     assert "test_beta.py" not in executed
+
+
+@requires_config_hooks
+def test_pre_push_skips_tests_when_deleting_remote_branch(tmp_path: Path) -> None:
+    project_dir, log_file, fake_home = _setup_python_scoped_repo(tmp_path)
+    assert install_git_hooks(target_dir=project_dir)["success"] is True
+
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if not k.startswith(("GIT_", "QG_"))
+        and k not in ("XDG_CONFIG_HOME", "WORKSPACE_CONFIG_DIR")
+    }
+    env.update(
+        HOME=str(fake_home),
+        GIT_CONFIG_GLOBAL="/dev/null",
+        GIT_CONFIG_SYSTEM="/dev/null",
+        QG_SKIP="gitleaks,commits,lint,design",
+        QG_OUTPUT="verbose",
+    )
+    subprocess.run(
+        ["git", "push", "--no-verify", "origin", "feature"],
+        cwd=project_dir,
+        env=env,
+        check=True,
+        capture_output=True,
+    )
+    proc = subprocess.run(
+        ["git", "push", "origin", "--delete", "feature"],
+        cwd=project_dir,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0
+    assert "No new commits, skipping." in proc.stdout + proc.stderr
+    assert not log_file.exists()

@@ -768,6 +768,8 @@ echo ""
 echo "🧪 [5/5] Running test suites..."
 if skipped tests; then
   warn "Test Suites: skipped by $QG_SKIP_SOURCE"
+elif [ "$QG_SCOPE" = "changed" ] && [ "$NOTHING_NEW" = "1" ]; then
+  note "No new commits, skipping."
 else
   TESTS_OK=1
   RAN_ANY=0
