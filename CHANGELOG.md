@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.4.0 - 2026-11-17
+
+### Features
+- Add review-ready code rule and Python review invariants.
+- Support native SessionStart for Antigravity.
+
+### Fixes
+- Skip test suite on pre-push when there are no new commits.
+- Keep review-ready and python rules within 1KB budget.
+
+### Performance
+- Parallelize pytest with xdist and cache template git repos.
+
 ## 2.3.0 - 2026-11-17
 
 ### Features
