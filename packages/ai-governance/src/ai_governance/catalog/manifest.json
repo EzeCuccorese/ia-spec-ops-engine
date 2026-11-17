@@ -368,6 +368,19 @@
       "user_scope": true
     },
     {
+      "id": "20-review-ready-code",
+      "category": "1-core",
+      "file": "1-core/20-review-ready-code.md",
+      "description": "Review-ready code: failure contracts, finite values, safe telemetry, diagnostic tests and documentation parity",
+      "triggers": {
+        "globs": [
+          "**/*"
+        ]
+      },
+      "stacks": [],
+      "user_scope": true
+    },
+    {
       "id": "production-risk-window",
       "category": "1-core",
       "file": "1-core/production-risk-window.md",

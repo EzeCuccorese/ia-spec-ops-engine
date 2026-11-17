@@ -8,3 +8,8 @@
 - **Errors**: Catch specific exceptions, never bare `except:`; `logging` with lazy `%s` args, never `print`.
 - **Async Safety**: Never perform blocking I/O calls directly inside the asyncio event loop; offload via `asyncio.to_thread`.
 - **Testing**: Write hermetic tests with `pytest` and typed fixtures.
+- **Wrapper value**: Inline one-line forwarding wrappers unless they add behavior or a domain concept.
+- **Package initialization**: Keep `__init__.py` limited to imports.
+- **Object initialization**: Initialize attributes in a proper `__init__`, never by writing to `__dict__`.
+- **Builtin names**: Do not shadow Python builtins.
+- **Collection types**: Parameterize `dict` and `list` when their key and element types are known.

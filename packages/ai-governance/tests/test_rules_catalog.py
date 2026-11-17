@@ -6,7 +6,7 @@ from ai_governance.rules.catalog import SCHEMA_VERSION, RuleCatalog
 
 def test_catalog_loads_all_rules_with_metadata() -> None:
     catalog = RuleCatalog()
-    assert len(catalog.rules) == 40
+    assert len(catalog.rules) == 41
     for rule in catalog.rules:
         assert rule.description and rule.globs and rule.sha256
         assert rule.content.startswith("# ")
@@ -161,6 +161,7 @@ def test_user_rules_cover_every_language_and_tool_rules() -> None:
         "17-quality-gate",
         "18-surgical-changes",
         "19-pull-requests",
+        "20-review-ready-code",
     }
     assert tool_rules <= user_ids
     assert {rule.id for rule in catalog.user_rules() if rule.always_on} == tool_rules
