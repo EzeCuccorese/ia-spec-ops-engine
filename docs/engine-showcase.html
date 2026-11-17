@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark light">
-  <title>ia-spec-ops-engine + Orca — Arquitectura AI-Native</title>
+  <title>ia-spec-ops-engine + Orca — AI-Native Architecture</title>
   <style>
     :root {
       color-scheme: dark;
@@ -668,11 +668,11 @@
   <header class="topbar">
     <div class="brand">
       <span class="hud-chip"><span class="hud-dot" aria-hidden="true"></span>ENGINE v2.3.0 // ORCA</span>
-      <span>ia-spec-ops-engine · Adopción de Equipo</span>
+      <span>ia-spec-ops-engine · Team Adoption</span>
     </div>
     <div class="top-actions">
-      <nav class="top-nav" aria-label="Navegación de diapositivas" id="topDots"></nav>
-      <button class="fx-btn" type="button" id="fxToggle" aria-pressed="true">Red neuronal: ON</button>
+      <nav class="top-nav" aria-label="Slide navigation" id="topDots"></nav>
+      <button class="fx-btn" type="button" id="fxToggle" aria-pressed="true">Neural mesh: ON</button>
     </div>
   </header>
 
@@ -680,72 +680,72 @@
     <div class="sr-only" aria-live="polite" id="slideAnnouncer"></div>
 
     <!-- SLIDE 1: HERO -->
-    <section class="slide active" data-title="Portada">
-      <span class="eyebrow">01 / Del Prompt Artesanal a Ingeniería Multi-Agente</span>
-      <h1 class="hero-title">Ya usás agentes en Orca.<br>Ahora dales un motor que no improvisa.</h1>
+    <section class="slide active" data-title="Overview">
+      <span class="eyebrow">01 / From Ad-Hoc Prompts to Multi-Agent Engineering</span>
+      <h1 class="hero-title">You already run agents in Orca.<br>Now give them an engine that never improvises.</h1>
       <p class="lead">
-        Una skill en Markdown le pide al agente que se porte bien. <strong>ia-spec-ops-engine</strong>
-        se acopla a tu sesión en <strong>Orca</strong> para que todo lo verificable corra en Python
-        (<code>ai-governance</code> + <code>ws</code>) y vos te concentres en diseñar y aprobar lo importante.
+        A Markdown skill asks the agent to behave. <strong>ia-spec-ops-engine</strong>
+        plugs into your <strong>Orca</strong> session so everything verifiable runs in Python
+        (<code>ai-governance</code> + <code>ws</code>), leaving you free to design and approve what matters.
       </p>
 
       <div class="grid-4">
         <div class="card highlight" style="--stagger:0">
           <span class="kpi-value">Orca-First</span>
-          <span class="kpi-label">Orquesta workers reales de Claude, Codex y Antigravity en tus worktrees.</span>
+          <span class="kpi-label">Orchestrates real Claude, Codex, and Antigravity workers in your worktrees.</span>
         </div>
         <div class="card highlight" style="--stagger:1">
-          <span class="kpi-value violet">5 Etapas</span>
-          <span class="kpi-label">Pre-push gate veloz: valida solo lo que modificaste antes de subir el PR.</span>
+          <span class="kpi-value violet">5 Stages</span>
+          <span class="kpi-label">Fast pre-push gate: validates only what you changed before opening a PR.</span>
         </div>
         <div class="card highlight" style="--stagger:2">
-          <span class="kpi-value plasma">Contexto Puro</span>
-          <span class="kpi-label">Condensa builds y tests ruidosos para que tu coordinador no pierda el foco.</span>
+          <span class="kpi-value plasma">Clean Context</span>
+          <span class="kpi-label">Condenses noisy builds and tests so your coordinator never loses focus.</span>
         </div>
         <div class="card highlight" style="--stagger:3">
           <span class="kpi-value solar">Fail-Closed</span>
-          <span class="kpi-label">Si falta un recibo de Orca, cambia un hash o se cuela un modelo, frena solo.</span>
+          <span class="kpi-label">Missing Orca receipt, changed hash, or denied model? It halts automatically.</span>
         </div>
       </div>
 
       <div class="quote-box" style="--stagger:4">
-        <strong>Por qué lo adopta el equipo:</strong> cero copiar y pegar prompts entre pestañas de Orca,
-        menos idas y vueltas en CI/PRs y un piso técnico compartido sin frenar tu velocidad local.
+        <strong>Why teams adopt it:</strong> zero copy-pasting prompts across Orca tabs,
+        fewer CI/PR round-trips, and a shared engineering baseline without slowing down local work.
       </div>
     </section>
 
-    <!-- SLIDE 2: SKILL VS MOTOR SIMULATOR -->
-    <section class="slide" data-title="Skill vs Motor">
-      <span class="eyebrow">02 / Para el dev escéptico del "Con mi Skill me alcanza"</span>
-      <h2 class="slide-title">¿Qué pasa cuando dependés solo de un <code>SKILL.md</code>?</h2>
+    <!-- SLIDE 2: SKILL VS ENGINE SIMULATOR -->
+    <section class="slide" data-title="Skill vs Engine">
+      <span class="eyebrow">02 / For the "My Skill Is Enough" Skeptic</span>
+      <h2 class="slide-title">What happens when you rely only on a <code>SKILL.md</code>?</h2>
       <p class="lead">
-        Tocá cualquiera de estos 5 incidentes reales en Orca y compará qué pasa con una skill suelta
-        frente a tener el Engine vigilando por debajo.
+        Click any of these 5 real Orca incidents to compare a standalone skill
+        against having the Engine enforcing invariants underneath.
       </p>
 
-      <div class="btn-row" role="group" aria-label="Escenarios de falla">
-        <button class="pill-btn" type="button" data-scenario="model" aria-pressed="true">1. Modelo equivocado en Orca</button>
-        <button class="pill-btn" type="button" data-scenario="self" aria-pressed="false">2. Auto-aprobación</button>
-        <button class="pill-btn" type="button" data-scenario="edit" aria-pressed="false">3. Revisor que toca código</button>
-        <button class="pill-btn" type="button" data-scenario="drift" aria-pressed="false">4. Spec editado a mitad</button>
-        <button class="pill-btn" type="button" data-scenario="noise" aria-pressed="false">5. Log de 4.000 líneas</button>
+      <div class="btn-row" role="group" aria-label="Failure scenarios">
+        <button class="pill-btn" type="button" data-scenario="model" aria-pressed="true">1. Wrong model in Orca</button>
+        <button class="pill-btn" type="button" data-scenario="self" aria-pressed="false">2. Self-approval</button>
+        <button class="pill-btn" type="button" data-scenario="edit" aria-pressed="false">3. Reviewer edits code</button>
+        <button class="pill-btn" type="button" data-scenario="drift" aria-pressed="false">4. Mid-debate spec drift</button>
+        <button class="pill-btn" type="button" data-scenario="noise" aria-pressed="false">5. 4,000-line log dump</button>
       </div>
 
       <div class="grid-2">
         <div class="card danger" style="--stagger:0">
-          <span class="tag plasma">Solo con SKILL.md</span>
-          <h3 id="scenSkillTitle">El worker arranca igual con otro modelo</h3>
+          <span class="tag plasma">SKILL.md Only</span>
+          <h3 id="scenSkillTitle">The worker launches anyway with another model</h3>
           <p id="scenSkillBody">
-            La skill pide usar cierto modelo o nivel de razonamiento, pero si el coordinador omite el flag
-            o Orca hace fallback, el worker corre con otro modelo y nadie lo detecta.
+            The skill asks for a specific model or reasoning level, but if the coordinator omits the flag
+            or Orca falls back, the worker runs on another model and nobody notices.
           </p>
         </div>
         <div class="card success" style="--stagger:1">
           <span class="tag">Orca + ia-spec-ops-engine</span>
-          <h3 id="scenEngineTitle">Validado al lanzar y verificado en <code>launch.json</code></h3>
+          <h3 id="scenEngineTitle">Validated at launch &amp; verified in <code>launch.json</code></h3>
           <p id="scenEngineBody">
-            <code>taskflow.denied_models</code> bloquea antes del dispatch y al recolectar abre <code>launch.json</code>
-            de Orca para comprobar qué agente y modelo corrieron realmente.
+            <code>taskflow.denied_models</code> blocks before dispatch, and <code>collect</code> reads Orca's
+            <code>launch.json</code> to verify which agent and model actually ran.
           </p>
         </div>
       </div>
@@ -755,122 +755,122 @@
     </section>
 
     <!-- SLIDE 3: ARCHITECTURE WITH ORCA -->
-    <section class="slide" data-title="Arquitectura">
-      <span class="eyebrow">03 / Arquitectura Neural + Determinística</span>
-      <h2 class="slide-title">Orca ejecuta los workers. El Engine pone las reglas y la memoria.</h2>
+    <section class="slide" data-title="Architecture">
+      <span class="eyebrow">03 / Neural + Deterministic Architecture</span>
+      <h2 class="slide-title">Orca runs the workers. The Engine owns the rules and memory.</h2>
       <p class="lead">
-        El motor nunca reemplaza a Orca ni lanza agentes por su cuenta: prepara los specs, imprime el
-        <code>orca orchestration worker-start</code> exacto y verifica el resultado cuando Orca termina.
+        The engine never replaces Orca or spawns agents on its own: it prepares specs, prints the exact
+        <code>orca orchestration worker-start</code> command, and verifies results when Orca finishes.
       </p>
 
       <div class="grid-3">
         <button class="card arch-node" type="button" data-arch="orca" aria-pressed="true" style="--stagger:0">
           <span class="tag violet">Runtime · Orca</span>
           <h3>Orca Orchestration</h3>
-          <p class="kpi-label">Maneja worktrees aislados, terminales, envío de mensajes, <code>worker_done</code> y recibos <code>launch.json</code>.</p>
+          <p class="kpi-label">Manages isolated worktrees, terminals, messaging, <code>worker_done</code>, and <code>launch.json</code> receipts.</p>
         </button>
         <button class="card arch-node" type="button" data-arch="governance" aria-pressed="false" style="--stagger:1">
-          <span class="tag">Gobierno · ai-governance</span>
-          <h3><code>taskflow</code> + Reglas + Skills</h3>
-          <p class="kpi-label">Estado de tareas, independencia entre roles, debate multi-proveedor y sync real de skills.</p>
+          <span class="tag">Governance · ai-governance</span>
+          <h3><code>taskflow</code> + Rules + Skills</h3>
+          <p class="kpi-label">Task state, role independence, multi-provider debate, and real skill syncing.</p>
         </button>
         <button class="card arch-node" type="button" data-arch="workspace" aria-pressed="false" style="--stagger:2">
-          <span class="tag plasma">Ejecución · ws</span>
-          <h3>Quality Gate &amp; Condensador</h3>
-          <p class="kpi-label">Corre en cada worktree de Orca: detecta stacks, condensa logs y frena errores antes del push.</p>
+          <span class="tag plasma">Execution · ws</span>
+          <h3>Quality Gate &amp; Condenser</h3>
+          <p class="kpi-label">Runs in every Orca worktree: detects stacks, condenses logs, and blocks errors pre-push.</p>
         </button>
       </div>
 
       <div class="card highlight" id="archDetail" style="--stagger:3">
-        <span class="tag violet" id="archTag">Orca · Capa de ejecución</span>
-        <h3 id="archTitle">Worktrees limpios y coordinación sin polling manual</h3>
+        <span class="tag violet" id="archTag">Orca · Execution Layer</span>
+        <h3 id="archTitle">Clean worktrees and coordination without manual polling</h3>
         <p id="archDesc">
-          Orca crea y aísla los workspaces de cada worker, despierta a tu sesión coordinadora cuando llega
-          <code>worker_done</code> y emite el recibo firmado en <code>launch.json</code> que luego audita el Engine.
+          Orca creates and isolates each worker's workspace, wakes your coordinator session on
+          <code>worker_done</code>, and writes the signed <code>launch.json</code> receipt that the Engine audits.
         </p>
-        <pre class="terminal" id="archCode"># El Engine arma el spec y te da la línea exacta para Orca:
+        <pre class="terminal" id="archCode"># The Engine builds the spec and gives you the exact Orca command:
 orca orchestration worker-start --spec-file .../runs/001/spec.md \
   --agent antigravity --model gemini-3.8-flash --effort low \
-  --worktree path:/tu/repo --task-title 'debater round 1' --json &gt; launch.json</pre>
+  --worktree path:/your/repo --task-title 'debater round 1' --json &gt; launch.json</pre>
       </div>
     </section>
 
     <!-- SLIDE 4: CONTEXT CLEANLINESS -->
-    <section class="slide" data-title="Contexto Limpio">
-      <span class="eyebrow">04 / Atención del Modelo Protegida</span>
-      <h2 class="slide-title">Ventana de contexto limpia = agentes más lúcidos</h2>
+    <section class="slide" data-title="Clean Context">
+      <span class="eyebrow">04 / Protected Model Attention</span>
+      <h2 class="slide-title">Clean context window = sharper agents</h2>
       <p class="lead">
-        Cuando un build o test vuelca 4.000 líneas en la terminal de Orca, el agente se distrae, compacta
-        antes de tiempo y pierde el hilo. <code>ws run</code> corta ese ruido de raíz.
+        When a build or test dumps 4,000 lines into an Orca terminal, the agent gets distracted,
+        compacts early, and loses the thread. <code>ws run</code> cuts that noise at the source.
       </p>
 
-      <div class="btn-row" role="group" aria-label="Vista de salida de comando">
-        <button class="pill-btn" type="button" data-logview="raw" aria-pressed="false">Sin Engine (output crudo)</button>
-        <button class="pill-btn" type="button" data-logview="condensed" aria-pressed="true">Con ws run (condensado)</button>
+      <div class="btn-row" role="group" aria-label="Command output view">
+        <button class="pill-btn" type="button" data-logview="raw" aria-pressed="false">Without Engine (raw output)</button>
+        <button class="pill-btn" type="button" data-logview="condensed" aria-pressed="true">With ws run (condensed)</button>
       </div>
 
       <pre class="terminal" id="logPreview" style="--stagger:0">✔ pytest -q (1444 passed in 215.76s)
-  log_id: run_20261116_2104 · 148 KB guardados
-  para buscar detalle: ws log run_20261116_2104 --grep "FAILED|ERROR"</pre>
+  log_id: run_20261116_2104 · 148 KB saved
+  search details: ws log run_20261116_2104 --grep "FAILED|ERROR"</pre>
 
       <div class="grid-3">
         <div class="card" style="--stagger:1">
-          <span class="tag">Menos compactación</span>
-          <h3>Sesiones más largas y lucidas</h3>
-          <p class="kpi-label">Tu coordinador en Orca conserva la arquitectura en mente en lugar de llenarse con warnings repetidos.</p>
+          <span class="tag">Less compaction</span>
+          <h3>Longer, sharper sessions</h3>
+          <p class="kpi-label">Your Orca coordinator keeps the architecture in mind instead of drowning in repeated warnings.</p>
         </div>
         <div class="card" style="--stagger:2">
-          <span class="tag violet">Cero re-corridas</span>
-          <h3>Log completo siempre a mano</h3>
-          <p class="kpi-label">Si hace falta investigar una falla puntual, corrés <code>ws log &lt;id&gt; --grep</code> sin relanzar el suite.</p>
+          <span class="tag violet">Zero re-runs</span>
+          <h3>Full log always on disk</h3>
+          <p class="kpi-label">Need to inspect a failure? Run <code>ws log &lt;id&gt; --grep</code> without re-running the suite.</p>
         </div>
         <div class="card" style="--stagger:3">
-          <span class="tag plasma">Visibilidad</span>
+          <span class="tag plasma">Visibility</span>
           <h3><code>ai-governance budget</code></h3>
-          <p class="kpi-label">Muestra exactamente cuántos bytes fijos cargan tus reglas y skills al abrir cada agente.</p>
+          <p class="kpi-label">Shows the exact fixed bytes loaded by your rules and skills on agent startup.</p>
         </div>
       </div>
     </section>
 
     <!-- SLIDE 5: QUALITY GATE & DESIGN -->
     <section class="slide" data-title="Quality Gate">
-      <span class="eyebrow">05 / Cero Sorpresas en el PR</span>
-      <h2 class="slide-title">Quality Gate veloz en cada worktree + límites de diseño</h2>
+      <span class="eyebrow">05 / Zero PR Surprises</span>
+      <h2 class="slide-title">Fast Quality Gate per worktree + design limits</h2>
       <p class="lead">
-        Con <code>gate.scope = "changed"</code>, el pre-push valida en segundos solo los archivos que
-        modificaste, mientras la suite completa corre en CI. Convive sin conflictos con Husky o hooks propios.
+        With <code>gate.scope = "changed"</code>, pre-push validates only modified files in seconds,
+        while CI runs the full suite. Coexists cleanly with Husky or repo hooks.
       </p>
 
-      <div class="btn-row" role="group" aria-label="Simulador de Quality Gate">
-        <button class="pill-btn" type="button" id="runGateBtn">▶ Simular <code>ws check --changed</code></button>
+      <div class="btn-row" role="group" aria-label="Quality Gate simulator">
+        <button class="pill-btn" type="button" id="runGateBtn">▶ Simulate <code>ws check --changed</code></button>
       </div>
 
       <div class="grid-2">
         <div class="card" style="--stagger:0">
           <table class="data">
-            <caption>Etapas del Pre-Push Gate</caption>
+            <caption>Pre-Push Gate Stages</caption>
             <thead>
               <tr>
-                <th scope="col">Etapa</th>
-                <th scope="col">Qué evita antes de llegar al PR</th>
-                <th scope="col">Estado</th>
+                <th scope="col">Stage</th>
+                <th scope="col">What it catches before the PR</th>
+                <th scope="col">Status</th>
               </tr>
             </thead>
             <tbody>
-              <tr><td>1. Secrets</td><td>Subir API keys o tokens con <code>gitleaks</code></td><td><span class="tag">PASS</span></td></tr>
-              <tr><td>2. Git Policies</td><td>Pushear a <code>main</code> o romper commits</td><td><span class="tag">PASS</span></td></tr>
-              <tr><td>3. Linters</td><td><code>ruff</code>, <code>mypy</code>, <code>eslint</code> según tu stack</td><td><span class="tag">PASS</span></td></tr>
-              <tr><td>4. Design Limits</td><td>Funciones gigantes o complejas (Lizard)</td><td><span class="tag">PASS</span></td></tr>
-              <tr><td>5. Test Suites</td><td>Tests afectados por tus cambios reales</td><td><span class="tag">PASS</span></td></tr>
+              <tr><td>1. Secrets</td><td>Leaking API keys or tokens via <code>gitleaks</code></td><td><span class="tag">PASS</span></td></tr>
+              <tr><td>2. Git Policies</td><td>Pushing to <code>main</code> or bad commits</td><td><span class="tag">PASS</span></td></tr>
+              <tr><td>3. Linters</td><td><code>ruff</code>, <code>mypy</code>, <code>eslint</code> per stack</td><td><span class="tag">PASS</span></td></tr>
+              <tr><td>4. Design Limits</td><td>Oversized or complex functions (Lizard)</td><td><span class="tag">PASS</span></td></tr>
+              <tr><td>5. Test Suites</td><td>Tests affected by your actual changes</td><td><span class="tag">PASS</span></td></tr>
             </tbody>
           </table>
         </div>
         <div class="card highlight" style="--stagger:1">
           <span class="tag violet">ws design --changed</span>
-          <h3>Chau funciones de 200 líneas generadas por IA</h3>
+          <h3>No more 200-line AI-generated functions</h3>
           <p class="kpi-label">
-            Controla complejidad ciclomática (&le; 10), largo (&le; 40 líneas) y tests vacíos ("junk tests").
-            Usa <strong>ratchet</strong>: el código viejo no te frena, pero lo nuevo entra prolijo.
+            Enforces cyclomatic complexity (&le; 10), length (&le; 40 lines), and empty "junk tests".
+            Uses a <strong>ratchet</strong>: legacy code won't block you, but new code stays clean.
           </p>
           <pre class="terminal" id="gateOut">$ ws design --changed
 Pre-existing: 1 warning (non-blocking)
@@ -881,15 +881,15 @@ Pre-existing: 1 warning (non-blocking)
 
     <!-- SLIDE 6: TASKFLOW + ORCA LOOP -->
     <section class="slide" data-title="Taskflow + Orca">
-      <span class="eyebrow">06 / Orquestación Multi-Agente en Orca</span>
-      <h2 class="slide-title"><code>taskflow</code>: el que programa no se auto-aprueba</h2>
+      <span class="eyebrow">06 / Multi-Agent Orchestration in Orca</span>
+      <h2 class="slide-title"><code>taskflow</code>: the builder never self-approves</h2>
       <p class="lead">
-        Tu sesión en Orca actúa como <code>builder</code>. Cuando necesitás validar un plan o juzgar
-        cambios, <code>taskflow</code> obliga a que <code>validator</code> y <code>judge</code> corran en otro proveedor en Orca.
+        Your Orca session acts as <code>builder</code>. When validating a plan or judging changes,
+        <code>taskflow</code> forces <code>validator</code> and <code>judge</code> onto a different provider in Orca.
       </p>
 
       <div class="svg-wrap" style="--stagger:0">
-        <svg role="img" viewBox="0 0 920 175" width="100%" height="175" aria-label="Ciclo taskflow integrado con Orca">
+        <svg role="img" viewBox="0 0 920 175" width="100%" height="175" aria-label="Taskflow cycle integrated with Orca">
           <defs>
             <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
               <path d="M 0 1 L 10 5 L 0 9 z" fill="#00f5d4"></path>
@@ -897,19 +897,19 @@ Pre-existing: 1 warning (non-blocking)
           </defs>
           <rect x="16" y="42" width="175" height="84" rx="12" fill="#090d1a" stroke="#00f5d4" stroke-width="1.5"></rect>
           <text x="103" y="75" fill="#00f5d4" font-size="13" font-weight="700" text-anchor="middle" font-family="monospace">1. DISPATCH</text>
-          <text x="103" y="100" fill="#cbd5e1" font-size="12" text-anchor="middle">Sella spec + comando Orca</text>
+          <text x="103" y="100" fill="#cbd5e1" font-size="12" text-anchor="middle">Seals spec + Orca cmd</text>
 
           <line x1="191" y1="84" x2="248" y2="84" stroke="#00f5d4" stroke-width="2" marker-end="url(#arrow)"></line>
 
           <rect x="252" y="42" width="180" height="84" rx="12" fill="#090d1a" stroke="#9d4edd" stroke-width="1.5"></rect>
           <text x="342" y="75" fill="#d8b4fe" font-size="13" font-weight="700" text-anchor="middle" font-family="monospace">2. ORCA WORKER</text>
-          <text x="342" y="100" fill="#cbd5e1" font-size="12" text-anchor="middle">Corre aislado + receipt.txt</text>
+          <text x="342" y="100" fill="#cbd5e1" font-size="12" text-anchor="middle">Runs isolated + receipt.txt</text>
 
           <line x1="432" y1="84" x2="489" y2="84" stroke="#00f5d4" stroke-width="2" marker-end="url(#arrow)"></line>
 
           <rect x="493" y="42" width="185" height="84" rx="12" fill="#090d1a" stroke="#ffb703" stroke-width="1.5"></rect>
           <text x="585" y="75" fill="#ffb703" font-size="13" font-weight="700" text-anchor="middle" font-family="monospace">3. COLLECT</text>
-          <text x="585" y="100" fill="#cbd5e1" font-size="12" text-anchor="middle">Valida launch.json + git</text>
+          <text x="585" y="100" fill="#cbd5e1" font-size="12" text-anchor="middle">Verifies launch.json + git</text>
 
           <line x1="678" y1="84" x2="735" y2="84" stroke="#00f5d4" stroke-width="2" marker-end="url(#arrow)"></line>
 
@@ -921,184 +921,184 @@ Pre-existing: 1 warning (non-blocking)
 
       <div class="grid-3">
         <div class="card" style="--stagger:1">
-          <span class="tag violet">Cero sesgo</span>
-          <h3>Cruce real de modelos</h3>
-          <p class="kpi-label">Si implementa Claude, valida/juzga Codex o Antigravity en su propio worker de Orca.</p>
+          <span class="tag violet">Zero bias</span>
+          <h3>True cross-model review</h3>
+          <p class="kpi-label">If Claude implements, Codex or Antigravity validates/judges in its own Orca worker.</p>
         </div>
         <div class="card" style="--stagger:2">
-          <span class="tag solar">Anti-deriva</span>
-          <h3>Huella Git sellada</h3>
-          <p class="kpi-label">Si el árbol cambió desde las pruebas o un lector tocó código, <code>collect</code> invalida la ronda.</p>
+          <span class="tag solar">Anti-drift</span>
+          <h3>Sealed Git fingerprint</h3>
+          <p class="kpi-label">If the tree changed since tests ran or a reader touched code, <code>collect</code> invalidates the round.</p>
         </div>
         <div class="card" style="--stagger:3">
-          <span class="tag">Continuidad</span>
-          <h3>Retomá en otra sesión</h3>
-          <p class="kpi-label"><code>taskflow here</code> recupera pasos, hechos, decisiones y aprobaciones al instante.</p>
+          <span class="tag">Continuity</span>
+          <h3>Resume in any session</h3>
+          <p class="kpi-label"><code>taskflow here</code> restores steps, facts, decisions, and approvals instantly.</p>
         </div>
       </div>
     </section>
 
     <!-- SLIDE 7: DEBATE MODE -->
     <section class="slide" data-title="Debate Mode">
-      <span class="eyebrow">07 / Novedad v2.3.0 · taskflow debate en Orca</span>
-      <h2 class="slide-title">Debate de diseño multi-proveedor antes de escribir código</h2>
+      <span class="eyebrow">07 / New in v2.3.0 · taskflow debate in Orca</span>
+      <h2 class="slide-title">Multi-provider design debate before writing code</h2>
       <p class="lead">
-        ¿Tenés una decisión técnica difícil? Poné a debatir 2 o más proveedores en Orca. El Engine
-        coordina tesis, repreguntas cruzadas y una síntesis matemática sin que tengas que copiar nada a mano.
+        Facing a tough technical decision? Have 2+ providers debate in Orca. The Engine coordinates
+        theses, cross-examination, and a deterministic synthesis without manual copy-paste.
       </p>
 
-      <div class="btn-row" role="group" aria-label="Fases del modo debate">
-        <button class="pill-btn" type="button" data-debate="open" aria-pressed="true">1. debate open (tesis)</button>
-        <button class="pill-btn" type="button" data-debate="cross" aria-pressed="false">2. debate cross (repregunta)</button>
+      <div class="btn-row" role="group" aria-label="Debate mode phases">
+        <button class="pill-btn" type="button" data-debate="open" aria-pressed="true">1. debate open (thesis)</button>
+        <button class="pill-btn" type="button" data-debate="cross" aria-pressed="false">2. debate cross (rebuttal)</button>
         <button class="pill-btn" type="button" data-debate="close" aria-pressed="false">3. debate close (synthesis.md)</button>
       </div>
 
       <div class="grid-2">
         <div class="card highlight" style="--stagger:0">
-          <span class="tag" id="debTag">Fase 1 · Aislamiento + Hashes</span>
-          <h3 id="debTitle">Tesis independientes en paralelo dentro de Orca</h3>
+          <span class="tag" id="debTag">Phase 1 · Isolation + Hashes</span>
+          <h3 id="debTitle">Independent theses in parallel inside Orca</h3>
           <p id="debDesc">
-            Cada asiento recibe la misma pregunta, su propia carpeta <code>scratch/</code> para correr scripts
-            de prueba y las instrucciones de <code>--web</code> / <code>--artifact</code>.
+            Each seat gets the same prompt, its own <code>scratch/</code> directory for test scripts,
+            and <code>--web</code> / <code>--artifact</code> instructions.
           </p>
           <ul class="clean" id="debBullets">
-            <li>Exige al menos 2 proveedores distintos (el <code>debater</code> puede compartir proveedor con <code>builder</code>).</li>
-            <li>Sella <code>topic_sha</code> y SHA-256 de cada artifact en <code>debate.json</code>.</li>
+            <li>Requires at least 2 distinct providers (<code>debater</code> may share a provider with <code>builder</code>).</li>
+            <li>Seals <code>topic_sha</code> and SHA-256 of every artifact in <code>debate.json</code>.</li>
           </ul>
         </div>
-        <pre class="terminal" id="debPreview" style="--stagger:1">taskflow debate mi-diseno open \
-  --topic-file tema.md \
+        <pre class="terminal" id="debPreview" style="--stagger:1">taskflow debate my-design open \
+  --topic-file topic.md \
   --agents codex,antigravity,claude \
   --web --artifact src/models.py
 
-→ Imprime 3 líneas `orca orchestration worker-start ...`
-→ Cada worker corre aislado en Orca sin ver a los demás</pre>
+→ Prints 3 `orca orchestration worker-start ...` lines
+→ Each worker runs isolated in Orca without seeing the others</pre>
       </div>
     </section>
 
     <!-- SLIDE 8: FAIL-CLOSED SECURITY -->
-    <section class="slide" data-title="Seguridad Fail-Closed">
-      <span class="eyebrow">08 / Confiabilidad en Equipo</span>
-      <h2 class="slide-title">Seguros internos para que nada falle en silencio</h2>
+    <section class="slide" data-title="Fail-Closed Safety">
+      <span class="eyebrow">08 / Team Reliability</span>
+      <h2 class="slide-title">Internal safeguards so nothing fails silently</h2>
       <p class="lead">
-        Cuando varios devs corren workers en Orca en paralelo, los casos borde aparecen solos. El Engine
-        está diseñado <em>fail-closed</em>: ante la duda frena limpio y te explica exactamente qué pasó.
+        When multiple devs run Orca workers in parallel, edge cases happen. The Engine is
+        <em>fail-closed</em>: when in doubt, it stops cleanly and explains exactly why.
       </p>
 
       <div class="grid-2">
         <div class="card" style="--stagger:0">
-          <span class="tag plasma">Políticas de Modelos</span>
+          <span class="tag plasma">Model Policies</span>
           <h3><code>denied_models</code> + <code>--effort</code></h3>
           <ul class="clean">
-            <li>Un repositorio <strong>nunca</strong> puede relajar la lista de modelos prohibidos del usuario; solo agregar.</li>
-            <li>Si la config está mal formada o falta el modelo en <code>launch.json</code> de Orca, <code>collect</code> rechaza la ronda.</li>
-            <li><code>--effort</code> se valida siempre junto con un modelo explícito o por defecto.</li>
+            <li>A repository can <strong>never</strong> relax the user's denied-model list; it can only add to it.</li>
+            <li>If config is malformed or the model is missing in Orca's <code>launch.json</code>, <code>collect</code> rejects the round.</li>
+            <li><code>--effort</code> is always validated alongside an explicit or default model.</li>
           </ul>
         </div>
         <div class="card" style="--stagger:1">
-          <span class="tag">Concurrencia &amp; Rollback</span>
-          <h3>Locks separados y cero basura en disco</h3>
+          <span class="tag">Concurrency &amp; Rollback</span>
+          <h3>Separate locks and zero disk clutter</h3>
           <ul class="clean">
-            <li>Lock propio <code>.debate.lock</code> separado de <code>.lock</code> del store (sin interbloqueos).</li>
-            <li>Lectura no bloqueante de archivos regulares (<code>O_NONBLOCK</code> + <code>S_ISREG</code>).</li>
-            <li>Si un dispatch en Orca falla a mitad de camino, hace rollback de rondas y sellos.</li>
+            <li>Dedicated <code>.debate.lock</code> separate from store <code>.lock</code> (no deadlocks).</li>
+            <li>Non-blocking reads on regular files only (<code>O_NONBLOCK</code> + <code>S_ISREG</code>).</li>
+            <li>If an Orca dispatch fails mid-flight, rounds and seals are rolled back.</li>
           </ul>
         </div>
       </div>
 
       <div class="quote-box" style="--stagger:2">
-        <strong>Resultado para el equipo:</strong> no dependés de que cada persona recuerde mil flags; el repo
-        y tu configuración local garantizan las mismas reglas en cada worker de Orca.
+        <strong>Team payoff:</strong> nobody has to memorize a dozen flags; the repo and your local
+        config enforce the same rules on every Orca worker.
       </div>
     </section>
 
     <!-- SLIDE 9: ECOSYSTEM FOR DAILY WORK -->
-    <section class="slide" data-title="Ecosistema Diario">
-      <span class="eyebrow">09 / Herramientas de Todos los Días</span>
-      <h2 class="slide-title">Potencia tus Skills actuales y ordena el flujo del equipo</h2>
+    <section class="slide" data-title="Daily Ecosystem">
+      <span class="eyebrow">09 / Everyday Tools</span>
+      <h2 class="slide-title">Supercharge your current Skills and streamline team flow</h2>
       <p class="lead">
-        No tenés que tirar tus skills ni cambiar cómo trabajás en Orca: el Engine sincroniza tus skills,
-        diagnostica tu entorno y limpia el ruido de tus herramientas diarias.
+        No need to throw away your skills or change how you work in Orca: the Engine syncs your skills,
+        diagnoses your setup, and strips noise from daily tools.
       </p>
 
       <div class="grid-3">
         <div class="card" style="--stagger:0">
           <span class="tag">skills + personal</span>
-          <h3>Copias reales en los 3 agentes</h3>
+          <h3>Real copies across all 3 agents</h3>
           <p class="kpi-label">
-            <code>ai-governance skills sync</code> copia carpetas reales a Claude, Codex y Antigravity (evitando errores de lectura en symlinks),
-            detecta copias <code>outdated</code> o <code>edited</code> y las audita con <code>doctor</code>.
+            <code>ai-governance skills sync</code> copies real folders to Claude, Codex, and Antigravity (avoiding symlink read issues),
+            detects <code>outdated</code> or <code>edited</code> copies, and audits them with <code>doctor</code>.
           </p>
         </div>
         <div class="card" style="--stagger:1">
           <span class="tag violet">jira + confluence</span>
-          <h3>Tickets y docs en Markdown</h3>
+          <h3>Tickets &amp; docs in Markdown</h3>
           <p class="kpi-label">
-            Lectura directa sin inflar la ventana de contexto, con aprobación explícita antes de escribir o transicionar un ticket.
+            Direct reads without bloating the context window, with explicit approval before writing or transitioning a ticket.
           </p>
         </div>
         <div class="card" style="--stagger:2">
           <span class="tag solar">doctor + hooks</span>
-          <h3>Diagnóstico en 1 comando</h3>
+          <h3>1-command diagnostics</h3>
           <p class="kpi-label">
-            <code>ai-governance doctor</code> y <code>ws doctor</code> verifican en segundos si tus hooks, skills, settings y CLI de Orca están sanos.
+            <code>ai-governance doctor</code> and <code>ws doctor</code> verify in seconds that hooks, skills, settings, and Orca CLI are healthy.
           </p>
         </div>
       </div>
     </section>
 
     <!-- SLIDE 10: TEAM ADOPTION QUICKSTART -->
-    <section class="slide" data-title="Cómo Sumarse">
-      <span class="eyebrow">10 / Sumate en 2 Minutos</span>
-      <h2 class="slide-title">Cómo instalarlo y usarlo en tu setup con Orca</h2>
+    <section class="slide" data-title="Quickstart">
+      <span class="eyebrow">10 / Get Started in 2 Minutes</span>
+      <h2 class="slide-title">How to install and use it in your Orca setup</h2>
       <p class="lead">
-        Cada persona del equipo instala los dos paquetes una sola vez con <code>uv tool</code>, activa los
-        hooks no invasivos y ya puede lanzar rondas o debates directo desde su sesión en Orca.
+        Each teammate installs both packages once with <code>uv tool</code>, enables non-intrusive
+        hooks, and can launch rounds or debates straight from their Orca session.
       </p>
 
       <div class="card highlight" style="--stagger:0">
-        <button class="copy-btn" type="button" id="copyQuickBtn">Copiar comandos</button>
-        <pre class="terminal" id="quickstartCode"># 1. Instalar ambas CLIs desde el repo (en modo editable si usás packs/skills locales)
+        <button class="copy-btn" type="button" id="copyQuickBtn">Copy commands</button>
+        <pre class="terminal" id="quickstartCode"># 1. Install both CLIs from the repo (editable if using local packs/skills)
 uv tool install --editable ./packages/ai-governance
 uv tool install --editable ./packages/workspace
 
-# 2. Instalar reglas para tus agentes y hooks de pre-push en tu repo
+# 2. Install agent rules and repo pre-push hooks
 ai-governance install --scope user --agent all
 ws hooks install
 
-# 3. Verificar que todo esté sano y listo para Orca
+# 3. Verify everything is healthy and ready for Orca
 ai-governance doctor && ws doctor
 
-# 4. Abrir tu primer debate multi-proveedor desde Orca
-ai-governance taskflow new mi-diseno --title "Definir estrategia de cache"
-ai-governance taskflow debate mi-diseno open --topic-file tema.md --agents claude,antigravity --web</pre>
+# 4. Start your first multi-provider debate from Orca
+ai-governance taskflow new my-design --title "Define cache strategy"
+ai-governance taskflow debate my-design open --topic-file topic.md --agents claude,antigravity --web</pre>
       </div>
 
       <div class="grid-3">
         <div class="card success" style="--stagger:1">
-          <span class="tag">Adopción gradual</span>
-          <h3>Sin lock-in</h3>
-          <p class="kpi-label">Podés arrancar solo con <code>ws check --changed</code> y sumar <code>taskflow debate</code> cuando lo necesites.</p>
+          <span class="tag">Gradual adoption</span>
+          <h3>Zero lock-in</h3>
+          <p class="kpi-label">Start with just <code>ws check --changed</code> and add <code>taskflow debate</code> whenever you need it.</p>
         </div>
         <div class="card success" style="--stagger:2">
-          <span class="tag">Sin fricción</span>
-          <h3>Veloz en local</h3>
-          <p class="kpi-label">El pre-push revisa solo archivos tocados; no te frena con la suite entera del repo.</p>
+          <span class="tag">Frictionless</span>
+          <h3>Fast locally</h3>
+          <p class="kpi-label">Pre-push checks only touched files; it won't stall you with the full repo suite.</p>
         </div>
         <div class="card success" style="--stagger:3">
-          <span class="tag">Un solo estándar</span>
-          <h3>Mismo piso para todos</h3>
-          <p class="kpi-label">Cualquiera que clone el repo y corra en Orca comparte diseño, seguridad y calidad.</p>
+          <span class="tag">Single standard</span>
+          <h3>Same baseline for all</h3>
+          <p class="kpi-label">Anyone who clones the repo and runs in Orca shares design, security, and quality.</p>
         </div>
       </div>
     </section>
   </main>
 
   <footer class="footer-bar">
-    <div class="footer-meta" id="footerMeta">Diapositiva 1 / 10 · Teclas &larr; / &rarr; o deslizar</div>
+    <div class="footer-meta" id="footerMeta">Slide 1 / 10 · Keys &larr; / &rarr; or swipe</div>
     <div class="nav-controls">
-      <button class="nav-btn" type="button" id="prevBtn">&larr; Anterior</button>
-      <button class="nav-btn" type="button" id="nextBtn">Siguiente &rarr;</button>
+      <button class="nav-btn" type="button" id="prevBtn">&larr; Previous</button>
+      <button class="nav-btn" type="button" id="nextBtn">Next &rarr;</button>
     </div>
   </footer>
 
@@ -1120,7 +1120,7 @@ ai-governance taskflow debate mi-diseno open --topic-file tema.md --agents claud
         btn.className = "dot-btn";
         btn.textContent = String(idx + 1).padStart(2, "0");
         btn.title = slide.dataset.title || `Slide ${idx + 1}`;
-        btn.setAttribute("aria-label", `Ir a diapositiva ${idx + 1}: ${btn.title}`);
+        btn.setAttribute("aria-label", `Go to slide ${idx + 1}: ${btn.title}`);
         btn.addEventListener("click", () => goTo(idx));
         topDots.appendChild(btn);
       });
@@ -1136,8 +1136,8 @@ ai-governance taskflow debate mi-diseno open --topic-file tema.md --agents claud
         });
         progressFill.style.width = `${((idx + 1) / total) * 100}%`;
         const title = slides[idx].dataset.title || "";
-        footerMeta.textContent = `Diapositiva ${idx + 1} / ${total} · ${title} · Teclas ← / →`;
-        announcer.textContent = `Diapositiva ${idx + 1} de ${total}: ${title}`;
+        footerMeta.textContent = `Slide ${idx + 1} / ${total} · ${title} · Keys ← / →`;
+        announcer.textContent = `Slide ${idx + 1} of ${total}: ${title}`;
         prevBtn.disabled = idx === 0;
         nextBtn.disabled = idx === total - 1;
       }
@@ -1260,7 +1260,7 @@ ai-governance taskflow debate mi-diseno open --topic-file tema.md --agents claud
       function syncFxState() {
         cancelAnimationFrame(rafId);
         fxToggle.setAttribute("aria-pressed", String(fxEnabled));
-        fxToggle.textContent = fxEnabled ? "Red neuronal: ON" : "Red neuronal: OFF";
+        fxToggle.textContent = fxEnabled ? "Neural mesh: ON" : "Neural mesh: OFF";
         canvas.style.opacity = fxEnabled ? "0.65" : "0.18";
         drawFrame(fxEnabled);
       }
@@ -1283,38 +1283,38 @@ ai-governance taskflow debate mi-diseno open --topic-file tema.md --agents claud
       /* Slide 2: Scenarios */
       const scenarios = {
         model: {
-          st: "El worker arranca igual con otro modelo",
-          sb: "La skill pide usar cierto modelo o nivel de razonamiento, pero si el coordinador omite el flag o Orca hace fallback, el worker corre con otro modelo y nadie lo detecta.",
-          et: "Validado al lanzar y verificado en launch.json",
-          eb: "<code>taskflow.denied_models</code> bloquea antes del dispatch y al recolectar abre <code>launch.json</code> de Orca para comprobar qué agente y modelo corrieron realmente.",
+          st: "The worker launches anyway with another model",
+          sb: "The skill asks for a specific model or reasoning level, but if the coordinator omits the flag or Orca falls back, the worker runs on another model and nobody notices.",
+          et: "Validated at launch & verified in launch.json",
+          eb: "<code>taskflow.denied_models</code> blocks before dispatch, and <code>collect</code> reads Orca's <code>launch.json</code> to verify which agent and model actually ran.",
           term: 'AI_GOVERNANCE_DENIED_MODELS="gemini-3.8-flash" ai-governance taskflow debate T1 open ...\n→ ERROR: seat \'antigravity\': model \'gemini-3.8-flash\' is denied by taskflow.denied_models (exit 1)',
         },
         self: {
-          st: "El mismo modelo se aprueba su propio código",
-          sb: "Le pedís al agente que implemente y luego valide con una skill: tiende a justificar sus propios atajos.",
-          et: "Separación de poderes por proveedor en Orca",
-          eb: "<code>INDEPENDENT_ROLES</code> impide que <code>validator</code> y <code>judge</code> corran en el mismo proveedor que el <code>builder</code>.",
+          st: "The same model approves its own code",
+          sb: "You ask an agent to implement and then validate with a skill: it tends to rationalize its own shortcuts.",
+          et: "Provider separation of powers in Orca",
+          eb: "<code>INDEPENDENT_ROLES</code> prevents <code>validator</code> and <code>judge</code> from running on the same provider as <code>builder</code>.",
           term: "taskflow round TASK-1 dispatch --role validator --agent claude\n→ ERROR: validator and builder would both use provider 'claude': pick another agent",
         },
         edit: {
-          st: "Un revisor 'de solo lectura' edita archivos",
-          sb: "Le decís en el prompt 'no modifiques nada', pero toca un archivo en el worktree de Orca y seguís adelante sin darte cuenta.",
-          et: "Huella Git (stamp) verificada en collect",
-          eb: "<code>collect</code> compara <code>head_sha</code> y <code>tree_fingerprint</code> contra el momento del dispatch: si cambió algo, marca la ronda <code>invalid</code>.",
+          st: "A 'read-only' reviewer edits files",
+          sb: "You tell it in the prompt 'do not modify anything', yet it edits a file in the Orca worktree and you keep going unnoticed.",
+          et: "Git fingerprint (stamp) verified on collect",
+          eb: "<code>collect</code> compares <code>head_sha</code> and <code>tree_fingerprint</code> against dispatch time: if anything changed, the round is marked <code>invalid</code>.",
           term: "taskflow round TASK-1 collect --round 2 --dispatch-id D2\n→ WARN: Round 002 invalid (reader changed the tree or HEAD moved)",
         },
         drift: {
-          st: "Alguien edita el tema a mitad del debate",
-          sb: "Un worker en Orca argumenta sobre la versión vieja del documento y otro sobre la versión nueva sin que nadie lo note.",
-          et: "Integridad SHA-256 entre open y cross",
-          eb: "<code>open</code> sella <code>topic_sha</code> y <code>artifact_digests</code>; <code>cross</code> frena si algún archivo cambió en disco.",
+          st: "Someone edits the topic mid-debate",
+          sb: "One Orca worker argues against the old document version and another against the new version without anyone noticing.",
+          et: "SHA-256 integrity between open and cross",
+          eb: "<code>open</code> seals <code>topic_sha</code> and <code>artifact_digests</code>; <code>cross</code> aborts if any file changed on disk.",
           term: "taskflow debate T1 cross\n→ ERROR: topic file changed since the debate was opened",
         },
         noise: {
-          st: "4.000 líneas de pytest inundan tu sesión en Orca",
-          sb: "Se llena el contexto del coordinador con tracebacks repetidos, pierde precisión y termina compactando antes de tiempo.",
-          et: "Condensación determinística + log privado",
-          eb: "<code>ws run</code> imprime el resumen en ~10 líneas y guarda el log crudo indexado en <code>ws log</code>.",
+          st: "4,000 lines of pytest flood your Orca session",
+          sb: "The coordinator's context fills with repeated tracebacks, loses precision, and compacts prematurely.",
+          et: "Deterministic condensation + private log",
+          eb: "<code>ws run</code> prints a ~10-line summary and stores the full indexed log in <code>ws log</code>.",
           term: "ws run -- pytest -q\n→ ✔ 1444 passed (log saved: run_019 · use `ws log run_019 --grep ...`)",
         },
       };
@@ -1335,22 +1335,22 @@ ai-governance taskflow debate mi-diseno open --topic-file tema.md --agents claud
       /* Slide 3: Architecture inspector */
       const archData = {
         orca: {
-          tag: "Orca · Capa de ejecución",
-          title: "Worktrees limpios y coordinación sin polling manual",
-          desc: "Orca crea y aísla los workspaces de cada worker, despierta a tu sesión coordinadora cuando llega <code>worker_done</code> y emite el recibo firmado en <code>launch.json</code> que luego audita el Engine.",
-          code: "# El Engine arma el spec y te da la línea exacta para Orca:\norca orchestration worker-start --spec-file .../runs/001/spec.md \\\n  --agent antigravity --model gemini-3.8-flash --effort low \\\n  --worktree path:/tu/repo --task-title 'debater round 1' --json > launch.json",
+          tag: "Orca · Execution Layer",
+          title: "Clean worktrees and coordination without manual polling",
+          desc: "Orca creates and isolates each worker's workspace, wakes your coordinator session on <code>worker_done</code>, and writes the signed <code>launch.json</code> receipt that the Engine audits.",
+          code: "# The Engine builds the spec and gives you the exact Orca command:\norca orchestration worker-start --spec-file .../runs/001/spec.md \\\n  --agent antigravity --model gemini-3.8-flash --effort low \\\n  --worktree path:/your/repo --task-title 'debater round 1' --json > launch.json",
         },
         governance: {
-          tag: "ai-governance · Gobierno y Orquestación",
-          title: "Reglas por agente, skills copiadas y flujo taskflow + debate",
-          desc: "Instala reglas por scope (usuario o proyecto) sin pisar configuraciones ajenas, copia skills reales a <code>~/.claude/skills</code>, <code>~/.agents/skills</code> y <code>~/.gemini/config/skills</code>, mide el <code>budget</code> fijo y coordina rondas y debates sobre Orca.",
-          code: "ai-governance taskflow debate T1 open --topic-file t.md --agents claude,antigravity --web\nai-governance taskflow debate T1 cross\nai-governance taskflow debate T1 close   # Genera synthesis.md + pasos [debate]",
+          tag: "ai-governance · Governance & Orchestration",
+          title: "Per-agent rules, copied skills, and taskflow + debate",
+          desc: "Installs scoped rules (user or project) without clobbering user config, copies real skills to <code>~/.claude/skills</code>, <code>~/.agents/skills</code>, and <code>~/.gemini/config/skills</code>, tracks fixed <code>budget</code>, and coordinates rounds and debates on Orca.",
+          code: "ai-governance taskflow debate T1 open --topic-file t.md --agents claude,antigravity --web\nai-governance taskflow debate T1 cross\nai-governance taskflow debate T1 close   # Builds synthesis.md + [debate] steps",
         },
         workspace: {
-          tag: "ws · Motor de ejecución local",
-          title: "Detección de stacks, Quality Gate en segundos y límites de diseño",
-          desc: "Corre sobre cada worktree de Orca: detecta Python, Node, Go, PHP, Dart/Flutter o Java; registra hooks vía <code>git config</code> sin pisar Husky; mide complejidad por función con Lizard (<code>ws design</code>) y condensa salidas largas con <code>ws run</code>.",
-          code: "ws detect --json\nws design --changed\nws check --changed            # Corre las 5 etapas solo en lo modificado",
+          tag: "ws · Local Execution Engine",
+          title: "Stack detection, fast Quality Gate, and design limits",
+          desc: "Runs in every Orca worktree: detects Python, Node, Go, PHP, Dart/Flutter, or Java; registers hooks via <code>git config</code> without clobbering Husky; measures per-function complexity with Lizard (<code>ws design</code>) and condenses long outputs with <code>ws run</code>.",
+          code: "ws detect --json\nws design --changed\nws check --changed            # Runs all 5 stages on changed files only",
         },
       };
 
@@ -1368,8 +1368,8 @@ ai-governance taskflow debate mi-diseno open --topic-file tema.md --agents claud
 
       /* Slide 4: Log toggle */
       const logViews = {
-        raw: "$ pytest\n============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.2.0\ncollected 1444 items\npackages/ai-governance/tests/test_agents.py ......................... [ 12%]\npackages/ai-governance/tests/test_budget.py ......................... [ 19%]\n[... 3.180 líneas más de warnings, deprecation notices y progreso ...]\n1444 passed, 88 warnings in 215.76s  <-- 148 KB inundando tu ventana de contexto",
-        condensed: "✔ pytest -q (1444 passed in 215.76s)\n  log_id: run_20261116_2104 · 148 KB guardados\n  para buscar detalle: ws log run_20261116_2104 --grep \"FAILED|ERROR\"",
+        raw: "$ pytest\n============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.2.0\ncollected 1444 items\npackages/ai-governance/tests/test_agents.py ......................... [ 12%]\npackages/ai-governance/tests/test_budget.py ......................... [ 19%]\n[... 3,180 more lines of warnings, deprecation notices, and progress ...]\n1444 passed, 88 warnings in 215.76s  <-- 148 KB flooding your context window",
+        condensed: "✔ pytest -q (1444 passed in 215.76s)\n  log_id: run_20261116_2104 · 148 KB saved\n  search details: ws log run_20261116_2104 --grep \"FAILED|ERROR\"",
       };
       const logBtns = document.querySelectorAll("[data-logview]");
       logBtns.forEach((btn) => {
@@ -1383,40 +1383,40 @@ ai-governance taskflow debate mi-diseno open --topic-file tema.md --agents claud
       const runGateBtn = document.getElementById("runGateBtn");
       runGateBtn.addEventListener("click", () => {
         const out = document.getElementById("gateOut");
-        out.textContent = "$ ws check --changed\n[1/5] Security & Secrets ... PASS (0.4s)\n[2/5] Git Policies       ... PASS (0.1s)\n[3/5] Linters & Types    ... PASS (1.2s)\n[4/5] Design Limits      ... PASS (0.8s)\n[5/5] Scoped Test Suites ... PASS (48 passed)\n🚀 Listo para pushear.";
+        out.textContent = "$ ws check --changed\n[1/5] Security & Secrets ... PASS (0.4s)\n[2/5] Git Policies       ... PASS (0.1s)\n[3/5] Linters & Types    ... PASS (1.2s)\n[4/5] Design Limits      ... PASS (0.8s)\n[5/5] Scoped Test Suites ... PASS (48 passed)\n🚀 Ready to push.";
       });
 
       /* Slide 7: Debate phases */
       const debatePhases = {
         open: {
-          tag: "Fase 1 · Aislamiento + Hashes",
-          title: "Tesis independientes en paralelo dentro de Orca",
-          desc: "Cada asiento recibe la misma pregunta, su propia carpeta <code>scratch/</code> para correr scripts de prueba y las instrucciones de <code>--web</code> / <code>--artifact</code>.",
+          tag: "Phase 1 · Isolation + Hashes",
+          title: "Independent theses in parallel inside Orca",
+          desc: "Each seat gets the same prompt, its own <code>scratch/</code> directory for test scripts, and <code>--web</code> / <code>--artifact</code> instructions.",
           bullets: [
-            "Exige al menos 2 proveedores distintos (el debater puede compartir proveedor con builder).",
-            "Sella topic_sha y SHA-256 de cada artifact en debate.json.",
+            "Requires at least 2 distinct providers (debater may share a provider with builder).",
+            "Seals topic_sha and SHA-256 of every artifact in debate.json.",
           ],
-          code: "taskflow debate mi-diseno open \\\n  --topic-file tema.md \\\n  --agents codex,antigravity,claude \\\n  --web --artifact src/models.py\n\n→ Imprime 3 líneas `orca orchestration worker-start ...`\n→ Cada worker corre aislado en Orca sin ver a los demás",
+          code: "taskflow debate my-design open \\\n  --topic-file topic.md \\\n  --agents codex,antigravity,claude \\\n  --web --artifact src/models.py\n\n→ Prints 3 `orca orchestration worker-start ...` lines\n→ Each worker runs isolated in Orca without seeing the others",
         },
         cross: {
-          tag: "Fase 2 · Cross-Examination",
-          title: "Cada proveedor refuta a los demás con evidencia",
-          desc: "El motor verifica que tema y artifacts no hayan cambiado, descarta asientos fallidos (ej. si un CLI no está disponible en Orca) e inyecta en cada spec únicamente las rondas válidas ajenas.",
+          tag: "Phase 2 · Cross-Examination",
+          title: "Each provider refutes the others with evidence",
+          desc: "The engine verifies that topic and artifacts have not changed, drops failed seats (e.g., if a CLI is unavailable in Orca), and injects only valid peer rounds into each spec.",
           bullets: [
-            "Refresca el estado de la tarea antes de construir los specs de repregunta.",
-            "Exige líneas estructuradas REBUT:, CHANGED: y POSITION: final.",
+            "Refreshes task state before building cross-examination specs.",
+            "Requires structured REBUT:, CHANGED:, and final POSITION: lines.",
           ],
-          code: "taskflow debate mi-diseno cross\nWARN: dropped seat 'codex' (round 001: start_failed)\n→ Ronda 004 (antigravity) lee SOLO ronda 003 (claude)\n→ Ronda 005 (claude) lee SOLO ronda 002 (antigravity)",
+          code: "taskflow debate my-design cross\nWARN: dropped seat 'codex' (round 001: start_failed)\n→ Round 004 (antigravity) reads ONLY round 003 (claude)\n→ Round 005 (claude) reads ONLY round 002 (antigravity)",
         },
         close: {
-          tag: "Fase 3 · Síntesis Determinística",
-          title: "Matriz exacta en synthesis.md + pasos idempotentes",
-          desc: "<code>synthesis.py</code> parsea las respuestas sin wrapper, valida objetivos no propios, calcula la matriz <code>refuted / agreed / open</code> y guarda los puntos abiertos en <code>task.steps</code>.",
+          tag: "Phase 3 · Deterministic Synthesis",
+          title: "Exact matrix in synthesis.md + idempotent steps",
+          desc: "<code>synthesis.py</code> parses answers without wrappers, validates non-self targets, computes the <code>refuted / agreed / open</code> matrix, and saves open points to <code>task.steps</code>.",
           bullets: [
-            "Ejemplo de salida: Antigravity -> Claude (2/1/0), Claude -> Antigravity (2/2/0).",
-            "Volver a correr close o close --partial nunca duplica pasos [debate].",
+            "Example output: Antigravity -> Claude (2/1/0), Claude -> Antigravity (2/2/0).",
+            "Re-running close or close --partial never duplicates [debate] steps.",
           ],
-          code: "| Author \\ Target | codex | antigravity | claude |\n|---|---|---|---|\n| antigravity | dropped | — | 2 / 1 / 0 |\n| claude | dropped | 2 / 2 / 0 | — |\n\nRefutaciones con evidencia trazable a archivo:línea",
+          code: "| Author \\ Target | codex | antigravity | claude |\n|---|---|---|---|\n| antigravity | dropped | — | 2 / 1 / 0 |\n| claude | dropped | 2 / 2 / 0 | — |\n\nRefutations with traceable file:line evidence",
         },
       };
       const debBtns = document.querySelectorAll("[data-debate]");
@@ -1438,10 +1438,10 @@ ai-governance taskflow debate mi-diseno open --topic-file tema.md --agents claud
         const text = document.getElementById("quickstartCode").textContent;
         try {
           await navigator.clipboard.writeText(text);
-          copyBtn.textContent = "Copiado ✓";
-          setTimeout(() => { copyBtn.textContent = "Copiar comandos"; }, 1800);
+          copyBtn.textContent = "Copied ✓";
+          setTimeout(() => { copyBtn.textContent = "Copy commands"; }, 1800);
         } catch {
-          copyBtn.textContent = "Copiá manualmente";
+          copyBtn.textContent = "Copy manually";
         }
       });
     })();

@@ -137,7 +137,9 @@ def test_antigravity_pre_hook_redirects_noisy_commands(
         assert out == ""
 
 
-def test_antigravity_session_start_injects_system_message(monkeypatch, capsys, tmp_path: Path) -> None:
+def test_antigravity_session_start_injects_system_message(
+    monkeypatch, capsys, tmp_path: Path
+) -> None:
     monkeypatch.setattr(hooks, "_session_start_message", lambda cwd: f"TASK @ {cwd}")
     payload = {"conversationId": "conv-1", "workspacePaths": [str(tmp_path)]}
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
