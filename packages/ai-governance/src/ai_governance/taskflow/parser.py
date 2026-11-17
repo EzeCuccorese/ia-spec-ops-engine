@@ -8,7 +8,7 @@ import argparse
 from collections.abc import Callable
 from typing import TypeAlias
 
-from . import cli, pr_cli
+from . import cli, debate_cli, pr_cli
 from .approvals import ACTIONS
 from .guide import GUIDE
 from .models import EXIT_PHASES, PHASES, ROLES, VERDICTS, WORKFLOWS, now_iso
@@ -204,6 +204,21 @@ def _round_commands(sub: Subparsers) -> None:
     _dispatch_commands(actions)
 
 
+def _evidence_flags(item: argparse.ArgumentParser) -> None:
+    item.add_argument(
+        "--web",
+        action="store_true",
+        help="Allow web research and require a source URL per external claim",
+    )
+    item.add_argument(
+        "--artifact",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="Visual or binary artifact path the worker must inspect (repeatable)",
+    )
+
+
 def _dispatch_commands(actions: Subparsers) -> None:
     dispatch = actions.add_parser(
         "dispatch", help="Reserve a planner/validator round and print its Orca worker-start line"
@@ -219,6 +234,7 @@ def _dispatch_commands(actions: Subparsers) -> None:
         metavar="N",
         help="Cross-examine settled round N (repeatable): the worker reads and refutes it",
     )
+    _evidence_flags(dispatch)
     dispatch.add_argument("--json", action="store_true", help="Print the command as a JSON array")
     collect = actions.add_parser("collect", help="Settle a dispatched round from its worker")
     collect.add_argument("--round", type=int, required=True)
@@ -302,6 +318,53 @@ def _pr_commands(sub: Subparsers) -> None:
     item.add_argument("--json", action="store_true")
 
 
+def _debate_open_args(open_cmd: argparse.ArgumentParser) -> None:
+    open_cmd.add_argument("--topic-file", required=True, metavar="PATH", help="Design topic file")
+    open_cmd.add_argument(
+        "--agents",
+        action="append",
+        required=True,
+        metavar="A,B,...",
+        help="Comma-separated seat agent ids (at least 2 providers; repeatable)",
+    )
+    open_cmd.add_argument(
+        "--model",
+        action="append",
+        default=[],
+        metavar="AGENT=MODEL",
+        help="Override the model for an agent or seat focus (repeatable)",
+    )
+    _evidence_flags(open_cmd)
+    open_cmd.add_argument("--json", action="store_true", help="Print the dispatch result as JSON")
+
+
+def _debate_commands(sub: Subparsers) -> None:
+    add = _adder(sub)
+    item = add(
+        "debate",
+        debate_cli.route,
+        "Run a multi-provider design debate (open, cross-examine, status, close)",
+    )
+    actions = item.add_subparsers(
+        dest="debate_action", required=True, metavar="{open,cross,status,close}"
+    )
+    _debate_open_args(
+        actions.add_parser("open", help="Dispatch one independent thesis round per debate seat")
+    )
+    cross_cmd = actions.add_parser(
+        "cross", help="Dispatch all-against-all cross-examination rounds"
+    )
+    cross_cmd.add_argument("--json", action="store_true", help="Print the dispatch result as JSON")
+    status_cmd = actions.add_parser("status", help="Show the state of each debate seat")
+    status_cmd.add_argument("--json", action="store_true", help="Print the seat table as JSON")
+    close_cmd = actions.add_parser(
+        "close", help="Write synthesis.md from collected rounds and record open points"
+    )
+    close_cmd.add_argument(
+        "--partial", action="store_true", help="Close even when cross rounds are still pending"
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ai-governance taskflow",
@@ -317,5 +380,6 @@ def build_parser() -> argparse.ArgumentParser:
     _lifecycle_commands(sub)
     _approval_round_commands(sub)
     _round_commands(sub)
+    _debate_commands(sub)
     _judge_commands(sub)
     return parser

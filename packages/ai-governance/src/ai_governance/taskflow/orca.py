@@ -92,16 +92,21 @@ class WorkerStart:
     model: str
     worktree: str
     title: str
+    effort: str = ""
 
 
 def worker_start_argv(start: WorkerStart) -> list[str]:
     """The line the coordinator runs. Built here, printed, and never executed by the engine."""
+    if start.effort and not start.model:
+        raise OrcaError("--effort requires --model")
     argv = [
         *orca_argv(),
         *("orchestration", "worker-start", "--spec-file", start.spec, "--agent", start.agent),
     ]
     if start.model:
         argv += ["--model", start.model]
+    if start.effort:
+        argv += ["--effort", start.effort]
     # --json: the receipt names the agent and model Orca really launched (checked at collect)
     return [*argv, "--worktree", f"path:{start.worktree}", "--task-title", start.title, "--json"]
 

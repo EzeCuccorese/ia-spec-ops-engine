@@ -9,7 +9,7 @@ from typing import Any, Literal
 PHASES: tuple[str, ...] = ("plan", "validate", "work", "judge", "staging", "review", "done")
 EXIT_PHASES: tuple[str, ...] = ("findings",)
 STATUSES: tuple[str, ...] = ("active", "paused", "closed")
-ROLES: tuple[str, ...] = ("planner", "validator", "builder", "judge")
+ROLES: tuple[str, ...] = ("planner", "validator", "builder", "judge", "debater")
 VERDICTS: tuple[str, ...] = ("pass", "concerns", "block", "info")
 WORKFLOWS: tuple[str, ...] = ("tri-agent", "dual-agent", "single-agent", "manual")
 

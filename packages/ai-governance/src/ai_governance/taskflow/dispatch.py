@@ -13,15 +13,18 @@ record and the id agree.
 
 from __future__ import annotations
 
+import errno
 import json
+import os
 import secrets
 import shlex
+import stat
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
 from . import orca
-from .agents import HUMAN, INDEPENDENT_ROLES, builder_providers, provider
+from .agents import DEFAULT_MODELS, HUMAN, INDEPENDENT_ROLES, builder_providers, provider
 from .approvals import valid_approval
 from .config import FlowConfig
 from .context import round_header
@@ -36,12 +39,19 @@ from .control import (
 )
 from .gates import work_unmet
 from .models import JsonDict, Task, now_iso
-from .prompts import READ_ONLY_LIMIT, VERDICT_INSTRUCTION, cross_examination
+from .prompts import (
+    CROSS_INSTRUCTION,
+    READ_ONLY_LIMIT,
+    VERDICT_INSTRUCTION,
+    WEB_INSTRUCTION,
+    artifact_instruction,
+    cross_examination,
+)
 from .repos import on_live, partition
 from .stamp import head_sha, tree_fingerprint
 from .store import RoundSlot, TaskStore, atomic_write_text
 
-DISPATCHABLE = ("planner", "validator")
+DISPATCHABLE = ("planner", "validator", "debater")
 
 
 @dataclass(frozen=True)
@@ -53,6 +63,9 @@ class DispatchRequest:
     agent: JsonDict  # {"agent": ..., "model": ...}
     expected: CheckedBaseline | None = None  # judge rounds: the state the checks ran on
     rebuts: tuple[int, ...] = ()  # settled rounds this one must cross-examine
+    web: bool = False
+    artifacts: tuple[str, ...] = ()
+    effort: str = ""
 
 
 @dataclass(frozen=True)
@@ -85,11 +98,58 @@ def refuse_role(task: Task, role: str) -> None:
         raise UsageRefusal(f"Judges are dispatched by `taskflow judge {task.id}`.")
 
 
+def _open_regular(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOCTTY", 0))
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(errno.EINVAL, "not a regular file", str(path))
+    finally:
+        os.close(fd)
+
+
+def _resolve_artifact(raw: str) -> str:
+    if not raw.strip():
+        raise DispatchError(f"artifact not found or unreadable: {raw}")
+    try:
+        resolved = Path(raw).expanduser().resolve()
+        _open_regular(resolved)
+    except (OSError, ValueError) as exc:
+        raise DispatchError(f"artifact not found or unreadable: {raw}") from exc
+    return str(resolved)
+
+
+def _check_artifacts(artifacts: Iterable[str]) -> None:
+    for raw in artifacts:
+        _resolve_artifact(raw)
+
+
+def _resolved_model(config: FlowConfig, request: DispatchRequest, effort: str) -> str:
+    name = str(request.agent.get("agent", ""))
+    model = str(request.agent.get("model") or "").strip()
+    effective = model or DEFAULT_MODELS.get(provider(name), "")
+    if err := config.model_error(effective):
+        raise DispatchError(f"{request.role}: {err}")
+    if effort and not effective:
+        raise DispatchError(
+            f"{request.role}: effort requires a model (pass --model or set taskflow.{request.role}_model)"
+        )
+    if config.denied_models and not effective:
+        raise DispatchError(
+            f"{request.role}: pass --model or set taskflow.{request.role}_model when "
+            "taskflow.denied_models is active"
+        )
+    return effective if (effort or config.denied_models) else model
+
+
+def _check_model(config: FlowConfig, request: DispatchRequest) -> None:
+    _resolved_model(config, request, _agent_effort(request, config))
+
+
 def check_dispatchable(task: Task, config: FlowConfig, request: DispatchRequest) -> None:
     role, name = request.role, str(request.agent.get("agent", ""))
     if role != "judge":  # judges come from `taskflow judge`, which has run the checks first
         refuse_role(task, role)
-    if task.workflow == "manual":
+    if task.workflow == "manual" and role != "debater":
         raise DispatchError("Manual tasks have no agent rounds")
     if task.blocked:
         raise DispatchError(
@@ -99,7 +159,9 @@ def check_dispatchable(task: Task, config: FlowConfig, request: DispatchRequest)
         raise DispatchError(f"{role}: a human cannot run as a worker; use `round {task.id} record`")
     if refusal := config.agent_error(name):
         raise DispatchError(f"{role}: {refusal}")
+    _check_model(config, request)
     _check_provider(task, config, request)
+    _check_artifacts(request.artifacts)
 
 
 def _check_provider(task: Task, config: FlowConfig, request: DispatchRequest) -> None:
@@ -202,11 +264,21 @@ def rebuttal_rounds(task: Task, numbers: Iterable[int]) -> list[tuple[int, str, 
     return found
 
 
+def _resolved_artifacts(artifacts: Iterable[str]) -> list[str]:
+    return [str(Path(p).expanduser().resolve()) for p in artifacts]
+
+
 def _spec_text(store: TaskStore, request: DispatchRequest, locked: Task, footer: str) -> str:
     header = round_header(store, locked.id, request.role)
     text = READ_ONLY_LIMIT + header + request.prompt
     if request.rebuts:
         text += cross_examination(rebuttal_rounds(locked, request.rebuts))
+        if request.role == "debater":
+            text += CROSS_INSTRUCTION
+    if request.web:
+        text += WEB_INSTRUCTION
+    if request.artifacts:
+        text += artifact_instruction(_resolved_artifacts(request.artifacts))
     if request.role in ("validator", "judge"):
         text += VERDICT_INSTRUCTION
     return text + footer
@@ -241,11 +313,35 @@ def refuse_pending(locked: Task, directory: Path, request: DispatchRequest) -> N
         )
 
 
+@dataclass(frozen=True)
+class _DispatchContext:
+    """Store, resolved config and repo snapshots passed into ``_Publisher``."""
+
+    store: TaskStore
+    config: FlowConfig
+    repos: list[JsonDict]
+
+
+def _agent_effort(request: DispatchRequest, config: FlowConfig) -> str:
+    return request.effort or str(request.agent.get("effort") or "") or config.effort(request.role)
+
+
+def _round_paths(files: _RunFiles, round_file: Path) -> JsonDict:
+    return {
+        "file": str(round_file),
+        "spec": str(files.spec),
+        "answer": str(files.answer),
+        "receipt": str(files.receipt),
+        "scratch": str(files.scratch),
+        "launch": str(files.launch),
+    }
+
+
 class _Publisher:
     """The step ``reserve_round`` runs under the task lock: duplicate check, spec, seal, record."""
 
-    def __init__(self, store: TaskStore, request: DispatchRequest, repos: list[JsonDict]) -> None:
-        self.store, self.request, self.repos = store, request, repos
+    def __init__(self, ctx: _DispatchContext, request: DispatchRequest) -> None:
+        self.ctx, self.request = ctx, request
         self.made: JsonDict = {}
 
     def __call__(self, locked: Task, number: int, round_file: Path) -> None:
@@ -258,7 +354,7 @@ class _Publisher:
             )
         refuse_pending(locked, directory, self.request)
         record, text = self._record(locked, number, round_file)
-        _write_sealed(self.store, record, text)
+        _write_sealed(self.ctx.store, record, text)
         self.made = {
             "n": number,
             "argv": record["command"],
@@ -267,14 +363,16 @@ class _Publisher:
         }
 
     def _record(self, locked: Task, number: int, round_file: Path) -> tuple[JsonDict, str]:
-        request = self.request
+        request, config = self.request, self.ctx.config
         files = _RunFiles(round_file.parent.parent / "runs" / f"{number:03d}")
         nonce = secrets.token_hex(16)
-        text = _spec_text(self.store, request, locked, _footer(locked.id, files, nonce))
-        agent, model = str(request.agent.get("agent", "")), str(request.agent.get("model", ""))
+        text = _spec_text(self.ctx.store, request, locked, _footer(locked.id, files, nonce))
+        agent = str(request.agent.get("agent", ""))
+        effort = _agent_effort(request, config)
+        model = _resolved_model(config, request, effort)
         title = f"{request.role} round {number} of {locked.id}"
-        argv = orca.worker_start_argv(
-            orca.WorkerStart(str(files.spec), agent, model, self.repos[0]["path"], title)
+        start = orca.WorkerStart(
+            str(files.spec), agent, model, self.ctx.repos[0]["path"], title, effort=effort
         )
         record: JsonDict = {
             "n": number,
@@ -284,21 +382,20 @@ class _Publisher:
             "focus": request.focus,
             "agent": agent,
             "model": model,
+            "effort": effort,
             "provider": provider(agent),
             "stamp": locked.stamp_key,
             "at": now_iso(),
             "nonce": nonce,
-            "file": str(round_file),
-            "spec": str(files.spec),
             "spec_sha": digest_text(text),
-            "answer": str(files.answer),
-            "receipt": str(files.receipt),
-            "scratch": str(files.scratch),
-            "launch": str(files.launch),
             "rebuts": sorted(set(request.rebuts)),
-            "command": argv,
-            "repos": self.repos,
+            "web": request.web,
+            "artifacts": _resolved_artifacts(request.artifacts),
+            "denied_models": sorted(config.denied_models),
+            "command": orca.worker_start_argv(start),
+            "repos": self.ctx.repos,
             "control": baseline(locked),
+            **_round_paths(files, round_file),
         }
         return record, text
 
@@ -330,7 +427,7 @@ def plan_dispatch(
     orca.require_orca()
     repos = _snapshot_repos(task)
     _require_baseline(request.expected, repos)
-    publisher = _Publisher(store, request, repos)
+    publisher = _Publisher(_DispatchContext(store, config, repos), request)
     agent = str(request.agent.get("agent", ""))
     store.reserve_round(task.id, RoundSlot(request.phase, request.role, agent), publisher)
     made = publisher.made

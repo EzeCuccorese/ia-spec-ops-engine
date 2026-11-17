@@ -23,7 +23,7 @@ HUMAN = "human"
 ALIASES = {"agy": "antigravity"}
 AGENT_ID = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 REPO_FILE = Path(".ai-governance") / "config.toml"
-ROLE_NAMES = ("planner", "validator", "builder", "judge")
+ROLE_NAMES = ("planner", "validator", "builder", "judge", "debater")
 # Roles whose provider must differ from the builder's (the coordinating session).
 INDEPENDENT_ROLES = ("validator", "judge")
 # Fallback order for a role whose default agent is not allowed in a repository.
@@ -32,6 +32,7 @@ PREFERENCE: dict[str, tuple[str, ...]] = {
     "validator": ("codex", "claude", "antigravity"),
     "builder": ("claude", "codex", "antigravity"),
     "judge": ("codex", "claude", "antigravity"),
+    "debater": ("codex", "claude", "antigravity"),
 }
 # Default model of each built-in agent (mirrors the ``taskflow.<role>_model`` defaults).
 DEFAULT_MODELS = {"antigravity": "gemini-4-argon-high", "codex": "gpt-6.1-sol", "claude": ""}
