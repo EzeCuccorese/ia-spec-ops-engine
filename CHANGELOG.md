@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.3.0 - 2026-11-17
+
+### Features
+- add design debate mode, evidence flags, effort, and model deny-list (#78)
+
 ## 2.2.0 - 2026-11-16
 
 ### Features
