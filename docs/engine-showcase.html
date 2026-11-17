@@ -1,0 +1,1195 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>ia-spec-ops-engine v2.3.0 — Del Prompt al Motor Determinístico</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg-0: #050811;
+      --bg-1: #0b1120;
+      --bg-card: rgba(15, 23, 42, 0.78);
+      --bg-card-strong: rgba(17, 25, 45, 0.94);
+      --border: rgba(56, 189, 248, 0.22);
+      --border-strong: rgba(56, 189, 248, 0.5);
+      --text: #e2e8f0;
+      --text-dim: #94a3b8;
+      --cyan: #22d3ee;
+      --emerald: #34d399;
+      --violet: #a78bfa;
+      --amber: #fbbf24;
+      --rose: #fb7185;
+      --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --scrollbar-track: #070b14;
+      --scrollbar-thumb: #1e3a5f;
+      scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+      accent-color: var(--cyan);
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background-color: var(--bg-0);
+      color: var(--text);
+      font-family: var(--font-sans);
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      min-height: 100dvh;
+      background-image:
+        radial-gradient(ellipse 80% 50% at 15% -10%, rgba(34, 211, 238, 0.14), transparent 60%),
+        radial-gradient(ellipse 70% 45% at 90% 10%, rgba(167, 139, 250, 0.12), transparent 55%),
+        linear-gradient(rgba(34, 211, 238, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(34, 211, 238, 0.03) 1px, transparent 1px);
+      background-size: auto, auto, 44px 44px, 44px 44px;
+      overflow-x: hidden;
+    }
+
+    :where(a, button, [tabindex]):focus-visible {
+      outline: 2px solid var(--cyan);
+      outline-offset: 3px;
+    }
+
+    /* Directional View Transitions */
+    @keyframes slide-to-left {
+      to { transform: translateX(-6%); opacity: 0; }
+    }
+    @keyframes slide-from-right {
+      from { transform: translateX(6%); opacity: 0; }
+    }
+    @keyframes slide-to-right {
+      to { transform: translateX(6%); opacity: 0; }
+    }
+    @keyframes slide-from-left {
+      from { transform: translateX(-6%); opacity: 0; }
+    }
+
+    ::view-transition-group(slide-stage) {
+      animation: 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    html:active-view-transition-type(forward)::view-transition-old(slide-stage) {
+      animation-name: slide-to-left;
+    }
+    html:active-view-transition-type(forward)::view-transition-new(slide-stage) {
+      animation-name: slide-from-right;
+    }
+    html:active-view-transition-type(backward)::view-transition-old(slide-stage) {
+      animation-name: slide-to-right;
+    }
+    html:active-view-transition-type(backward)::view-transition-new(slide-stage) {
+      animation-name: slide-from-left;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      ::view-transition-group(slide-stage),
+      ::view-transition-old(slide-stage),
+      ::view-transition-new(slide-stage) {
+        animation: none !important;
+      }
+      * {
+        transition-duration: 0.01ms !important;
+      }
+    }
+
+    /* Header & Progress */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.75rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      background: rgba(5, 8, 17, 0.84);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 20;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      letter-spacing: 0.04em;
+    }
+
+    .brand-badge {
+      padding: 0.2rem 0.55rem;
+      border-radius: 999px;
+      border: 1px solid var(--border-strong);
+      background: rgba(34, 211, 238, 0.12);
+      color: var(--cyan);
+      font-weight: 700;
+    }
+
+    .top-nav {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+    }
+
+    .dot-btn {
+      min-inline-size: 28px;
+      min-block-size: 28px;
+      padding: 0 0.45rem;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      background: rgba(148, 163, 184, 0.08);
+      color: var(--text-dim);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+    }
+
+    .dot-btn:hover {
+      background: rgba(34, 211, 238, 0.12);
+      color: var(--text);
+    }
+
+    .dot-btn[aria-current="step"] {
+      background: rgba(34, 211, 238, 0.2);
+      border-color: var(--cyan);
+      color: var(--cyan);
+      font-weight: 700;
+    }
+
+    .progress-track {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: rgba(148, 163, 184, 0.12);
+      z-index: 30;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--cyan), var(--violet), var(--emerald));
+      width: 10%;
+      transition: width 0.28s ease;
+    }
+
+    /* Main Slide Stage */
+    main.stage {
+      view-transition-name: slide-stage;
+      max-width: 1200px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 1.5rem 1.5rem 2rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .slide {
+      display: none;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .slide.active {
+      display: flex;
+    }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--cyan);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .eyebrow::before {
+      content: "";
+      width: 20px;
+      height: 2px;
+      background: var(--cyan);
+    }
+
+    h1, h2, h3 {
+      margin: 0;
+      line-height: 1.15;
+    }
+
+    .hero-title {
+      font-size: clamp(2rem, 4.4vw, 3.4rem);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      background: linear-gradient(125deg, #f8fafc 20%, var(--cyan) 65%, var(--violet));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    .slide-title {
+      font-size: clamp(1.55rem, 3vw, 2.3rem);
+      font-weight: 800;
+      letter-spacing: -0.015em;
+    }
+
+    .lead {
+      margin: 0;
+      font-size: 1.06rem;
+      color: var(--text-dim);
+      max-width: 78ch;
+    }
+
+    /* Cards & Grids */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1rem;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 1rem;
+    }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 0.85rem;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.15rem 1.25rem;
+      backdrop-filter: blur(10px);
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+    }
+
+    .card.highlight {
+      border-color: var(--border-strong);
+      box-shadow: 0 0 28px rgba(34, 211, 238, 0.08);
+    }
+
+    .card.danger {
+      border-color: rgba(251, 113, 133, 0.35);
+      background: rgba(30, 14, 24, 0.72);
+    }
+
+    .card.success {
+      border-color: rgba(52, 211, 153, 0.38);
+      background: rgba(8, 28, 26, 0.72);
+    }
+
+    .kpi-value {
+      font-family: var(--font-mono);
+      font-size: 2rem;
+      font-weight: 800;
+      color: var(--cyan);
+      line-height: 1;
+    }
+
+    .kpi-value.emerald { color: var(--emerald); }
+    .kpi-value.violet { color: var(--violet); }
+    .kpi-value.amber { color: var(--amber); }
+
+    .kpi-label {
+      font-size: 0.86rem;
+      color: var(--text-dim);
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.18rem 0.55rem;
+      border-radius: 999px;
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+      border: 1px solid var(--border);
+      background: rgba(34, 211, 238, 0.08);
+      color: var(--cyan);
+      width: fit-content;
+    }
+
+    .tag.emerald { border-color: rgba(52, 211, 153, 0.4); background: rgba(52, 211, 153, 0.1); color: var(--emerald); }
+    .tag.rose { border-color: rgba(251, 113, 133, 0.4); background: rgba(251, 113, 133, 0.1); color: var(--rose); }
+    .tag.violet { border-color: rgba(167, 139, 250, 0.4); background: rgba(167, 139, 250, 0.1); color: var(--violet); }
+    .tag.amber { border-color: rgba(251, 191, 36, 0.4); background: rgba(251, 191, 36, 0.1); color: var(--amber); }
+
+    code, pre {
+      font-family: var(--font-mono);
+    }
+
+    code {
+      font-size: 0.86em;
+      padding: 0.1em 0.35em;
+      border-radius: 5px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      color: #a5f3fc;
+    }
+
+    pre.terminal {
+      margin: 0;
+      padding: 0.95rem 1.05rem;
+      border-radius: 10px;
+      background: #03060d;
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      color: #cbd5e1;
+      font-size: 0.8rem;
+      overflow-x: auto;
+      line-height: 1.5;
+    }
+
+    .btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .pill-btn {
+      min-block-size: 36px;
+      padding: 0.42rem 0.85rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(15, 23, 42, 0.85);
+      color: var(--text);
+      font-family: var(--font-sans);
+      font-size: 0.84rem;
+      cursor: pointer;
+      transition: border-color 0.15s, background-color 0.15s, color 0.15s;
+    }
+
+    .pill-btn:hover {
+      border-color: var(--cyan);
+      background: rgba(34, 211, 238, 0.12);
+    }
+
+    .pill-btn[aria-pressed="true"] {
+      border-color: var(--cyan);
+      background: rgba(34, 211, 238, 0.2);
+      color: #ecfeff;
+      font-weight: 600;
+    }
+
+    .arch-node {
+      cursor: pointer;
+      text-align: left;
+      transition: transform 0.15s, border-color 0.15s;
+    }
+
+    .arch-node:hover {
+      border-color: var(--cyan);
+    }
+
+    .arch-node[aria-pressed="true"] {
+      border-color: var(--emerald);
+      box-shadow: 0 0 22px rgba(52, 211, 153, 0.18);
+    }
+
+    table.data {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+
+    table.data th, table.data td {
+      padding: 0.62rem 0.75rem;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+      text-align: left;
+    }
+
+    table.data th {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--cyan);
+    }
+
+    .svg-wrap {
+      background: rgba(3, 6, 13, 0.75);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 0.85rem;
+      overflow-x: auto;
+    }
+
+    .quote-box {
+      border-left: 3px solid var(--cyan);
+      padding: 0.65rem 1rem;
+      background: rgba(34, 211, 238, 0.06);
+      border-radius: 0 10px 10px 0;
+      font-size: 0.94rem;
+    }
+
+    ul.clean {
+      margin: 0;
+      padding-left: 1.15rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.38rem;
+    }
+
+    /* Footer Controls */
+    .footer-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.75rem 1.5rem;
+      border-top: 1px solid var(--border);
+      background: rgba(5, 8, 17, 0.88);
+      backdrop-filter: blur(12px);
+    }
+
+    .footer-meta {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: var(--text-dim);
+    }
+
+    .nav-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .nav-btn {
+      min-block-size: 38px;
+      padding: 0.45rem 1rem;
+      border-radius: 9px;
+      border: 1px solid var(--border-strong);
+      background: rgba(34, 211, 238, 0.12);
+      color: #f8fafc;
+      font-weight: 600;
+      font-size: 0.86rem;
+      cursor: pointer;
+    }
+
+    .nav-btn:hover:not(:disabled) {
+      background: rgba(34, 211, 238, 0.24);
+    }
+
+    .nav-btn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+
+    .copy-btn {
+      min-block-size: 32px;
+      padding: 0.25rem 0.65rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: rgba(34, 211, 238, 0.1);
+      color: var(--cyan);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      cursor: pointer;
+      align-self: flex-end;
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <div class="progress-track" aria-hidden="true">
+    <div class="progress-fill" id="progressFill"></div>
+  </div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-badge">v2.3.0</span>
+      <span>ia-spec-ops-engine · Deck Interactivo</span>
+    </div>
+    <nav class="top-nav" aria-label="Navegación de diapositivas" id="topDots"></nav>
+  </header>
+
+  <main class="stage" id="stage">
+    <div class="sr-only" aria-live="polite" id="slideAnnouncer"></div>
+
+    <!-- SLIDE 1: HERO -->
+    <section class="slide active" data-title="Portada">
+      <span class="eyebrow">01 / Tesis Central</span>
+      <h1 class="hero-title">De promesas en Markdown<br>a garantías en código.</h1>
+      <p class="lead">
+        Una skill le pide al agente que se porte bien. <strong>ia-spec-ops-engine</strong> hace que
+        todo lo determinístico corra en Python (<code>ws</code> + <code>ai-governance</code>) y al modelo
+        le llegue únicamente el contexto mínimo para pensar y decidir.
+      </p>
+
+      <div class="grid-4">
+        <div class="card highlight">
+          <span class="kpi-value">2 CLIs</span>
+          <span class="kpi-label"><code>ai-governance</code> (reglas, flujo, debate) y <code>ws</code> (gates, diseño, logs) desacoplados por JSON.</span>
+        </div>
+        <div class="card highlight">
+          <span class="kpi-value emerald">3 Agentes</span>
+          <span class="kpi-label">Claude Code, OpenAI Codex y Google Antigravity bajo el mismo contrato y ledger.</span>
+        </div>
+        <div class="card highlight">
+          <span class="kpi-value violet">5 Etapas</span>
+          <span class="kpi-label">Pre-push gate determinístico: secretos, políticas git, linters, diseño y tests.</span>
+        </div>
+        <div class="card highlight">
+          <span class="kpi-value amber">Fail-Closed</span>
+          <span class="kpi-label">Si falta un recibo, cambia un hash o se cuela un modelo prohibido, frena solo.</span>
+        </div>
+      </div>
+
+      <div class="quote-box">
+        <strong>Regla de oro para negocio y tecnología:</strong> no pagues tokens de modelos caros para hacer
+        trabajo que un script de Python resuelve en 15 milisegundos con 0% de alucinación.
+      </div>
+    </section>
+
+    <!-- SLIDE 2: SKILL VS MOTOR SIMULATOR -->
+    <section class="slide" data-title="Skill vs Motor">
+      <span class="eyebrow">02 / Para el escéptico del "Yo uso una Skill"</span>
+      <h2 class="slide-title">¿Por qué una Skill sola no alcanza en producción?</h2>
+      <p class="lead">
+        Probá haciendo clic en un incidente real de todos los días y compará qué pasa cuando dependés
+        de un <code>SKILL.md</code> versus tener el Engine instalado.
+      </p>
+
+      <div class="btn-row" role="group" aria-label="Escenarios de falla">
+        <button class="pill-btn" type="button" data-scenario="model" aria-pressed="true">1. Modelo prohibido / caro</button>
+        <button class="pill-btn" type="button" data-scenario="self" aria-pressed="false">2. Auto-aprobación</button>
+        <button class="pill-btn" type="button" data-scenario="edit" aria-pressed="false">3. Lector toca código</button>
+        <button class="pill-btn" type="button" data-scenario="drift" aria-pressed="false">4. Cambió el spec en el medio</button>
+        <button class="pill-btn" type="button" data-scenario="noise" aria-pressed="false">5. Log de 4.000 líneas</button>
+      </div>
+
+      <div class="grid-2" id="scenarioView">
+        <div class="card danger">
+          <span class="tag rose">Solo con SKILL.md</span>
+          <h3 id="scenSkillTitle">El agente ignora o olvida la restricción</h3>
+          <p id="scenSkillBody">
+            La skill dice "no uses modelos caros", pero si el coordinador omite el flag o el CLI usa un fallback,
+            el worker corre igual y consume cuota sin aviso.
+          </p>
+        </div>
+        <div class="card success">
+          <span class="tag emerald">Con ia-spec-ops-engine</span>
+          <h3 id="scenEngineTitle">Bloqueo duro antes y después de lanzar</h3>
+          <p id="scenEngineBody">
+            <code>taskflow.denied_models</code> bloquea en <code>dispatch</code> y al recolectar abre <code>launch.json</code>
+            de Orca para validar qué modelo corrió realmente.
+          </p>
+        </div>
+      </div>
+
+      <pre class="terminal" id="scenTerminal">AI_GOVERNANCE_DENIED_MODELS="gemini-3.8-flash" ai-governance taskflow debate T1 open ...
+→ ERROR: seat 'antigravity': model 'gemini-3.8-flash' is denied by taskflow.denied_models (exit 1)</pre>
+    </section>
+
+    <!-- SLIDE 3: ARCHITECTURE -->
+    <section class="slide" data-title="Arquitectura">
+      <span class="eyebrow">03 / Arquitectura de Punta a Punta</span>
+      <h2 class="slide-title">Dos paquetes independientes, cero acoplamiento</h2>
+      <p class="lead">
+        <code>ai-governance</code> y <code>workspace</code> (<code>ws</code>) nunca se importan entre sí.
+        Se comunican por contratos <code>--json</code> versionados. Hacé clic en cualquier bloque para inspeccionarlo.
+      </p>
+
+      <div class="grid-3">
+        <button class="card arch-node" type="button" data-arch="governance" aria-pressed="true">
+          <span class="tag">Capa 1 · Gobierno & Contexto</span>
+          <h3><code>ai-governance</code></h3>
+          <p class="kpi-label">Instalador por agente, catálogo de reglas, skills copiadas, budget de contexto y telemetry.</p>
+        </button>
+        <button class="card arch-node" type="button" data-arch="taskflow" aria-pressed="false">
+          <span class="tag violet">Capa 2 · Flujo & Debate</span>
+          <h3><code>taskflow</code> + Orca</h3>
+          <p class="kpi-label">Estado de tareas, independencia entre builder/validator/judge, y modo debate multi-proveedor.</p>
+        </button>
+        <button class="card arch-node" type="button" data-arch="workspace" aria-pressed="false">
+          <span class="tag emerald">Capa 3 · Ejecución Determinística</span>
+          <h3><code>ws</code> (Workspace Engine)</h3>
+          <p class="kpi-label">Detección de stacks, condensador de logs, límites Lizard y pre-push Quality Gate.</p>
+        </button>
+      </div>
+
+      <div class="card highlight" id="archDetail">
+        <span class="tag" id="archTag">ai-governance · 18 subcomandos</span>
+        <h3 id="archTitle">Instalación limpia, reglas modulares y control de presupuesto</h3>
+        <p id="archDesc">
+          Instala reglas por scope (usuario o proyecto) sin pisar configuraciones ajenas, copia skills reales a
+          <code>~/.claude/skills</code>, <code>~/.agents/skills</code> y <code>~/.gemini/config/skills</code> con ledger SHA-256,
+          y mide con <code>budget</code> cuántos tokens fijos carga cada agente al arrancar.
+        </p>
+        <pre class="terminal" id="archCode">ai-governance install --scope project --agent all
+ai-governance budget          # Bytes/tokens cargados en cada sesión por agente
+ai-governance doctor          # Auditoría de salud: reglas, hooks, skills y settings</pre>
+      </div>
+    </section>
+
+    <!-- SLIDE 4: TOKEN FRUGALITY & WS RUN -->
+    <section class="slide" data-title="Frugalidad">
+      <span class="eyebrow">04 / Negocio: Menos Tokens, Más Precisión</span>
+      <h2 class="slide-title">¿Por qué quemar 4.000 líneas de consola en el contexto?</h2>
+      <p class="lead">
+        Cada línea de ruido que entra al prompt cuesta plata y degrada la atención del modelo.
+        <code>ws run -- &lt;cmd&gt;</code> condensa la salida determinísticamente y guarda el archivo completo en disco.
+      </p>
+
+      <div class="btn-row" role="group" aria-label="Vista de salida de comando">
+        <button class="pill-btn" type="button" data-logview="raw" aria-pressed="false">Sin Engine (output crudo)</button>
+        <button class="pill-btn" type="button" data-logview="condensed" aria-pressed="true">Con ws run (condensado)</button>
+      </div>
+
+      <pre class="terminal" id="logPreview">✔ pytest -q (1444 passed in 215.76s)
+  log_id: run_20261116_2104 · 148 KB guardados
+  para buscar detalle: ws log run_20261116_2104 --grep "FAILED|ERROR"</pre>
+
+      <div class="grid-3">
+        <div class="card">
+          <span class="tag emerald">Negocio</span>
+          <h3>Hasta 90% menos ruido</h3>
+          <p class="kpi-label">Menos gasto de API/cuota y sesiones largas que no pierden el hilo por compactación temprana.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Técnico</span>
+          <h3>Cero re-ejecuciones</h3>
+          <p class="kpi-label">Si el agente necesita una línea específica, consulta <code>ws log &lt;id&gt; --grep</code> sin volver a correr el build.</p>
+        </div>
+        <div class="card">
+          <span class="tag violet">Visibilidad</span>
+          <h3><code>budget</code> + <code>telemetry</code></h3>
+          <p class="kpi-label">Medí bytes fijos por agente y consumo real de Claude con alertas antes de pasarte.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 5: QUALITY GATE & DESIGN -->
+    <section class="slide" data-title="Quality Gate">
+      <span class="eyebrow">05 / Calidad Determinística</span>
+      <h2 class="slide-title">5 etapas antes del push + límites de diseño por función</h2>
+      <p class="lead">
+        Configurado con <code>gate.scope = "changed"</code>, valida únicamente lo que tocaste en segundos,
+        y convive con Husky o hooks locales usando <strong>Git config-based hooks</strong>.
+      </p>
+
+      <div class="btn-row" role="group" aria-label="Simulador de Quality Gate">
+        <button class="pill-btn" type="button" id="runGateBtn">▶ Simular <code>ws check --changed</code></button>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <table class="data">
+            <caption>Etapas del Pre-Push Gate</caption>
+            <thead>
+              <tr>
+                <th scope="col">Etapa</th>
+                <th scope="col">Qué valida</th>
+                <th scope="col">Estado</th>
+              </tr>
+            </thead>
+            <tbody id="gateRows">
+              <tr><td>1. Secrets</td><td><code>gitleaks protect</code> en commits</td><td><span class="tag emerald">PASS</span></td></tr>
+              <tr><td>2. Git Policies</td><td>Rama protegida / Conventional Commits</td><td><span class="tag emerald">PASS</span></td></tr>
+              <tr><td>3. Linters</td><td><code>ruff</code>, <code>mypy</code>, <code>eslint</code> según stack</td><td><span class="tag emerald">PASS</span></td></tr>
+              <tr><td>4. Design Limits</td><td>Complejidad &le; 10, largo &le; 40 líneas (Lizard)</td><td><span class="tag emerald">PASS</span></td></tr>
+              <tr><td>5. Test Suites</td><td><code>pytest</code> / tests scoped al cambio</td><td><span class="tag emerald">PASS</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="card highlight">
+          <span class="tag">ws design --changed</span>
+          <h3>Freno al código espagueti antes del PR</h3>
+          <p class="kpi-label">
+            Mide complejidad ciclomática, líneas por función, parámetros, anidamiento y tests vacíos ("junk tests").
+            Con <strong>ratchet</strong> contra la rama base: lo viejo no bloquea, pero lo nuevo entra prolijo.
+          </p>
+          <pre class="terminal" id="gateOut">$ ws design --changed
+Pre-existing: 1 warning (non-blocking)
+✔ design: PASS (19 files, 0 blocking violations)</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 6: TASKFLOW -->
+    <section class="slide" data-title="Taskflow">
+      <span class="eyebrow">06 / Orquestación con Separación de Poderes</span>
+      <h2 class="slide-title"><code>taskflow</code>: el que programa no se auto-aprueba</h2>
+      <p class="lead">
+        Para tickets reales o cambios grandes, <code>taskflow</code> coordina al <code>builder</code> (tu sesión)
+        con workers independientes en Orca (<code>planner</code>, <code>validator</code>, <code>judge</code>).
+      </p>
+
+      <div class="svg-wrap">
+        <svg role="img" viewBox="0 0 920 175" width="100%" height="175" aria-label="Flujo taskflow de plan a judge">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1 L 10 5 L 0 9 z" fill="#22d3ee"></path>
+            </marker>
+          </defs>
+          <rect x="16" y="42" width="175" height="84" rx="12" fill="#0f172a" stroke="#22d3ee" stroke-width="1.5"></rect>
+          <text x="103" y="75" fill="#22d3ee" font-size="13" font-weight="700" text-anchor="middle" font-family="monospace">1. PLAN / VALIDATE</text>
+          <text x="103" y="100" fill="#cbd5e1" font-size="12" text-anchor="middle">Proveedor independiente</text>
+
+          <line x1="191" y1="84" x2="248" y2="84" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrow)"></line>
+
+          <rect x="252" y="42" width="180" height="84" rx="12" fill="#0f172a" stroke="#a78bfa" stroke-width="1.5"></rect>
+          <text x="342" y="75" fill="#a78bfa" font-size="13" font-weight="700" text-anchor="middle" font-family="monospace">2. WORK (TDD)</text>
+          <text x="342" y="100" fill="#cbd5e1" font-size="12" text-anchor="middle">red -&gt; green + pasos</text>
+
+          <line x1="432" y1="84" x2="489" y2="84" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrow)"></line>
+
+          <rect x="493" y="42" width="185" height="84" rx="12" fill="#0f172a" stroke="#fbbf24" stroke-width="1.5"></rect>
+          <text x="585" y="75" fill="#fbbf24" font-size="13" font-weight="700" text-anchor="middle" font-family="monospace">3. CHECK + STAMP</text>
+          <text x="585" y="100" fill="#cbd5e1" font-size="12" text-anchor="middle">ws check + huella Git</text>
+
+          <line x1="678" y1="84" x2="735" y2="84" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrow)"></line>
+
+          <rect x="739" y="42" width="165" height="84" rx="12" fill="#0f172a" stroke="#34d399" stroke-width="1.5"></rect>
+          <text x="821" y="75" fill="#34d399" font-size="13" font-weight="700" text-anchor="middle" font-family="monospace">4. JUDGE</text>
+          <text x="821" y="100" fill="#cbd5e1" font-size="12" text-anchor="middle">VERDICT: pass/block</text>
+        </svg>
+      </div>
+
+      <div class="grid-3">
+        <div class="card">
+          <span class="tag violet">Independencia</span>
+          <h3>Proveedores distintos</h3>
+          <p class="kpi-label"><code>validator</code> y <code>judge</code> no pueden usar el mismo proveedor que el <code>builder</code>.</p>
+        </div>
+        <div class="card">
+          <span class="tag amber">Anti-trampa</span>
+          <h3>Recibos sellados</h3>
+          <p class="kpi-label">Si alguien toca <code>dispatch.json</code> o cambia el repo después de las pruebas, <code>collect</code> invalida la ronda.</p>
+        </div>
+        <div class="card">
+          <span class="tag emerald">Trazabilidad</span>
+          <h3>Memoria entre sesiones</h3>
+          <p class="kpi-label"><code>taskflow here</code> retoma pasos, hechos, decisiones (<code>decide --why</code>) y aprobaciones humanas.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 7: DEBATE MODE (NEW IN v2.3.0) -->
+    <section class="slide" data-title="Debate Mode">
+      <span class="eyebrow">07 / Novedad v2.3.0 · taskflow debate</span>
+      <h2 class="slide-title">Debate Multi-Proveedor con Evidencia Trazable</h2>
+      <p class="lead">
+        Antes de escribir una línea de código, enfrentá 2 o más proveedores sobre un diseño.
+        Explorá las 3 fases y el resultado real que obtuvimos hoy con Antigravity y Claude en Orca:
+      </p>
+
+      <div class="btn-row" role="group" aria-label="Fases del modo debate">
+        <button class="pill-btn" type="button" data-debate="open" aria-pressed="true">1. debate open (tesis)</button>
+        <button class="pill-btn" type="button" data-debate="cross" aria-pressed="false">2. debate cross (repregunta)</button>
+        <button class="pill-btn" type="button" data-debate="close" aria-pressed="false">3. debate close (synthesis.md)</button>
+      </div>
+
+      <div class="grid-2">
+        <div class="card highlight">
+          <span class="tag" id="debTag">Fase 1 · Aislamiento + Hashes</span>
+          <h3 id="debTitle">Opiniones independientes sin sesgo de anclaje</h3>
+          <p id="debDesc">
+            Cada asiento recibe la misma pregunta, su propia carpeta <code>scratch/</code> y las reglas de
+            <code>--web</code> / <code>--artifact</code>. El motor sella <code>topic_sha</code> y el SHA-256 de cada artifact.
+          </p>
+          <ul class="clean" id="debBullets">
+            <li>Exige al menos 2 proveedores distintos (pudiendo incluir al proveedor del builder).</li>
+            <li>Si un asiento está bloqueado por política o falta modelo, no reserva ninguna ronda.</li>
+          </ul>
+        </div>
+        <pre class="terminal" id="debPreview">taskflow debate debate-demo open \
+  --topic-file topic.md \
+  --agents codex,antigravity,claude \
+  --web --artifact models.py
+
+→ Rondas 001, 002, 003 reservadas bajo .debate.lock
+→ topic_sha + artifact_digests sellados en debate.json</pre>
+      </div>
+    </section>
+
+    <!-- SLIDE 8: FAIL-CLOSED SECURITY -->
+    <section class="slide" data-title="Seguridad Fail-Closed">
+      <span class="eyebrow">08 / Detalles Finos de Ingeniería</span>
+      <h2 class="slide-title">Por qué "fail-closed" separa un juguete de un engine serio</h2>
+      <p class="lead">
+        En entornos corporativos y multi-agente, los bordes raros siempre pasan. Estos son los seguros
+        internos que corren por debajo en cada comando:
+      </p>
+
+      <div class="grid-2">
+        <div class="card">
+          <span class="tag rose">Política de Modelos</span>
+          <h3><code>denied_models</code> + <code>--effort</code></h3>
+          <ul class="clean">
+            <li>Un repositorio <strong>nunca</strong> puede quitar un modelo prohibido por el usuario; solo sumar.</li>
+            <li>Si la lista está mal escrita o falta modelo verificado en <code>launch.json</code>, rechaza la recolección.</li>
+            <li><code>--effort</code> siempre va después de <code>--model</code> y falla si el agente no tiene modelo resuelto.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <span class="tag emerald">Archivos, Locks y Rollback</span>
+          <h3>Defensa contra carreras y archivos falsos</h3>
+          <ul class="clean">
+            <li>Lectura con <code>O_NONBLOCK</code> + <code>fstat(S_ISREG)</code>: un FIFO o symlink trampa nunca cuelga el proceso.</li>
+            <li>Lock propio <code>.debate.lock</code> separado de <code>.lock</code> del store (cero deadlock).</li>
+            <li>Si falla un dispatch intermedio o el guardado en disco, rollback completo de rondas y sellos.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="quote-box">
+        <strong>Verificado en código y tests:</strong> cobertura superior al <strong>96.32%</strong> en todo el repositorio
+        (98–100% en los módulos de debate) + prueba de aceptación real con workers vivos en Orca.
+      </div>
+    </section>
+
+    <!-- SLIDE 9: SKILLS, PERSONAL, TELEMETRY, ATLASSIAN -->
+    <section class="slide" data-title="Ecosistema Completo">
+      <span class="eyebrow">09 / Todo el Ecosistema en Uno</span>
+      <h2 class="slide-title">No reemplaza tus Skills: las ordena y las potencia</h2>
+      <p class="lead">
+        El engine no te quita flexibilidad: administra tus skills de terceros, reglas personales,
+        paquetes de empresa, gastos de API y herramientas de trabajo diario desde una sola CLI.
+      </p>
+
+      <div class="grid-3">
+        <div class="card">
+          <span class="tag">skills + personal</span>
+          <h3>Copias reales, cero roturas</h3>
+          <p class="kpi-label">
+            <code>ai-governance skills sync</code> copia carpetas completas a Claude, Codex y Antigravity (evitando errores de lectura en symlinks),
+            detecta copias <code>outdated</code> o <code>edited</code> y las audita con <code>doctor</code>.
+          </p>
+        </div>
+        <div class="card">
+          <span class="tag violet">jira + confluence</span>
+          <h3>Contexto limpio en Markdown</h3>
+          <p class="kpi-label">
+            Lectura directa sin MCP pesados ni HTML inflado, con compuerta de aprobación explícita antes de crear o editar tickets.
+          </p>
+        </div>
+        <div class="card">
+          <span class="tag amber">telemetry + hooks</span>
+          <h3>Control de gasto y hooks</h3>
+          <p class="kpi-label">
+            Seguimiento de costo por sesión/día en Claude, alertas configurables y hooks nativos por agente y por repo.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 10: BUSINESS ROI & QUICKSTART -->
+    <section class="slide" data-title="ROI & Arranque">
+      <span class="eyebrow">10 / Cierre Ejecutivo & Arranque Rápido</span>
+      <h2 class="slide-title">Listo para usar hoy en esta máquina (<code>v2.3.0</code>)</h2>
+      <p class="lead">
+        Menos tokens quemados en ruido, revisiones de diseño trazables entre proveedores, calidad uniforme
+        sin frenar el flujo local gracias a <code>gate.scope = "changed"</code>.
+      </p>
+
+      <div class="card highlight">
+        <button class="copy-btn" type="button" id="copyQuickBtn">Copiar comandos</button>
+        <pre class="terminal" id="quickstartCode"># 1. Verificar instalación v2.3.0
+ai-governance --version && ws --version
+
+# 2. Auditar tu entorno y presupuesto de contexto
+ai-governance doctor && ai-governance budget
+
+# 3. Probar un debate de diseño multi-proveedor
+ai-governance taskflow new mi-diseno --title "Arquitectura cache"
+ai-governance taskflow debate mi-diseno open --topic-file tema.md --agents claude,antigravity --web</pre>
+      </div>
+
+      <div class="grid-3">
+        <div class="card success">
+          <span class="tag emerald">Velocidad</span>
+          <h3>Pre-push en segundos</h3>
+          <p class="kpi-label">Solo valida archivos modificados en local; la suite completa corre en CI.</p>
+        </div>
+        <div class="card success">
+          <span class="tag emerald">Confianza</span>
+          <h3>Evidencia verificable</h3>
+          <p class="kpi-label">Cada veredicto y refutación apunta a líneas de código o comandos reales.</p>
+        </div>
+        <div class="card success">
+          <span class="tag emerald">Escala</span>
+          <h3>Estándar de equipo</h3>
+          <p class="kpi-label">Onboarding inmediato con packs corporativos, reglas personales y skills sincronizadas.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer-bar">
+    <div class="footer-meta" id="footerMeta">Diapositiva 1 / 10 · Usá &larr; / &rarr; para navegar</div>
+    <div class="nav-controls">
+      <button class="nav-btn" type="button" id="prevBtn">&larr; Anterior</button>
+      <button class="nav-btn" type="button" id="nextBtn">Siguiente &rarr;</button>
+    </div>
+  </footer>
+
+  <script>
+    (() => {
+      const slides = Array.from(document.querySelectorAll(".slide"));
+      const total = slides.length;
+      const topDots = document.getElementById("topDots");
+      const progressFill = document.getElementById("progressFill");
+      const footerMeta = document.getElementById("footerMeta");
+      const announcer = document.getElementById("slideAnnouncer");
+      const prevBtn = document.getElementById("prevBtn");
+      const nextBtn = document.getElementById("nextBtn");
+      let current = 0;
+
+      slides.forEach((slide, idx) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "dot-btn";
+        btn.textContent = String(idx + 1).padStart(2, "0");
+        btn.title = slide.dataset.title || `Slide ${idx + 1}`;
+        btn.setAttribute("aria-label", `Ir a diapositiva ${idx + 1}: ${btn.title}`);
+        btn.addEventListener("click", () => goTo(idx));
+        topDots.appendChild(btn);
+      });
+
+      const dotBtns = Array.from(topDots.querySelectorAll(".dot-btn"));
+
+      function applySlide(idx) {
+        current = idx;
+        slides.forEach((s, i) => s.classList.toggle("active", i === idx));
+        dotBtns.forEach((b, i) => {
+          if (i === idx) b.setAttribute("aria-current", "step");
+          else b.removeAttribute("aria-current");
+        });
+        progressFill.style.width = `${((idx + 1) / total) * 100}%`;
+        const title = slides[idx].dataset.title || "";
+        footerMeta.textContent = `Diapositiva ${idx + 1} / ${total} · ${title} · Teclas ← / →`;
+        announcer.textContent = `Diapositiva ${idx + 1} de ${total}: ${title}`;
+        prevBtn.disabled = idx === 0;
+        nextBtn.disabled = idx === total - 1;
+      }
+
+      function goTo(idx) {
+        if (idx < 0 || idx >= total || idx === current) return;
+        const direction = idx > current ? "forward" : "backward";
+        if (!document.startViewTransition) {
+          applySlide(idx);
+          return;
+        }
+        document.startViewTransition({
+          update: () => applySlide(idx),
+          types: [direction],
+        });
+      }
+
+      prevBtn.addEventListener("click", () => goTo(current - 1));
+      nextBtn.addEventListener("click", () => goTo(current + 1));
+
+      document.addEventListener("keydown", (e) => {
+        if (e.target.closest("input, textarea, select")) return;
+        if (e.key === "ArrowRight" || e.key === "PageDown") {
+          e.preventDefault();
+          goTo(current + 1);
+        } else if (e.key === "ArrowLeft" || e.key === "PageUp") {
+          e.preventDefault();
+          goTo(current - 1);
+        } else if (e.key === "Home") {
+          e.preventDefault();
+          goTo(0);
+        } else if (e.key === "End") {
+          e.preventDefault();
+          goTo(total - 1);
+        }
+      });
+
+      applySlide(0);
+
+      /* Slide 2: Scenarios */
+      const scenarios = {
+        model: {
+          st: "El agente ignora o olvida la restricción",
+          sb: 'La skill dice "no uses modelos caros", pero si el coordinador omite el flag o el CLI hace fallback, el worker corre igual y consume cuota sin aviso.',
+          et: "Bloqueo duro antes y después de lanzar",
+          eb: "<code>taskflow.denied_models</code> bloquea en <code>dispatch</code> y al recolectar abre <code>launch.json</code> de Orca para validar qué modelo corrió realmente.",
+          term: 'AI_GOVERNANCE_DENIED_MODELS="gemini-3.8-flash" ai-governance taskflow debate T1 open ...\n→ ERROR: seat \'antigravity\': model \'gemini-3.8-flash\' is denied by taskflow.denied_models (exit 1)',
+        },
+        self: {
+          st: "El mismo modelo se aprueba su propio código",
+          sb: "Le pedís al agente que implemente y luego valide con una skill: tiende a justificar sus propios atajos.",
+          et: "Separación de poderes por proveedor",
+          eb: "<code>INDEPENDENT_ROLES</code> impide que <code>validator</code> y <code>judge</code> usen el mismo proveedor que el <code>builder</code>.",
+          term: "taskflow round TASK-1 dispatch --role validator --agent claude\n→ ERROR: validator and builder would both use provider 'claude': pick another agent",
+        },
+        edit: {
+          st: "Un revisor 'de solo lectura' edita archivos",
+          sb: "Le decís en el prompt 'no modifiques nada', pero toca un config o deja basura en el árbol Git y seguís adelante.",
+          et: "Huella Git (stamp) verificada en collect",
+          eb: "<code>collect</code> compara <code>head_sha</code> y <code>tree_fingerprint</code> contra el momento del dispatch: si cambió algo, marca la ronda <code>invalid</code>.",
+          term: "taskflow round TASK-1 collect --round 2 --dispatch-id D2\n→ WARN: Round 002 invalid (reader changed the tree or HEAD moved)",
+        },
+        drift: {
+          st: "Alguien edita el tema a mitad del debate",
+          sb: "Un asiento argumenta sobre la versión vieja del documento y otro sobre la versión nueva sin que nadie lo note.",
+          et: "Integridad SHA-256 entre open y cross",
+          eb: "<code>open</code> sella <code>topic_sha</code> y <code>artifact_digests</code>; <code>cross</code> aborta si algún archivo cambió en disco.",
+          term: "taskflow debate T1 cross\n→ ERROR: topic file changed since the debate was opened",
+        },
+        noise: {
+          st: "5.000 líneas de pytest inundan la ventana",
+          sb: "Se llena el contexto del modelo con tracebacks repetidos, pierde precisión y cuesta mucho más.",
+          et: "Condensación determinística + archivo privado",
+          eb: "<code>ws run</code> imprime el resumen en ~10 líneas y guarda el log crudo indexado en <code>ws log</code>.",
+          term: "ws run -- pytest -q\n→ ✔ 1444 passed (log saved: run_019 · use `ws log run_019 --grep ...`)",
+        },
+      };
+
+      const scenBtns = document.querySelectorAll("[data-scenario]");
+      scenBtns.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const data = scenarios[btn.dataset.scenario];
+          scenBtns.forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+          document.getElementById("scenSkillTitle").textContent = data.st;
+          document.getElementById("scenSkillBody").innerHTML = data.sb;
+          document.getElementById("scenEngineTitle").textContent = data.et;
+          document.getElementById("scenEngineBody").innerHTML = data.eb;
+          document.getElementById("scenTerminal").textContent = data.term;
+        });
+      });
+
+      /* Slide 3: Architecture inspector */
+      const archData = {
+        governance: {
+          tag: "ai-governance · 18 subcomandos",
+          title: "Instalación limpia, reglas modulares y control de presupuesto",
+          desc: "Instala reglas por scope (usuario o proyecto) sin pisar configuraciones ajenas, copia skills reales a <code>~/.claude/skills</code>, <code>~/.agents/skills</code> y <code>~/.gemini/config/skills</code> con ledger SHA-256, y mide con <code>budget</code> cuántos tokens fijos carga cada agente al arrancar.",
+          code: "ai-governance install --scope project --agent all\nai-governance budget          # Bytes/tokens cargados en cada sesión por agente\nai-governance doctor          # Auditoría de salud: reglas, hooks, skills y settings",
+        },
+        taskflow: {
+          tag: "taskflow · orquestación & debate",
+          title: "Trazabilidad de tareas, independencia de roles y debate multi-modelo",
+          desc: "Gestiona el ciclo completo de una tarea (<code>new</code>, <code>bind</code>, <code>step</code>, <code>tdd</code>, <code>round</code>, <code>judge</code>, <code>debate</code>) en <code>state.json</code> y <code>debate.json</code> con locks dedicados y validación de recibos de Orca.",
+          code: "ai-governance taskflow debate T1 open --topic-file t.md --agents claude,antigravity --web\nai-governance taskflow debate T1 cross\nai-governance taskflow debate T1 close   # Genera synthesis.md + pasos [debate]",
+        },
+        workspace: {
+          tag: "ws · motor de ejecución local",
+          title: "Detección de stacks, Quality Gate en segundos y límites de diseño",
+          desc: "Detecta Python, Node, Go, PHP, Dart/Flutter o Java; registra hooks vía <code>git config</code> sin pisar Husky; mide complejidad por función con Lizard (<code>ws design</code>) y condensa comandos largos con <code>ws run</code>.",
+          code: "ws detect --json\nws design --changed\nws check --changed            # Corre las 5 etapas solo en lo modificado",
+        },
+      };
+
+      const archBtns = document.querySelectorAll("[data-arch]");
+      archBtns.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const item = archData[btn.dataset.arch];
+          archBtns.forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+          document.getElementById("archTag").textContent = item.tag;
+          document.getElementById("archTitle").textContent = item.title;
+          document.getElementById("archDesc").innerHTML = item.desc;
+          document.getElementById("archCode").textContent = item.code;
+        });
+      });
+
+      /* Slide 4: Log toggle */
+      const logViews = {
+        raw: "$ pytest\n============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.2.0\ncollected 1444 items\npackages/ai-governance/tests/test_agents.py ......................... [ 12%]\npackages/ai-governance/tests/test_budget.py ......................... [ 19%]\n[... 3.180 líneas más de warnings, deprecation notices y progreso ...]\n1444 passed, 88 warnings in 215.76s  <-- 148 KB quemados en el prompt",
+        condensed: "✔ pytest -q (1444 passed in 215.76s)\n  log_id: run_20261116_2104 · 148 KB guardados\n  para buscar detalle: ws log run_20261116_2104 --grep \"FAILED|ERROR\"",
+      };
+      const logBtns = document.querySelectorAll("[data-logview]");
+      logBtns.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          logBtns.forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+          document.getElementById("logPreview").textContent = logViews[btn.dataset.logview];
+        });
+      });
+
+      /* Slide 5: Gate simulator */
+      const runGateBtn = document.getElementById("runGateBtn");
+      runGateBtn.addEventListener("click", () => {
+        const out = document.getElementById("gateOut");
+        out.textContent = "$ ws check --changed\n[1/5] Security & Secrets ... PASS (0.4s)\n[2/5] Git Policies       ... PASS (0.1s)\n[3/5] Linters & Types    ... PASS (1.2s)\n[4/5] Design Limits      ... PASS (0.8s)\n[5/5] Scoped Test Suites ... PASS (48 passed)\n🚀 Listo para pushear.";
+      });
+
+      /* Slide 7: Debate phases */
+      const debatePhases = {
+        open: {
+          tag: "Fase 1 · Aislamiento + Hashes",
+          title: "Opiniones independientes sin sesgo de anclaje",
+          desc: "Cada asiento recibe la misma pregunta, su propia carpeta <code>scratch/</code> y las reglas de <code>--web</code> / <code>--artifact</code>. El motor sella <code>topic_sha</code> y el SHA-256 de cada artifact.",
+          bullets: [
+            "Exige al menos 2 proveedores distintos (pudiendo incluir al proveedor del builder).",
+            "Si un asiento está bloqueado por política o falta modelo, no reserva ninguna ronda.",
+          ],
+          code: "taskflow debate debate-demo open \\\n  --topic-file topic.md \\\n  --agents codex,antigravity,claude \\\n  --web --artifact models.py\n\n→ Rondas 001, 002, 003 reservadas bajo .debate.lock\n→ topic_sha + artifact_digests sellados en debate.json",
+        },
+        cross: {
+          tag: "Fase 2 · Cross-Examination",
+          title: "Cada proveedor refuta a los demás con evidencia",
+          desc: "El motor verifica que tema y artifacts no hayan cambiado, descarta asientos fallidos (ej. <code>codex</code> si faltó en PATH) e inyecta en cada spec únicamente las rondas válidas ajenas.",
+          bullets: [
+            "Refresca el estado de la tarea antes de construir los specs de repregunta.",
+            "Exige líneas estructuradas REBUT:, CHANGED: y POSITION: final.",
+          ],
+          code: "taskflow debate debate-demo cross\nWARN: dropped seat 'codex' (round 001: start_failed)\n→ Ronda 004 (antigravity) lee SOLO ronda 003 (claude)\n→ Ronda 005 (claude) lee SOLO ronda 002 (antigravity)",
+        },
+        close: {
+          tag: "Fase 3 · Síntesis Determinística",
+          title: "Matriz exacta en synthesis.md + pasos idempotentes",
+          desc: "<code>synthesis.py</code> parsea las respuestas sin wrapper, valida objetivos no propios, calcula la matriz <code>refuted / agreed / open</code> y guarda los puntos abiertos en <code>task.steps</code>.",
+          bullets: [
+            "Corrida real de hoy: Antigravity -> Claude (2/1/0), Claude -> Antigravity (2/2/0).",
+            "Volver a correr close o close --partial nunca duplica pasos [debate].",
+          ],
+          code: "| Author \\ Target | codex | antigravity | claude |\n|---|---|---|---|\n| antigravity | dropped | — | 2 / 1 / 0 |\n| claude | dropped | 2 / 2 / 0 | — |\n\nRefutación real: control.py:82 y store.py:89-96",
+        },
+      };
+      const debBtns = document.querySelectorAll("[data-debate]");
+      debBtns.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const item = debatePhases[btn.dataset.debate];
+          debBtns.forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+          document.getElementById("debTag").textContent = item.tag;
+          document.getElementById("debTitle").textContent = item.title;
+          document.getElementById("debDesc").innerHTML = item.desc;
+          document.getElementById("debBullets").innerHTML = item.bullets.map((x) => `<li>${x}</li>`).join("");
+          document.getElementById("debPreview").textContent = item.code;
+        });
+      });
+
+      /* Slide 10: Copy quickstart */
+      const copyBtn = document.getElementById("copyQuickBtn");
+      copyBtn.addEventListener("click", async () => {
+        const text = document.getElementById("quickstartCode").textContent;
+        try {
+          await navigator.clipboard.writeText(text);
+          copyBtn.textContent = "Copiado ✓";
+          setTimeout(() => { copyBtn.textContent = "Copiar comandos"; }, 1800);
+        } catch {
+          copyBtn.textContent = "Copiá manualmente";
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
