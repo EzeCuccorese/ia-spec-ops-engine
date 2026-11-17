@@ -76,7 +76,9 @@ def test_antigravity_hook_installs_as_named_group_after_pre_tool_probe(
     install_user(["antigravity"])
     data = json.loads(hooks_path.read_text())
     assert data["other"] == {"Stop": [{"command": "x"}]}
-    assert "SessionStart" not in data["ai-governance"]
+    assert data["ai-governance"]["SessionStart"] == [
+        {"type": "command", "command": "ai-governance hook antigravity session-start"}
+    ]
     assert data["ai-governance"]["PreToolUse"] == [
         {
             "matcher": "run_command",
@@ -133,3 +135,12 @@ def test_antigravity_pre_hook_redirects_noisy_commands(
         assert payload["decision"] == "deny" and f"ws run -- {command}" in payload["reason"]
     else:
         assert out == ""
+
+
+def test_antigravity_session_start_injects_system_message(monkeypatch, capsys, tmp_path: Path) -> None:
+    monkeypatch.setattr(hooks, "_session_start_message", lambda cwd: f"TASK @ {cwd}")
+    payload = {"conversationId": "conv-1", "workspacePaths": [str(tmp_path)]}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+    assert hooks.main(["antigravity", "session-start"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out == {"injectSteps": [{"systemMessage": {"systemMessage": f"TASK @ {tmp_path}"}}]}
