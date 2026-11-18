@@ -53,15 +53,17 @@ def test_annotate_diff_tracks_new_lines_across_files_and_hunks() -> None:
             "index 111..222 100644",
             "--- a/src/app.py",
             "+++ b/src/app.py",
-            "@@ -1,3 +1,4 @@",
+            "@@ -1,3 +1,5 @@",
             " def a():",
             "-    return 1",
+            "--- a/removed_sql_comment",
             "+    return 2",
             "+    # ++ b/not_a_header.py",
-            " ",
-            "@@ -20,2 +21,3 @@",
-            " def b():",
             "+    return 3",
+            " ",
+            "@@ -20,2 +22,3 @@",
+            " def b():",
+            "+    return 4",
             "diff --git a/README.md b/README.md",
             "--- a/README.md",
             "+++ b/README.md",
@@ -77,10 +79,11 @@ def test_annotate_diff_tracks_new_lines_across_files_and_hunks() -> None:
     assert "-          return 1" in annotated
     assert "+L2:     return 2" in annotated
     assert "+L3:     # ++ b/not_a_header.py" in annotated
-    assert "+L22:     return 3" in annotated
+    assert "+L4:     return 3" in annotated
+    assert "+L23:     return 4" in annotated
     assert "+L6: subtitle" in annotated
     assert valid == {
-        "src/app.py": {2, 3, 22},
+        "src/app.py": {2, 3, 4, 23},
         "README.md": {6},
     }
 
@@ -125,6 +128,15 @@ def test_snap_comments_handles_exact_snapped_out_of_hunk_and_coercion() -> None:
         {"path": "src/a.py", "line": 99, "body": "**[P3]** Distant line"},
         {"path": "other.py", "line": 3, "body": "File outside hunk"},
     ]
+
+
+def test_snap_comments_routes_to_out_of_hunk_when_valid_lines_empty() -> None:
+    comments = [{"path": "deleted.py", "line": 4, "body": "**[P2]** Removed file note"}]
+
+    inline, out_of_hunk = gr.snap_comments_to_diff(comments, {})
+
+    assert inline == []
+    assert out_of_hunk == comments
 
 
 def test_file_priority_orders_source_before_tests_and_docs() -> None:
@@ -320,3 +332,31 @@ def test_post_github_review_falls_back_on_http_422(monkeypatch: pytest.MonkeyPat
     assert "### Detailed Comments" in posted[1]["body"]
     assert "- **src/a.py:5**: **[P1]** Bug" in posted[1]["body"]
     assert "<!-- gemini-review-sha: abcd1234 -->" in posted[1]["body"]
+
+
+def test_post_github_review_falls_back_on_network_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    posted: list[dict[str, Any]] = []
+
+    def fake_urlopen(req: Any, timeout: int = 30) -> _FakeResponse:
+        assert timeout == 30
+        payload = json.loads(req.data.decode("utf-8"))
+        posted.append(payload)
+        if "comments" in payload:
+            raise TimeoutError("timed out posting inline comments")
+        return _FakeResponse({"id": 3}, status=200)
+
+    monkeypatch.setattr(gr.urllib.request, "urlopen", fake_urlopen)
+    target = gr.ReviewTarget(owner="o", repo="r", pr_number="7", token="tok")
+    meta = gr.ReviewMetadata(mode="incremental", commit_sha="efgh5678")
+
+    gr.post_github_review(
+        target,
+        "Network fallback check.",
+        [{"path": "src/a.py", "line": 8, "body": "**[P2]** Retry safety"}],
+        meta,
+    )
+
+    assert len(posted) == 2
+    assert "comments" not in posted[1]
+    assert "### Detailed Comments" in posted[1]["body"]
+    assert "<!-- gemini-review-sha: efgh5678 -->" in posted[1]["body"]

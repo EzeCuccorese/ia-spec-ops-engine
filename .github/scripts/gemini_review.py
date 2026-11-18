@@ -303,22 +303,31 @@ def _annotate_diff_line(
     cursor: _DiffCursor,
     valid_lines: dict[str, set[int]],
 ) -> str:
-    if line.startswith("diff --git ") or line.startswith("--- a/") or line == "--- /dev/null":
+    if line.startswith("diff --git "):
         cursor.in_header = True
         cursor.new_line = None
-        return line
-    if cursor.in_header and line.startswith("+++ b/"):
-        cursor.path = line[6:].strip()
-        return line
-    if cursor.in_header and line == "+++ /dev/null":
-        cursor.path = ""
         return line
     hunk = HUNK_HEADER_RE.match(line)
     if hunk:
         cursor.in_header = False
         cursor.new_line = int(hunk.group(1))
         return line
+    if cursor.in_header:
+        return _annotate_header_line(line, cursor)
     return _annotate_hunk_line(line, cursor, valid_lines)
+
+
+def _annotate_header_line(line: str, cursor: _DiffCursor) -> str:
+    if line.startswith("--- a/") or line == "--- /dev/null":
+        cursor.new_line = None
+        return line
+    if line.startswith("+++ b/"):
+        cursor.path = line[6:].strip()
+        return line
+    if line == "+++ /dev/null":
+        cursor.path = ""
+        return line
+    return line
 
 
 def _annotate_hunk_line(
@@ -443,7 +452,7 @@ def snap_comments_to_diff(
     valid_lines: dict[str, set[int]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     if not valid_lines:
-        return comments, []
+        return [], list(comments)
     inline: list[dict[str, Any]] = []
     out_of_hunk: list[dict[str, Any]] = []
     seen: set[tuple[str, int, str]] = set()
@@ -518,9 +527,11 @@ def _post_fallback(
             print(f"Posted fallback review: HTTP {resp.status}")
     except urllib.error.HTTPError as e:
         print(
-            f"Failed to post fallback review: HTTP {e.code} - {e.read().decode('utf-8')}",
+            f"Failed to post fallback review: HTTP {e.code} - {e.read().decode('utf-8', errors='replace')}",
             file=sys.stderr,
         )
+    except _RETRYABLE_NETWORK_ERRORS as e:
+        print(f"Failed to post fallback review: {e}", file=sys.stderr)
 
 
 def post_github_review(
@@ -553,7 +564,13 @@ def post_github_review(
         with urllib.request.urlopen(req, timeout=30) as resp:
             print(f"Successfully posted inline review: HTTP {resp.status}")
     except urllib.error.HTTPError as e:
-        print(f"Error posting review: {e.code} - {e.read().decode('utf-8')}", file=sys.stderr)
+        print(
+            f"Error posting review: {e.code} - {e.read().decode('utf-8', errors='replace')}",
+            file=sys.stderr,
+        )
+        _post_fallback(target, summary, valid_comments, final_meta)
+    except _RETRYABLE_NETWORK_ERRORS as e:
+        print(f"Error posting review ({type(e).__name__}): {e}", file=sys.stderr)
         _post_fallback(target, summary, valid_comments, final_meta)
 
 
