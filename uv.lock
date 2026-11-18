@@ -15,7 +15,7 @@ members = [
 
 [[package]]
 name = "ai-governance"
-version = "2.4.0"
+version = "3.0.0"
 source = { editable = "packages/ai-governance" }
 dependencies = [
     { name = "marklas" },
@@ -242,7 +242,7 @@ wheels = [
 
 [[package]]
 name = "ia-spec-ops-engine"
-version = "2.4.0"
+version = "3.0.0"
 source = { virtual = "." }
 
 [package.dev-dependencies]
@@ -721,7 +721,7 @@ wheels = [
 
 [[package]]
 name = "workspace"
-version = "2.4.0"
+version = "3.0.0"
 source = { editable = "packages/workspace" }
 dependencies = [
     { name = "lizard" },

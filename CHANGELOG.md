@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.0.0 - 2026-11-18
+
+### Breaking changes
+- Layer rule budgets, decompress rules, and slim engine for Orca.
+
+### Features
+- Add review lessons on deadlines, cleanup errors, URLs, logs, quotas and tests.
+- Add incremental PR reviews and workflow concurrency.
+
+### Fixes
+- Use mocked approval clock in cmd_approve and drop stale judge text.
+- Drop dead helpers left after slimming and test error contracts.
+- Harden hunk parsing, empty valid lines, and network fallback.
+
 ## 2.4.0 - 2026-11-17
 
 ### Features
