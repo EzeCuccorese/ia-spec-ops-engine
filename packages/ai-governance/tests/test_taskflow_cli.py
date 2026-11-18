@@ -378,3 +378,32 @@ def test_split_cli_modules_keep_their_public_paths() -> None:
 
     assert cli.GUIDE.startswith("Flow") and callable(cli.digest)
     assert cli._parser().prog.endswith("taskflow") or cli._parser().prog
+
+
+def test_blocked_status_rounds_show_and_findings_with_settled_round(
+    run: Run, state: TaskStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    round_file = tmp_path / "round.md"
+    round_file.write_text("# Round\n## Answer\nUse bounded timeouts.\n", encoding="utf-8")
+    state.mutate(
+        "TASK-1",
+        lambda t: t.rounds.append(
+            {
+                "n": 1,
+                "role": "debater",
+                "focus": "arch",
+                "state": "settled",
+                "file": str(round_file),
+            }
+        ),
+    )
+    assert run("block", "TASK-1", "--owner", "sec", "--needs", "review") == 0
+    capsys.readouterr()
+    assert run("status", "TASK-1", "--json") == 0
+    assert json.loads(_out(capsys))["Blocked"] == "sec: review"
+    assert run("rounds", "TASK-1", "--show", "1") == 0
+    assert "Use bounded timeouts." in _out(capsys)
+    assert run("rounds", "TASK-1", "--show", "99") == 1
+    out = tmp_path / "findings.md"
+    assert run("findings", "TASK-1", "--out", str(out)) == 0
+    assert "Use bounded timeouts." in out.read_text(encoding="utf-8")

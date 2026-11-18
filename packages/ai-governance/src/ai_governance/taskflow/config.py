@@ -110,9 +110,6 @@ class FlowConfig:
             return f"model '{model}' is denied by taskflow.denied_models"
         return None
 
-    def role(self, name: str) -> JsonDict:
-        return dict(self.roles.get(name, {}))
-
     @property
     def policy_digest(self) -> str:
         return hashlib.sha256(b"{}").hexdigest()[:12]

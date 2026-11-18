@@ -105,3 +105,24 @@ def test_empty_or_comment_only_repo_taskflow_files_load_cleanly(setup: tuple[Pat
         config = load_config([repo])
         assert config.denied_models == frozenset({"user-denied"}), text
         assert config.validate() == []
+
+
+def test_denied_models_csv_user_origin_and_malformed_tables(
+    setup: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ai_governance.taskflow.config import describe_config
+
+    cfg, repo = setup
+    monkeypatch.setenv("AI_GOVERNANCE_DENIED_MODELS", "m1, m2")
+    assert load_config([repo]).denied_models >= frozenset({"m1", "m2", "user-denied"})
+    monkeypatch.delenv("AI_GOVERNANCE_DENIED_MODELS")
+    assert describe_config([repo])["taskflow.denied_models"].origin == "user"
+
+    for bad in (
+        '[denied_models]\nother = ["x"]\n',
+        'taskflow = "not-a-table"\n',
+        "denied_models = [123]\n",
+        'denied_models = [""]\n',
+    ):
+        (cfg / "taskflow.toml").write_text(bad, encoding="utf-8")
+        assert load_config([repo]).denied_model_problems, bad

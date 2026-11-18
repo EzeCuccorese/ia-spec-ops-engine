@@ -188,3 +188,12 @@ def test_guide_says_agents_never_run_from_the_engine() -> None:
     assert "Never launch agent CLIs yourself" in GUIDE
     assert "END YOUR TURN" in GUIDE and "worker_done" in GUIDE
     assert "round <ID> collect" in GUIDE and "round <ID> abort" in GUIDE
+
+
+def test_invalid_orca_cli_command_quotes_reported_by_problem(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ORCA_CLI_COMMAND", 'orca "unclosed')
+    assert "not a valid command line" in (orca.orca_problem() or "")
+    with pytest.raises(orca.OrcaError, match="not a valid command line"):
+        orca.require_orca()
