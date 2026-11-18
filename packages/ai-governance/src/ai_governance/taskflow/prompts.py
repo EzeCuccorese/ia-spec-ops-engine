@@ -1,9 +1,9 @@
-"""Prompt text and verdict parsing shared by dispatched rounds and judges.
+"""Prompt text and structured response parsing shared by debate rounds.
 
-The engine never launches an agent: a reader round is a spec file an Orca worker reads and
-an answer file the engine parses afterwards. This module holds the two sentences every
-reader spec carries, the cross-examination block of a rebuttal round, and the parsers of the
-verdict line and the ``CHANGE:`` lines a validator or judge writes.
+The engine never launches an agent: a round is a spec file an Orca worker reads and
+an answer file the engine parses afterwards. This module holds the core reader rules,
+the cross-examination block of a rebuttal round, and the parsers for positions,
+rebuttals, and position changes.
 """
 
 from __future__ import annotations

@@ -154,6 +154,11 @@ class ApprovalContext:
     previous: list[JsonDict] | None = None
 
 
+def current_moment() -> datetime:
+    """Current local datetime (indirection keeps ``approvals.datetime`` patches effective)."""
+    return datetime.now()
+
+
 def build_approval(request: ApprovalRequest, context: ApprovalContext) -> JsonDict:
     """Validate a chat approval and return the record to store, or raise ``ApprovalError``."""
     risky = _check_request(request)

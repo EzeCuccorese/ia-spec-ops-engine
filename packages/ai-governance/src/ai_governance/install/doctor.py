@@ -239,7 +239,7 @@ def _project_rows(root: Path) -> list[Row]:
 
 
 def _taskflow_rows(root: Path | None) -> list[Row]:
-    """Roles and judges are valid; a missing Orca CLI is a notice (only dispatching needs it)."""
+    """Taskflow config is valid; a missing Orca CLI is a notice (only debate dispatch needs it)."""
     from ..taskflow.config import load_config
     from ..taskflow.orca import orca_problem
 
@@ -247,14 +247,14 @@ def _taskflow_rows(root: Path | None) -> list[Row]:
     problem = orca_problem()
     if problem:
         return [
-            ("taskflow", WARN if errors else OK, "; ".join(errors) or "roles and judges OK"),
+            ("taskflow", WARN if errors else OK, "; ".join(errors) or "config OK"),
             ("taskflow:orca", WARN, problem),
         ]
     return [
         (
             "taskflow",
             WARN if errors else OK,
-            "; ".join(errors) or "roles, judges and the Orca CLI OK",
+            "; ".join(errors) or "config and the Orca CLI OK",
         )
     ]
 

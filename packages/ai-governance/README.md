@@ -337,49 +337,12 @@ only those company packs; an unknown name is an error that lists the packs prese
 An environment variable that is set but empty counts as **unset** (a stray `VAR=` never blanks a command, model or timeout); the only exceptions are selections where "nothing" is a real answer: `corporate.packs` (`AI_GOVERNANCE_CORPORATE=` installs no pack) and the gate's `QG_SKIP=` (skip nothing).
 `hooks.gate_command` is split like a shell line and its first word looked up on `PATH`.
 
-`taskflow.toml` keeps roles, judges, checks and risk rules. The repository's
-`.ai-governance/taskflow.toml` has priority over the user's for these controls: it can add
-one, replace one with the same id (a judge `focus`, a risk rule `name`) and switch one off
-with a `[disable]` table of ids:
-
-```toml
-[disable]
-judges = ["performance"]        # judge focuses
-checks = ["ws check --changed"] # check commands, verbatim
-risk = ["migrations"]           # risk rule names
-```
-
-Every judge a repository adds or replaces runs with the user's agent and model
-(`taskflow.judge_agent` / `taskflow.judge_model`); `agent`, `model`, `binary` and `command`
-fields in the repository file are ignored with a warning.
-
-**A repository's controls need your approval.** Check commands run through a shell with your
-permissions, so a repository's `.ai-governance/taskflow.toml` is trusted per repository, like
-direnv. The trust is a hash (`v4:`) of that repository's whole parsed file: checks, risk rules
-with their `paths` and `checks`, judges, `[disable]` and `timeout_seconds`, with keys sorted and
-list order kept. Any file with content (anything beyond empty tables and comments) is **ignored
-entirely while it is not trusted**: no adds, no replacements, no `[disable]`, no commands, no
-timeout. An untrusted repository therefore cannot remove another repository's control either.
-`taskflow status`, `config` and `judge` report `repo config pending trust`, and
-`ai-governance config show --origin` lists its controls as `repo (pending trust)`. Any change to
-the file (a command, a rule's paths, the order of a list) makes it pending again.
-`ai-governance taskflow trust [--repo PATH]` prints the whole control config it approves and the
-commands it would run and, after you confirm in a terminal, stores the hash in
-`~/.local/state/ai-governance/taskflow/trust.json`. Each repository is trusted on its own,
-independent of other repositories and of the user's config, so a task bound to several
-repositories applies all the approved ones. It needs stdin and stdout on a terminal even with
-`--yes` and refuses when an agent variable (`CLAUDECODE`, `CODEX_*`, `CLAUDE_CODE_*`, ...) is
-present, whatever `AI_GOVERNANCE_AGENT` says. Entries of older schemes (`v1`-`v3`) are simply
-pending again.
-
-A task's first approval starts from the user's own policy, so whatever a repository
-disables before the first stamp is listed as a policy reduction too; what a trusted repository
-disables or weakens relative to the user's policy plus the repositories before it is a
-reduction as well, until a `policy-downgrade` approval acknowledges it. `ai-governance config show --origin`
-lists them as `taskflow.judge.<focus>`, `taskflow.check.<command>` and `taskflow.risk.<name>`
-with `user`, `default` or `repo (added|replaced|disabled)`. Removing controls counts as a
-policy reduction for `taskflow` approvals. Of its scalars only `timeout_seconds` follows the precedence above; `workflow` and the
-roles stay user-owned. An unknown `--profile` for Jira/Confluence is now an error that lists the known profiles.
+User `taskflow.toml` configures default roles (`[roles]` / `taskflow.<role>_agent|_model|_effort`)
+and `denied_models`. A repository's `.ai-governance/config.toml` can narrow `allowed_agents`
+and add entries to `denied_models` (also additive via `.ai-governance/taskflow.toml`), but
+repositories can never weaken user restrictions or execute shell commands from `taskflow.toml`
+(no `trust.json` approval step is needed).
+An unknown `--profile` for Jira/Confluence is an error that lists the known profiles.
 
 | Variable | Effect |
 |---|---|

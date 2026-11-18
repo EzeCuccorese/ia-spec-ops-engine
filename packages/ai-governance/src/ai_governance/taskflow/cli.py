@@ -8,7 +8,6 @@ import subprocess
 import sys
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import datetime
 from pathlib import Path
 
 from ..output import emit_json, emit_kv, emit_rows, emit_status, emit_text
@@ -20,6 +19,7 @@ from .approvals import (
     ApprovalError,
     ApprovalRequest,
     build_approval,
+    current_moment,
     request_tag,
 )
 from .config import FlowConfig, load_config
@@ -459,7 +459,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
         consequence=args.consequence,
     )
     record = build_approval(
-        request, ApprovalContext(task.stamp_key, datetime.now(), task.approvals)
+        request, ApprovalContext(task.stamp_key, current_moment(), task.approvals)
     )
     store.mutate(
         task.id,
