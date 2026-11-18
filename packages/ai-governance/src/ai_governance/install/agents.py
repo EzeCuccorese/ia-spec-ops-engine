@@ -195,14 +195,6 @@ class AgentSpec:
         """Agent-specific extras; the rules themselves live once in `.agents/rules`."""
         return []
 
-    def _verified_hooks(
-        self, path: Path, *entries: HookEntry, group: str | None = None
-    ) -> list[Artifact]:
-        """Hooks whose wire format is only trusted after `ai-governance probe` verified it."""
-        from .probe import shell_hooks_verified
-
-        return [HooksArtifact(path, entries, group)] if shell_hooks_verified(self.id) else []
-
 
 def _claude_subagents(agents_dir: Path) -> list[Artifact]:
     return [
@@ -263,9 +255,6 @@ class ClaudeSpec(AgentSpec):
                 home / "settings.json",
                 (
                     HookEntry("PreToolUse", "Bash", f"{command} pre-tool-use"),
-                    HookEntry(
-                        "PreToolUse", "Edit|Write|MultiEdit|NotebookEdit", f"{command} writer-lease"
-                    ),
                     HookEntry("PostToolUse", "Bash", f"{command} post-tool-use"),
                     HookEntry("SessionStart", None, f"{command} session-start"),
                     HookEntry("SessionEnd", None, f"{command} session-end"),
@@ -355,10 +344,12 @@ class CodexSpec(AgentSpec):
                 conflict=r"^\s*\[agents\]|^\s*agents\.default_subagent_",
             ),
             *skill_artifacts(Path.home() / ".agents" / "skills"),
-            *self._verified_hooks(
+            HooksArtifact(
                 home / "hooks.json",
-                HookEntry("SessionStart", None, f"{HOOK_COMMAND_PREFIX} codex session-start"),
-                HookEntry("PostToolUse", None, f"{HOOK_COMMAND_PREFIX} codex post-tool-use"),
+                (
+                    HookEntry("SessionStart", None, f"{HOOK_COMMAND_PREFIX} codex session-start"),
+                    HookEntry("PostToolUse", None, f"{HOOK_COMMAND_PREFIX} codex post-tool-use"),
+                ),
             ),
         ]
 
@@ -447,13 +438,18 @@ class AntigravitySpec(AgentSpec):
                 + content.SCOUT_INSTRUCTIONS,
             ),
             *skill_artifacts(home / "config" / "skills"),
-            *self._verified_hooks(
+            HooksArtifact(
                 home / "config" / "hooks.json",
-                HookEntry("SessionStart", None, f"{HOOK_COMMAND_PREFIX} antigravity session-start"),
-                HookEntry(
-                    "PreToolUse", "run_command", f"{HOOK_COMMAND_PREFIX} antigravity pre-tool-use"
+                (
+                    HookEntry(
+                        "SessionStart", None, f"{HOOK_COMMAND_PREFIX} antigravity session-start"
+                    ),
+                    HookEntry(
+                        "PreToolUse",
+                        "run_command",
+                        f"{HOOK_COMMAND_PREFIX} antigravity pre-tool-use",
+                    ),
                 ),
-                HookEntry("PreToolUse", "*", f"{HOOK_COMMAND_PREFIX} antigravity writer-lease"),
                 group=MARKER,
             ),
         ]
@@ -488,7 +484,7 @@ AGENTS: dict[str, AgentSpec] = {
         id="codex",
         name="OpenAI Codex",
         global_instructions="$CODEX_HOME/AGENTS.md (marker block) + rule indexes in $CODEX_HOME/ai-governance/",
-        global_hooks="$CODEX_HOME/hooks.json SessionStart, PostToolUse condensing (after `probe` verifies)",
+        global_hooks="$CODEX_HOME/hooks.json SessionStart, PostToolUse condensing",
         project_rules=".agents/rules/ai-governance-<id>.md (shared)",
         project_rules_mechanism="injected on edit by a PreToolUse hook (planned)",
         scout="$CODEX_HOME/agents/scout.toml (gpt-6-luna, effort medium, read-only) + config.toml default subagent model gpt-6-luna",  # default of agents.codex_scout_model,
@@ -498,7 +494,7 @@ AGENTS: dict[str, AgentSpec] = {
         id="antigravity",
         name="Google Antigravity 2",
         global_instructions="~/.gemini/config/rules/ai-governance.md (`trigger: always_on`) + language rules (`trigger: glob`)",
-        global_hooks="~/.gemini/config/hooks.json PreToolUse: raw noisy commands -> `ws run` (after `probe`)",
+        global_hooks="~/.gemini/config/hooks.json SessionStart, PreToolUse: raw noisy commands -> `ws run`",
         project_rules=".agents/rules/ai-governance-<id>.md (single source)",
         project_rules_mechanism="`trigger: glob` activation (loaded per file; 20k-token rules budget)",
         scout="~/.gemini/config/agents/scout.md (model flash, read-only tools, no commands)",

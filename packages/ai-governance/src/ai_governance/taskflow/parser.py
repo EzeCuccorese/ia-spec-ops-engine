@@ -1,4 +1,4 @@
-"""Argument wiring of ``ai-governance taskflow`` (split out of ``cli``, no behavior change).
+"""Argument wiring of ``ai-governance taskflow`` (split out of ``cli``).
 
 The handlers stay in ``cli`` and are looked up as ``cli.cmd_*`` when the parser is built."""
 
@@ -8,10 +8,10 @@ import argparse
 from collections.abc import Callable
 from typing import TypeAlias
 
-from . import cli, debate_cli, pr_cli
+from . import cli, debate_cli
 from .approvals import ACTIONS
 from .guide import GUIDE
-from .models import EXIT_PHASES, PHASES, ROLES, VERDICTS, WORKFLOWS, now_iso
+from .models import ROLES, WORKFLOWS, now_iso
 
 Subparsers: TypeAlias = "argparse._SubParsersAction[argparse.ArgumentParser]"
 
@@ -113,9 +113,12 @@ def _lifecycle_commands(sub: Subparsers) -> None:
     item = add(
         "close",
         cli.cmd_close,
-        "Close a task (after done/findings, or --abandon / --done-outside)",
+        "Close a task (blocked only if debate rounds are still in flight unless --force)",
     )
     item.add_argument("--reason", default="")
+    item.add_argument(
+        "--force", action="store_true", help="Close even when debate rounds are unsettled"
+    )
     item.add_argument(
         "--abandon", action="store_true", help="Close a task that left the flow unfinished"
     )
@@ -137,26 +140,24 @@ def _lifecycle_commands(sub: Subparsers) -> None:
     item.add_argument("--pr", default="")
     item = add("unbind", cli.cmd_unbind, "Remove a bound repository")
     item.add_argument("--repo", default=".")
-    item = add("stamp", cli.cmd_stamp, "Recompute the code stamp and the risk")
+    item = add("stamp", cli.cmd_stamp, "Recompute the code stamp")
     item.add_argument(
         "--remote", action="store_true", help="Verify the integration branch with git ls-remote"
     )
     item = add(
         "status",
         cli.cmd_status,
-        "Phase, missing requirements, stale verdicts and next command",
+        "Task metadata, bound repos, steps, decisions, approvals and debate state",
         task="optional",
     )
     item.add_argument("--json", action="store_true")
-    item = add("phase", cli.cmd_phase, "Move the task to a phase (checked against the gates)")
-    item.add_argument("target", choices=(*PHASES, *EXIT_PHASES))
     item = add("block", cli.cmd_block, "Mark the task blocked waiting for someone")
     item.add_argument("--owner", required=True)
     item.add_argument("--needs", required=True)
     add("unblock", cli.cmd_unblock, "Clear the block")
 
 
-def _approval_round_commands(sub: Subparsers) -> None:
+def _approval_commands(sub: Subparsers) -> None:
     add = _adder(sub)
     item = add("ask", cli.cmd_ask, "Print the tag your approval question must carry")
     item.add_argument("--action", required=True, choices=ACTIONS)
@@ -172,18 +173,6 @@ def _approval_round_commands(sub: Subparsers) -> None:
         default="",
         help="Risky actions: what breaks if it goes wrong, as shown to the user",
     )
-    item = add("tdd", cli.cmd_tdd, "Record the red/green test runs (or a skip the user approved)")
-    item.add_argument("stage", choices=("red", "green", "skip"))
-    item.add_argument("--cmd", default="", help="Test command, the same for red and green")
-    item.add_argument("--reason", default="")
-
-
-def _round_agent_args(item: argparse.ArgumentParser) -> None:
-    item.add_argument("--phase", choices=PHASES, help="Default: the task's phase")
-    item.add_argument("--prompt-file")
-    item.add_argument("--prompt")
-    item.add_argument("--agent", default="", help="Override the configured agent")
-    item.add_argument("--model", default="")
 
 
 def _round_commands(sub: Subparsers) -> None:
@@ -191,17 +180,25 @@ def _round_commands(sub: Subparsers) -> None:
     item = add(
         "round",
         cli.cmd_round,
-        "Dispatch a reader round to an Orca worker and collect or abort it, or record one",
+        "Collect or abort a dispatched Orca round",
     )
-    actions = item.add_subparsers(
-        dest="action", required=True, metavar="{record,dispatch,collect,abort}"
+    actions = item.add_subparsers(dest="action", required=True, metavar="{collect,abort}")
+    collect = actions.add_parser("collect", help="Settle a dispatched round from its worker")
+    collect.add_argument("--round", type=int, required=True)
+    collect.add_argument("--dispatch-id", required=True, help="Orca's id of the worker you started")
+    collect.add_argument("--answer-file", help="Read the answer here instead of runs/N/answer.txt")
+    abort = actions.add_parser("abort", help="Settle a dispatched round as aborted (audited)")
+    abort.add_argument("--round", type=int, required=True)
+    abort.add_argument("--reason", required=True)
+    binding = abort.add_mutually_exclusive_group(required=True)
+    binding.add_argument("--dispatch-id", help="Orca's id of the worker that ran this round")
+    binding.add_argument(
+        "--never-started",
+        action="store_true",
+        help="Your assertion that no worker was started for it (recorded; it is not evidence)",
     )
-    record = actions.add_parser("record", help="Record a round that ran elsewhere (context only)")
-    record.add_argument("--role", required=True, choices=ROLES)
-    _round_agent_args(record)
-    record.add_argument("--verdict", choices=VERDICTS, default="info")
-    record.add_argument("--file", help="The round's text (default: stdin)")
-    _dispatch_commands(actions)
+    item = add("rounds", cli.cmd_rounds, "List the rounds, or print one")
+    item.add_argument("--show", type=int)
 
 
 def _evidence_flags(item: argparse.ArgumentParser) -> None:
@@ -217,105 +214,6 @@ def _evidence_flags(item: argparse.ArgumentParser) -> None:
         metavar="PATH",
         help="Visual or binary artifact path the worker must inspect (repeatable)",
     )
-
-
-def _dispatch_commands(actions: Subparsers) -> None:
-    dispatch = actions.add_parser(
-        "dispatch", help="Reserve a planner/validator round and print its Orca worker-start line"
-    )
-    dispatch.add_argument("--role", required=True, choices=ROLES)
-    _round_agent_args(dispatch)
-    dispatch.add_argument("--focus", default="")
-    dispatch.add_argument(
-        "--rebut",
-        type=int,
-        action="append",
-        default=[],
-        metavar="N",
-        help="Cross-examine settled round N (repeatable): the worker reads and refutes it",
-    )
-    _evidence_flags(dispatch)
-    dispatch.add_argument("--json", action="store_true", help="Print the command as a JSON array")
-    collect = actions.add_parser("collect", help="Settle a dispatched round from its worker")
-    collect.add_argument("--round", type=int, required=True)
-    collect.add_argument("--dispatch-id", required=True, help="Orca's id of the worker you started")
-    collect.add_argument("--answer-file", help="Read the answer here instead of runs/N/answer.txt")
-    abort = actions.add_parser("abort", help="Settle a dispatched round as aborted (audited)")
-    abort.add_argument("--round", type=int, required=True)
-    abort.add_argument("--reason", required=True)
-    binding = abort.add_mutually_exclusive_group(required=True)
-    binding.add_argument("--dispatch-id", help="Orca's id of the worker that ran this round")
-    binding.add_argument(
-        "--never-started",
-        action="store_true",
-        help="Your assertion that no worker was started for it (recorded; it is not evidence)",
-    )
-
-
-def _judge_commands(sub: Subparsers) -> None:
-    add = _adder(sub)
-    item = add("rounds", cli.cmd_rounds, "List the rounds, or print one")
-    item.add_argument("--show", type=int)
-    item = add(
-        "judge",
-        cli.cmd_judge,
-        "Run the checks on the committed code, then print the Orca line of every required judge",
-    )
-    item.add_argument("--focus", default="", help="Run only this focus (the gate still needs all)")
-    item = add("deploy", cli.cmd_deploy, "Record a deployment the user made (never deploys)")
-    item.add_argument("--env", required=True)
-    item.add_argument("--repo", required=True)
-    item.add_argument("--sha", required=True)
-    item.add_argument("--provenance", choices=("ci", "health", "k8s", "manual"), required=True)
-    item = add(
-        "evidence", cli.cmd_evidence, "Store evidence (test results, captures) bound to a SHA"
-    )
-    item.add_argument("--kind", required=True, choices=("staging", "review", "prod", "other"))
-    item.add_argument("--file", required=True)
-    item.add_argument("--deployed-sha", default="")
-    for name, handler, text in (
-        ("findings", cli.cmd_findings, "Findings package for another owner"),
-        ("draft", cli.cmd_draft, "Draft comment for the ticket"),
-    ):
-        item = add(name, handler, text)
-        item.add_argument("--out")
-    item = add("handoff", cli.cmd_handoff, "Context package for a role, secrets scrubbed")
-    item.add_argument("--to", required=True, choices=ROLES)
-    item.add_argument("--out")
-    item = add("digest", cli.cmd_digest, "Compact context of the open tasks", task="none")
-    item.add_argument("--id", dest="task_id")
-    item.add_argument("--max-chars", type=int, default=1600)
-    item = add(
-        "trust", cli.cmd_trust, "Approve the check commands a repository defines", task="none"
-    )
-    item.add_argument("--repo", default=".")
-    item.add_argument("--yes", action="store_true", help="Do not ask (outside agent mode)")
-    add("config", cli.cmd_config, "Show and validate the taskflow config", task="none")
-
-
-def _pr_commands(sub: Subparsers) -> None:
-    group = sub.add_parser(
-        "pr",
-        help="Pull requests of a task: register once, status read from GitHub by code",
-        description="Pull requests of a task and its subtasks. CI, review, open threads, "
-        "conflicts and stacking are read from GitHub (read-only) and classified by fixed rules.",
-    )
-    add = _adder(group.add_subparsers(dest="pr_cmd", required=True))
-    refs_help = "URL, owner/name#N or #N (needs --repo or a bound GitHub repo); '-' reads stdin"
-    for name, handler, text in (
-        ("add", pr_cli.cmd_pr_add, "Register PRs (idempotent); '-' reads pasted text from stdin"),
-        ("rm", pr_cli.cmd_pr_rm, "Stop tracking PRs"),
-    ):
-        item = add(name, handler, text)
-        item.add_argument("refs", nargs="+", help=refs_help)
-        item.add_argument("--repo", default="", help="owner/name for bare #N references")
-        if name == "add":
-            item.add_argument("--group", default="", help="Free-text label to group the board")
-    add("sync", pr_cli.cmd_pr_sync, "Refresh PR status from GitHub (read-only)", task="optional")
-    item = add("list", pr_cli.cmd_pr_list, "Board of PRs with what blocks each", task="optional")
-    item.add_argument("--sync", action="store_true", help="Refresh from GitHub first")
-    item.add_argument("--blocked", action="store_true", help="Only PRs that cannot merge yet")
-    item.add_argument("--json", action="store_true")
 
 
 def _debate_open_args(open_cmd: argparse.ArgumentParser) -> None:
@@ -365,10 +263,38 @@ def _debate_commands(sub: Subparsers) -> None:
     )
 
 
+def _report_commands(sub: Subparsers) -> None:
+    add = _adder(sub)
+    item = add("deploy", cli.cmd_deploy, "Record a deployment the user made (never deploys)")
+    item.add_argument("--env", required=True)
+    item.add_argument("--repo", required=True)
+    item.add_argument("--sha", required=True)
+    item.add_argument("--provenance", choices=("ci", "health", "k8s", "manual"), required=True)
+    item = add(
+        "evidence", cli.cmd_evidence, "Store evidence (test results, captures) bound to a SHA"
+    )
+    item.add_argument("--kind", required=True, choices=("staging", "review", "prod", "other"))
+    item.add_argument("--file", required=True)
+    item.add_argument("--deployed-sha", default="")
+    for name, handler, text in (
+        ("findings", cli.cmd_findings, "Findings package for another owner"),
+        ("draft", cli.cmd_draft, "Draft comment for the ticket"),
+    ):
+        item = add(name, handler, text)
+        item.add_argument("--out")
+    item = add("handoff", cli.cmd_handoff, "Context package for a role, secrets scrubbed")
+    item.add_argument("--to", required=True, choices=ROLES)
+    item.add_argument("--out")
+    item = add("digest", cli.cmd_digest, "Compact context of the open tasks", task="none")
+    item.add_argument("--id", dest="task_id")
+    item.add_argument("--max-chars", type=int, default=1600)
+    add("config", cli.cmd_config, "Show and validate the taskflow config", task="none")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ai-governance taskflow",
-        description="Track tasks across sessions and run the TriAgentTaskFlow (plan, validate, work, judge).",
+        description="Track tasks across sessions, record approvals and run design debates.",
         epilog=GUIDE,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -376,10 +302,9 @@ def build_parser() -> argparse.ArgumentParser:
     _task_commands(sub)
     _content_commands(sub)
     _reference_commands(sub)
-    _pr_commands(sub)
     _lifecycle_commands(sub)
-    _approval_round_commands(sub)
+    _approval_commands(sub)
     _round_commands(sub)
     _debate_commands(sub)
-    _judge_commands(sub)
+    _report_commands(sub)
     return parser

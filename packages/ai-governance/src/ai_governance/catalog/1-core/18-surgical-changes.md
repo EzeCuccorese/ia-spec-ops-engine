@@ -1,11 +1,11 @@
 # Surgical Changes
 
 ## Invariants
-- **Minimal Diff**: Change only what the request needs; justify each file in one line or revert it before pushing.
-- **No Drive-By Edits**: No refactors, renames or moved blocks in existing code; propose apart.
-- **Format Only What You Edit**: Formatters and autofix run on edited files only.
-- **Foreign Code Needs Approval**: Other teams' code, CI, deploy config, dependencies and shared contracts need the user's approval; shared changes go in their own PR.
-- **No Silent Scope Growth**: Needing another file means stop and explain why first.
-- **Small, Paired PRs**: Split before review; a change another service must enable is paired from the start, linked both ways with merge order.
-- **Closed Delegation**: Subagents get a closed list of editable files; review their full diff before commit.
-- **Evidence First**: Subagent claims are hypotheses until checked in code; read real logs before blaming a component; verify workarounds by reading data back.
+- **Minimal Diff**: Change only what the request requires. Be ready to justify every modified file in one line, or revert it before pushing.
+- **No Drive-By Edits**: Do not refactor, rename, or move unrelated blocks in existing code; propose them separately in their own PR.
+- **Format Only What You Edit**: Run formatters and autofixers only on the files you changed.
+- **Foreign Code Needs Approval**: Modifying another team's code, CI, deploy configs, dependencies, or shared contracts requires explicit user approval; put shared changes in their own PR.
+- **No Silent Scope Growth**: When a change requires expanding beyond the agreed scope or touching unrelated modules, stop and explain why to the user first.
+- **Small, Paired PRs**: Split oversized changes before review. When a change requires an enabling PR in another service, open both PRs together, link them both ways, and document the merge order.
+- **Closed Delegation**: Give subagents a closed list of editable files, and review their full diff before committing.
+- **Evidence First**: Treat subagent claims as hypotheses until verified in code. Read real logs before blaming a component, and verify workarounds by reading the saved state back.

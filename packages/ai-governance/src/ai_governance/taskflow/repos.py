@@ -64,20 +64,6 @@ def report(paths: Iterable[str]) -> None:
             print(f"bound repo not found, skipped: {path}", file=sys.stderr)
 
 
-def first_live(repos: Iterable[JsonDict]) -> tuple[Path, tuple[Path, ...]] | None:
-    """The first existing repo and the other existing ones; ValueError if bindings exist
-    but none is on disk; None if the task has no binding at all."""
-    bound = list(repos)
-    if not bound:
-        return None
-    found = partition(bound)
-    report(str(b["path"]) for b in found.missing)
-    if not found.live:
-        raise ValueError(NONE_LIVE)
-    paths = [Path(b["path"]) for b in found.live]
-    return paths[0], tuple(paths[1:])
-
-
 def vanished(paths: Iterable[Path]) -> list[Path]:
     return [path for path in paths if not path.is_dir()]
 

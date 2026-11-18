@@ -432,7 +432,7 @@ def _open_debate_locked(
     flags = _OpenFlags(opts.web, tuple(digests), config.effort("debater"), digests)
     _check_pending_focuses(store, task, {seat.focus for seat in seats})
     orca.require_orca()
-    task, _ = refresh(store, task, config)
+    task = refresh(store, task, config)
     requests = _open_requests(task, seats, topic_text.strip() + THESIS_INSTRUCTION, flags)
     dispatched = _dispatch_seats(store, task, config, requests)
     debate_id = int(existing.get("debate_id", 0)) + 1 if existing else 1
@@ -602,7 +602,7 @@ def _cross_debate_locked(store: TaskStore, task_id: str, config: FlowConfig) -> 
     _check_pending_focuses(store, task, {str(s["focus"]) for s in valid_seats})
     orca.require_orca()
     prompt, flags = _cross_flags(state, config.effort("debater"))
-    task, _ = refresh(store, task, config)
+    task = refresh(store, task, config)
     requests = _cross_requests(task, valid_seats, prompt, flags)
     dispatched = _dispatch_seats(store, task, config, requests)
     try:

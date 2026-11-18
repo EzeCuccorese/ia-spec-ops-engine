@@ -59,11 +59,8 @@ def handoff(task: Task, role: str) -> str:
 
 
 def findings(task: Task) -> str:
-    judged = [
-        r
-        for r in task.rounds
-        if r.get("role") == "judge" and r.get("verdict") in ("block", "concerns")
-    ]
+    """Findings summary from settled rounds, bound repositories, and decisions."""
+    settled = [r for r in task.rounds if r.get("file")]
     lines = [
         f"# Findings for the owner: {task.id} — {task.title}",
         "",
@@ -75,15 +72,16 @@ def findings(task: Task) -> str:
         ],
         "",
     ]
-    for record in judged:
+    for record in settled:
         body = (
             Path(record["file"]).read_text(encoding="utf-8")
             if Path(record["file"]).exists()
             else ""
         )
         answer = body.split("## Answer", 1)[-1].strip()
+        label = record.get("focus") or record.get("role") or "round"
         lines += [
-            f"## Judge {record.get('focus') or ''} (round {int(record['n']):03d}, {record['verdict']})",
+            f"## {label} (round {int(record['n']):03d}, {record.get('state', 'settled')})",
             "",
             answer,
             "",
@@ -100,8 +98,7 @@ def ticket_draft(task: Task) -> str:
         f"- {d.get('env')}: {Path(str(d.get('repo'))).name} @ {str(d.get('sha'))[:12]}"
         for d in task.deployments
     ]
-    prs = [f"- {r.get('pr')}" for r in task.repos if r.get("pr")]
-    for heading, items in (("Pending", pending), ("Deployed", deployed), ("PRs", prs)):
+    for heading, items in (("Pending", pending), ("Deployed", deployed)):
         if items:
             lines += ["", f"**{heading}**", *items]
     return scrub("\n".join(lines)) + "\n"
