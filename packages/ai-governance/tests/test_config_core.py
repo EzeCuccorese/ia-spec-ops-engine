@@ -138,9 +138,7 @@ def test_frugal_json_and_taskflow_toml_feed_the_same_layers(
     repo = tmp_path / "repo"
     _write(home / "taskflow.toml", "timeout_seconds = 100\n")
     assert load_config([repo]).timeout_seconds == 100
-    _write(repo / ".ai-governance" / "taskflow.toml", "timeout_seconds = 200\n")
-    from ai_governance.taskflow.config import record_trust
-
-    record_trust(repo, {"timeout_seconds": 200})  # a repo file is ignored until trusted
-    assert load_config([repo]).timeout_seconds == 200
-    assert settings.get("taskflow.timeout_seconds", repo) in (200, 1800)
+    _write(repo / ".ai-governance" / "taskflow.toml", 'denied_models = ["exp-model"]\n')
+    assert "exp-model" in load_config([repo]).denied_models
+    _write(repo / ".ai-governance" / "config.toml", "[taskflow]\ntimeout_seconds = 200\n")
+    assert settings.get("taskflow.timeout_seconds", repo) == 200

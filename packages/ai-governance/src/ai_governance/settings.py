@@ -119,18 +119,6 @@ SETTINGS: tuple[Setting, ...] = (
         "HTTP timeout of Jira and Confluence calls",
     ),
     Setting(
-        "pricing.timeout_seconds",
-        10.0,
-        "AI_GOVERNANCE_PRICING_TIMEOUT_SECONDS",
-        "Timeout of the price feed download",
-    ),
-    Setting(
-        "schedule.label",
-        "com.ai-governance.prices-update",
-        "AI_GOVERNANCE_SCHEDULE_LABEL",
-        "launchd label of the price-refresh agent",
-    ),
-    Setting(
         "risk_window.cutoff_hour",
         16,
         "AI_GOVERNANCE_RISK_WINDOW_CUTOFF_HOUR",

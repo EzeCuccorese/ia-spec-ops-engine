@@ -25,6 +25,7 @@ REQUIRED_KEYS = ("dispatchId", "state", "liveness")
 ORCA_TIMEOUT = 30
 LIST_LIMIT = 100
 LIST_PAGES = 5
+MACOS_ORCA_APP_BIN = "/Applications/Orca.app/Contents/Resources/bin/orca"
 
 
 class OrcaError(ValueError):
@@ -43,15 +44,32 @@ class WorkerRow:
         return self.state in RUNNING_STATES
 
 
+def _unreadable_macos_launcher(found: str | None) -> bool:
+    if not found or not os.access(found, os.R_OK) or not os.access(found, os.X_OK):
+        return True
+    if os.path.islink(found):
+        try:
+            os.readlink(found)
+        except OSError:
+            return True
+    return False
+
+
 def orca_command() -> str:
     """The Orca CLI: ``ORCA_CLI_COMMAND``, else ``orca-dev`` when ``ORCA_DEV_REPO_ROOT`` is
-    set, else ``orca-ide`` on Linux, else ``orca``."""
+    set, else ``orca-ide`` on Linux, else the macOS app binary when needed, else ``orca``."""
     explicit = os.environ.get("ORCA_CLI_COMMAND", "").strip()
     if explicit:
         return explicit
     if os.environ.get("ORCA_DEV_REPO_ROOT", "").strip():
         return "orca-dev"
-    return "orca-ide" if sys.platform.startswith("linux") else "orca"
+    if sys.platform.startswith("linux"):
+        return "orca-ide"
+    if sys.platform == "darwin":
+        found = shutil.which("orca")
+        if _unreadable_macos_launcher(found) and os.access(MACOS_ORCA_APP_BIN, os.X_OK):
+            return MACOS_ORCA_APP_BIN
+    return "orca"
 
 
 def orca_argv() -> list[str]:

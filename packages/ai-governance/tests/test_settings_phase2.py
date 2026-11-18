@@ -9,11 +9,9 @@ from pathlib import Path
 import pytest
 from ai_governance import config_cli, corporate, hooks, settings
 from ai_governance._config_core import ConfigError
-from ai_governance.install import schedule
 from ai_governance.install.agents import scout_model
 from ai_governance.output import truncate
 from ai_governance.settings import SETTINGS, effective
-from ai_governance.taskflow import tdd
 from ai_governance.taskflow.config import FlowConfig, check_timeout_seconds, load_config
 
 
@@ -31,7 +29,8 @@ def test_defaults_are_the_previous_hardcoded_values() -> None:
     assert found["frugality.condense_timeout_seconds"] == 30
     assert (found["output.max_lines"], found["output.max_chars"]) == (20, 1500)
     assert found["taskflow.timeout_seconds"] == 1800
-    assert found["pricing.timeout_seconds"] == 10.0 and found["atlassian.timeout_seconds"] == 30.0
+    assert found["atlassian.timeout_seconds"] == 30.0
+    assert "pricing.timeout_seconds" not in found and "schedule.label" not in found
     assert found["corporate.packs"] == []
     assert not [key for key in found if key.endswith("_binary")]  # agents run as Orca workers
     assert scout_model() == "gpt-6-luna"
@@ -41,10 +40,6 @@ def test_defaults_are_the_previous_hardcoded_values() -> None:
         "builder": {"agent": "claude", "model": ""},
         "debater": {"agent": "codex", "model": "gpt-6.1-sol"},
     }
-    assert FlowConfig().judges == (
-        {"focus": "correctness", "agent": "codex", "model": "gpt-6.1-sol"},
-    )
-    assert schedule.label() == schedule.LABEL
     assert found["deploy_approvals.production"] == "never"
 
 
@@ -54,23 +49,14 @@ def test_every_setting_has_a_documented_row_in_a_readme() -> None:
     assert not missing, missing
 
 
-def test_one_timeout_for_checks_judges_and_tdd(
-    isolated: Path, monkeypatch: pytest.MonkeyPatch
+def test_one_timeout_for_checks_and_taskflow(
+    isolated: Path,
 ) -> None:
     (isolated).mkdir(parents=True)
     (isolated / "config.toml").write_text("[taskflow]\ntimeout_seconds = 42\n")
     assert check_timeout_seconds() == 42
     assert load_config().timeout_seconds == 42
     assert FlowConfig().timeout_seconds == 42
-    seen: list[float] = []
-    real = subprocess.run
-    monkeypatch.setattr(
-        subprocess,
-        "run",
-        lambda *a, **k: seen.append(k["timeout"]) or real("true", shell=True, capture_output=True),
-    )
-    tdd.run_test("true", Path.cwd())
-    assert seen == [42]
 
 
 def test_roles_and_models_come_from_user_settings_never_the_repo(
@@ -224,44 +210,6 @@ def test_legacy_taskflow_roles_do_not_override_the_environment(
     (isolated / "config.toml").write_text('[taskflow]\nbuilder_model = "cfg-model"\n')
     monkeypatch.delenv("AI_GOVERNANCE_BUILDER_MODEL")
     assert load_config().roles["builder"]["model"] == "cfg-model"  # config.toml beats legacy
-
-
-def test_env_judge_overrides_legacy_judge_fields(
-    isolated: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    isolated.mkdir(parents=True)
-    (isolated / "taskflow.toml").write_text(
-        '[[judges]]\nfocus = "security"\nagent = "antigravity"\nmodel = "old"\n'
-    )
-    monkeypatch.setenv("AI_GOVERNANCE_JUDGE_MODEL", "env-judge")
-    judge = load_config().judges[0]
-    assert (judge["agent"], judge["model"]) == ("antigravity", "env-judge")
-
-
-JUDGE_FIELD_CASES = [
-    # field, legacy value, config.toml value, env variable, env value
-    ("agent", "antigravity", "claude", "AI_GOVERNANCE_JUDGE_AGENT", "codex"),
-    ("model", "old", "new", "AI_GOVERNANCE_JUDGE_MODEL", "env-model"),
-]
-
-
-@pytest.mark.parametrize("case", JUDGE_FIELD_CASES, ids=["agent", "model"])
-def test_legacy_judge_fields_follow_config_precedence(
-    isolated: Path, monkeypatch: pytest.MonkeyPatch, case: tuple[str, str, str, str, str]
-) -> None:
-    field, legacy, configured, env_name, from_env = case
-    isolated.mkdir(parents=True)
-    (isolated / "taskflow.toml").write_text(
-        '[[judges]]\nfocus = "security"\nagent = "antigravity"\nmodel = "old"\n'
-    )
-    judge = load_config().judges[0]
-    assert judge[field] == legacy and judge["focus"] == "security"  # legacy beats the default
-    (isolated / "config.toml").write_text(f'[taskflow]\njudge_{field} = "{configured}"\n')
-    judge = load_config().judges[0]
-    assert judge[field] == configured and judge["focus"] == "security"  # config.toml > legacy
-    assert effective()[f"taskflow.judge_{field}"].value == configured  # config show agrees
-    monkeypatch.setenv(env_name, from_env)
-    assert load_config().judges[0][field] == from_env  # env > config.toml
 
 
 def test_deploy_approvals_production_default_is_never() -> None:

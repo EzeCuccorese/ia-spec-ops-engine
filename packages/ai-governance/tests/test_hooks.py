@@ -136,110 +136,82 @@ def test_unknown_hook_and_internal_errors_fail_open(monkeypatch, capsys) -> None
     assert "ZeroDivisionError" in capsys.readouterr().err
 
 
-def _edit(monkeypatch, capsys, payload: dict) -> str:
-    """Permission decision of the edit hook for ``payload`` ('' when allowed)."""
-    _stdin(monkeypatch, payload)
-    assert hooks.main(["claude", "writer-lease"]) == 0
-    out = capsys.readouterr().out
-    return json.loads(out)["hookSpecificOutput"]["permissionDecision"] if out else ""
+def test_removed_hooks_are_absent_and_fail_open(capsys) -> None:
+    for agent, event in (
+        ("claude", "writer-lease"),
+        ("claude", "stop"),
+        ("antigravity", "writer-lease"),
+    ):
+        assert (agent, event) not in hooks.HANDLERS
+        assert hooks.main([agent, event]) == 0
+        assert "Usage:" in capsys.readouterr().err
 
 
-def test_edits_need_a_task_bound_to_the_repository_even_in_new_directories(
-    monkeypatch, capsys, tmp_path
-) -> None:
-    repo = _repo_with_task(monkeypatch, tmp_path)
-    other = tmp_path / "other"
-    subprocess.run(["git", "init", "-q", str(other)], check=True)
-    cwd = str(repo)
-    assert _edit(monkeypatch, capsys, {"cwd": cwd, "tool_input": {"file_path": "a/b/c.py"}}) == ""
-    path = str(other / "new" / "dir" / "x.py")  # parent directories do not exist yet
-    assert _edit(monkeypatch, capsys, {"cwd": cwd, "tool_input": {"file_path": path}}) == "deny"
-    notebook = {"cwd": str(other), "tool_input": {"notebook_path": "n.ipynb"}}
-    assert _edit(monkeypatch, capsys, notebook) == "deny"
-
-
-def test_edits_follow_a_file_symlink_to_its_real_repository(monkeypatch, capsys, tmp_path) -> None:
-    repo = _repo_with_task(monkeypatch, tmp_path)
-    other = tmp_path / "other"
-    subprocess.run(["git", "init", "-q", str(other)], check=True)
-    (other / "real.py").write_text("x")
-    (repo / "link.py").symlink_to(other / "real.py")  # bound repo pointing at an unbound one
-    (other / "back.py").symlink_to(repo / "app.py")  # unbound repo pointing at a bound one
-    (repo / "app.py").write_text("y")
-    denied = {"cwd": str(repo), "tool_input": {"file_path": str(repo / "link.py")}}
-    assert _edit(monkeypatch, capsys, denied) == "deny"
-    allowed = {"cwd": str(other), "tool_input": {"file_path": str(other / "back.py")}}
-    assert _edit(monkeypatch, capsys, allowed) == ""
-
-
-def test_a_branch_name_or_a_closed_task_does_not_authorize_edits(
-    monkeypatch, capsys, tmp_path
-) -> None:
-    repo = _repo_with_task(monkeypatch, tmp_path)
-    store = TaskStore()
-    other = tmp_path / "other"
-    subprocess.run(["git", "init", "-q", "-b", "feat/TASK-9-x", str(other)], check=True)
-    store.create(Task(id="TASK-9", title="Elsewhere", repos=[{"path": str(repo.resolve())}]))
-    payload = {"cwd": str(other), "tool_input": {"file_path": str(other / "a.py")}}
-    assert _edit(monkeypatch, capsys, payload) == "deny"
-    store.mutate("T-1", lambda t: setattr(t, "status", "closed"))
-    own = {"cwd": str(repo), "tool_input": {"file_path": str(repo / "a.py")}}
-    assert _edit(monkeypatch, capsys, own) == ""  # TASK-9 is still bound and open
-    store.mutate("TASK-9", lambda t: setattr(t, "status", "closed"))
-    assert _edit(monkeypatch, capsys, own) == "deny"
-
-
-def test_agent_config_and_files_outside_git_are_never_gated(monkeypatch, capsys, tmp_path) -> None:
-    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
-    home = tmp_path / "home"
-    subprocess.run(["git", "init", "-q", str(home)], check=True)  # dotfiles repo
-    monkeypatch.setattr(hooks.Path, "home", lambda: home)
-    for rel in (".claude/plans/p.md", ".codex/x", ".config/y/z.toml"):
-        payload = {"cwd": str(home), "tool_input": {"file_path": str(home / rel)}}
-        assert _edit(monkeypatch, capsys, payload) == ""
-    assert (
-        _edit(monkeypatch, capsys, {"cwd": str(home), "tool_input": {"file_path": str(home / "a")}})
-        == "deny"
-    )
-    loose = {"cwd": str(tmp_path), "tool_input": {"file_path": str(tmp_path / "x.txt")}}
-    assert _edit(monkeypatch, capsys, loose) == ""
-
-
-def test_a_new_repository_without_commits_can_get_a_task_and_edits(
-    monkeypatch, capsys, tmp_path
-) -> None:
-    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
-    fresh = tmp_path / "fresh"
-    subprocess.run(["git", "init", "-q", str(fresh)], check=True)  # unborn HEAD
-    store = TaskStore()
-    store.create(Task(id="N-1", title="t", repos=[{"path": str(fresh.resolve())}]))
-    payload = {"cwd": str(fresh), "tool_input": {"file_path": str(fresh / "a.py")}}
-    assert _edit(monkeypatch, capsys, payload) == ""
-    from ai_governance.taskflow.stamp import repo_stamp
-
-    assert repo_stamp(fresh.resolve())["head"] == "UNBORN"
-
-
-def _post_bash(monkeypatch, capsys, cwd: Path) -> str:
-    _stdin(monkeypatch, {"cwd": str(cwd), "tool_name": "Bash", "tool_response": {"stdout": ""}})
-    assert hooks.main(["claude", "post-tool-use"]) == 0
-    return capsys.readouterr().out
-
-
-def test_shell_changes_in_a_repository_without_task_warn_without_blocking(
+def test_claude_pre_tool_use_runs_frugality_without_blocking_edits(
     monkeypatch, capsys, tmp_path
 ) -> None:
     monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
     repo = tmp_path / "repo"
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
-    assert _post_bash(monkeypatch, capsys, repo) == ""  # clean tree: nothing to say
-    (repo / "config.yaml").write_text("x: 1\n")
-    out = json.loads(_post_bash(monkeypatch, capsys, repo))["hookSpecificOutput"]
-    assert out["additionalContext"] == hooks.SHELL_CHANGE_WARNING
+    _stdin(monkeypatch, {"cwd": str(repo), "tool_input": {"command": "cat package-lock.json"}})
+    assert hooks.main(["claude", "pre-tool-use"]) == 0
+    out = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert out["hookEventName"] == "PreToolUse"
     assert "permissionDecision" not in out
+    assert "additionalContext" in out
 
 
-def test_shell_changes_in_a_repository_with_task_stay_silent(monkeypatch, capsys, tmp_path) -> None:
+def test_claude_post_tool_use_emits_condensed_output_only(monkeypatch, capsys) -> None:
+    from ai_governance.frugality import cli as frugal
+
+    monkeypatch.setattr(frugal, "post_bash_output", lambda payload, cfg: {})
+    _stdin(monkeypatch, {"tool_input": {"command": "ls"}, "tool_response": {"stdout": "ok"}})
+    assert hooks.main(["claude", "post-tool-use"]) == 0
+    assert capsys.readouterr().out == ""
+
+    monkeypatch.setattr(
+        frugal,
+        "post_bash_output",
+        lambda payload, cfg: {"updatedToolOutput": {"stdout": "summary"}},
+    )
+    _stdin(monkeypatch, {"tool_input": {"command": "pytest"}, "tool_response": {"stdout": "big"}})
+    assert hooks.main(["claude", "post-tool-use"]) == 0
+    out = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert out == {"hookEventName": "PostToolUse", "updatedToolOutput": {"stdout": "summary"}}
+
+
+def test_antigravity_session_start_uses_inject_steps(monkeypatch, capsys, tmp_path) -> None:
     repo = _repo_with_task(monkeypatch, tmp_path)
-    (repo / "new.txt").write_text("x")
-    assert _post_bash(monkeypatch, capsys, repo) == ""
+    _stdin(monkeypatch, {"workspacePaths": [str(repo)]})
+    assert hooks.main(["antigravity", "session-start"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    msg = data["injectSteps"][0]["systemMessage"]["systemMessage"]
+    assert "T-1" in msg
+
+
+def test_antigravity_pre_tool_use_denies_noisy_commands_never_edits(monkeypatch, capsys) -> None:
+    _stdin(
+        monkeypatch,
+        {"toolCall": {"name": "run_command", "args": {"CommandLine": "pytest -q"}}},
+    )
+    assert hooks.main(["antigravity", "pre-tool-use"]) == 0
+    denied = json.loads(capsys.readouterr().out)
+    assert denied["decision"] == "deny" and "ws run -- pytest -q" in denied["reason"]
+
+    for payload in (
+        {"toolCall": {"name": "run_command", "args": {"CommandLine": "ws run -- pytest -q"}}},
+        {"toolCall": {"name": "run_command", "args": {"CommandLine": "pytest --help"}}},
+        {"toolCall": {"name": "write_to_file", "args": {"TargetFile": "a.py"}}},
+    ):
+        _stdin(monkeypatch, payload)
+        assert hooks.main(["antigravity", "pre-tool-use"]) == 0
+        assert capsys.readouterr().out == ""
+
+
+def test_codex_post_tool_use_blocks_with_condensed_reason(monkeypatch, capsys) -> None:
+    from ai_governance.frugality import cli as frugal
+
+    monkeypatch.setattr(frugal, "condensed_output", lambda payload, cfg: ("short summary", "short"))
+    _stdin(monkeypatch, {"tool_input": {"command": "pytest"}, "tool_output": "x" * 5000})
+    assert hooks.main(["codex", "post-tool-use"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"decision": "block", "reason": "short summary"}

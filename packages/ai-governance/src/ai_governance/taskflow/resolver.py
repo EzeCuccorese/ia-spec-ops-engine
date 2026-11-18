@@ -31,15 +31,6 @@ class TaskResolver:
         return Path(value).resolve() if value else None
 
     @staticmethod
-    def root_of_target(target: Path) -> Path | None:
-        """Repository a file path belongs to: symlinks followed, and a path that does not
-        exist yet is looked up from its nearest existing ancestor."""
-        probe = target.expanduser().resolve()
-        while not probe.exists() and probe != probe.parent:
-            probe = probe.parent
-        return TaskResolver._git_root(probe if probe.is_dir() else probe.parent)
-
-    @staticmethod
     def _git_value(command: list[str], repo_dir: Path | None = None) -> str | None:
         try:
             res = subprocess.run(

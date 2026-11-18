@@ -1,9 +1,9 @@
-"""Prompt text and verdict parsing shared by dispatched rounds and judges.
+"""Prompt text and structured response parsing shared by debate rounds.
 
-The engine never launches an agent: a reader round is a spec file an Orca worker reads and
-an answer file the engine parses afterwards. This module holds the two sentences every
-reader spec carries, the cross-examination block of a rebuttal round, and the parsers of the
-verdict line and the ``CHANGE:`` lines a validator or judge writes.
+The engine never launches an agent: a round is a spec file an Orca worker reads and
+an answer file the engine parses afterwards. This module holds the core reader rules,
+the cross-examination block of a rebuttal round, and the parsers for positions,
+rebuttals, and position changes.
 """
 
 from __future__ import annotations
@@ -16,12 +16,6 @@ from pathlib import Path
 READ_ONLY_LIMIT = (
     "Do not modify files, commit, push or run commands that change the repository or the "
     "environment. Do not delegate to subagents. Mark each claim as seen/assumed/unknown.\n\n"
-)
-VERDICT_INSTRUCTION = (
-    "\n\nBefore a `concerns` or `block` verdict, list every required change on its own line "
-    "as `CHANGE: <path>:<line> - <what to change>`.\n"
-    "End your answer with one line exactly like `VERDICT: pass`, `VERDICT: concerns` or "
-    "`VERDICT: block` (block = changes required or evidence missing)."
 )
 CROSS_EXAMINATION = (
     "\n\nCross-examination: before answering, read these earlier rounds of this task in full:\n"
@@ -45,18 +39,6 @@ CROSS_INSTRUCTION = (
 )
 WEB_INSTRUCTION = "\n\nYou may research the web. Every claim that rests on an external source carries its URL; a claim with no URL counts as assumed."
 _CHANGE = re.compile(r"^\s*[-*]?\s*CHANGE:\s*(\S.*?)\s*$", re.MULTILINE)
-_VERDICT = re.compile(
-    r"(?:verdict|dictamen|veredicto)\W{0,6}"
-    r"(pass|aprobado|approved|concerns|block|requiere cambios|requires changes|"
-    r"changes required|falta evidencia|missing evidence)",
-    re.IGNORECASE,
-)
-_VERDICT_MAP = {
-    "pass": "pass",
-    "aprobado": "pass",
-    "approved": "pass",
-    "concerns": "concerns",
-}
 _ANSWER_HEADING = re.compile(r"^## Answer[ \t]*(?:\r?\n|$)", re.MULTILINE)
 _REQUEST_HEADING = re.compile(r"^## Request[ \t]*(?:\r?\n|$)", re.MULTILINE)
 _FOOTER_ANSWER_BOUNDARY = re.compile(r"\n\(task [^)\n]+\)\s*\n+## Answer[ \t]*(?:\r?\n|$)")
@@ -84,14 +66,6 @@ class RebutLine:
 class ChangedLine:
     change: str
     target: int
-
-
-def parse_verdict(answer: str) -> str:
-    """Last verdict line in the answer; ``info`` when there is none."""
-    found = _VERDICT.findall(answer)
-    if not found:
-        return "info"
-    return _VERDICT_MAP.get(found[-1].lower(), "block")
 
 
 def parse_changes(answer: str) -> list[str]:

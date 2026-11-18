@@ -1,8 +1,8 @@
 # Review-Ready Code
 
 ## Invariants
-- **Types & API**: Optional only when callers omit; validate upstream shapes before indexing; reject non-finite numbers before range checks; explicit ops over sentinels; plural REST routes.
-- **Errors & Timeouts**: Handle timeouts/connection errors with status errors; degrade optional reads, fail guards closed; distinguish unread data from empty; translate library errors preserving cause/status; report saved vs failed steps on partial writes.
-- **Security & Regex**: Omit bodies/secrets (incl. nested) from logs & spans (`06-security-privacy`); avoid backtracking regexes on untrusted input.
-- **Tests & Reuse**: Assert error codes/diagnostics, not just exception types (`04-testing-patterns`); name parametrized cases; fetch only used data; apply `09`, `11`, `12`.
-- **PR Hygiene**: Drop temp/debug code; update docs with code; configure target envs (note disabled prod), no env values in code; justify new file types; apply `17`, `18`, `19`.
+- **Types & API**: Mark parameters or fields optional only when supported callers legitimately omit them. Validate upstream shapes before indexing. Reject `NaN`, `Infinity`, and overflowing numbers before range checks. Prefer explicit operations over sentinel values that alter API meaning. Use plural nouns for REST paths.
+- **Errors & Timeouts**: Map timeouts and connection failures to domain status errors. Degrade optional reads without breaking the main flow, and fail permission/security guards closed. Distinguish unread data from a valid empty result. Translate library errors while keeping cause and status. On partial multi-step writes, report succeeded vs. failed steps, keeping the original error if cleanup fails.
+- **Security & Regex**: Exclude request bodies and secrets (including nested fields) from logs and trace spans. Avoid regexes with overlapping alternatives or nested repetition on untrusted input.
+- **Tests & Reuse**: Assert contractual error codes or stable diagnostics rather than bare exception types. Name every parametrized test case descriptively. Fetch only data the active path consumes.
+- **PR Hygiene**: Remove temporary overrides and debug code before review. Update affected docs and examples in the same PR. Configure every target environment (noting disabled production) with env values out of code. Explain any new file type in the PR description.

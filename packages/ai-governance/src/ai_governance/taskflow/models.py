@@ -4,16 +4,12 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, fields
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any
 
-PHASES: tuple[str, ...] = ("plan", "validate", "work", "judge", "staging", "review", "done")
-EXIT_PHASES: tuple[str, ...] = ("findings",)
 STATUSES: tuple[str, ...] = ("active", "paused", "closed")
 ROLES: tuple[str, ...] = ("planner", "validator", "builder", "judge", "debater")
-VERDICTS: tuple[str, ...] = ("pass", "concerns", "block", "info")
 WORKFLOWS: tuple[str, ...] = ("tri-agent", "dual-agent", "single-agent", "manual")
 
-Verdict = Literal["pass", "concerns", "block", "info"]
 JsonDict = dict[str, Any]
 
 
@@ -29,8 +25,8 @@ class Task:
     summary: str = ""
     parent: str = ""
     workflow: str = "tri-agent"
-    owner_mode: str = "self"  # self | external (findings go to another owner)
-    phase: str = "plan"
+    owner_mode: str = "self"
+    phase: str = "work"
     blocked: JsonDict = field(default_factory=dict)  # {owner, needs, since}
     active_subtask: str = ""
     subtasks: list[str] = field(default_factory=list)
@@ -41,16 +37,10 @@ class Task:
     references: list[JsonDict] = field(default_factory=list)  # {kind, value, url}
     repos: list[JsonDict] = field(default_factory=list)  # {path, branch, integration_branch, pr}
     code_stamp: JsonDict = field(default_factory=dict)
-    policy: JsonDict = field(default_factory=dict)  # accepted judges/checks/risk rules
-    tdd: JsonDict = field(default_factory=dict)  # {red, green, skip}
     rounds: list[JsonDict] = field(default_factory=list)
     approvals: list[JsonDict] = field(default_factory=list)
     deployments: list[JsonDict] = field(default_factory=list)  # {env, repo, sha, provenance, at}
     evidence: list[JsonDict] = field(default_factory=list)  # {kind, path, stamp, deployed_sha}
-    # Registrations only ({repo, number, url, group, added_at, source}); live status is never
-    # stored here but in the store-wide pr-status cache.
-    prs: list[JsonDict] = field(default_factory=list)
-    pr_removed: list[str] = field(default_factory=list)  # keys hiding legacy PR sources
     created_at: str = field(default_factory=now_iso)
     updated_at: str = field(default_factory=now_iso)
 

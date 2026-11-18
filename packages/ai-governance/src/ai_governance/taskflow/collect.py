@@ -29,7 +29,7 @@ from .config import FlowConfig, load_config, matches_denied_model
 from .control import DispatchError, drift
 from .dispatch import read_dispatch, verify_dispatch
 from .models import JsonDict, Task, now_iso
-from .prompts import parse_changes, parse_position, parse_verdict
+from .prompts import parse_changes, parse_position
 from .repos import guard
 from .stamp import changed_paths, head_sha, tree_fingerprint
 from .store import TaskStore, atomic_write_text
@@ -374,8 +374,7 @@ def _outcome(found: JsonDict, row: orca.WorkerRow, answer: str) -> tuple[str, st
             reasons
         )
         return "invalid", "block", reason
-    verdict = parse_verdict(answer) if found["role"] in ("validator", "judge") else "info"
-    return "valid", verdict, ""
+    return "valid", "info", ""
 
 
 def _render_extra(record: JsonDict, found: JsonDict) -> str:

@@ -1,18 +1,7 @@
 """
-test_acceptance_utilities.py — Acceptance tests for utilities contracts U01–U10.
+test_acceptance_utilities.py — Acceptance tests for utilities contracts U06–U10.
 
 Contracts from 02-CONTRATOS-DE-TEST.md:
-- U01 (test_monthly_pace_requires_monthly_input): When no monthly spend is known, ritmo
-      reports monthly pace as unknown/omitted rather than inventing or treating single-session
-      cost as the full monthly spend.
-- U02 (test_telemetry_unknown_and_dedup): Telemetry handles missing sources, duplicate
-      transcript events (deduplication by event id/hash), and distinct time periods without distorting totals.
-- U03 (test_frugal_never_grants_permission): PreToolUse and PostToolUse hooks never emit
-      "permissionDecision": "allow" or any permission grant under any input or exception.
-- U04 (test_frugal_preserves_failure_and_full_output): Trimming long output preserves failure
-      indicators, exit code, stderr, interruption status, and full output reference path.
-- U05 (test_host_output_contract_is_valid): Output format of frugal hooks strictly matches
-      the Claude Code / agent native hook specification.
 - U06 (test_atlassian_profiles_and_pagination): Search in Jira and Confluence supports pagination
       and multiple configuration profiles cleanly.
 - U07 (test_ambiguous_write_does_not_send_request): Ambiguous transitions or user assignments
@@ -30,115 +19,11 @@ from __future__ import annotations
 import io
 import json
 import urllib.error
-from datetime import date
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from ai_governance.telemetry.claude_usage import ClaudeUsageCalculator
-from ai_governance.telemetry.cost_monitor import CostMonitor
 from ai_governance.tools import confluence, jira
-
-# ── U01: Monthly Pace Requires Monthly Input ──────────────────────────────────
-
-
-def test_monthly_pace_requires_monthly_input() -> None:
-    """U01: When no monthly spend is known, ritmo reports monthly pace as
-
-    unknown/omitted rather than inventing or treating single-session cost as
-    the full monthly spend.
-    """
-    # 1. Ritmo pace calculation without monthly spend input must return unknown status
-    status = ClaudeUsageCalculator.calculate_pace(
-        monthly_budget_usd=100.0,
-        actual_spend_usd=None,
-        target_date=date(2026, 9, 10),
-    )
-    assert status.actual_spend_usd is None
-    assert status.variance_usd is None
-    assert status.is_under_budget is None
-    assert "unknown" in status.status_label.lower()
-
-    # 2. When monthly spend is explicitly known, ritmo reports pace accurately
-    status_known = ClaudeUsageCalculator.calculate_pace(
-        monthly_budget_usd=100.0,
-        actual_spend_usd=150.0,
-        target_date=date(2026, 9, 10),
-    )
-    assert status_known.actual_spend_usd == 150.0
-    assert status_known.is_under_budget is False
-    assert "EXCEEDED" in status_known.status_label
-
-
-# ── U02: Telemetry Missing Sources & Deduplication ────────────────────────────
-
-
-def test_telemetry_unknown_and_dedup(tmp_path: Path) -> None:
-    """U02: Telemetry handles missing sources, duplicate transcript events
-
-    (deduplication by event id/hash), and distinct time periods without distorting totals.
-    """
-    # 1. Non-existent projects dir handles cleanly
-    non_existent = tmp_path / "does_not_exist"
-    monitor_empty = CostMonitor(projects_dir=non_existent)
-    totals_empty = monitor_empty.scan_transcripts()
-    assert totals_empty["total_cost_usd"] == 0.0
-    assert totals_empty["total_tokens"] == 0
-
-    # 2. Duplicate events across two files or within the same file
-    proj_dir = tmp_path / "project-a"
-    proj_dir.mkdir(parents=True)
-    file1 = proj_dir / "session1.jsonl"
-    file2 = proj_dir / "session2.jsonl"
-
-    event_a = {
-        "id": "evt-001",
-        "timestamp": "2026-09-01T10:00:00Z",
-        "message": {
-            "model": "claude-sonnet-4-6",
-            "usage": {
-                "input_tokens": 10_000,
-                "output_tokens": 2_000,
-            },
-        },
-    }
-    event_b_distinct = {
-        "id": "evt-002",
-        "timestamp": "2026-09-05T12:00:00Z",
-        "message": {
-            "model": "claude-sonnet-4-6",
-            "usage": {
-                "input_tokens": 5_000,
-                "output_tokens": 1_000,
-            },
-        },
-    }
-
-    # Write evt-001 into file1 AND write duplicate evt-001 into file2
-    file1.write_text(
-        json.dumps(event_a) + "\n" + json.dumps(event_b_distinct) + "\n", encoding="utf-8"
-    )
-    file2.write_text(json.dumps(event_a) + "\n", encoding="utf-8")  # exact duplicate of evt-001
-
-    monitor = CostMonitor(projects_dir=tmp_path)
-    res = monitor.scan_transcripts()
-
-    # Total tokens should be (12_000 for evt-001) + (6_000 for evt-002) = 18_000, NOT 30_000
-    assert res["total_tokens"] == 18_000
-
-    # 3. Filtering by date range
-    res_filtered = monitor.scan_transcripts(since_iso_date="2026-09-03")
-    assert res_filtered["total_tokens"] == 6_000  # Only evt-002 (Sept 5)
-
-
-# ── U03: Frugal Never Grants Permission ───────────────────────────────────────
-
-
-# ── U04: Frugal Preserves Failure and Full Output ─────────────────────────────
-
-
-# ── U05: Host Output Contract Is Valid ────────────────────────────────────────
-
 
 # ── U06: Atlassian Profiles and Pagination ────────────────────────────────────
 

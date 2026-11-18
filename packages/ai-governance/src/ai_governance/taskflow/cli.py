@@ -1,20 +1,17 @@
-"""``ai-governance taskflow``: track tasks and run the plan -> validate -> work -> judge flow."""
+"""``ai-governance taskflow``: durable task notebook, human approvals and design debates."""
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import subprocess
 import sys
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import datetime
 from pathlib import Path
 
-from .._config_core import AGENT_ENV_MARKERS
 from ..output import emit_json, emit_kv, emit_rows, emit_status, emit_text
-from . import orca, round_cli, tdd
+from . import orca, round_cli
 from .approvals import (
     RISKY_ACTIONS,
     STAMP_FREE_ACTIONS,
@@ -22,34 +19,18 @@ from .approvals import (
     ApprovalError,
     ApprovalRequest,
     build_approval,
+    current_moment,
     request_tag,
-    valid_approval,
 )
-from .config import REPO_CONFIG, FlowConfig, PendingTrust, load_config, record_trust
+from .config import FlowConfig, load_config
+from .debate import debate_status, dropped_focuses, load_debate
 from .digest import digest
-from .gates import (
-    NEXT_COMMAND,
-    GateContext,
-    check_transition,
-    checks_unmet,
-    close_unmet,
-    judge_unmet,
-    judges_unmet,
-    plan_round,
-    policy_unmet,
-)
 from .guide import GUIDE as GUIDE
 from .handoff import findings, handoff, scrub, ticket_draft
-from .judge import JudgeError, JudgeScope
-from .judge_flow import JudgeJob, judge_flow
-from .models import PHASES, Task, now_iso
-from .policy import policy_summary
-from .prs import board as pr_board
-from .refresh import legacy_notice, refresh
-from .repos import begin_invocation, first_live, on_live
+from .models import Task, now_iso
+from .refresh import refresh
+from .repos import begin_invocation
 from .resolver import TaskResolver
-from .risk import RiskAssessment
-from .rounds import LeaseError, record_manual
 from .stamp import GitError
 from .store import FRICTION_FILE, TaskStore
 
@@ -77,10 +58,8 @@ def _resolve(store: TaskStore, task_id: str | None) -> str:
     return found
 
 
-def _refresh(
-    store: TaskStore, task: Task, config: FlowConfig, remote: bool = False
-) -> tuple[Task, RiskAssessment]:
-    """Recompute the code stamp and the risk of the current changes."""
+def _refresh(store: TaskStore, task: Task, config: FlowConfig, remote: bool = False) -> Task:
+    """Recompute the code stamp of the current changes."""
     return refresh(store, task, config, remote)
 
 
@@ -91,8 +70,8 @@ def cmd_list(args: argparse.Namespace) -> int:
         emit_json([t.to_dict() for t in tasks])
         return 0
     emit_rows(
-        [(t.id, t.phase, t.status, t.title) for t in tasks],
-        headers=("Task", "Phase", "Status", "Title"),
+        [(t.id, t.status, t.title) for t in tasks],
+        headers=("Task", "Status", "Title"),
         title="Tasks",
         more_hint="taskflow list --json",
     )
@@ -108,10 +87,7 @@ def cmd_show(args: argparse.Namespace) -> int:
             data["log"] = store.read_log(task.id)
         emit_json(data)
         return 0
-    pairs = _show_pairs(task)
-    if line := pr_board.summary_for(store, task.id):
-        pairs.append(("PRs", line))
-    emit_kv(pairs, title=f"Task: {task.id} — {task.title}", full=args.full)
+    emit_kv(_show_pairs(task), title=f"Task: {task.id} — {task.title}", full=args.full)
     if args.full:
         emit_text(store.read_log(task.id), full=True)
     return 0
@@ -119,7 +95,7 @@ def cmd_show(args: argparse.Namespace) -> int:
 
 def _show_pairs(task: Task) -> list[tuple[str, str]]:
     pairs = [
-        ("Status", f"{task.status} · phase {task.phase} · workflow {task.workflow}"),
+        ("Status", f"{task.status} · workflow {task.workflow}"),
         ("Summary", task.summary or "-"),
     ]
     if task.parent:
@@ -173,9 +149,7 @@ def cmd_new(args: argparse.Namespace) -> int:
             parent.active_subtask = task.id
 
         store.mutate(args.parent, link)
-    emit_status(
-        "ok", f"Created task '{task.id}' (phase plan). Next: taskflow bind {task.id} --repo <path>"
-    )
+    emit_status("ok", f"Created task '{task.id}'. Next: taskflow bind {task.id} --repo <path>")
     return 0
 
 
@@ -267,21 +241,55 @@ def _set_status(status: str) -> Callable[[argparse.Namespace], int]:
     return command
 
 
+def _unsettled_dispatch_rounds(runs_dir: Path, settled: set[int]) -> set[int]:
+    if not runs_dir.is_dir():
+        return set()
+    pending: set[int] = set()
+    for path in sorted(runs_dir.glob("*/dispatch.json")):
+        try:
+            found = json.loads(path.read_text(encoding="utf-8"))
+            number = int(found["n"])
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if found.get("role") == "debater" and number not in settled:
+            pending.add(number)
+    return pending
+
+
+def _unsettled_seat_rounds(store: TaskStore, task_id: str, settled: set[int]) -> set[int]:
+    dstate = load_debate(store, task_id)
+    if dstate is None:
+        return set()
+    dropped = dropped_focuses(dstate)
+    pending: set[int] = set()
+    for seat in dstate.get("seats", []):
+        if str(seat.get("focus", "")) in dropped:
+            continue
+        for key in ("thesis_round", "cross_round"):
+            raw = seat.get(key)
+            if raw is not None and int(raw) not in settled:
+                pending.add(int(raw))
+    return pending
+
+
+def _in_flight_debate_rounds(store: TaskStore, task: Task) -> list[int]:
+    settled = {int(r.get("n", 0)) for r in task.rounds}
+    pending = _unsettled_dispatch_rounds(store.task_dir(task.id) / "runs", settled)
+    pending |= _unsettled_seat_rounds(store, task.id, settled)
+    return sorted(pending)
+
+
 def cmd_close(args: argparse.Namespace) -> int:
     store = _store()
     task = store.get(args.task_id)
-    done_outside = getattr(args, "done_outside", False)
-    if not (args.abandon or done_outside):
-        config = _config(task)
-        task, risk = _refresh(store, task, config)
-        missing = close_unmet(task, config, risk, task.stamp_key)
-        if missing:
-            raise ValueError(
-                f"Cannot close '{task.id}': "
-                + "; ".join(missing)
-                + " (or --abandon / --done-outside --reason '...')"
-                + (f". {legacy_notice(task)}" if legacy_notice(task) else "")
-            )
+    done_outside = bool(getattr(args, "done_outside", False))
+    forced = bool(getattr(args, "force", False) or getattr(args, "abandon", False) or done_outside)
+    if not forced and (pending := _in_flight_debate_rounds(store, task)):
+        joined = ", ".join(f"{n:03d}" for n in pending)
+        raise ValueError(
+            f"Cannot close '{task.id}': unsettled debate round(s) {joined} "
+            "(collect/abort them, or pass --force / --abandon)"
+        )
     if done_outside and not getattr(args, "reason", ""):
         args.reason = "done outside flow"
     return _set_status("closed")(args)
@@ -330,105 +338,95 @@ def cmd_unbind(args: argparse.Namespace) -> int:
     return 0
 
 
-# -- flow ----------------------------------------------------------------------------------
+# -- status and stamp ----------------------------------------------------------------------
 def cmd_stamp(args: argparse.Namespace) -> int:
     store = _store()
     task = store.get(args.task_id)
-    task, risk = _refresh(store, task, _config(task), remote=args.remote)
-    emit_json({"stamp": task.code_stamp, "risk": risk.level, "judges": list(risk.judges)})
+    task = _refresh(store, task, _config(task), args.remote)
+    emit_json({"stamp": task.code_stamp})
     return 0
 
 
 def _recovery_pairs(task: Task) -> list[tuple[str, str]]:
-    """Status rows about repos gone from disk and the legacy-state notice."""
-    gone = [
+    """Status rows about bound repos gone from disk."""
+    return [
         ("repo gone (stamp frozen)", str(e["repo"]))
         for e in task.code_stamp.get("repos", [])
         if e.get("missing")
     ]
-    return [*gone, *([("legacy", legacy_notice(task))] if legacy_notice(task) else [])]
 
 
-def _status_pairs(task: Task, risk: RiskAssessment, missing: list[str]) -> list[tuple[str, str]]:
-    target = _next_phase(task.phase)
-    return [
-        ("Phase", f"{task.phase}{' (BLOCKED)' if task.blocked else ''} · next: {target or '-'}"),
+def _steps_summary(task: Task) -> str:
+    if not task.steps:
+        return "none"
+    done = sum(1 for s in task.steps if s.get("done"))
+    pending = [str(s.get("text", "")) for s in task.steps if not s.get("done")]
+    tail = f" (next: {'; '.join(pending[:3])})" if pending else ""
+    return f"{done}/{len(task.steps)} done{tail}"
+
+
+def _approvals_summary(task: Task) -> str:
+    if not task.approvals:
+        return "none"
+    items: list[str] = []
+    for approval in task.approvals:
+        action = str(approval.get("action", ""))
+        target = str(approval.get("target", ""))
+        stale = (
+            action not in STAMP_FREE_ACTIONS
+            and bool(task.stamp_key)
+            and approval.get("stamp") != task.stamp_key
+        )
+        items.append(f"{action}:{target}{' (stale)' if stale else ''}")
+    return ", ".join(items)
+
+
+def _debate_summary(store: TaskStore, task: Task) -> str:
+    state = load_debate(store, task.id)
+    pending = _in_flight_debate_rounds(store, task)
+    if state is None:
+        if pending:
+            return "unsettled rounds: " + ", ".join(f"{n:03d}" for n in pending)
+        return "none"
+    rows = debate_status(store, task.id)
+    seats = ", ".join(f"{r['focus']}:{r['state']}" for r in rows) or "no seats"
+    base = f"#{state.get('debate_id', '?')} ({state.get('status', '?')}) · {seats}"
+    if pending:
+        base += " · unsettled: " + ", ".join(f"{n:03d}" for n in pending)
+    return base
+
+
+def _status_pairs(store: TaskStore, task: Task) -> list[tuple[str, str]]:
+    status_line = f"{task.status}{' (BLOCKED)' if task.blocked else ''} · workflow {task.workflow}"
+    pairs: list[tuple[str, str]] = [("Status", status_line)]
+    if task.blocked:
+        pairs.append(("Blocked", f"{task.blocked.get('owner')}: {task.blocked.get('needs')}"))
+    pairs += [
+        ("Summary", task.summary or "-"),
         ("Code stamp", task.stamp_key or "no repository bound"),
         (
-            "Risk",
-            f"{risk.level} · judges: {', '.join(risk.judges)}"
-            + (" · restaging required" if risk.restaging else ""),
+            "Repos",
+            "; ".join(f"{r['path']} ({r.get('branch', '?')})" for r in task.repos) or "none",
         ),
-        ("Missing", "; ".join(missing) or "nothing"),
         *_recovery_pairs(task),
-        ("Stale", ", ".join(_stale_rounds(task)) or "none"),
-        ("Expired approvals", ", ".join(_expired_approvals(task)) or "none"),
-        ("Next", NEXT_COMMAND.get(task.phase, "-")),
+        ("Steps", _steps_summary(task)),
+        ("Decisions", "; ".join(str(d["text"]) for d in task.decisions[-5:]) or "none"),
+        ("Approvals", _approvals_summary(task)),
+        ("Debate", _debate_summary(store, task)),
     ]
+    return pairs
 
 
 def cmd_status(args: argparse.Namespace) -> int:
     store = _store()
     task = store.get(_resolve(store, args.task_id))
     config = _config(task)
-    task, risk = _refresh(store, task, config)
-    target = _next_phase(task.phase)
-    missing = (
-        check_transition(task, target, GateContext(config, risk, task.stamp_key)) if target else []
-    )
-    pairs = _status_pairs(task, risk, missing)
-    waiting = _warn_pending_trust(config) if not args.json else []
-    if args.json or waiting:
-        pairs.insert(-1, ("Pending trust", "; ".join(waiting) or "none"))
+    task = _refresh(store, task, config)
+    pairs = _status_pairs(store, task)
     if args.json:
         emit_json(dict(pairs))
     else:
         emit_kv(pairs, title=f"{task.id} — {task.title}", full=True)
-    return 0
-
-
-def _stale_rounds(task: Task) -> list[str]:
-    return [
-        f"{r['role']}{'/' + r['focus'] if r.get('focus') else ''} #{int(r['n']):03d}"
-        for r in task.rounds
-        if r.get("source") == "engine" and r.get("stamp") != task.stamp_key
-    ]
-
-
-def _expired_approvals(task: Task) -> list[str]:
-    """Approvals bound to the code expire when it changes; workflow, plan and tdd-skip are
-    checked without a stamp by the gates, so they are never listed."""
-    return list(
-        dict.fromkeys(
-            a["action"]
-            for a in task.approvals
-            if a["action"] not in STAMP_FREE_ACTIONS and a.get("stamp") != task.stamp_key
-        )
-    )
-
-
-def _next_phase(phase: str) -> str:
-    if phase not in PHASES or phase == "done":
-        return ""
-    return PHASES[PHASES.index(phase) + 1]
-
-
-def cmd_phase(args: argparse.Namespace) -> int:
-    store = _store()
-    task = store.get(args.task_id)
-    config = _config(task)
-    task, risk = _refresh(store, task, config)
-    missing = check_transition(task, args.target, GateContext(config, risk, task.stamp_key))
-    if missing:
-        raise ValueError(f"Cannot move '{task.id}' to {args.target}: " + "; ".join(missing))
-    store.mutate(
-        task.id,
-        lambda t: setattr(t, "phase", args.target),
-        log=f"Phase {task.phase} -> {args.target}",
-    )
-    emit_status(
-        "ok", f"'{task.id}' is in phase {args.target}. Next: {NEXT_COMMAND.get(args.target, '-')}"
-    )
     return 0
 
 
@@ -454,27 +452,20 @@ def cmd_unblock(args: argparse.Namespace) -> int:
 def cmd_approve(args: argparse.Namespace) -> int:
     store = _store()
     task = store.get(args.task_id)
-    task, _risk = _refresh(store, task, _config(task))
-    if task.workflow == "manual":
-        raise ValueError("Manual tasks have no gates to approve")
+    task = _refresh(store, task, _config(task))
     request = replace(
         _approval_request(task, args.action, args.target),
         user_reply=args.user_reply,
         consequence=args.consequence,
     )
     record = build_approval(
-        request, ApprovalContext(task.stamp_key, datetime.now(), task.approvals)
+        request, ApprovalContext(task.stamp_key, current_moment(), task.approvals)
     )
-    if args.action == "plan":
-        record["plan_round"] = plan_round(task)
-    config = _config(task)
-
-    def save(t: Task) -> None:
-        t.approvals.append(record)
-        if args.action == "policy-downgrade":
-            t.policy = policy_summary(config)  # the reduced policy becomes the accepted one
-
-    store.mutate(task.id, save, log=f"Approved {args.action} on {args.target}")
+    store.mutate(
+        task.id,
+        lambda t: t.approvals.append(record),
+        log=f"Approved {args.action} on {args.target}",
+    )
     emit_status(
         "ok",
         f"Approval '{args.action}' recorded ({record['verified']}); it expires if the code changes",
@@ -483,7 +474,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
 
 
 def _approval_request(task: Task, action: str, target: str) -> ApprovalRequest:
-    reference = f"plan-r{plan_round(task)}" if action == "plan" else (task.stamp_key or "no-code")
+    reference = task.stamp_key or "no-code"
     return ApprovalRequest(action, target, "", task_id=task.id, reference=reference)
 
 
@@ -491,7 +482,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
     """Print the question to send the user; its tag binds the reply to this request."""
     store = _store()
     task = store.get(args.task_id)
-    task, _risk = _refresh(store, task, _config(task))
+    task = _refresh(store, task, _config(task))
     tag = request_tag(_approval_request(task, args.action, args.target))
     lines = [f"Include this tag in the question you send the user: {tag}"]
     if args.action in RISKY_ACTIONS:
@@ -505,61 +496,8 @@ def cmd_ask(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_tdd(args: argparse.Namespace) -> int:
-    store = _store()
-    task = store.get(args.task_id)
-    task, _risk = _refresh(store, task, _config(task))
-    if args.stage == "skip":
-        approval = valid_approval(task.approvals, "tdd-skip", "", task.id)
-        if approval is None:
-            raise ValueError(
-                f"Skipping TDD needs the user's approval: approve {task.id} --action tdd-skip --target {task.id}"
-            )
-        if not args.reason.strip():
-            raise ValueError("--reason is required: why the user decided to skip TDD")
-        record: dict[str, object] = {
-            "reason": args.reason,
-            "approved_by": approval.get("actor"),
-            "user_reply": approval.get("user_reply"),
-            "at": now_iso(),
-        }
-    else:
-        if not args.cmd:
-            raise ValueError("--cmd is required")
-        live = first_live(task.repos)
-        cwd = live[0] if live else Path.cwd()
-        exit_code, output = on_live([cwd], lambda: tdd.run_test(args.cmd, cwd))
-        if args.stage == "red":
-            record = tdd.red_record(args.cmd, exit_code, output, task.stamp_key)
-        else:
-            record = tdd.green_record(task, args.cmd, exit_code, output)
-    store.mutate(task.id, lambda t: t.tdd.__setitem__(args.stage, record))
-    emit_status("ok", f"TDD {args.stage} recorded for '{task.id}'")
-    return 0
-
-
 def cmd_round(args: argparse.Namespace) -> int:
-    if args.action in ("dispatch", "collect", "abort"):
-        return round_cli.route(args)
-    store = _store()
-    task = store.get(args.task_id)
-    task, _risk = _refresh(store, task, _config(task))
-    return _record_manual_round(store, task, args)
-
-
-def _record_manual_round(store: TaskStore, task: Task, args: argparse.Namespace) -> int:
-    info = {
-        "phase": args.phase or task.phase,
-        "role": args.role,
-        "agent": args.agent,
-        "model": args.model,
-        "verdict": args.verdict,
-        "stamp": task.stamp_key,
-    }
-    body = Path(args.file).read_text(encoding="utf-8") if args.file else sys.stdin.read()
-    record = record_manual(store, task.id, info, scrub(body))
-    emit_status("ok", f"Round {record['n']:03d} recorded as context (it never opens a gate)")
-    return 0
+    return round_cli.route(args)
 
 
 def cmd_rounds(args: argparse.Namespace) -> int:
@@ -589,38 +527,6 @@ def cmd_rounds(args: argparse.Namespace) -> int:
         full=True,
     )
     return 0
-
-
-def cmd_judge(args: argparse.Namespace) -> int:
-    store = _store()
-    task = store.get(args.task_id)
-    config = _config(task)
-    errors = config.validate()
-    if errors:
-        raise ValueError("Invalid taskflow config: " + "; ".join(errors))
-    task, risk = _refresh(store, task, config)
-    _warn_pending_trust(config)
-    if task.workflow == "manual":
-        raise ValueError("Manual tasks have no judges")
-    missing = judge_unmet(task, task.stamp_key) + policy_unmet(task, task.stamp_key)
-    if missing:
-        raise ValueError("Not ready to judge: " + "; ".join(missing))
-    job = JudgeJob(store, task, GateContext(config, risk, task.stamp_key), JudgeScope(args.focus))
-    waiting: set[str] = set()
-    for plan in judge_flow(job, lambda: _refresh(store, store.get(task.id), config)[0].stamp_key):
-        print(plan.line())
-        waiting.add(plan.focus)
-        print(
-            f"Round {plan.n:03d} reserved (judge '{plan.focus}'). Run the line above, end your turn, "
-            f"then: taskflow round {task.id} collect --round {plan.n} --dispatch-id <ID from Orca>",
-            file=sys.stderr,
-        )
-    task = store.get(task.id)
-    pending = checks_unmet(task, task.stamp_key) + judges_unmet(task, risk, config, task.stamp_key)
-    pending = [p for p in pending if not any(p.startswith(f"judge '{f}':") for f in waiting)]
-    for item in pending:
-        emit_status("warn", item)
-    return 0 if not pending else 1
 
 
 def cmd_deploy(args: argparse.Namespace) -> int:
@@ -692,90 +598,18 @@ def cmd_digest(args: argparse.Namespace) -> int:
     return 0
 
 
-def _warn_pending_trust(config: FlowConfig) -> list[str]:
-    notes = [
-        f"repo config pending trust: {p.repo} is ignored entirely (no adds, replaces or "
-        f"disables) until approved. Review and approve with "
-        f"`ai-governance taskflow trust --repo {p.repo}`"
-        for p in config.pending_trust
-    ]
-    for note in notes:
-        emit_status("warn", note)
-    return notes
-
-
-def _agent_markers() -> list[str]:
-    """Agent variables actually present: the AI_GOVERNANCE_AGENT output override is ignored,
-    so setting it to 0 cannot turn an agent into a human for an approval."""
-    return sorted(
-        name
-        for name, value in os.environ.items()
-        if value and (name in AGENT_ENV_MARKERS or name.startswith(("CODEX_", "CLAUDE_CODE_")))
-    )
-
-
-def _show_pending(repo: Path, pending: PendingTrust) -> None:
-    print(f"Control config of {repo / REPO_CONFIG} that you are approving (everything in it):")
-    print(json.dumps(pending.config, indent=2, sort_keys=True, ensure_ascii=False))
-    if pending.commands:
-        print("Commands it would run with your permissions:")
-        for command in pending.commands:
-            print(f"  $ {command}")
-
-
-def _user_confirms(repo: Path, assume_yes: bool) -> bool:
-    """Approval needs a person at a terminal passing --yes explicitly."""
-    if _agent_markers() or not (sys.stdin.isatty() and sys.stdout.isatty()):
-        emit_status(
-            "error",
-            "These commands run with your permissions: approve them yourself in an interactive "
-            f"terminal (ai-governance taskflow trust --repo {repo} --yes)",
-        )
-        return False
-    if assume_yes:
-        return True
-    emit_status(
-        "warn",
-        f"Not trusted: pass --yes to approve (ai-governance taskflow trust --repo {repo} --yes)",
-    )
-    return False
-
-
-def cmd_trust(args: argparse.Namespace) -> int:
-    """Shows the check commands a repository defines and, after the user confirms, remembers
-    that exact set (a changed set is pending again)."""
-    repo = Path(args.repo).expanduser().resolve()
-    pending = [p for p in load_config([repo]).pending_trust if Path(p.repo).resolve() == repo]
-    if not pending:
-        emit_status("ok", f"No repo config pending trust in {repo}")
-        return 0
-    _show_pending(repo, pending[0])
-    if not _user_confirms(repo, args.yes):
-        return 1
-    digest_ = record_trust(repo, pending[0].config or {})
-    emit_status("ok", f"Trusted {len(pending[0].commands)} command(s) for {repo} ({digest_})")
-    return 0
-
-
 def cmd_config(args: argparse.Namespace) -> int:
     config = load_config([TaskResolver._git_root(Path.cwd()) or Path.cwd()])
-    _warn_pending_trust(config)
     errors = config.validate()
     emit_kv(
         [
             ("workflow", config.workflow),
             *(
-                (f"role {name}", f"{r.get('agent')} {r.get('model', '')}")
+                (f"role {name}", f"{r.get('agent')} {r.get('model', '')}".strip())
                 for name, r in config.roles.items()
             ),
-            *(
-                (f"judge {j.get('focus')}", f"{j.get('agent')} {j.get('model', '')}")
-                for j in config.judges
-            ),
             ("allowed agents", ", ".join(sorted(config.allowed.agents)) or "none"),
-            ("checks", "; ".join(config.checks)),
-            ("tdd", "mandatory (skip only with the user tdd-skip approval)"),
-            ("risk rules", ", ".join(r.name for r in config.risk_rules) or "none"),
+            ("denied models", ", ".join(sorted(config.denied_models)) or "none"),
             ("orca cli", orca.orca_problem() or "found (needed only to dispatch workers)"),
             ("errors", "; ".join(errors) or "none"),
         ],
@@ -807,10 +641,7 @@ def main(argv: list[str] | None = None) -> int:
         ValueError,
         OSError,
         GitError,
-        LeaseError,
-        JudgeError,
         ApprovalError,
-        tdd.TddError,
         subprocess.TimeoutExpired,
     ) as exc:
         emit_status("error", str(exc))

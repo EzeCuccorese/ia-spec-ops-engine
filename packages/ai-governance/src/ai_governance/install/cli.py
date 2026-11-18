@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
 from .. import corporate
 from ..output import emit_rows, emit_status, emit_text
 from ..rules.catalog import RuleCatalog
-from . import doctor, probe
+from . import doctor
 from .agents import AGENTS, capability_table
 from .budget import BYTES_PER_TOKEN, fixed_cost
 from .engine import Ledger, Report
@@ -21,7 +20,6 @@ from .installer import (
     install_user,
     is_project_installed,
     registered_projects,
-    sync_completions,
     sync_project,
     uninstall_user,
 )
@@ -78,11 +76,6 @@ def build_parser() -> argparse.ArgumentParser:
     doc = sub.add_parser("doctor", help="Read-only health checks")
     doc.add_argument("--root", type=Path, default=Path.cwd())
     sub.add_parser("agents", help="Capability matrix of supported agents")
-    probe_p = sub.add_parser("probe", help="Verify what an agent loads and fires on this machine")
-    probe_p.add_argument("--agent", required=True, choices=sorted(AGENTS))
-    probe_p.add_argument("--dir", type=Path, help="Probe project dir (default: new temp dir)")
-    probe_p.add_argument("--verify", action="store_true", help="Record the probe results")
-    probe_p.add_argument("--seen", default="", help="Comma-separated canaries the agent listed")
     budget = sub.add_parser("budget", help="Fixed context loaded per agent every session")
     budget.add_argument("--root", type=Path, default=Path.cwd())
     return parser
@@ -159,9 +152,6 @@ def _update_root(root: Path, *, forget: bool, dry_run: bool, heading: bool) -> b
 def _update(args: argparse.Namespace) -> int:
     roots = registered_projects() if args.all else [args.root]
     dry_run = args.dry_run or args.check
-    completions = sync_completions(dry_run=dry_run)
-    if completions is not None and completions.changed:
-        _emit(completions, dry_run=dry_run)
     changed = [
         _update_root(root, forget=args.all, dry_run=dry_run, heading=len(roots) > 1)
         for root in roots
@@ -184,32 +174,6 @@ def _doctor(args: argparse.Namespace) -> int:
     checks = doctor.check(args.root.resolve())
     emit_rows(checks, headers=("Check", "Status", "Detail"), full=True)
     return 1 if any(status == doctor.FAIL for _, status, _ in checks) else 0
-
-
-def _probe(args: argparse.Namespace) -> int:
-    if args.verify:
-        seen = [token.strip() for token in args.seen.split(",") if token.strip()]
-        result = probe.verify(args.agent, seen)
-        emit_text(json.dumps(result, indent=2), full=True)
-        verified_hooks = args.agent == "claude" or result["shell_hooks_verified"]
-        if result["canaries_missing"] or not verified_hooks:
-            emit_status("warn", "Not everything was verified; see the result above.")
-        return 0
-    root = probe.build(args.agent, args.dir)
-    lines = [
-        f"Probe project: {root}",
-        f"1. Open {AGENTS[args.agent].name} in that directory (trust it if asked).",
-    ]
-    if args.agent == "codex":
-        lines.append(f"   ({probe.CODEX_HOOKS_NOTE})")
-    lines.extend(
-        [
-            f"2. Send: {probe.PROMPT}",
-            f"3. Run: ai-governance probe --agent {args.agent} --verify --seen <tokens it listed>",
-        ]
-    )
-    emit_text("\n".join(lines), full=True)
-    return 0
 
 
 def _budget(args: argparse.Namespace) -> int:
@@ -236,7 +200,6 @@ COMMANDS = {
     "update": _update,
     "status": _status,
     "doctor": _doctor,
-    "probe": _probe,
     "budget": _budget,
     "agents": _agents,
 }

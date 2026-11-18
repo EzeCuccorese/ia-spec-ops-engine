@@ -22,17 +22,18 @@ GLOBAL_INSTRUCTIONS = """\
   (else `scout`), noisy builds/tests/CI logs to `runner` if present; verify before acting.
 - Executing an approved plan: delegate only bounded implementation with a closed brief;
   you review each delivery and run the gates per phase.
-- Code changes: `ai-governance taskflow here`, else create a task for tracked work.
+- Code changes: run `ws check --changed`; for multi-session tickets or design debates use `ai-governance taskflow`.
 - Never write "honest"/"honestly" (es: "honesto"/"honestamente"); state caveats directly.
 """
 
 PROJECT_BLOCK = """\
 ## AI governance
-- Engineering rules live once in {rule_locations} and load per file in every agent
-  (Claude Code reads them through symlinks in `.claude/rules/`); do not read them manually.
+- Project rules live once in {rule_locations} (Claude Code symlinks them into `.claude/rules/`;
+  Antigravity and Claude load matching `.agents/rules/` files automatically—do not pre-read
+  the whole folder).
 - Run builds and tests with `ws run -- <cmd>` and the gate with `ws check --changed`.
 - Delegate exploration, reading, summaries and web research to the `scout` subagent.
-- Track multi-session work with `ai-governance taskflow`.
+- Track multi-session tickets or design debates with `ai-governance taskflow`.
 """
 
 SCOUT_DESCRIPTION = (
@@ -85,7 +86,7 @@ You are a read-only scout. Explore, read, summarize or research exactly what was
 """
 
 # Antigravity tiers are inherit|flash|pro; `flash` is always the latest Gemini Flash.
-# Read-only: a misspelled tool name can hang the subagent, so `probe` uses these too.
+# Read-only: exact Antigravity tool names.
 ANTIGRAVITY_SCOUT_SETTINGS = (
     "model: flash\n"
     "tools:\n"
@@ -99,17 +100,29 @@ ANTIGRAVITY_SCOUT_SETTINGS = (
 TASKFLOW_SKILL = """\
 ---
 name: taskflow
-description: Resume, record and run multi-session tasks (plan, validate, work, judge) with ai-governance taskflow.
+description: Track multi-session tasks and run multi-provider design debates with ai-governance taskflow.
 ---
-# Task flow
+# Taskflow
 
-- `ai-governance taskflow here` — task bound to this repository/branch; `status <id>` says what is missing and the next command.
-- `taskflow new <id> --title "..."` (Jira key or slug), `bind <id> --repo <worktree>`.
-- `taskflow step <id> add|done "<text>"`, `fact <id> "<text>"`, `decide <id> "<text>" --why "..."`.
-- Agents never run from the engine or a shell: planner/validator/judge are Orca workers. `round <id> dispatch --role R`, run the printed line, end the turn, `round <id> collect`; judges via `judge <id>`. You are the builder. Validator/judge providers differ from builder. Also `tdd <id> red|green`, `phase <id> <next>`.
-- Human gates: ask in the chat, then `approve <id> --action <a> --target <t> --user-reply "<their words>"`.
-- Debate: `debate <id> open|cross|close`.
-- `taskflow --help` has the whole flow. Record only what a future session needs.
+Use `ai-governance taskflow` as a persistent task notebook for multi-session work (such as Jira tickets) and multi-provider design debates. Normal single-session code edits do not need a task—use `ws check --changed`.
+
+## Task notebook
+- `ai-governance taskflow here` — show the task bound to the current repository and branch.
+- `ai-governance taskflow new <id> --title "..."` — create a task (Jira key or slug); bind repos with `bind <id> --repo <path>`.
+- `ai-governance taskflow show <id>` / `status <id>` — inspect recorded context, open steps, and status.
+- `ai-governance taskflow step <id> add|done "<text>"` — track concrete steps.
+- `ai-governance taskflow fact <id> "<text>"` — record verified facts for later sessions.
+- `ai-governance taskflow decide <id> "<text>" --why "..."` — record decisions and rationale.
+- `ai-governance taskflow approve <id> --action <a> --target <t> --user-reply "<their words>"` — record explicit human approvals for risky actions.
+
+## Multi-provider design debates
+Debate rounds run in separate Orca workers (never launched directly by the engine):
+1. `ai-governance taskflow debate <id> open --topic-file <file> --agents <a,b> [--model a=m]` — reserve independent thesis rounds and print the Orca worker commands.
+2. End your turn while workers run, then settle each finished worker with `round <id> collect --round <n> --dispatch-id <id>` (or cancel with `round <id> abort`).
+3. `ai-governance taskflow debate <id> cross` — dispatch cross-examination rounds once theses are collected.
+4. `ai-governance taskflow debate <id> status` — check seat progress; `debate <id> close [--partial]` — write `synthesis.md` and turn open points into steps.
+
+Run `ai-governance taskflow --help` for full subcommand flags. Record only what a future session needs.
 """
 
 TEST_AUDIT_SKILL = """\
@@ -117,11 +130,34 @@ TEST_AUDIT_SKILL = """\
 name: test-audit
 description: Gate new tests, answer test requests from reviewers, prune low-value tests. Use when writing, reviewing or auditing tests.
 ---
-A test earns its cost only if a credible production bug makes it fail.
-Before writing one or when a reviewer asks, answer: what contract does it protect, what regression fails it, why isn't it already covered, does it need a test-only seam? Any gap: don't write it; decline a reviewer with the reason.
-Junk: language behavior, log level or wording, signatures, restated constants, a mock asserting itself, self-comparison, no/unfailable asserts, a sibling copy, a generic "throws".
-Keep the sole guard of a contract (API, migration, security, a log an alert keys on); name it.
-Audit read-only until the ledger is done; judge assertions not names: R retain, F fix, C consolidate, D delete (name the proof that remains). Break production code to confirm the keeper fails, then restore. Re-argue each D. Report removed and kept. `ws design` flags mechanical junk.
+# Test Audit
+
+A test earns its cost only if a credible production bug would make it fail.
+
+## Gate for new tests and reviewer requests
+Before writing a new test—or when a reviewer asks for one—answer four questions:
+1. **Contract**: What user-facing, API, security, migration, or alert-keyed behavior does it protect?
+2. **Regression**: What realistic production bug makes this test fail?
+3. **Coverage gap**: Why do existing tests not already catch that bug?
+4. **Seam**: Does it require adding a test-only seam?
+
+If any answer is missing, do not write the test; decline the reviewer request with that reason. Keep a test when it is the sole guard of a real contract (and name that contract).
+
+## Low-value junk tests to avoid or prune
+- Language, stdlib, or framework behavior rather than project logic
+- Internal log wording or log levels (unless an alert or parser keys on them)
+- Function/class signatures or restated configuration constants
+- Mocks that only assert how the mock itself was configured
+- Self-comparisons, missing assertions, or assertions that cannot fail
+- Duplicate sibling cases exercising the same code path
+- Generic "throws any error" checks without verifying the failure contract
+
+`ws design` flags mechanical junk automatically.
+
+## Auditing an existing suite
+1. **Read-only pass first**: Inspect assertions (not just names) before editing anything. Build a verdict table classifying each test as **Retain**, **Fix**, **Consolidate**, or **Delete**—for every deletion, name the remaining proof that still covers the contract.
+2. **Prove retained tests**: Temporarily break production code to confirm each retained test fails, then restore the production code.
+3. **Re-verify deletions**: Before removing any test marked **Delete**, re-argue why it is redundant or valueless, then apply deletions and report what was kept and removed.
 """
 
 SKILLS = {"taskflow": TASKFLOW_SKILL, "test-audit": TEST_AUDIT_SKILL}

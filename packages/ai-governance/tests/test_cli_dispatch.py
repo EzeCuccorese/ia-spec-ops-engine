@@ -37,12 +37,6 @@ def test_cli_dispatch_rules() -> None:
         mock_rules.assert_called_once_with(["list"])
 
 
-def test_cli_dispatch_telemetry() -> None:
-    with patch("ai_governance.telemetry.cli.main", return_value=0) as mock_telemetry:
-        assert main(["telemetry", "report"]) == 0
-        mock_telemetry.assert_called_once_with(["report"])
-
-
 def test_cli_dispatch_taskflow() -> None:
     with patch("ai_governance.taskflow.cli.main", return_value=0) as mock_session:
         assert main(["taskflow", "list"]) == 0
@@ -79,13 +73,12 @@ def test_cli_help_lists_all_canonical_subcommands(capsys: pytest.CaptureFixture[
         "doctor",
         "rules",
         "personal",
-        "telemetry",
         "taskflow",
         "hook",
     ):
         assert subcommand in out
     listing = out.split("{", 1)[1].split("}", 1)[0].split(",")
-    for removed in ("frugal", "harness", "progreso", "ritmo"):
+    for removed in ("frugal", "harness", "progreso", "ritmo", "telemetry", "completion", "probe"):
         assert removed not in listing
 
 
@@ -117,8 +110,8 @@ def test_cli_dispatch_install_commands() -> None:
 
 def test_cli_dispatch_hook() -> None:
     with patch("ai_governance.hooks.main", return_value=0) as mock_hook:
-        assert main(["hook", "claude", "stop"]) == 0
-        mock_hook.assert_called_once_with(["claude", "stop"])
+        assert main(["hook", "claude", "stop-gate"]) == 0
+        mock_hook.assert_called_once_with(["claude", "stop-gate"])
 
 
 def _subcommand_helps(parser: argparse.ArgumentParser) -> dict[str, str | None]:
@@ -134,13 +127,11 @@ def _subcommand_helps(parser: argparse.ArgumentParser) -> dict[str, str | None]:
     return helps
 
 
-def test_every_taskflow_and_telemetry_subcommand_has_help() -> None:
+def test_every_taskflow_subcommand_has_help() -> None:
     from ai_governance.taskflow.cli import _parser as taskflow_parser
-    from ai_governance.telemetry.cli import _build_parser as telemetry_parser
 
-    for parser in (taskflow_parser(), telemetry_parser()):
-        missing = [name for name, text in _subcommand_helps(parser).items() if not text]
-        assert missing == []
+    missing = [name for name, text in _subcommand_helps(taskflow_parser()).items() if not text]
+    assert missing == []
 
 
 def test_scope_and_rules_help_cover_every_case() -> None:
