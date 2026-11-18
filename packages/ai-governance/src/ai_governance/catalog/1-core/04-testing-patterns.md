@@ -1,7 +1,7 @@
 # Testing Patterns
 
-- Before writing a test, name the observable behavior it protects, the credible regression that makes it fail, and why existing tests miss it; if you can't, don't write it.
-- Assert observable results at the public boundary, never private calls or call shape.
+- Before writing a test, name the behavior it protects, the regression that breaks it and why existing tests miss it; else skip it.
+- Assert observable results (exact message, state, order) at the public boundary, never private calls, call shape or `mock_calls`.
 - Write the failing test before the code that makes it pass.
 - Unit: fast, isolated. Integration: real dependencies (Testcontainers, WireMock). End-to-end: critical journeys only.
 - Mock only across architectural boundaries; a mock never implements the behavior under test.
