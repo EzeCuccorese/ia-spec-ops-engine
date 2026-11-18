@@ -49,24 +49,26 @@ jobs:
     steps:
       - name: Checkout caller repository
         if: ${{ env.GEMINI_API_KEY != '' }}
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
       - name: Set up Python
         if: ${{ env.GEMINI_API_KEY != '' }}
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.11"
 
       - name: Checkout review engine script
         if: ${{ env.GEMINI_API_KEY != '' }}
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.engine-repo }}
           ref: ${{ inputs.engine-ref }}
           path: ".engine_tools"
-          sparse-checkout: ".github/scripts"
+          sparse-checkout: |
+            .github/scripts
+            .github/copilot-code-review-instructions.md
 
       - name: Run In-House Gemini Code Review
         if: ${{ env.GEMINI_API_KEY != '' }}
@@ -78,5 +80,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+          GITHUB_EVENT_ACTION: ${{ github.event.action }}
+          BEFORE_SHA: ${{ github.event.before }}
         run: |
           python .engine_tools/.github/scripts/gemini_review.py

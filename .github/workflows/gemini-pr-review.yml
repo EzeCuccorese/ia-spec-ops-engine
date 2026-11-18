@@ -2,16 +2,16 @@ name: Gemini PR Code Review
 
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review, labeled]
+    types: [opened, reopened, ready_for_review, synchronize, labeled]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  # Don't cancel: an unrelated label event must not abort a review in progress.
-  cancel-in-progress: false
+  # Cancel stale incremental runs on new pushes; keep labeled/open runs intact.
+  cancel-in-progress: ${{ github.event.action == 'synchronize' }}
 
 jobs:
   review:
-    # Automatic once per PR (opened/reopened/ready, never for drafts); on demand with the
+    # Automatic on PR open/reopen/ready/synchronize (never for drafts); on demand with the
     # `gemini-review` label, even on drafts.
     if: >-
       (github.event.action == 'labeled' && github.event.label.name == 'gemini-review') ||
@@ -26,13 +26,13 @@ jobs:
     steps:
       - name: Checkout repository
         if: ${{ env.GEMINI_API_KEY != '' }}
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
       - name: Set up Python
         if: ${{ env.GEMINI_API_KEY != '' }}
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.11"
 
@@ -46,17 +46,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+          GITHUB_EVENT_ACTION: ${{ github.event.action }}
+          BEFORE_SHA: ${{ github.event.before }}
         run: |
           python .github/scripts/gemini_review.py
 
-  clear-label:
-    needs: review
-    if: always() && github.event.action == 'labeled' && github.event.label.name == 'gemini-review'
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-    steps:
       - name: Remove the trigger label so it can be added again
+        if: always() && github.event.action == 'labeled' && github.event.label.name == 'gemini-review'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
