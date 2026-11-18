@@ -14,16 +14,13 @@ COMMANDS: dict[str, str] = {
     "doctor": "Read-only health checks for user and project installs",
     "agents": "Capability matrix of the supported agents",
     "budget": "Fixed context (bytes/tokens) loaded per agent every session",
-    "probe": "Verify on this machine what an agent loads and which hooks fire",
     "rules": "Browse the engineering-rules catalog (list, show, profiles)",
     "personal": "Manage personal preference rules across agents (list, add, rm, migrate)",
     "skills": "Keep each third-party skill in one place and copy it into agents (list, add, rm, sync, migrate)",
-    "taskflow": "Task tracking and the plan/validate/work/judge flow across agents",
-    "telemetry": "Claude spend estimates (claude-usage), prices and threshold alerts",
+    "taskflow": "Task notebook and multi-provider design debates across agents",
     "jira": "Jira issues and transitions in Markdown",
     "confluence": "Confluence pages in Markdown",
     "config": "Show the effective configuration and where each value came from",
-    "completion": "Print the zsh <TAB> completion of ai-governance or ws",
     "hook": "Agent hook entry point (used by installed hooks)",
 }
 INSTALL_COMMANDS = (
@@ -34,18 +31,15 @@ INSTALL_COMMANDS = (
     "doctor",
     "agents",
     "budget",
-    "probe",
 )
 _SUBCOMMAND_MODULES: dict[str, str] = {
     "rules": "ai_governance.rules.cli",
     "personal": "ai_governance.personal",
     "skills": "ai_governance.skills",
     "taskflow": "ai_governance.taskflow.cli",
-    "telemetry": "ai_governance.telemetry.cli",
     "jira": "ai_governance.tools.jira",
     "confluence": "ai_governance.tools.confluence",
     "config": "ai_governance.config_cli",
-    "completion": "ai_governance.completion",
     "hook": "ai_governance.hooks",
 }
 
@@ -55,7 +49,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="ai-governance",
-        description="Per-agent engineering standards, token frugality, telemetry and task flow.",
+        description="Per-agent engineering standards, token frugality and lightweight task tracking.",
     )
     parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="subcommand")
@@ -66,10 +60,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else list(argv)
-    if args[:1] == ["probe-record"] and len(args) == 3:
-        from .install.probe import record
-
-        return record(args[1], args[2])
     if not args or args[0] not in COMMANDS:
         parser = _build_parser()
         if args and args[0] not in ("-h", "--help"):

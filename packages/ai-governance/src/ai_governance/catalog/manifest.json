@@ -293,7 +293,7 @@
       "id": "14-taskflow",
       "category": "1-core",
       "file": "1-core/14-taskflow.md",
-      "description": "Task registry and taskflow tracking: multi-step work and phase gates",
+      "description": "Task registry and notebook: tracking steps, facts, decisions, approvals, and design debates",
       "triggers": {
         "globs": [
           "**/*"

@@ -6,7 +6,6 @@ from pathlib import Path
 
 from .handoff import scrub
 from .models import JsonDict, Task
-from .prs.board import summary_for
 from .store import TaskStore
 
 RECENT_LIMIT = 5
@@ -68,6 +67,4 @@ def round_header(store: TaskStore, task_id: str, role: str) -> str:
     if role in _NEEDS_PLAN:
         lines += _plan_lines(task)
     lines += [f"Repository {Path(r['path'])} (branch {r.get('branch', '')})" for r in task.repos]
-    if prs := summary_for(store, task.id):
-        lines.append(prs)
     return scrub("\n".join(lines)) + "\n\n"

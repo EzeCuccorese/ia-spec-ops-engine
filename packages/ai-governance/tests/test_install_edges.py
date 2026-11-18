@@ -1,4 +1,4 @@
-"""Edge cases of the ledger engine, doctor, budget, probe and hooks."""
+"""Edge cases of the ledger engine, doctor, budget and hooks."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from ai_governance import hooks
-from ai_governance.install import installer, probe
+from ai_governance.install import installer
 from ai_governance.install.budget import fixed_cost
 from ai_governance.install.doctor import FAIL, WARN, check
 from ai_governance.install.engine import Ledger
@@ -98,15 +98,6 @@ def test_budget_counts_shared_blocks_and_no_codex_project_rules(project: Path) -
     assert lock.get("codex", 0) == 0 and lock["project"] > 0
 
 
-def test_probe_record_tolerates_bad_payloads(monkeypatch, project: Path) -> None:
-    monkeypatch.setattr("sys.stdin", io.StringIO("not json"))
-    assert probe.record("codex", "Stop") == 0
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"tool_response": "text"})))
-    assert probe.record("codex", "PostToolUse") == 0
-    shape = json.loads((probe.records_dir("codex") / "PostToolUse.json").read_text())
-    assert shape["tool_response"] == "str" and shape["has_command"] is False
-
-
 def test_stop_gate_ignores_unparseable_ws_output(monkeypatch) -> None:
     class Proc:
         stdout, returncode = "garbage", 0
@@ -124,15 +115,13 @@ def test_session_end_without_task_is_noop(monkeypatch, project: Path) -> None:
 
 def test_claude_hook_handlers_delegate(monkeypatch) -> None:
     from ai_governance.frugality import cli as frugal
-    from ai_governance.telemetry import cli as telemetry
 
     calls: list[str] = []
     monkeypatch.setattr(frugal, "run_pre_bash", lambda cfg: calls.append("pre"))
     monkeypatch.setattr(frugal, "post_bash_output", lambda payload, cfg: calls.append("post"))
-    monkeypatch.setattr(telemetry, "main", lambda argv: calls.append(" ".join(argv)) or 0)
-    for event in ("pre-tool-use", "post-tool-use", "stop"):
+    for event in ("pre-tool-use", "post-tool-use"):
         assert hooks.main(["claude", event]) == 0
-    assert calls == ["pre", "post", "thresholds --notify"]
+    assert calls == ["pre", "post"]
 
 
 def test_codex_config_block_is_prepended_and_reversible(project: Path, tmp_path: Path) -> None:
@@ -198,20 +187,3 @@ def test_antigravity_rules_stay_within_its_rules_budget(project: Path, monkeypat
     sync_project(project, add_agents=["antigravity"])
     total = sum(len(p.read_bytes()) for p in (project / ".agents/rules").glob("*.md"))
     assert total // 4 < 20_000  # Antigravity 2.17: dedicated 20k-token rules budget
-
-
-def test_probe_scout_and_frontmatter_hooks(monkeypatch, project: Path, tmp_path: Path) -> None:
-    root = probe.build("antigravity", tmp_path / "p")
-    scout = (root / ".agents/agents/probe-scout.md").read_text()
-    assert "hooks:\n  - probe-scout-hooks.json" in scout and "CANARY-SCOUT" in scout
-    assert (root / ".agents/agents/probe-scout-hooks.json").exists()
-    monkeypatch.setattr("sys.stdin", io.StringIO("{}"))
-    probe.record("antigravity", "agent-PreToolUse")
-    result = probe.verify("antigravity", ["CANARY-SCOUT"])
-    assert result["scout_verified"] is True
-    assert result["agent_frontmatter_hooks_fired"] == ["PreToolUse"]
-    for agent, path in (
-        ("claude", ".claude/agents/probe-scout.md"),
-        ("codex", ".codex/agents/probe-scout.toml"),
-    ):
-        assert "CANARY-SCOUT" in (probe.build(agent, tmp_path / agent) / path).read_text()

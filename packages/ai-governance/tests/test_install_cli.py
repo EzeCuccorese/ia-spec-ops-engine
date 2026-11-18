@@ -1,8 +1,7 @@
-"""CLI surface of install/uninstall/update/status/doctor/agents/budget/probe."""
+"""CLI surface of install/uninstall/update/status/doctor/agents/budget."""
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -74,15 +73,6 @@ def test_install_never_prompts_even_on_tty(repo: Path, monkeypatch, capsys) -> N
     assert main(["install", "--root", str(repo)]) == 1
     captured = capsys.readouterr()
     assert "--agent" in captured.out + captured.err
-
-
-def test_probe_cli_build_and_verify(repo: Path, capsys) -> None:
-    assert main(["probe", "--agent", "antigravity", "--dir", str(repo / "p")]) == 0
-    assert "Probe project:" in capsys.readouterr().out
-    assert (repo / "p" / ".agents" / "hooks.json").exists()
-    assert main(["probe", "--agent", "antigravity", "--verify", "--seen", "CANARY-AGENTS-MD"]) == 0
-    out = capsys.readouterr().out
-    assert json.loads(out.split("\nWARN")[0])["shell_hooks_verified"] is False
 
 
 def test_rules_cli(capsys) -> None:

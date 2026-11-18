@@ -3,98 +3,35 @@
 from __future__ import annotations
 
 GUIDE = """\
-Flow (one task or subtask at a time):
-  plan -> validate -> work -> judge -> [staging] -> review -> done   (exit: findings)
+Flow (durable task notebook + human gates + multi-provider design debate):
 
-  1. Start:     taskflow new <ID> --title "..."   (ID = Jira key, or a slug until it exists)
+  1. Notebook:  taskflow new <ID> --title "..."   (ID = Jira key or slug)
                 taskflow bind <ID> --repo <worktree> --integration-branch <branch>
-  2. plan:      taskflow round <ID> dispatch --role planner --prompt-file brief.md
-                (run the printed worker line, end your turn, then `round <ID> collect`; see below)
-                taskflow phase <ID> validate
-  3. validate:  taskflow round <ID> dispatch --role validator --prompt-file review.md
-                (same cycle: run the line, end your turn, collect)
-                optional cross-examination: dispatch again with `--rebut N` (repeatable) so a
-                worker reads settled rounds N and refutes them with evidence before concluding
-                show the user the final plan; on their ok in the chat:
-                taskflow approve <ID> --action plan --target <ID> --user-reply "<their words>"
-                taskflow phase <ID> work
-  4. work:      taskflow tdd <ID> red --cmd "<test>"   (before the change; must fail)
-                implement, then taskflow tdd <ID> green --cmd "<same test>"; commit
-                taskflow phase <ID> judge
-  5. judge:     taskflow judge <ID>   (the engine runs the checks on a throwaway copy of HEAD, then
-                PRINTS one `orchestration worker-start` line per required judge: run it, end your
-                turn, then `taskflow round <ID> collect --round N --dispatch-id <ID>`)
-                block/concerns -> taskflow phase <ID> work, fix, judge again
-  6. staging:   optional unless a risk rule asks for it. The USER deploys and approves.
-                taskflow deploy <ID> --env staging --repo <path> --sha <sha> --provenance ci
-                taskflow evidence <ID> --kind staging --file results.md --deployed-sha <sha>
-  7. review:    clean up/rebase, taskflow judge <ID> again on the final SHA
-  8. done:      only after the user confirms production (approve --action prod)
+                taskflow summary|step|fact|decide|link|reference|note <ID> ...
+                taskflow status [<ID>] | show [<ID>] | here | list | close <ID> [--reason "..."]
 
-Human gates (the engine never runs them itself): ticket, push, pr, comment, slack,
-staging, deploy, prod. Run `taskflow ask <ID> --action A --target T`, put the tag it
-prints in your question to the user, wait for the reply, then record it with
-`taskflow approve`. Risky actions (deploy, prod, migration, infra, permissions, delete,
-policy-downgrade, restaging) need --consequence (what breaks if it goes wrong, plainly)
-and a reply that names the action and the target, typed by the user; "ok"/"dale" is
-refused. Production actions are refused after 16:00, and on Friday after 13:00.
+  2. Human gates (the engine never runs them itself): ticket, push, pr, comment, slack,
+     staging, deploy, prod. Run `taskflow ask <ID> --action A --target T`, put the tag it
+     prints in your question to the user, wait for the reply, then record it with:
+     taskflow approve <ID> --action A --target T --user-reply "<their words>"
+     Risky actions (deploy, prod, migration, infra, permissions, delete, restaging) need
+     --consequence (what breaks if it goes wrong) and a reply naming action and target;
+     "ok"/"dale" is refused. Production actions are refused after 16:00, and Friday after 13:00.
 
-Agents never run from the engine or from a shell. Planner, validator and judge rounds are
-Orca workers:
-  1. taskflow round <ID> dispatch --role validator --prompt-file review.md
-       reserves the round and PRINTS ONE `orchestration worker-start` line (judges: `taskflow judge <ID>`)
-  2. Run that line as printed: it saves Orca's JSON receipt to runs/N/launch.json, which
-       collect uses to check that Orca launched the dispatched agent and model.
-       END YOUR TURN. Orca wakes you when the worker reports worker_done.
-  3. taskflow round <ID> collect --round N --dispatch-id <the id Orca gave you>
-       settles it. A running worker: wait with `orca orchestration check --wait --types worker_done`.
-       A stuck worker: `orca orchestration worker-stop --dispatch <id>`, then
-       taskflow round <ID> abort --round N --reason "..." (--dispatch-id <id> | --never-started)
-       --never-started is your own assertion that no worker started; it is recorded, not proven
-The builder is YOU (the coordinating session): write the code yourself. Do not edit or commit
-while a reader round is pending: the round becomes invalid and must be re-dispatched.
-Never launch agent CLIs yourself. A judge is a reader: the engine runs the checks, the worker reads.
-The worker writes a receipt (round token + its dispatch id) and its answer under runs/N/;
-collect accepts only the dispatch id that matches that receipt. A worker may run throwaway
-scripts under runs/N/scratch/ to prove a claim. Validators and judges list each required change
-as `CHANGE: <path>:<line> - <fix>`; collect stores those lines in the round record.
+  3. Design debate (at least 2 providers, Orca workers only):
+     taskflow debate <ID> open --topic-file <file> --agents <a,b> [--model a=m] [--web] [--artifact P]
+     Run each printed `orchestration worker-start` line (it saves runs/N/launch.json),
+     END YOUR TURN. Orca wakes you when workers report worker_done. Then settle each round:
+     taskflow round <ID> collect --round N --dispatch-id <ID from Orca>
+     A stuck worker: `orca orchestration worker-stop --dispatch <id>`, then
+     taskflow round <ID> abort --round N --reason "..." (--dispatch-id <id> | --never-started)
+     --never-started is your own assertion that no worker started; it is recorded, not proven.
+     Then:
+     taskflow debate <ID> cross              (all-against-all cross-examination)
+     taskflow debate <ID> status             (pending/collected/invalid per seat)
+     taskflow debate <ID> close [--partial]  (writes synthesis.md; records open points as steps)
 
-Pull requests: register each one once (`taskflow pr add <ID> <url | owner/name#N>`; `-` reads
-pasted text from stdin; Claude's `gh pr create` registers it by itself). CI, review, open threads,
-conflicts and stacking are read from GitHub by code (`taskflow pr sync`, `pr list [--blocked]`);
-never copy PR status by hand into facts or notes. A parent task also shows its subtasks' PRs.
-
-One worktree per task: tasks sharing a worktree make `here` ambiguous and reviewers mix
-contexts. `round dispatch` already prepends the task context (goal, plan path, decisions, facts,
-repos), so a prompt only needs the specific question.
-
-Design debate (any workflow, at least 2 providers, no gates):
-  taskflow debate <ID> open --topic-file <file> --agents <a,b> [--model a=m] [--web] [--artifact P]
-  (run each printed line, end your turn, collect each round, then:)
-  taskflow debate <ID> cross              (every valid seat cross-examines the others)
-  taskflow debate <ID> status             (pending/collected/invalid per seat)
-  taskflow debate <ID> close [--partial]  (writes synthesis.md; records open points as steps)
-`round <ID> dispatch` and `debate <ID> open` accept `--web` (require URLs for external claims)
-and `--artifact <path>` (repeatable; inspect visual/binary files before citing).
-
-Code tasks in taskflow run tri-agent: "different agents" means different Orca sessions (planner,
-validator and each judge) and the builder is the coordinating session. The validator and every judge must also be a different
-provider than the builder; the planner may share the builder's provider. A repository can
-narrow the allowed agents (`[taskflow] allowed_agents` in its .ai-governance/config.toml).
-Another workflow only when the user asks for it; record it before leaving plan:
-  taskflow approve <ID> --action workflow --target <ID> --user-reply "<their words>"
-manual is for tracking only (no code, no phases).
-
-TDD is mandatory unless the user asks to skip it:
-  taskflow approve <ID> --action tdd-skip --target <ID> --user-reply "<their words>"
-  taskflow tdd <ID> skip --reason "..."
-
-In a Claude Code session --user-reply must be one whole message the user typed in this
-session; one reply covers every ordinary request asked together in that question, a
-risky action needs its own reply; risky actions are approved only there.
-
-Any code change after a verdict or approval makes it stale: `taskflow status <ID>` shows
-what is stale, what is missing for the next phase and the exact next command.
-Another owner's branch: taskflow findings <ID> --out findings.md, hand it over, close.
+Agents never run from the engine or from a shell. Never launch agent CLIs yourself.
+One worktree per task: tasks sharing a worktree make `here` ambiguous.
 Nothing of this tool or of the agents goes into tickets, commits, PRs or Slack.
 """

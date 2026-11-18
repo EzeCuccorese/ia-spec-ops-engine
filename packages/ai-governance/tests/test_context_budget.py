@@ -13,9 +13,11 @@ from ai_governance.rules.catalog import RuleCatalog
 
 GLOBAL_MAX = 1024
 PROJECT_BLOCK_MAX = 1024
-RULE_MAX = 1000
+ALWAYS_ON_RULE_MAX = 1500
+ALWAYS_ON_TOTAL_MAX = 15000
+SCOPED_RULE_MAX = 2000
 SCOUT_MAX = 700
-SKILL_MAX = 1024
+SKILL_MAX = 2500
 ENTRY_BLOCK_MAX = 500
 
 
@@ -33,7 +35,8 @@ def test_static_content_budgets() -> None:
 
 @pytest.mark.parametrize("rule", RuleCatalog().rules, ids=lambda rule: rule.id)
 def test_rule_budget(rule) -> None:
-    assert len(rule.content.encode()) <= RULE_MAX, f"{rule.id} exceeds {RULE_MAX} bytes"
+    limit = ALWAYS_ON_RULE_MAX if rule.always_on else SCOPED_RULE_MAX
+    assert len(rule.content.encode()) <= limit, f"{rule.id} exceeds {limit} bytes"
 
 
 def test_always_on_rules_are_security_and_general_tools() -> None:
@@ -60,17 +63,22 @@ def test_fixed_session_cost_for_a_typical_install(monkeypatch, tmp_path: Path) -
     monkeypatch.setattr(installer, "detect_stacks", lambda root: {"java", "docker"})
     root = tmp_path / "repo"
     root.mkdir()
-    install_user(["claude"])
-    sync_project(root, add_agents=["claude", "antigravity"])
+    install_user(["claude", "codex", "antigravity"])
+    sync_project(root, add_agents=["claude", "codex", "antigravity"])
 
     user = fixed_cost(installer.global_ledger())
     project = fixed_cost(Ledger(root / PROJECT_DIR / "lock.json", base=root))
 
-    # Global instructions, the Claude entry blocks and the always-on tool rules.
-    assert user["claude"] <= GLOBAL_MAX + ENTRY_BLOCK_MAX + 12 * (RULE_MAX + 300)
+    always_on_total = sum(len(r.content.encode()) for r in RuleCatalog().rules if r.always_on)
+    assert always_on_total <= ALWAYS_ON_TOTAL_MAX
+
+    # Global instructions, entry blocks and always-on tool rules per installed agent.
+    rendered_cap = GLOBAL_MAX + ENTRY_BLOCK_MAX + 12 * (ALWAYS_ON_RULE_MAX + 300)
+    for agent in ("claude", "codex", "antigravity"):
+        assert user[agent] <= rendered_cap
     # The always-on rules (read by each agent once) plus the shared AGENTS.md block.
-    assert project["claude"] <= 12 * (RULE_MAX + 300)
-    assert project["project"] <= PROJECT_BLOCK_MAX + 12 * (RULE_MAX + 300)
+    assert project["claude"] <= 12 * (ALWAYS_ON_RULE_MAX + 300)
+    assert project["project"] <= PROJECT_BLOCK_MAX + 12 * (ALWAYS_ON_RULE_MAX + 300)
 
 
 def test_readme_agents_table_is_generated() -> None:

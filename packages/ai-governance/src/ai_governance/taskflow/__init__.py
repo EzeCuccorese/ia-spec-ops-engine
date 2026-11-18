@@ -1,1 +1,1 @@
-"""TriAgentTaskFlow: durable task tracking and the plan -> validate -> work -> judge flow."""
+"""Taskflow: durable task notebook, human approvals and multi-provider design debates."""

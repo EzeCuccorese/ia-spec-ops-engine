@@ -1,31 +1,29 @@
-"""Taskflow CLI: tracking, lifecycle, reporting and error paths, asserted on output and state."""
+"""Taskflow CLI: tracking, lifecycle, approvals, status, close and reporting."""
 
 # ruff: noqa: F401, F811
 from __future__ import annotations
 
 import json
-import shlex
 import subprocess
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 
 import pytest
+from ai_governance.taskflow import approvals
 from ai_governance.taskflow.cli import main
 from ai_governance.taskflow.store import TaskStore
-from orca_fakes import flag
-from test_taskflow import (
-    _git,
-    _plan_and_approve,
-    _red_green_commit,
-    cli_run,
-    judge_orca,
-    orca_path,
-    outside_claude,
-    repo,
-    state,
-)  # shared fixtures
+from orca_fakes import attach_orca
+from test_taskflow import _git, outside_claude, repo, state  # shared fixtures
 
 Run = Callable[..., int]
+
+
+@pytest.fixture
+def orca_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    base = tmp_path / "orca-world"
+    attach_orca(base, monkeypatch)
+    return base
 
 
 @pytest.fixture
@@ -52,7 +50,7 @@ def test_tracking_commands_show_up_in_the_full_view(
     assert run("link", "TASK-1", "Doc", "https://example.com/doc") == 0
     assert run("reference", "TASK-1", "pr", "#7", "--url", "https://example.com/7") == 0
     assert run("note", "TASK-1", "long log line") == 0
-    assert run("friction", "TASK-1", "gate was confusing") == 0
+    assert run("friction", "TASK-1", "something") == 0
     capsys.readouterr()
     assert run("show", "TASK-1", "--full") == 0
     text = _out(capsys)
@@ -75,7 +73,8 @@ def test_lifecycle_pause_resume_block_and_close(
     assert state.get("TASK-1").status == "active"
     assert run("block", "TASK-1", "--owner", "dba", "--needs", "a ticket") == 0
     assert run("unblock", "TASK-1") == 0
-    assert run("close", "TASK-1", "--abandon", "--reason", "dropped") == 0
+    assert run("close", "TASK-1", "--reason", "finished") == 0
+    assert "finished" in state.read_log("TASK-1")
     capsys.readouterr()
     assert run("list") == 0
     assert "TASK-1" not in _out(capsys)
@@ -83,6 +82,27 @@ def test_lifecycle_pause_resume_block_and_close(
     assert json.loads(_out(capsys))
     assert run("reopen", "TASK-1") == 0
     assert state.get("TASK-1").status == "active"
+
+
+@pytest.mark.usefixtures("orca_path")
+def test_close_blocks_only_on_unsettled_debate_rounds_unless_forced(
+    run: Run, repo: Path, state: TaskStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    topic = repo.parent / "topic.md"
+    topic.write_text("Pick cache backend.\n", encoding="utf-8")
+    assert (
+        run("debate", "TASK-1", "open", "--topic-file", str(topic), "--agents", "claude,codex") == 0
+    )
+    capsys.readouterr()
+    assert run("close", "TASK-1") == 1
+    assert "unsettled debate round" in capsys.readouterr().err
+    assert state.get("TASK-1").status == "active"
+    assert run("status", "TASK-1") == 0
+    status_out = _out(capsys)
+    assert "Debate" in status_out and "unsettled: 001, 002" in status_out
+    assert run("close", "TASK-1", "--force", "--reason", "abandoned debate") == 0
+    assert state.get("TASK-1").status == "closed"
+    assert "abandoned debate" in state.read_log("TASK-1")
 
 
 def test_close_done_outside_flow(run: Run, state: TaskStore) -> None:
@@ -101,6 +121,12 @@ def test_unbind_and_reports(
     run: Run, repo: Path, orca_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert run("fact", "TASK-1", "token=abc123supersecret") == 0
+    assert run("step", "TASK-1", "add", "ship it") == 0
+    assert run("decide", "TASK-1", "use sqlite", "--why", "simple") == 0
+    assert (
+        run("approve", "TASK-1", "--action", "push", "--target", "TASK-1", "--user-reply", "si")
+        == 0
+    )
     capsys.readouterr()
     assert run("handoff", "TASK-1", "--to", "builder") == 0
     assert "abc123supersecret" not in _out(capsys)
@@ -113,18 +139,33 @@ def test_unbind_and_reports(
     assert "TASK-1" in _out(capsys)
     assert run("config") == 0
     assert run("rounds", "TASK-1") == 0
+    capsys.readouterr()
     assert run("status", "TASK-1", "--json") == 0
-    assert "phase" in _out(capsys)
+    status = json.loads(_out(capsys))
+    for key in ("Status", "Repos", "Steps", "Decisions", "Approvals", "Debate"):
+        assert key in status
+    assert "use sqlite" in status["Decisions"]
+    assert "push:TASK-1" in status["Approvals"]
     assert run("unbind", "TASK-1", "--repo", str(repo)) == 0
 
 
-def test_error_paths_return_failure(run: Run, capsys: pytest.CaptureFixture[str]) -> None:
+def test_error_paths_and_removed_commands_return_failure(
+    run: Run, capsys: pytest.CaptureFixture[str]
+) -> None:
     capsys.readouterr()
     assert run("show", "NOPE-9") != 0
     assert run("fact", "NOPE-9", "x") != 0
-    assert run("phase", "TASK-1", "judge") != 0
     assert run("step", "TASK-1", "done", "99") != 0
-    assert run("close", "TASK-1") != 0
+    for removed in (
+        ("phase", "TASK-1", "work"),
+        ("tdd", "TASK-1", "red"),
+        ("judge", "TASK-1"),
+        ("trust",),
+        ("pr", "list"),
+    ):
+        with pytest.raises(SystemExit) as exc:
+            run(*removed)
+        assert exc.value.code == 2
 
 
 def test_subtasks_switch_and_reject_strangers(
@@ -139,31 +180,15 @@ def test_subtasks_switch_and_reject_strangers(
     assert "TASK-1" in _out(capsys)
 
 
-def test_stamp_ask_and_status_report_the_gate_state(
-    run: Run, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_stamp_ask_and_status_report_state(run: Run, capsys: pytest.CaptureFixture[str]) -> None:
     capsys.readouterr()
     assert run("stamp", "TASK-1") == 0
     stamp = json.loads(_out(capsys))
-    assert {"stamp", "risk", "judges"} <= stamp.keys()
+    assert "stamp" in stamp and "key" in stamp["stamp"]
     assert run("ask", "TASK-1", "--action", "plan", "--target", "TASK-1") == 0
     assert "taskflow approve TASK-1 --action plan" in _out(capsys)
     assert run("status", "TASK-1") == 0
     assert _out(capsys).strip()
-
-
-def test_manual_rounds_are_context_only(
-    run: Run, repo: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    body = repo / "round.md"
-    body.write_text("looks fine, password=hunter2hunter2\n")
-    assert run("round", "TASK-1", "record", "--role", "planner", "--file", str(body)) == 0
-    capsys.readouterr()
-    assert run("rounds", "TASK-1") == 0
-    assert "planner" in _out(capsys)
-    assert run("rounds", "TASK-1", "--show", "1") == 0
-    shown = _out(capsys)
-    assert "looks fine" in shown and "hunter2hunter2" not in shown
 
 
 def test_evidence_and_deploy_are_recorded(
@@ -193,11 +218,6 @@ def test_evidence_and_deploy_are_recorded(
     assert list(state.evidence_dir("TASK-1").iterdir())
     capsys.readouterr()
     assert run("evidence", "TASK-1", "--kind", "review", "--file", str(proof / "missing")) != 0
-
-
-def test_tdd_skip_needs_a_reason_and_unknown_phase_is_rejected(run: Run) -> None:
-    assert run("tdd", "TASK-1", "skip") != 0
-    assert run("phase", "TASK-1", "done") != 0
 
 
 def test_show_describes_parent_children_and_blockers(
@@ -230,7 +250,7 @@ def test_task_is_resolved_from_the_branch_when_not_bound(
     assert run("show") == 0
     assert "TASK-1" in _out(capsys)
     assert run("status", "--json") == 0
-    assert "Phase" in json.loads(_out(capsys))
+    assert "Status" in json.loads(_out(capsys))
 
 
 def test_unresolvable_directory_asks_for_the_task_id(
@@ -240,18 +260,8 @@ def test_unresolvable_directory_asks_for_the_task_id(
     assert run("show") != 0
 
 
-def test_round_record_and_rounds_validate_their_inputs(run: Run, repo: Path) -> None:
-    assert run("round", "TASK-1", "record", "--role", "planner", "--file", str(repo / "gone")) != 0
+def test_rounds_validates_missing_round(run: Run) -> None:
     assert run("rounds", "TASK-1", "--show", "99") != 0
-
-
-def test_tdd_and_judge_refuse_when_not_ready(run: Run, state: TaskStore) -> None:
-    assert run("tdd", "TASK-1", "red") != 0
-    assert run("tdd", "TASK-1", "skip", "--reason", " ") != 0
-    assert run("judge", "TASK-1") != 0
-    assert run("new", "man-1", "--title", "M", "--workflow", "manual") == 0
-    assert run("judge", "man-1") != 0
-    assert state.get("man-1").workflow == "manual"
 
 
 def test_ask_for_a_risky_action_demands_the_consequence(
@@ -277,70 +287,37 @@ def test_duplicate_tasks_and_corrupt_state_files(run: Run, state: TaskStore) -> 
     assert state.exists("TASK-1") and not state.exists("BROKEN-1-nope")
 
 
-def test_blocked_tasks_cannot_dispatch_rounds(
-    run: Run, orca_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert run("block", "TASK-1", "--owner", "dba", "--needs", "a ticket") == 0
-    capsys.readouterr()
-    args = (
-        "round",
-        "TASK-1",
-        "dispatch",
-        "--role",
-        "planner",
-        "--agent",
-        "claude",
-        "--prompt",
-        "x",
-    )
-    assert run(*args) != 0
-    assert "blocked by dba" in capsys.readouterr().err
-    assert run("unblock", "TASK-1") == 0
-    assert run(*args) == 0
-
-
-def test_dispatch_reads_prompt_files_and_rejects_unknown_agents(
-    run: Run, repo: Path, orca_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    prompt = repo.parent / "prompt.md"
-    prompt.write_text("plan it\n")
-    args = ("round", "TASK-1", "dispatch", "--role", "planner", "--agent", "claude")
-    capsys.readouterr()
-    assert run(*args, "--prompt-file", str(prompt), "--model", "m1") == 0
-    line = shlex.split(_out(capsys).strip())
-    assert flag(line, "--model") == "m1"
-    assert "plan it" in Path(flag(line, "--spec-file")).read_text(encoding="utf-8")
-    capsys.readouterr()
-    unknown = ("round", "TASK-1", "dispatch", "--role", "validator", "--agent", "nope")
-    assert run(*unknown, "--prompt", "x") != 0
-    assert "not allowed here" in capsys.readouterr().err
-
-
-def test_tdd_green_needs_a_red_run_and_a_passing_command(run: Run, repo: Path) -> None:
-    failing = "sh -c 'echo FAILED: boom; exit 1'"
-    assert run("tdd", "TASK-1", "green", "--cmd", "true") != 0
-    assert run("tdd", "TASK-1", "red", "--cmd", failing) == 0
-    assert run("tdd", "TASK-1", "green", "--cmd", failing) != 0
-
-
-def test_invalid_config_is_reported(
-    run: Run, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_invalid_config_is_reported(run: Run, tmp_path: Path) -> None:
     config = tmp_path / "config" / "ai-governance"
     config.mkdir(parents=True)
-    (config / "taskflow.toml").write_text(
-        '[roles.builder]\nagent = "claude"\n[[roles.judges]]\nfocus = "correctness"\nagent = "claude"\n'
-    )
+    (config / "taskflow.toml").write_text('workflow = "unknown-flow"\n')
     assert run("config") != 0
 
 
-def test_risky_approvals_are_rejected_until_they_name_action_and_target(run: Run) -> None:
+def test_risky_approvals_are_rejected_until_they_name_action_and_target(
+    run: Run, monkeypatch: pytest.MonkeyPatch
+) -> None:
     base = ("approve", "TASK-1", "--action", "deploy", "--target", "billing")
-    assert run(*base, "--user-reply", "ok") != 0  # no consequence shown
+    assert run(*base, "--user-reply", "ok") != 0
     assert run(*base, "--user-reply", " ", "--consequence", "outage") != 0
     assert run(*base, "--user-reply", "dale", "--consequence", "outage") != 0
     assert run(*base, "--user-reply", "confirmo la migracion", "--consequence", "x") != 0
     assert run(*base, "--user-reply", "confirmo deploy de otra cosa", "--consequence", "x") != 0
+    monkeypatch.setattr(
+        approvals,
+        "datetime",
+        type("D", (), {"now": staticmethod(lambda: datetime(2026, 10, 28, 10, 0))}),
+    )
+    assert (
+        run(
+            *base,
+            "--user-reply",
+            "confirmo deploy de billing",
+            "--consequence",
+            "outage",
+        )
+        == 0
+    )
 
 
 def test_stamp_tracks_links_renames_and_integration_branch(
@@ -386,59 +363,18 @@ def test_store_refuses_escaping_paths_and_corrupt_state(state: TaskStore) -> Non
         state.get("BAD-1")
 
 
-def test_manual_and_unbound_tasks_report_what_is_missing(
+def test_unbound_tasks_report_no_repo_and_can_close(
     run: Run, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert run("new", "man-1", "--title", "M", "--workflow", "manual") == 0
-    args = ("round", "man-1", "dispatch", "--role", "planner", "--agent", "claude", "--prompt", "x")
-    assert run(*args) != 0
     assert run("new", "free-1", "--title", "No repo") == 0
     capsys.readouterr()
     assert run("status", "free-1", "--json") == 0
     assert "no repository bound" in _out(capsys)
-    assert run("phase", "free-1", "judge") != 0
-    assert run("close", "free-1", "--abandon") == 0
-    assert run("phase", "free-1", "work") != 0
-
-
-def test_reports_after_a_judged_flow_include_the_judge_answer(
-    state: TaskStore, cli_run: Run, judge_orca, capsys: pytest.CaptureFixture[str]
-) -> None:
-    repo = judge_orca.repo
-    _plan_and_approve(cli_run, judge_orca)
-    _red_green_commit(cli_run, repo)
-    assert cli_run("phase", "TASK-1", "judge") == 0
-    printed = judge_orca.judge()
-    assert (
-        printed.code == 0 and judge_orca.settle_judge(judge_orca.worker_lines(printed)[0]).code == 0
-    )
-    out = repo.parent / "findings.md"
-    capsys.readouterr()
-    assert cli_run("findings", "TASK-1", "--out", str(out)) == 0
-    assert "TASK-1" in out.read_text()
-    capsys.readouterr()
-    assert cli_run("draft", "TASK-1") == 0
-    assert "Restore status" in _out(capsys)
-    assert cli_run("handoff", "TASK-1", "--to", "judge") == 0
-    assert "Handoff to judge" in _out(capsys)
-    assert cli_run("stamp", "TASK-1") == 0
-    assert cli_run("rounds", "TASK-1") == 0
-
-
-def test_judge_refuses_a_dirty_tree_and_keeps_edits_out(
-    state: TaskStore, cli_run: Run, judge_orca, repo: Path
-) -> None:
-    _plan_and_approve(cli_run, judge_orca)
-    _red_green_commit(cli_run, repo)
-    assert cli_run("phase", "TASK-1", "judge") == 0
-    (repo / "dirty.txt").write_text("uncommitted\n")
-    assert cli_run("judge", "TASK-1") != 0
-    assert cli_run("judge", "TASK-1", "--focus", "nope") != 0
+    assert run("close", "free-1", "--reason", "done") == 0
 
 
 def test_split_cli_modules_keep_their_public_paths() -> None:
     from ai_governance.taskflow import cli
 
     assert cli.GUIDE.startswith("Flow") and callable(cli.digest)
-    assert callable(cli.policy_summary)
     assert cli._parser().prog.endswith("taskflow") or cli._parser().prog

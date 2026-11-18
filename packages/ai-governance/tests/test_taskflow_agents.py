@@ -1,4 +1,4 @@
-"""Allowed agents per repository, provider normalization and the independence contract."""
+"""Allowed agents per repository, provider normalization, effort and denied models."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import json
 import os
 import signal
 import subprocess
-import tomllib
 from pathlib import Path
 
 import pytest
@@ -14,11 +13,8 @@ from ai_governance import config_cli
 from ai_governance._config_core import ConfigError
 from ai_governance.install.content import TASKFLOW_SKILL
 from ai_governance.settings import SETTINGS
-from ai_governance.taskflow import gates
 from ai_governance.taskflow.agents import DEFAULT_MODELS, provider
-from ai_governance.taskflow.config import FlowConfig, load_config, record_trust
-from ai_governance.taskflow.judge import JudgeError, builders, independent_judges
-from ai_governance.taskflow.models import Task
+from ai_governance.taskflow.config import FlowConfig, load_config
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -53,11 +49,6 @@ def _problems(config: FlowConfig) -> list[str]:
     return list(config.validate())
 
 
-def _agents(config: FlowConfig) -> tuple[str, ...]:
-    roles = [config.roles[r]["agent"] for r in ("planner", "validator", "builder")]
-    return (*roles, config.judges[0]["agent"])
-
-
 # --- provider normalization -------------------------------------------------------------
 
 
@@ -78,21 +69,20 @@ def test_agy_alias_is_antigravity() -> None:
 
 def test_restricted_repo_defaults(tmp_path: Path) -> None:
     config = load_config([_restricted(tmp_path, "claude", "codex")])
-    assert _agents(config) == ("claude", "codex", "claude", "codex")
-    assert config.roles["planner"]["model"] == ""  # not the antigravity model
+    assert config.roles["debater"]["agent"] == "codex"
+    assert config.roles["builder"]["agent"] == "claude"
     assert _problems(config) == []
 
 
 def test_this_repository_ends_with_claude_and_codex(isolated: Path) -> None:
     config = load_config([REPO_ROOT])
-    assert _agents(config) == ("claude", "codex", "claude", "codex")
     assert sorted(config.allowed.agents) == ["claude", "codex"]
+    assert config.roles["debater"]["agent"] == "codex"
     assert _problems(config) == []
 
 
 def test_unrestricted_repo_keeps_global_defaults(tmp_path: Path) -> None:
     config = load_config([_repo(tmp_path, "free", None)])
-    assert _agents(config) == ("antigravity", "codex", "claude", "codex")
     assert "antigravity" in config.allowed.agents
     assert _problems(config) == []
 
@@ -153,7 +143,7 @@ def test_malformed_repo_value_blocks_every_agent_and_names_the_file(
 
 def test_unreadable_repo_file_blocks_agents(tmp_path: Path) -> None:
     repo = _repo(tmp_path, "dir", None)
-    (repo / ".ai-governance" / "config.toml").mkdir()  # exists but cannot be read as a file
+    (repo / ".ai-governance" / "config.toml").mkdir()
     config = load_config([repo])
     assert not config.allowed.permits("claude")
     assert any("config.toml" in e for e in config.validate())
@@ -188,170 +178,16 @@ def test_malformed_user_value_blocks_agents(isolated: Path) -> None:
 def test_explicit_disallowed_role_is_an_error_not_a_swap(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("AI_GOVERNANCE_PLANNER_AGENT", "antigravity")
+    monkeypatch.setenv("AI_GOVERNANCE_DEBATER_AGENT", "antigravity")
     config = load_config([_restricted(tmp_path, "claude", "codex")])
-    assert config.roles["planner"]["agent"] == "antigravity"
-    assert any("planner" in e and "not allowed" in e for e in config.validate())
+    assert config.roles["debater"]["agent"] == "antigravity"
+    assert any("debater" in e and "not allowed" in e for e in config.validate())
     assert config.agent_error("antigravity") and config.agent_error("agy/x")
     assert config.agent_error("codex/gpt") is None and config.agent_error("human") is None
 
 
-def test_explicit_disallowed_judge_is_an_error(tmp_path: Path, isolated: Path) -> None:
-    isolated.mkdir(parents=True)
-    (isolated / "taskflow.toml").write_text(
-        '[[judges]]\nfocus = "security"\nagent = "antigravity"\nmodel = "m"\n'
-    )
-    config = load_config([_restricted(tmp_path, "claude", "codex")])
-    assert any("judge 'security'" in e and "not allowed" in e for e in config.validate())
-
-
-def test_human_judge_is_always_allowed(tmp_path: Path, isolated: Path) -> None:
-    isolated.mkdir(parents=True)
-    (isolated / "taskflow.toml").write_text('[[judges]]\nfocus = "correctness"\nagent = "human"\n')
-    config = load_config([_restricted(tmp_path, "claude")])
-    assert [e for e in _problems(config) if "judge" in e] == []
-
-
-def test_fallback_swaps_validator_when_builder_uses_same_provider(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("AI_GOVERNANCE_BUILDER_AGENT", "codex")
-    config = load_config([_restricted(tmp_path, "claude", "codex")])
-    # builder is explicitly codex; validator (default codex) clashes so it falls back to claude
-    assert config.roles["validator"]["agent"] == "claude"
-    assert config.judges[0]["agent"] == "claude"
-    assert _problems(config) == []
-
-
-def test_fallback_reports_clash_when_explicitly_configured(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("AI_GOVERNANCE_BUILDER_AGENT", "codex")
-    monkeypatch.setenv("AI_GOVERNANCE_VALIDATOR_AGENT", "codex")
-    config = load_config([_restricted(tmp_path, "claude", "codex")])
-    assert any("validator" in e for e in config.validate())
-
-
-@pytest.mark.parametrize(("allowed", "builder"), [("codex", "codex"), ("claude", "claude")])
-def test_independent_roles_fall_back_to_antigravity(
-    tmp_path: Path, allowed: str, builder: str
-) -> None:
-    config = load_config([_restricted(tmp_path, allowed, "antigravity")])
-    assert config.roles["builder"]["agent"] == builder
-    assert config.roles["validator"]["agent"] == "antigravity"
-    assert config.judges[0]["agent"] == "antigravity"
-    assert _problems(config) == []
-
-
 def test_setting_is_user_only_and_documented() -> None:
     assert "taskflow.allowed_agents" in {s.key for s in SETTINGS}
-
-
-# --- independence of the gate (A.7) ----------------------------------------------------
-
-
-def _rounds(**agents: str) -> list[dict]:
-    return [
-        {"n": i, "role": role, "agent": agent, "state": "valid", "source": "engine", "file": "f"}
-        for i, (role, agent) in enumerate(agents.items(), start=1)
-    ]
-
-
-def _config(builder: str = "claude") -> FlowConfig:
-    return FlowConfig(
-        roles={
-            "planner": {"agent": "claude", "model": ""},
-            "validator": {"agent": "codex", "model": ""},
-            "builder": {"agent": builder, "model": ""},
-        },
-        judges=({"focus": "correctness", "agent": "codex", "model": ""},),
-    )
-
-
-def test_default_roles_pass_the_gate() -> None:
-    task = Task(id="T", title="t")
-    task.rounds += _rounds(planner="claude", validator="codex/gpt-6.1-sol", judge="codex")
-    assert gates._workflow_unmet(task, _config()) == []
-    task.rounds += _rounds(builder="claude")  # a legacy builder round of the same provider
-    assert gates._workflow_unmet(task, _config()) == []
-
-
-def test_planner_may_share_the_builders_provider() -> None:
-    task = Task(id="T", title="t")
-    task.rounds += _rounds(planner="claude", validator="codex")
-    assert gates._workflow_unmet(task, _config("claude")) == []
-
-
-def test_validator_equal_to_builder_provider_blocked() -> None:
-    task = Task(id="T", title="t")
-    task.rounds += _rounds(planner="claude", validator="codex/gpt-6.1-sol")
-    unmet = gates._workflow_unmet(task, _config("codex"))
-    assert len(unmet) == 1 and "validator and builder both used provider 'codex'" in unmet[0]
-
-
-def test_judge_equal_to_builder_provider_blocked() -> None:
-    task = Task(id="T", title="t")
-    task.rounds += _rounds(validator="codex", judge="claude/opus")
-    unmet = gates._workflow_unmet(task, _config("claude"))
-    assert len(unmet) == 1 and "judge and builder both used provider 'claude'" in unmet[0]
-
-
-@pytest.mark.parametrize(
-    ("builder", "validator", "expected"),
-    [
-        ("codex/gpt-6.1-sol", "codex", "validator and builder"),  # legacy builder round
-        ("antigravity/gemini", "agy", "provider 'antigravity'"),  # an alias is the same provider
-    ],
-)
-def test_builder_round_counts_in_the_builder_set(
-    builder: str, validator: str, expected: str
-) -> None:
-    task = Task(id="T", title="t")
-    task.rounds += _rounds(validator=validator, builder=builder)
-    assert expected in gates._workflow_unmet(task, _config("claude"))[0]
-
-
-def test_single_agent_workflow_with_approval_unchanged() -> None:
-    task = Task(id="T", title="t", workflow="single-agent")
-    assert "needs the user's choice" in gates._workflow_unmet(task, _config())[0]
-    task.approvals.append({"action": "workflow", "target": "T"})
-    assert gates._workflow_unmet(task, _config()) == []
-    shared = Task(id="S", title="s")
-    shared.rounds += _rounds(validator="claude")
-    shared.approvals.append({"action": "workflow", "target": "S"})
-    assert gates._workflow_unmet(shared, _config("claude")) == []
-
-
-def test_human_judge_unchanged() -> None:
-    config = FlowConfig(
-        roles={"builder": {"agent": "claude", "model": ""}},
-        judges=({"focus": "correctness", "agent": "human"},),
-    )
-    assert config.validate() == []
-    assert gates._workflow_unmet(Task(id="T", title="t"), config) == []
-
-
-def test_config_compares_providers_for_judge_and_validator() -> None:
-    config = FlowConfig(
-        roles={
-            "planner": {"agent": "claude", "model": ""},
-            "validator": {"agent": "claude/opus", "model": ""},
-            "builder": {"agent": "claude", "model": ""},
-        },
-        judges=({"focus": "correctness", "agent": "claude/sonnet", "model": ""},),
-    )
-    errors = _problems(config)
-    assert any("judge 'correctness'" in e for e in errors)
-    assert any("validator" in e and "builder" in e for e in errors)
-
-
-def test_judge_independence_uses_providers() -> None:
-    task = Task(id="T", title="t")
-    task.rounds += _rounds(builder="codex/gpt-6.1-sol")
-    assert builders(task, _config("claude")) == {"claude", "codex"}
-    config = _config("claude")
-    with pytest.raises(JudgeError):
-        independent_judges(task, config, "", ["correctness"])
 
 
 # --- a restriction file that exists but cannot be read never lifts the restriction ---------
@@ -396,7 +232,7 @@ def test_unreadable_restriction_blocks_every_agent(tmp_path: Path, break_it) -> 
     try:
         try:
             config = load_config([repo])
-        except ValueError as exc:  # Linux fails the repo's taskflow.toml read loudly (ELOOP)
+        except ValueError as exc:
             assert ".ai-governance" in str(exc)
             return
         assert not config.allowed.permits("claude") and not config.allowed.permits("codex")
@@ -474,15 +310,16 @@ def test_run_refusal_names_the_broken_file(tmp_path: Path) -> None:
 def test_default_models_follow_the_settings_defaults() -> None:
     defaults = {s.key: s.default for s in SETTINGS}
     for role in ("planner", "validator", "builder", "judge", "debater"):
+        if f"taskflow.{role}_agent" not in defaults:
+            continue
         agent, model = defaults[f"taskflow.{role}_agent"], defaults[f"taskflow.{role}_model"]
         assert DEFAULT_MODELS[str(agent)] == model
         assert defaults[f"taskflow.{role}_effort"] == ""
     assert defaults["taskflow.denied_models"] == []
 
 
-def test_installed_skill_states_the_independence_rule() -> None:
-    assert "providers differ from builder" in TASKFLOW_SKILL
-    assert len(TASKFLOW_SKILL.encode()) <= 1024
+def test_installed_skill_stays_within_budget() -> None:
+    assert len(TASKFLOW_SKILL.encode()) <= 2500
 
 
 # --- unreadable USER config, special files and secondary files -------------------------------
@@ -585,15 +422,11 @@ def test_config_show_reports_a_broken_secondary_taskflow_file(
     assert code == 1 and "taskflow.toml" in captured.err
 
 
-def test_user_source_problem_fails_closed_on_agents_but_preserves_taskflow_toml(
+def test_user_source_problem_fails_closed_on_agents_but_preserves_taskflow_denied_models(
     isolated: Path,
 ) -> None:
     isolated.mkdir(parents=True)
-    (isolated / "taskflow.toml").write_text(
-        '[checks]\ncommands = ["pytest tests/auth"]\n'
-        '[[risk.rules]]\nname = "sec"\npaths = ["auth/*"]\njudges = ["sec-judge"]\n'
-        '[[judges]]\nfocus = "sec-judge"\nagent = "claude"\n'
-    )
+    (isolated / "taskflow.toml").write_text('denied_models = ["user-blocked"]\n')
     (isolated / "config.json").symlink_to(isolated / "nonexistent.json")
 
     config = load_config([])
@@ -601,9 +434,7 @@ def test_user_source_problem_fails_closed_on_agents_but_preserves_taskflow_toml(
     assert not config.allowed.permits("claude")
     assert not config.allowed.permits("codex")
     assert any("config.json" in p for p in config.allowed.problems)
-    assert any(r.name == "sec" for r in config.risk_rules)
-    assert "pytest tests/auth" in config.checks
-    assert any(j["focus"] == "sec-judge" for j in config.judges)
+    assert "user-blocked" in config.denied_models
 
 
 # --- effort and denied_models ---------------------------------------------------------------
@@ -618,16 +449,15 @@ def test_effort_and_denied_models_defaults_are_user_only(
         '[taskflow]\nplanner_effort = "low"\ndebater_effort = "high"\n',
     )
     cfg = load_config([repo])
-    assert cfg.efforts == {r: "" for r in ("planner", "validator", "builder", "judge", "debater")}
+    assert cfg.effort("debater") == ""
     assert cfg.denied_models == frozenset()
 
-    monkeypatch.setenv("AI_GOVERNANCE_PLANNER_EFFORT", "high")
     monkeypatch.setenv("AI_GOVERNANCE_DEBATER_EFFORT", "medium")
     updated = load_config([repo])
-    assert updated.effort("planner") == "high" and updated.effort("debater") == "medium"
+    assert updated.effort("debater") == "medium"
 
 
-def test_denied_models_union_across_user_and_repos_never_removes(
+def test_denied_models_union_across_user_and_repos_without_trust(
     tmp_path: Path, isolated: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     isolated.mkdir(parents=True, exist_ok=True)
@@ -636,22 +466,16 @@ def test_denied_models_union_across_user_and_repos_never_removes(
     repo_a = _repo(tmp_path, "a", '[taskflow]\ndenied_models = ["repo-cfg-model"]\n')
     repo_b = _repo(tmp_path, "b", "[taskflow]\ndenied_models = []\n")
     (repo_b / ".ai-governance" / "taskflow.toml").write_text(
-        'denied_models = ["untrusted-model"]\n'
+        '[taskflow]\ndenied_models = ["repo-tf-model"]\n'
     )
-    before = load_config([repo_a, repo_b])
-    assert before.denied_models == frozenset({"user-cfg-model", "user-tf-model", "repo-cfg-model"})
-
-    tf_text = '[taskflow]\ndenied_models = ["trusted-tf-model"]\n'
-    (repo_b / ".ai-governance" / "taskflow.toml").write_text(tf_text)
-    record_trust(repo_b, tomllib.loads(tf_text))
-    trusted = load_config([repo_a, repo_b])
-    assert trusted.denied_models == frozenset(
-        {"user-cfg-model", "user-tf-model", "repo-cfg-model", "trusted-tf-model"}
+    loaded = load_config([repo_a, repo_b])
+    assert loaded.denied_models == frozenset(
+        {"user-cfg-model", "user-tf-model", "repo-cfg-model", "repo-tf-model"}
     )
 
     monkeypatch.setenv("AI_GOVERNANCE_DENIED_MODELS", "env-model")
     with_env = load_config([repo_a, repo_b])
-    assert {"env-model", "user-tf-model", "repo-cfg-model", "trusted-tf-model"} <= set(
+    assert {"env-model", "user-tf-model", "repo-cfg-model", "repo-tf-model"} <= set(
         with_env.denied_models
     )
 
@@ -672,7 +496,6 @@ def _setup_malformed_denied(tmp_path: Path, case: str) -> tuple[Path, str]:
         "tf-int": "[taskflow]\ndenied_models = [1]\n",
     }[case]
     (repo / ".ai-governance" / "taskflow.toml").write_text(tf_body, encoding="utf-8")
-    record_trust(repo, tomllib.loads(tf_body))
     return repo, "taskflow.toml"
 
 

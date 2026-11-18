@@ -26,7 +26,6 @@ from ai_governance.taskflow.debate import (
 from ai_governance.taskflow.prompts import (
     CROSS_INSTRUCTION,
     THESIS_INSTRUCTION,
-    VERDICT_INSTRUCTION,
     WEB_INSTRUCTION,
     answer_section,
     artifact_instruction,
@@ -148,10 +147,34 @@ def _check_thesis_spec(world: OrcaWorld, n: int, focus: str, topic_snippet: str)
     record = world.dispatch_json(n)
     assert record["focus"] == focus
     assert THESIS_INSTRUCTION in spec
-    assert VERDICT_INSTRUCTION not in spec
     assert str(world.run_dir(n) / "scratch") in spec
     assert record["nonce"] in spec
     assert topic_snippet in spec
+
+
+def _seed_prior_round(world: OrcaWorld, n: int = 1, role: str = "planner") -> Path:
+    path = world.store.rounds_dir(world.task_id) / f"{n:03d}-work-{role}-claude.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("# Round\n\nPrior notes.\n", encoding="utf-8")
+    world.store.mutate(
+        world.task_id,
+        lambda t: t.rounds.append(
+            {
+                "n": n,
+                "phase": "work",
+                "role": role,
+                "focus": "",
+                "agent": "claude",
+                "model": "",
+                "stamp": t.stamp_key,
+                "file": str(path),
+                "state": "valid",
+                "verdict": "info",
+                "source": "engine",
+            }
+        ),
+    )
+    return path
 
 
 def test_open_three_seats_writes_specs_lines_debate_json_and_manual_task(
@@ -293,7 +316,7 @@ def _check_cross_spec(world: OrcaWorld, cross_n: int, own_n: int, others: tuple[
 def test_cross_waits_for_theses_excludes_own_round_and_places_instruction_after_block(
     world: OrcaWorld, tmp_path: Path
 ) -> None:
-    assert world.cycle("planner", "claude").code == 0
+    _seed_prior_round(world)
     _open_debate(world, _topic(tmp_path), "claude,codex,claude")
     assert world.run("debate", TASK, "cross").code == 1
 
@@ -542,7 +565,7 @@ _BAD_CROSS_ANSWER = (
 def test_close_routes_non_debate_self_and_malformed_lines_to_missing(
     world: OrcaWorld, tmp_path: Path
 ) -> None:
-    assert world.cycle("planner", "claude").code == 0
+    _seed_prior_round(world)
     _open_debate(world, _topic(tmp_path), "claude,codex")
     assert _settle(world, 2, "D2", _AnswerSpec("claude", "T2.\nPOSITION: A.\n")).code == 0
     assert _settle(world, 3, "D3", _AnswerSpec("codex", "T3.\nPOSITION: B.\n")).code == 0

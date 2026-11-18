@@ -465,26 +465,135 @@ def test_antigravity_hooks_path_is_shown_in_full() -> None:
     assert AGENTS["antigravity"].global_hooks.startswith("~/.gemini/config/hooks.json ")
 
 
-def test_antigravity_installs_session_start_and_doctor_has_no_gap(home: Path, monkeypatch) -> None:
-    from ai_governance.install import probe
+def test_antigravity_installs_session_start_and_doctor_has_no_gap(home: Path) -> None:
     from ai_governance.install.agents import HooksArtifact
 
-    monkeypatch.setattr(probe, "shell_hooks_verified", lambda _agent: True)
-    install_user(["antigravity"])
+    install_user(["antigravity", "codex"])
     spec = AGENTS["antigravity"]
-    hook_events = [
-        e.event
+    hook_commands = [
+        e.command
         for artifact in spec.global_artifacts()
         if isinstance(artifact, HooksArtifact)
         for e in artifact.entries
     ]
-    assert "SessionStart" in hook_events
+    assert "ai-governance hook antigravity session-start" in hook_commands
+    assert "ai-governance hook antigravity pre-tool-use" in hook_commands
+    assert not any("writer-lease" in cmd for cmd in hook_commands)
+    assert (home / ".gemini" / "config" / "hooks.json").is_file()
+    assert (home / ".codex" / "hooks.json").is_file()
 
     rows = check(None)
     assert not any(
         c == "user:antigravity" and s == WARN and "no session-start hook event" in d
         for c, s, d in rows
     )
+
+
+def _hook_entry(command: str, matcher: str | None = None) -> dict[str, object]:
+    item: dict[str, object] = {"hooks": [{"type": "command", "command": command}]}
+    if matcher is not None:
+        item["matcher"] = matcher
+    return item
+
+
+def _write_json(path: Path, data: dict[str, object]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data))
+    return path
+
+
+def _seed_legacy_hooks(home: Path) -> tuple[Path, Path]:
+    claude = _write_json(
+        home / ".claude" / "settings.json",
+        {
+            "hooks": {
+                "PreToolUse": [_hook_entry("ai-governance hook claude writer-lease", "Edit|Write")],
+                "Stop": [
+                    _hook_entry("ai-governance hook claude stop"),
+                    _hook_entry("user-stop-hook"),
+                ],
+            }
+        },
+    )
+    gemini = _write_json(
+        home / ".gemini" / "config" / "hooks.json",
+        {
+            "ai-governance": {
+                "PreToolUse": [_hook_entry("ai-governance hook antigravity writer-lease", "*")]
+            }
+        },
+    )
+    return claude, gemini
+
+
+def _seed_legacy_files(home: Path) -> tuple[Path, Path, Path]:
+    zshrc = home / ".zshrc"
+    zshrc.write_text(
+        "export FOO=1\n\n<!-- ai-governance:start -->\nfpath=(/tmp/zsh $fpath)\n<!-- ai-governance:end -->\n"
+    )
+    comp_file = home / "state" / "zsh" / "_ai-governance"
+    comp_file.parent.mkdir(parents=True)
+    comp_file.write_text("#compdef ai-governance\n")
+    plist = home / "LaunchAgents" / "com.ai-governance.prices-update.plist"
+    plist.parent.mkdir(parents=True)
+    plist.write_text("<plist/>")
+    return zshrc, comp_file, plist
+
+
+def _seed_legacy_ledger(home: Path, claude: Path, gemini: Path) -> tuple[Path, Path, Path]:
+    from ai_governance.install.engine import sha256
+
+    zshrc, comp_file, plist = _seed_legacy_files(home)
+    entries = [
+        {
+            "agent": "claude",
+            "kind": "hooks",
+            "path": str(claude),
+            "commands": [
+                "ai-governance hook claude writer-lease",
+                "ai-governance hook claude stop",
+            ],
+        },
+        {
+            "agent": "antigravity",
+            "kind": "hooks",
+            "path": str(gemini),
+            "group": "ai-governance",
+            "commands": ["ai-governance hook antigravity writer-lease"],
+        },
+        {
+            "agent": "completions",
+            "kind": "file",
+            "path": str(comp_file),
+            "sha256": sha256("#compdef ai-governance\n"),
+        },
+        {
+            "agent": "completions",
+            "kind": "block",
+            "path": str(zshrc),
+            "markers": ["<!-- ai-governance:start -->", "<!-- ai-governance:end -->"],
+        },
+        {"agent": "schedule", "kind": "file", "path": str(plist), "sha256": sha256("<plist/>")},
+    ]
+    _write_json(home / "state" / "installed.json", {"schema_version": 1, "entries": entries})
+    return zshrc, comp_file, plist
+
+
+def test_upgrade_and_uninstall_prune_legacy_hooks_completions_and_schedule(home: Path) -> None:
+    claude_settings, gemini_hooks = _seed_legacy_hooks(home)
+    zshrc, comp_file, plist = _seed_legacy_ledger(home, claude_settings, gemini_hooks)
+
+    install_user(["claude", "antigravity"])
+    claude_text = claude_settings.read_text()
+    assert "writer-lease" not in claude_text
+    assert "hook claude stop" not in claude_text
+    assert "user-stop-hook" in claude_text
+    assert "writer-lease" not in gemini_hooks.read_text()
+    assert not comp_file.exists()
+    assert not plist.exists()
+    assert zshrc.read_text() == "export FOO=1\n"
+    remaining_owners = {e["agent"] for e in installer.global_ledger().entries}
+    assert "completions" not in remaining_owners and "schedule" not in remaining_owners
 
 
 def test_report_collapses_many_files_per_folder(project: Path) -> None:

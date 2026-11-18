@@ -100,8 +100,7 @@ def ticket_draft(task: Task) -> str:
         f"- {d.get('env')}: {Path(str(d.get('repo'))).name} @ {str(d.get('sha'))[:12]}"
         for d in task.deployments
     ]
-    prs = [f"- {r.get('pr')}" for r in task.repos if r.get("pr")]
-    for heading, items in (("Pending", pending), ("Deployed", deployed), ("PRs", prs)):
+    for heading, items in (("Pending", pending), ("Deployed", deployed)):
         if items:
             lines += ["", f"**{heading}**", *items]
     return scrub("\n".join(lines)) + "\n"

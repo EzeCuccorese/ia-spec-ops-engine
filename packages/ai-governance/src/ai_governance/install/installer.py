@@ -22,7 +22,7 @@ from .. import __version__, corporate, personal, skills
 from ..frontmatter import check_frontmatter
 from ..paths import state_dir
 from ..rules.catalog import RuleCatalog, RuleDefinition
-from . import content, schedule
+from . import content
 from .agents import (
     AGENTS,
     RULES_DIR,
@@ -210,22 +210,6 @@ def installed_agents(ledger: Ledger) -> set[str]:
     """Agents with entries in the ledger; the scripts and shared project owners are not."""
     owners = {SCRIPTS_OWNER, COMPLETIONS_OWNER, SCHEDULE_OWNER, PROJECT_OWNER}
     return {entry["agent"] for entry in ledger.entries} - owners
-
-
-def _completions() -> list[Owned]:
-    from .. import completion
-
-    return [Owned(COMPLETIONS_OWNER, artifact) for artifact in completion.artifacts()]
-
-
-def sync_completions(*, dry_run: bool = False) -> Report | None:
-    """Regenerates the shell completions; None when nothing is installed for the user."""
-    ledger = global_ledger()
-    if not installed_agents(ledger):
-        return None
-    report = sync(_completions(), ledger, agents_in_scope={COMPLETIONS_OWNER}, dry_run=dry_run)
-    ledger.save(report, dry_run)
-    return report
 
 
 def _is_corporate_target(target: str) -> bool:
@@ -563,10 +547,7 @@ def install_user(
     desired.extend(_corporate_desired(specs, ledger, report, corporate_names))
     desired.extend(_personal_desired(specs, ledger, report, dry_run=dry_run))
     desired.extend(_skill_desired(specs, ledger, report, corporate_names))
-    desired.extend(_completions())
     scope = {spec.id for spec in specs} | {SCRIPTS_OWNER, COMPLETIONS_OWNER, SCHEDULE_OWNER}
-    if not dry_run:
-        schedule.unload()  # stop a retired agent before its plist is removed
     sync(desired, ledger, agents_in_scope=scope, dry_run=dry_run, force=force, report=report)
     ledger.extra["package_version"] = __version__
     ledger.save(report, dry_run)
@@ -576,7 +557,7 @@ def install_user(
 def uninstall_user(
     agents: list[str], *, dry_run: bool = False, corporate_names: list[str] | None = None
 ) -> Report:
-    """Removes the agents' artifacts; pack scripts and completions go with the last agent."""
+    """Removes the agents' artifacts; pack scripts go with the last agent."""
     scope = {spec.id for spec in resolve_agents(agents)}
     ledger = global_ledger()
     report = Report()
@@ -584,15 +565,12 @@ def uninstall_user(
     root = corporate.corporate_root()
     if keep_shared:
         if root.exists():
-            scripts = _corporate_scripts(corporate.packs(only=corporate_names), report)
+            desired = _corporate_scripts(corporate.packs(only=corporate_names), report)
         else:
-            scripts = _corporate_entries_to_keep(ledger, {SCRIPTS_OWNER})
-        desired = [*scripts, *_completions()]
+            desired = _corporate_entries_to_keep(ledger, {SCRIPTS_OWNER})
     else:
         desired = []
     shared = {SCRIPTS_OWNER, COMPLETIONS_OWNER, SCHEDULE_OWNER}
-    if not dry_run:
-        schedule.unload()  # stop a retired agent before its plist is removed
     sync(desired, ledger, agents_in_scope=scope | shared, dry_run=dry_run, report=report)
     ledger.save(report, dry_run)
     return report

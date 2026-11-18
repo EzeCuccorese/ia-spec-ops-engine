@@ -139,12 +139,6 @@ REPLACEMENTS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
         "read Confluence pages as compact Markdown",
         ("curl <atlassian>/wiki/rest/api",),
     ),
-    (
-        "claude-usage",
-        "ai-governance telemetry claude-usage",
-        "estimate Claude spend from local transcripts",
-        ("grep/parse ~/.claude/projects/**/*.jsonl",),
-    ),
 )
 
 

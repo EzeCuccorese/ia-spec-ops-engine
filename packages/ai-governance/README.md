@@ -1,9 +1,9 @@
 # ai-governance
 
-Per-agent engineering standards, token frugality, Claude spend telemetry and lightweight
-task tracking for AI coding agents. Supported agents: **Claude Code**, **OpenAI Codex** and
-**Google Antigravity 2**. The installer is a deterministic CLI: you choose the agent(s),
-and only those agents' files are touched.
+Per-agent engineering standards, token frugality and lightweight task tracking for AI coding
+agents. Supported agents: **Claude Code**, **OpenAI Codex** and **Google Antigravity 2**. The
+installer is a deterministic CLI: you choose the agent(s), and only those agents' files are
+touched.
 
 Deterministic execution (stack detection, quality gates, condensed command output, Git
 hooks) lives in the sibling `workspace` package (`ws`); `ai-governance` calls it through
@@ -46,7 +46,7 @@ points to that index.
 | | Claude Code | OpenAI Codex | Google Antigravity 2 |
 |---|---|---|---|
 | Global instructions | ~/.claude/rules/ai-governance.md + language rules (`paths:`) | $CODEX_HOME/AGENTS.md (marker block) + rule indexes in $CODEX_HOME/ai-governance/ | ~/.gemini/config/rules/ai-governance.md (`trigger: always_on`) + language rules (`trigger: glob`) |
-| Global hooks | ~/.claude/settings.json (Pre/PostToolUse Bash, SessionStart/End) | $CODEX_HOME/hooks.json SessionStart, PostToolUse condensing (after `probe` verifies) | ~/.gemini/config/hooks.json PreToolUse: raw noisy commands -> `ws run` (after `probe`) |
+| Global hooks | ~/.claude/settings.json (Pre/PostToolUse Bash, SessionStart/End) | $CODEX_HOME/hooks.json SessionStart, PostToolUse condensing | ~/.gemini/config/hooks.json SessionStart, PreToolUse: raw noisy commands -> `ws run` |
 | Scout subagent | ~/.claude/agents/scout.md (haiku, no web) + researcher.md (sonnet, web research) + runner.md (haiku, Bash, no edits), effort medium | $CODEX_HOME/agents/scout.toml (gpt-6-luna, effort medium, read-only) + config.toml default subagent model gpt-6-luna | ~/.gemini/config/agents/scout.md (model flash, read-only tools, no commands) |
 | Skills | ~/.claude/skills/{taskflow,test-audit}/SKILL.md | ~/.agents/skills/{taskflow,test-audit}/SKILL.md | ~/.gemini/config/skills/{taskflow,test-audit}/SKILL.md |
 | Project rules | .claude/rules/ai-governance-<id>.md -> symlink to .agents/rules | .agents/rules/ai-governance-<id>.md (shared) | .agents/rules/ai-governance-<id>.md (single source) |
@@ -62,16 +62,10 @@ gets `runner` (`haiku`, `Bash`/`Read`/`Grep`/`Glob`, no edit tools): it runs noi
 error lines, so the raw output never reaches the main context. For Codex, a marked block
 at the top of `$CODEX_HOME/config.toml` also sets `agents.default_subagent_model = "gpt-6-luna"`
 and `agents.default_subagent_reasoning_effort = "medium"`; if the file already defines an
-`[agents]` table or those keys, the block is left out with a warning. `ai-governance probe`
-verifies that each agent really delegates to the scout. The Claude scout and researcher set
-`omitClaudeMd: true` (it runs without CLAUDE.md/AGENTS.md instructions, saving tokens); the
-Antigravity scout is limited to `view_file`, `grep_search`, `find_by_name`, `list_dir` with
-`commandExecutionPolicy: off`. A misspelled tool name can hang an Antigravity subagent, so run
-`ai-governance probe --agent antigravity` to verify it after installing.
-
-Codex and Antigravity hooks (`$CODEX_HOME/hooks.json`, `~/.gemini/config/hooks.json`)
-are written only after `ai-governance probe --agent <a> --verify` proved that their shell
-hooks fire on this machine.
+`[agents]` table or those keys, the block is left out with a warning. The Claude scout and
+researcher set `omitClaudeMd: true` (it runs without CLAUDE.md/AGENTS.md instructions, saving
+tokens); the Antigravity scout is limited to `view_file`, `grep_search`, `find_by_name`,
+`list_dir` with `commandExecutionPolicy: off`.
 
 Claude Code user hooks (all through `ai-governance hook claude <event>`, fail-open):
 
@@ -81,25 +75,6 @@ Claude Code user hooks (all through `ai-governance hook claude <event>`, fail-op
 | PostToolUse (Bash) | Output over `threshold_chars` (4000) is replaced by a `ws condense` summary of at most `budget_chars` (2500); `ws log <id>` keeps the full text. Diffs and explicit file reads are never condensed |
 | SessionStart | Injects the active task digest (≤ 400 chars) |
 | SessionEnd | Logs branch, HEAD and the number of uncommitted files to the active task |
-
-### Shell completion (zsh)
-
-Any user install also writes `<TAB>` completion for `ai-governance`, `ws` and `spec` (the
-ones on `PATH`) to `~/.local/share/ai-governance/zsh/_<tool>`, and prepends one marked
-`fpath=(...)` line to `~/.zshrc` so it is found before `compinit` (oh-my-zsh included).
-Subcommands, options and their choices complete with their help text:
-
-```text
-$ ai-governance telemetry <TAB>
-calibrate     -- Store the ratio between the real spend and the estimate for a period
-claude-usage  -- Month-to-date Claude spend vs. business-day budget pace
-...
-```
-
-The scripts are static (nothing runs on `<TAB>`); `ai-governance update` regenerates them
-from each tool's argparse tree, so new commands show up after an update. Open a new shell
-to load them. `ai-governance completion zsh [tool]` prints one; skipped without a
-`~/.zshrc`; removed with the last uninstalled agent.
 
 ### Corporate packs
 
@@ -265,11 +240,9 @@ hint to re-enable it.
 | `ai-governance status [--root DIR]` / `doctor [--root DIR]` | What is installed where, per owner (an agent, `project` for the shared rules and `AGENTS.md` block, `corporate` for pack scripts) / read-only health checks (exit 1 on a failing check) |
 | `ai-governance agents` | Capability matrix of the supported agents (the table above) |
 | `ai-governance budget [--root DIR]` | Fixed context bytes (~tokens) loaded every session, per agent plus a `project` row for the shared rules and `AGENTS.md` block |
-| `ai-governance probe --agent <a> [--dir DIR]` then `--verify --seen <tokens>` | Proves on this machine which instruction locations the agent loads and which hooks fire. Codex/Antigravity hooks are installed only after a verified probe |
 | `ai-governance rules list` / `rules show <id>` / `rules profiles` | Browse the rule catalog and opt-in profiles |
 | `ai-governance skills <subcommand>` | Keep each third-party skill in one source directory and copy it into Claude, Codex and Antigravity (see above) |
-| `ai-governance taskflow <subcommand>` | Task tracking and the multi-agent plan/validate/work/judge flow (see below) |
-| `ai-governance telemetry <subcommand>` | Local Claude Code spend estimates (`ai-governance telemetry --help`) |
+| `ai-governance taskflow <subcommand>` | Task notebook and multi-provider design debates across agents (see below) |
 | `ai-governance jira ...` / `confluence ...` | Atlassian as compact Markdown (`jira` / `confluence` without arguments print their usage) |
 | `ai-governance hook <agent> <event>` | Entry point used by the installed hooks |
 
@@ -280,54 +253,35 @@ without `--force`, and `--dry-run` shows the exact plan.
 ### Taskflow
 
 One store, `~/.local/state/ai-governance/taskflow/tasks/<ID>/`: `state.json`, the long
-`log.md`, `rounds/` (one file per agent call plus `index.md`), `evidence/` and
-`friction.md`. It tracks any task (steps, facts, decisions, links) and runs the
-TriAgentTaskFlow: `plan -> validate -> work -> judge -> [staging] -> review -> done`, with a
-`findings` exit when the branch belongs to someone else. `taskflow --help` is the
-operating guide; `taskflow status <id>` lists what is missing for the next phase, which
-verdicts and approvals are stale, and the next command.
+`log.md`, `rounds/` (one file per debate round plus `index.md`), `evidence/` and
+`friction.md`. It serves as a persistent task notebook for multi-session work (steps,
+facts, decisions, links, approvals) and runs multi-provider design debates through Orca
+workers. `taskflow --help` is the operating guide; `taskflow status <id>` shows the
+task state, open steps, and debate status.
 
 | Subcommand | Purpose |
 |---|---|
 | `list [--all]`, `here`, `show [<id>] [--full] [--json]`, `digest` | Read tasks (`here`: bound to this branch/repository) |
-| `new <id> --title "..." [--parent P] [--workflow W] [--owner self\|external]` | Create a task or subtask; `switch <id> <sub>` sets the active subtask |
+| `new <id> --title "..." [--parent P]` | Create a task or subtask; `switch <id> <sub>` sets the active subtask |
 | `summary`, `step add\|done\|remove`, `fact`, `decide --why`, `note`, `link`, `reference`, `friction` | Record what a later session needs |
 | `bind <id> --repo P [--integration-branch B] [--pr N]`, `unbind` | Bind repositories/worktrees |
-| `stamp <id> [--remote]` | Code stamp of the bound repositories (HEAD + every changed path) and risk by path |
-| `round <id> dispatch --role planner\|validator [--rebut N] [--web] [--artifact P]`, `round <id> collect --round N --dispatch-id D`, `round <id> abort` / `round <id> record` | Reserve a reader round and print its Orca worker-start line (the engine never launches an agent), settle it from its worker or abort it / log a round run elsewhere (context only). `--rebut N` (repeatable) makes it a cross-examination of settled rounds; `--web` allows external web research with required URLs; `--artifact P` (repeatable) lists files the worker must inspect. The line saves Orca's receipt to `runs/N/launch.json` and collect refuses a round Orca launched on another provider or model; workers may run throwaway scripts in `runs/N/scratch/`, and `CHANGE: path:line - fix` lines of a review are stored in the round record. `round <id> run` is gone: it is a hidden stub that exits 2 and points here |
-| `debate <id> open --topic-file F --agents a,b [--model a=m] [--web] [--artifact P]`, `debate <id> cross`, `debate <id> status`, `debate <id> close [--partial]` | Run a multi-provider design debate: dispatch independent thesis rounds, dispatch all-against-all cross-examination rounds, inspect seat state, or write `synthesis.md` (and record open points as steps) |
-| `tdd <id> red\|green --cmd "..."`, `tdd <id> skip` | Mandatory test-first evidence; skipping needs the user's approval |
-| `judge <id> [--focus F]` | Runs the checks on a throwaway `git worktree` of HEAD, then prints the Orca worker line of every required judge (a reader of the real checkout; settle with `round collect`) |
-| `phase <id> <phase>`, `block`/`unblock`, `close [--abandon]` | Move through the gates |
+| `stamp <id> [--remote]` | Code stamp of the bound repositories (HEAD + every changed path) |
+| `debate <id> open --topic-file F --agents a,b [--model a=m] [--web] [--artifact P]`, `debate <id> cross`, `debate <id> status`, `debate <id> close [--partial]` | Run a multi-provider design debate: open independent thesis rounds, run all-against-all cross-examination rounds, inspect seat state, or write `synthesis.md` (and record open points as steps) |
+| `round <id> collect --round N --dispatch-id D`, `round <id> abort` / `round <id> record` | Settle or abort a dispatched debate worker round, or log a round run elsewhere |
+| `close [--abandon]`, `block`/`unblock` | Close or pause a task |
 | `approve <id> --action A --target T --user-reply "..." [--consequence "..."]` | Record an approval the user gave in the chat |
 | `deploy <id> ...`, `evidence <id> ...` | Record a deployment the user made and evidence bound to its SHA |
-| `findings`, `handoff --to <role>`, `draft` | Findings package for another owner, context for a role, ticket draft (secrets scrubbed) |
 | `config` | Show and validate `taskflow.toml` |
 
-Configuration: `~/.config/ai-governance/taskflow.toml` (`[roles.planner|validator|builder]`
-with `agent`/`model`, `[[judges]]` with `focus`/`agent`/`model` (`[[roles.judges]]` is accepted too, in the user and in the repository file), `[checks] commands`,
-`[[risk.rules]]` with `paths`, `judges`, `checks`, `restaging`); a repository's
-`.ai-governance/taskflow.toml` can add, replace or disable controls (see Configuration layers). Gates the engine enforces:
-
-- Different agents means different sessions: planner, validator and each judge are separate
-  sessions, and the builder is the coordinating session. The validator and every judge must be a
-  different provider (`codex` in `codex/gpt-6.1-sol`) than the builder; the planner may share the
-  builder's provider. A repository narrows the agents it allows with `[taskflow] allowed_agents`
-  in `.ai-governance/config.toml` (the user's set intersected with each bound repo's; malformed
-  values block every agent; a role left at its default moves to an allowed agent, an explicit
-  choice outside the set is an error). Every required focus must `pass` on
-  the current code stamp, and any code change makes verdicts and approvals stale.
-- Readers (planner, validator, judge) run with full permissions and a read-only limit in the
-  prompt; a reader that changes the tree invalidates its round, and the change is kept.
-- Risky approvals (deploy, prod, migration, infra, permissions, delete, policy-downgrade,
-  restaging) need the consequence shown, a reply naming action and target, and that reply in
-  a real user message of the Claude transcript; production actions are refused after 16:00
-  and on Friday after 13:00.
+Risky approvals (deploy, prod, migration, infra, permissions, delete, policy-downgrade,
+restaging) need the consequence shown, a reply naming action and target, and that reply in
+a real user message of the Claude transcript; production actions are refused after 16:00
+and on Friday after 13:00.
 
 ## Configuration and environment
 
-State: `~/.local/state/ai-governance/` (ledger `installed.json`, `taskflow/`, `telemetry/`,
-`probe/`, `frugal/`). Data: `~/.local/share/ai-governance/` (`zsh/` completions). Config: `~/.config/ai-governance/`.
+State: `~/.local/state/ai-governance/` (ledger `installed.json`, `taskflow/`, `frugal/`).
+Config: `~/.config/ai-governance/`.
 
 ### Configuration layers
 
@@ -372,8 +326,6 @@ Files are TOML (`[frugality]` / `threshold_chars = 4000`). Older JSON files keep
 | `deploy_approvals.production` | `AI_GOVERNANCE_DEPLOY_APPROVALS_PRODUCTION` | `never` | Production deploy approval policy (`never` or `explicit`) |
 | `corporate.packs` | `AI_GOVERNANCE_CORPORATE` | `[]` (all) | Company packs to install, comma separated (empty: every pack present) |
 | `atlassian.timeout_seconds` | `ATLASSIAN_TIMEOUT` | `30.0` | HTTP timeout of Jira and Confluence calls |
-| `pricing.timeout_seconds` | `AI_GOVERNANCE_PRICING_TIMEOUT_SECONDS` | `10.0` | Timeout of the price feed download |
-| `schedule.label` | `AI_GOVERNANCE_SCHEDULE_LABEL` | `com.ai-governance.prices-update` | launchd label of the price-refresh agent |
 
 Role and model settings (`taskflow.<role>_agent|_model`, `agents.*`) are read from
 the user level only: a repository cannot swap the agents that run with full permissions.
@@ -432,9 +384,7 @@ roles stay user-owned. An unknown `--profile` for Jira/Confluence is now an erro
 | Variable | Effect |
 |---|---|
 | `AI_GOVERNANCE_STATE_DIR` / `AI_GOVERNANCE_CONFIG_DIR` / `AI_GOVERNANCE_DATA_DIR` | Override the state / config / data locations |
-| `AI_GOVERNANCE_LAUNCH_AGENTS_DIR` | Override the LaunchAgents folder (launchctl is then not called) |
 | `XDG_STATE_HOME` / `XDG_CONFIG_HOME` / `XDG_DATA_HOME` | Base of the default locations (`~/.local/state`, `~/.config`, `~/.local/share`) |
-| `ZDOTDIR` | Where `.zshrc` is looked up for completions (default `~`) |
 | `AI_GOVERNANCE_AGENT` | Force agent (`1`) or human (`0`) output |
 | `CODEX_HOME` | Codex home (default `~/.codex`) |
 | `AI_GOVERNANCE_CORPORATE_DIR` | Where corporate packs are read from (default `packages/corporate-rules` of the checkout) |

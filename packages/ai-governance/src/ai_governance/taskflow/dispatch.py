@@ -24,12 +24,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import orca
-from .agents import DEFAULT_MODELS, HUMAN, INDEPENDENT_ROLES, builder_providers, provider
-from .approvals import valid_approval
+from .agents import DEFAULT_MODELS, HUMAN, provider
 from .config import FlowConfig
 from .context import round_header
 from .control import (
-    CheckedBaseline,
     DispatchError,
     UsageRefusal,
     baseline,
@@ -37,12 +35,10 @@ from .control import (
     digest_text,
     seal_path,
 )
-from .gates import work_unmet
 from .models import JsonDict, Task, now_iso
 from .prompts import (
     CROSS_INSTRUCTION,
     READ_ONLY_LIMIT,
-    VERDICT_INSTRUCTION,
     WEB_INSTRUCTION,
     artifact_instruction,
     cross_examination,
@@ -51,7 +47,7 @@ from .repos import on_live, partition
 from .stamp import head_sha, tree_fingerprint
 from .store import RoundSlot, TaskStore, atomic_write_text
 
-DISPATCHABLE = ("planner", "validator", "debater")
+DISPATCHABLE = ("debater",)
 
 
 @dataclass(frozen=True)
@@ -61,7 +57,6 @@ class DispatchRequest:
     focus: str
     prompt: str
     agent: JsonDict  # {"agent": ..., "model": ...}
-    expected: CheckedBaseline | None = None  # judge rounds: the state the checks ran on
     rebuts: tuple[int, ...] = ()  # settled rounds this one must cross-examine
     web: bool = False
     artifacts: tuple[str, ...] = ()
@@ -88,14 +83,11 @@ def run_dir(store: TaskStore, task_id: str, number: int) -> Path:
 
 def refuse_role(task: Task, role: str) -> None:
     if role == "builder":
-        unmet = work_unmet(task)
-        why = f" Not writable yet: {'; '.join(unmet)}." if unmet else ""
         raise UsageRefusal(
             "The builder is not dispatched: the coordinating session writes the code itself."
-            f"{why} Record its summary with `round {task.id} record --role builder`."
         )
     if role == "judge":
-        raise UsageRefusal(f"Judges are dispatched by `taskflow judge {task.id}`.")
+        raise UsageRefusal("Judges are not dispatched.")
 
 
 def _open_regular(path: Path) -> None:
@@ -147,8 +139,7 @@ def _check_model(config: FlowConfig, request: DispatchRequest) -> None:
 
 def check_dispatchable(task: Task, config: FlowConfig, request: DispatchRequest) -> None:
     role, name = request.role, str(request.agent.get("agent", ""))
-    if role != "judge":  # judges come from `taskflow judge`, which has run the checks first
-        refuse_role(task, role)
+    refuse_role(task, role)
     if task.workflow == "manual" and role != "debater":
         raise DispatchError("Manual tasks have no agent rounds")
     if task.blocked:
@@ -156,25 +147,11 @@ def check_dispatchable(task: Task, config: FlowConfig, request: DispatchRequest)
             f"'{task.id}' is blocked by {task.blocked.get('owner')}: {task.blocked.get('needs')}"
         )
     if not name or provider(name) == HUMAN:
-        raise DispatchError(f"{role}: a human cannot run as a worker; use `round {task.id} record`")
+        raise DispatchError(f"{role}: a human cannot run as a worker")
     if refusal := config.agent_error(name):
         raise DispatchError(f"{role}: {refusal}")
     _check_model(config, request)
-    _check_provider(task, config, request)
     _check_artifacts(request.artifacts)
-
-
-def _check_provider(task: Task, config: FlowConfig, request: DispatchRequest) -> None:
-    role, name = request.role, str(request.agent.get("agent", ""))
-    builder = str(config.roles.get("builder", {}).get("agent", ""))
-    tri = task.workflow == "tri-agent" and not valid_approval(
-        task.approvals, "workflow", "", task.id
-    )
-    if tri and role in INDEPENDENT_ROLES and provider(name) in builder_providers(task, builder):
-        raise DispatchError(
-            f"{role} and builder would both use provider '{provider(name)}': pick another agent "
-            f"(or the user's choice: approve {task.id} --action workflow --target {task.id})"
-        )
 
 
 def _snapshot_repos(task: Task) -> list[JsonDict]:
@@ -189,21 +166,6 @@ def _snapshot_repos(task: Task) -> list[JsonDict]:
             {"path": str(p), "head": head_sha(p), "fingerprint": tree_fingerprint(p)} for p in paths
         ],
     )
-
-
-def _triples(repos: Iterable[JsonDict]) -> list[tuple[str, str, str]]:
-    return sorted((str(r["path"]), str(r["head"]), str(r["fingerprint"])) for r in repos)
-
-
-def _require_baseline(expected: CheckedBaseline | None, repos: list[JsonDict]) -> None:
-    """The real checkouts must still be exactly what the engine's checks ran on."""
-    if expected is None or not expected.repos:
-        return
-    if _triples(repos) != _triples(expected.repos):
-        raise DispatchError(
-            "the code changed after the checks ran: nothing was dispatched; "
-            "run `taskflow judge` again"
-        )
 
 
 @dataclass(frozen=True)
@@ -279,8 +241,6 @@ def _spec_text(store: TaskStore, request: DispatchRequest, locked: Task, footer:
         text += WEB_INSTRUCTION
     if request.artifacts:
         text += artifact_instruction(_resolved_artifacts(request.artifacts))
-    if request.role in ("validator", "judge"):
-        text += VERDICT_INSTRUCTION
     return text + footer
 
 
@@ -346,12 +306,6 @@ class _Publisher:
 
     def __call__(self, locked: Task, number: int, round_file: Path) -> None:
         directory = round_file.parent.parent
-        want = self.request.expected
-        if want is not None and locked.stamp_key != want.stamp:
-            raise DispatchError(
-                "the code stamp changed after the checks ran: nothing was dispatched; "
-                "run `taskflow judge` again"
-            )
         refuse_pending(locked, directory, self.request)
         record, text = self._record(locked, number, round_file)
         _write_sealed(self.ctx.store, record, text)
@@ -426,7 +380,6 @@ def plan_dispatch(
     check_dispatchable(task, config, request)
     orca.require_orca()
     repos = _snapshot_repos(task)
-    _require_baseline(request.expected, repos)
     publisher = _Publisher(_DispatchContext(store, config, repos), request)
     agent = str(request.agent.get("agent", ""))
     store.reserve_round(task.id, RoundSlot(request.phase, request.role, agent), publisher)

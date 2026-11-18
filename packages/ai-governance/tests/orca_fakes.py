@@ -440,13 +440,14 @@ def _make_repo(path: Path, ignore: str = "") -> None:
         _git(tpl, "init", "-q", "-b", "feat/TASK-1-x")
         _git(tpl, "config", "user.email", "t@example.com")
         _git(tpl, "config", "user.name", "T")
+        _git(tpl, "config", "gc.auto", "0")
         (tpl / "app.py").write_text("x = 1\n")
         if ignore:
             (tpl / ".gitignore").write_text(ignore + "\n")
         _git(tpl, "add", ".")
         _git(tpl, "commit", "-qm", "init")
         _TEMPLATE_REPOS[ignore] = tpl
-    shutil.copytree(tpl, path)
+    shutil.copytree(tpl, path, ignore=shutil.ignore_patterns("*.lock"))
 
 
 # Everything Git (and the credential helpers it starts) would read from the caller: cleared
