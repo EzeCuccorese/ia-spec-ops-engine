@@ -36,6 +36,10 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Check private pack boundaries
+        if: ${{ env.GEMINI_API_KEY != '' }}
+        run: python scripts/check_private_packs.py HEAD
+
       - name: Run In-House Gemini Code Review
         if: ${{ env.GEMINI_API_KEY != '' }}
         env:

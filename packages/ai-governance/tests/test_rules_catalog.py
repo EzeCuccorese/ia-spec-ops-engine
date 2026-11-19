@@ -6,7 +6,7 @@ from ai_governance.rules.catalog import SCHEMA_VERSION, RuleCatalog
 
 def test_catalog_loads_all_rules_with_metadata() -> None:
     catalog = RuleCatalog()
-    assert len(catalog.rules) == 41
+    assert len(catalog.rules) == 42
     for rule in catalog.rules:
         assert rule.description and rule.globs and rule.sha256
         assert rule.content.startswith("# ")
@@ -165,6 +165,7 @@ def test_user_rules_cover_every_language_and_tool_rules() -> None:
         "18-surgical-changes",
         "19-pull-requests",
         "20-review-ready-code",
+        "21-antigravity-model-routing",
     }
     assert tool_rules <= user_ids
     assert {rule.id for rule in catalog.user_rules() if rule.always_on} == tool_rules
@@ -285,11 +286,12 @@ def test_atlassian_taskflow_and_confidentiality_rule_content_semantics() -> None
     assert conf.user_scope is True
     assert conf.always_on is True
     conf_content = conf.content
-    assert (
-        "never mentioned in tickets, PRs, commits, reviews, Confluence or chat tools"
-        in conf_content
+    assert "never mention engine tools" in conf_content.lower()
+    assert all(
+        channel in conf_content
+        for channel in ("tickets", "PRs", "commits", "reviews", "Confluence", "chats")
     )
-    assert "Quality gate and `QG_SKIP` count as engine tooling" in conf_content
+    assert "`QG_SKIP`" in conf_content and "never name the engine" in conf_content
 
 
 def test_every_language_rule_states_how_to_validate_input() -> None:

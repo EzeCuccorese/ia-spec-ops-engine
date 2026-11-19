@@ -15,15 +15,15 @@ installable Python packages (Python 3.11+):
 `ai-governance` and `workspace` never import each other; `ai-governance` calls `ws` through
 versioned `--json` contracts and degrades gracefully when it is absent.
 
-Personal third-party skills live, versioned in git, in [`skills/`](skills). Company-specific
-rule packs (rules, scripts and corporate skills) live, gitignored and never committed to git, in
-[`packages/corporate-rules/<company>/`](packages/corporate-rules) and are installed by
-`ai-governance`. Each package README is the reference for its CLI.
+Engineering rules live in the versioned engine catalog. Company-specific rule packs, scripts,
+and skills live outside the checkout in `~/.config/ai-governance/corporate-rules/<company>/`
+(or `AI_GOVERNANCE_CORPORATE_DIR`) and are never committed to git. Third-party skills in
+[`skills/`](skills) are versioned in git. Each package README is the reference for its CLI.
 
 ## Install
 
 ```bash
-uv tool install ./packages/ai-governance   # add --editable to use corporate packs and personal skills from this checkout
+uv tool install ./packages/ai-governance   # add --editable to use checkout-local third-party skills
 uv tool install ./packages/workspace
 ```
 

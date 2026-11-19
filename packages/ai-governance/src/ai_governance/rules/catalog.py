@@ -24,6 +24,7 @@ class RuleDefinition:
     content: str
     sha256: str
     user_scope: bool = False
+    user_agents: tuple[str, ...] = ()
 
     @property
     def always_on(self) -> bool:
@@ -69,6 +70,7 @@ class RuleCatalog:
                 content=content,
                 sha256=hashlib.sha256(content.encode("utf-8")).hexdigest(),
                 user_scope=bool(item.get("user_scope", False)),
+                user_agents=tuple(item.get("user_agents", [])),
             )
             self._rules[rule.id] = rule
 
@@ -76,10 +78,16 @@ class RuleCatalog:
     def rules(self) -> list[RuleDefinition]:
         return list(self._rules.values())
 
-    def user_rules(self) -> list[RuleDefinition]:
-        """Non-profiled user-scope rules installed globally across repositories."""
+    def user_rules(self, agent: str | None = None) -> list[RuleDefinition]:
+        """Non-profiled user-scope rules for an agent, or the full inventory."""
         return sorted(
-            (rule for rule in self.rules if rule.user_scope and rule.profile is None),
+            (
+                rule
+                for rule in self.rules
+                if rule.user_scope
+                and rule.profile is None
+                and (agent is None or not rule.user_agents or agent in rule.user_agents)
+            ),
             key=lambda r: r.id,
         )
 

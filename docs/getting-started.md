@@ -34,9 +34,8 @@ ws --help
 - **What it does**: installs two binaries in `~/.local/bin`: `ai-governance` and `ws`.
 - **Expect**: both `--help` outputs list their subcommands.
 - Nothing is configured yet for any agent.
-- If you will use company packs (step 2) or personal skills in `skills/`, install `ai-governance`
-  with `uv tool install --editable ./packages/ai-governance` instead: they are read from the
-  checkout.
+- Third-party skills in `skills/` are read from the checkout. Use an editable install when
+  changing them. Company packs come from the private external directory described below.
 
 ## 2. User scope (global) for one agent
 
@@ -54,7 +53,7 @@ What gets written for Claude Code:
 | `~/.claude/agents/scout.md` | Read-only subagent on `haiku`, effort `medium`, for exploration, reading and summaries (no web tools) | Only its name and description |
 | `~/.claude/agents/researcher.md` | Read-only subagent on `sonnet`, effort `medium`, for web research | Only its name and description |
 | `~/.claude/agents/runner.md` | Command runner on `haiku`, effort `medium`, for noisy builds/tests/CI logs (no edits) | Only its name and description |
-| `~/.claude/skills/{taskflow,test-audit}/SKILL.md` | How to use the task flow; how to write, review and prune tests | Only their names and descriptions |
+| `~/.claude/skills/{taskflow,test-audit,code-simplifier}/SKILL.md` | Task flow, test review, and behavior-preserving simplification | Only their names and descriptions |
 | `~/.claude/settings.json` (merged) | Four hooks: `PreToolUse`/`PostToolUse` (Bash), `SessionStart`, `SessionEnd`, all as `ai-governance hook claude <event>` | Only what each hook returns (see below) |
 | `~/.local/state/ai-governance/installed.json` | Ownership ledger and the list of projects you install | No |
 
@@ -73,12 +72,13 @@ locations; run `ai-governance agents` for the matrix. Codex also gets
 "medium"` in a marked block at the top of `~/.codex/config.toml`. Their hooks are installed
 directly with `--scope user`.
 
-**Company packs (optional)**: every folder under `packages/corporate-rules/<company>/` (or
-under `AI_GOVERNANCE_CORPORATE_DIR`) is installed by this same command: its `rules/*.md` become
+**Company packs (optional)**: every folder under
+`~/.config/ai-governance/corporate-rules/<company>/` (or the external directory selected by
+`AI_GOVERNANCE_CORPORATE_DIR`) is installed by this same command. Its `rules/*.md` become
 always-on rules, its `scripts/*` are linked into `~/.local/bin`, and its `skills/<name>/` become
-managed directory copies alongside personal skills. Company packs are gitignored and must never exist
-in git. Pass every agent you use in one install, because only the named agents get their pack
-rules refreshed. See [packages/corporate-rules/README.md](../packages/corporate-rules/README.md).
+managed directory copies. The installer rejects a corporate directory inside the repository.
+Pass every agent you use in one install, because only the named agents get pack rules refreshed.
+See [packages/corporate-rules/README.md](../packages/corporate-rules/README.md).
 
 **Check**:
 
@@ -159,8 +159,8 @@ ai-governance skills sync                    # update agent copies after editing
 ai-governance skills migrate --dry-run       # plan to adopt skills already in ~/.claude/skills etc.
 ```
 
-Personal skills live in [`skills/`](../skills) at the repo root (versioned in git); corporate
-skills live in `packages/corporate-rules/<company>/skills/` (gitignored, never in git). Edit a
+Third-party skills live in [`skills/`](../skills) at the repo root and are versioned in git.
+Corporate skills live in `$AI_GOVERNANCE_CORPORATE_DIR/<company>/skills/` outside the repository. Edit a
 skill in its source directory and run `ai-governance skills sync` to propagate changes (`doctor`
 warns if a copy is `outdated` or `edited`). Externally managed Orca skills
 (`orchestration`, `orca-cli`, `orca-computer-use`, `computer-use`) stay with Orca and are

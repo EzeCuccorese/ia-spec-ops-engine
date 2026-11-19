@@ -78,7 +78,6 @@ def test_cli_help_lists_all_canonical_subcommands(capsys: pytest.CaptureFixture[
         "update",
         "doctor",
         "rules",
-        "personal",
         "taskflow",
         "brain",
         "hook",
@@ -87,12 +86,6 @@ def test_cli_help_lists_all_canonical_subcommands(capsys: pytest.CaptureFixture[
     listing = out.split("{", 1)[1].split("}", 1)[0].split(",")
     for removed in ("frugal", "harness", "progreso", "ritmo", "telemetry", "completion", "probe"):
         assert removed not in listing
-
-
-def test_cli_dispatch_personal() -> None:
-    with patch("ai_governance.personal.main", return_value=0) as mock_personal:
-        assert main(["personal", "list"]) == 0
-        mock_personal.assert_called_once_with(["list"])
 
 
 def test_rules_subcommand_help_delegates_to_rules_parser(
@@ -107,6 +100,11 @@ def test_rules_subcommand_help_delegates_to_rules_parser(
 def test_cli_unknown_subcommand_errors() -> None:
     with pytest.raises(SystemExit):
         main(["not-a-real-subcommand"])
+
+
+def test_cli_personal_rules_command_is_retired() -> None:
+    with pytest.raises(SystemExit):
+        main(["personal", "list"])
 
 
 def test_cli_dispatch_install_commands() -> None:

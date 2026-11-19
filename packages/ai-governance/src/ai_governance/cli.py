@@ -15,7 +15,6 @@ COMMANDS: dict[str, str] = {
     "agents": "Capability matrix of the supported agents",
     "budget": "Fixed context (bytes/tokens) loaded per agent every session",
     "rules": "Browse the engineering-rules catalog (list, show, profiles)",
-    "personal": "Manage personal preference rules across agents (list, add, rm, migrate)",
     "skills": "Keep each third-party skill in one place and copy it into agents (list, add, rm, sync, migrate)",
     "taskflow": "Task notebook and multi-provider design debates across agents",
     "brain": "Cross-agent second brain notes (add, search, show, list, edit, archive, import)",
@@ -35,7 +34,6 @@ INSTALL_COMMANDS = (
 )
 _SUBCOMMAND_MODULES: dict[str, str] = {
     "rules": "ai_governance.rules.cli",
-    "personal": "ai_governance.personal",
     "skills": "ai_governance.skills",
     "taskflow": "ai_governance.taskflow.cli",
     "brain": "ai_governance.brain.cli",

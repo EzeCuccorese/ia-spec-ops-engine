@@ -1,9 +1,7 @@
-"""Company packs (``packages/corporate-rules/<pack>/``): always-on rules and scripts.
+"""Company packs with always-on rules and scripts.
 
-Packs live next to the packages in the source checkout (gitignored, never bundled in
-the wheel) or wherever ``AI_GOVERNANCE_CORPORATE_DIR`` points. Every pack present is
-installed at user scope; a company is just a folder, so switching companies means
-swapping folders.
+Packs live outside the source checkout under the user config directory, or wherever
+``AI_GOVERNANCE_CORPORATE_DIR`` points. Every pack present is installed at user scope.
 """
 
 from __future__ import annotations
@@ -15,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .frontmatter import check_frontmatter
+from .paths import config_dir
 from .settings import effective
 
 CORPORATE_DIR = "corporate-rules"
@@ -22,10 +21,42 @@ CORPORATE_DIR = "corporate-rules"
 
 def corporate_root() -> Path:
     explicit = os.environ.get("AI_GOVERNANCE_CORPORATE_DIR")
-    if explicit:
-        return Path(explicit).expanduser()
-    # src/ai_governance/corporate.py -> packages/corporate-rules (editable/source install).
-    return Path(__file__).resolve().parents[3] / CORPORATE_DIR
+    root = Path(explicit).expanduser() if explicit else config_dir() / CORPORATE_DIR
+    return _validate_private_root(root)
+
+
+def _validate_private_root(root: Path) -> Path:
+    declared = Path(os.path.abspath(root))
+    resolved = root.resolve()
+    candidates = {declared, *declared.parents, resolved, *resolved.parents}
+    if any((parent / ".git").exists() for parent in candidates):
+        raise ValueError("Corporate packs must be stored outside Git worktrees.")
+    return resolved
+
+
+def _pack_root(root: Path) -> Path:
+    if root.is_symlink():
+        raise ValueError("Corporate pack directories must not alias another location.")
+    return _validate_private_root(root)
+
+
+def rule_paths(root: Path, pack_name: str) -> list[Path]:
+    """Returns Markdown rules for one pack after validating every resolved source path."""
+    base = _validate_private_root(root)
+    pack_root = _pack_root(base / pack_name)
+    folder = pack_root / "rules"
+    if not folder.is_dir():
+        return []
+    if folder.is_symlink():
+        raise ValueError("Corporate rule directories must not alias another location.")
+    paths: list[Path] = []
+    for path in folder.glob("*.md"):
+        if not path.is_file() or path.name.lower() == "readme.md":
+            continue
+        if path.is_symlink():
+            raise ValueError("Corporate rule files must not alias another location.")
+        paths.append(_validate_private_root(path))
+    return sorted(paths)
 
 
 def bin_dir() -> Path:
@@ -48,41 +79,58 @@ class CorporatePack:
 
     def rules(self) -> list[CorporateRule]:
         result: list[CorporateRule] = []
-        for path in sorted((self.root / "rules").glob("*.md")):
-            if not path.is_file() or path.name.lower() == "readme.md":
-                continue
-            content = path.read_text(encoding="utf-8")
+        for private_path in rule_paths(self.root.parent, self.name):
+            content = private_path.read_text(encoding="utf-8")
             check = check_frontmatter(content)
             if not check.valid:
                 warnings.warn(
-                    f"Corporate rule '{path.name}' in pack '{self.name}' ({path}) is missing YAML front matter with 'trigger: always_on' or 'trigger: glob'",
+                    f"Corporate rule '{private_path.name}' in pack '{self.name}' ({private_path}) is missing YAML front matter with 'trigger: always_on' or 'trigger: glob'",
                     UserWarning,
                     stacklevel=2,
                 )
-            result.append(CorporateRule(self.name, path.stem, content, path.resolve()))
+            result.append(CorporateRule(self.name, private_path.stem, content, private_path))
         return result
 
     def skills(self) -> list[Path]:
         """Skill directories of the pack: every ``skills/<name>/`` holding a ``SKILL.md``."""
-        folder = self.root / "skills"
+        folder = _pack_root(self.root) / "skills"
         if not folder.is_dir():
             return []
+        if folder.is_symlink():
+            raise ValueError("Corporate skill directories must not alias another location.")
         return sorted(
             p
             for p in folder.iterdir()
-            if p.is_dir() and not p.name.startswith(".") and (p / "SKILL.md").is_file()
+            if p.is_dir()
+            and not p.name.startswith(".")
+            and not p.is_symlink()
+            and _validate_private_root(p).joinpath("SKILL.md").is_file()
         )
 
     def scripts(self) -> list[Path]:
-        folder = self.root / "scripts"
-        return sorted(p for p in folder.iterdir() if p.is_file()) if folder.is_dir() else []
+        folder = _pack_root(self.root) / "scripts"
+        if folder.is_symlink():
+            raise ValueError("Corporate script directories must not alias another location.")
+        return (
+            sorted(
+                _validate_private_root(p)
+                for p in folder.iterdir()
+                if p.is_file() and not p.is_symlink()
+            )
+            if folder.is_dir()
+            else []
+        )
 
 
 def available(root: Path | None = None) -> list[str]:
-    base = root or corporate_root()
+    base = _validate_private_root(root) if root is not None else corporate_root()
     if not base.is_dir():
         return []
-    return sorted(p.name for p in base.iterdir() if p.is_dir() and not p.name.startswith("."))
+    return sorted(
+        p.name
+        for p in base.iterdir()
+        if p.is_dir() and not p.is_symlink() and not p.name.startswith(".")
+    )
 
 
 def packs(root: Path | None = None, only: Sequence[str] | None = None) -> list[CorporatePack]:
@@ -101,7 +149,10 @@ def packs(root: Path | None = None, only: Sequence[str] | None = None) -> list[C
         raise ValueError(
             f"Unknown corporate pack(s): {', '.join(unknown)}. Available: {', '.join(present) or '(none)'}"
         )
-    return [CorporatePack(name, base / name) for name in (present if wanted is None else wanted)]
+    return [
+        CorporatePack(name, _pack_root(base / name))
+        for name in (present if wanted is None else wanted)
+    ]
 
 
 def selected_names(flag: str | None = None) -> list[str] | None:

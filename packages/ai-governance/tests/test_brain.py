@@ -54,7 +54,7 @@ def _init_repo(path: Path, *, remote: str = "") -> Path:
     return path
 
 
-def _seed_rules_for_search(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Path, Path]:
+def _seed_rules_for_search(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     corp_dir = tmp_path / "corp"
     (corp_dir / "acme" / "rules").mkdir(parents=True)
     (corp_dir / ".hidden").mkdir(parents=True)
@@ -65,18 +65,13 @@ def _seed_rules_for_search(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> t
     (corp_dir / "acme" / "rules" / "plain_rule.md").write_text(
         "No heading here, only staging checklist.\n", encoding="utf-8"
     )
+    (corp_dir / "globex" / "rules").mkdir(parents=True)
+    (corp_dir / "globex" / "rules" / "deploy.md").write_text(
+        "# Staging Deploy Guide\nGlobex credentials remain private.\n", encoding="utf-8"
+    )
     monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(corp_dir))
 
-    pers_dir = tmp_path / "personal"
-    (pers_dir / "rules").mkdir(parents=True)
-    (pers_dir / "rules" / "style.md").write_text(
-        "---\ntrigger: always_on\n---\n# Personal Style\nKeep staging tests fast.\n",
-        encoding="utf-8",
-    )
-    (pers_dir / "rules" / "unrelated.md").write_text(
-        "# Other\nNothing relevant.\n", encoding="utf-8"
-    )
-    return pers_dir, corp_dir
+    return corp_dir
 
 
 def _seed_search_world(
@@ -93,7 +88,7 @@ def _seed_search_world(
         )
     )
     b_store.add(NoteDraft(title="Local Python", body="Mention staging checks.", kind="howto"))
-    pers_dir, corp_dir = _seed_rules_for_search(monkeypatch, tmp_path)
+    corp_dir = _seed_rules_for_search(monkeypatch, tmp_path)
     t_store = TaskStore(tmp_path / "state" / "taskflow")
     acme_repo = _init_repo(tmp_path / "acme" / "orders")
     t_store.create(
@@ -110,7 +105,7 @@ def _seed_search_world(
         )
     )
     t_store.create(Task(id="TASK-100", title="Personal notes", summary="Not a match"))
-    return SearchSources(b_store, t_store, pers_dir, corp_dir)
+    return SearchSources(b_store, t_store, corp_dir)
 
 
 def _seed_claude_memories(tmp_path: Path) -> Path:
@@ -372,7 +367,7 @@ def test_unified_search_hits_brain_taskflow_and_rules_with_filters(
     sources = _seed_search_world(brain_env, monkeypatch, tmp_path)
 
     all_hits = search(SearchQuery(text="staging"), sources)
-    assert {h.source for h in all_hits} == {"brain", "taskflow", "rule"}
+    assert {h.source for h in all_hits} == {"brain", "taskflow"}
     task_hit = next(h for h in all_hits if h.source == "taskflow")
     assert "TASK-99" in task_hit.title and "leakme123" not in task_hit.snippet
     assert all(len(h.snippet) <= 120 for h in all_hits)
@@ -383,18 +378,24 @@ def test_unified_search_hits_brain_taskflow_and_rules_with_filters(
 
     acme_rules = search(SearchQuery(text="staging", kind="rule", scope="acme"), sources)
     assert {h.title for h in acme_rules} == {"Staging Deploy Guide", "plain_rule"}
+    globex_rules = search(SearchQuery(text="staging", kind="rule", scope="globex"), sources)
+    assert len(globex_rules) == 1 and globex_rules[0].scope == "globex"
+    monkeypatch.setenv("AI_GOVERNANCE_CORPORATE", "globex")
+    assert search(SearchQuery(text="staging", kind="rule", scope="acme"), sources) == []
+    assert search(SearchQuery(text="staging", kind="rule", scope="globex"), sources)
 
-    personal_only = search(SearchQuery(text="staging", scope="personal"), sources)
-    assert all(h.scope == "personal" for h in personal_only)
-    assert {h.source for h in personal_only} == {"brain", "rule"}
+    unscoped_rules = search(SearchQuery(text="staging", kind="rule"), sources)
+    assert unscoped_rules == []
+    personal_scope = search(SearchQuery(text="staging", kind="rule", scope="personal"), sources)
+    assert personal_scope == []
 
 
 def test_search_handles_missing_sources_unreadable_rules_and_validation(
     brain_env: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    pers_dir = tmp_path / "personal"
-    (pers_dir / "rules").mkdir(parents=True)
-    bad_rule = pers_dir / "rules" / "broken.md"
+    corp_dir = tmp_path / "corporate"
+    (corp_dir / "acme" / "rules").mkdir(parents=True)
+    bad_rule = corp_dir / "acme" / "rules" / "broken.md"
     bad_rule.write_text("# Broken\nhello\n", encoding="utf-8")
     real_read = Path.read_text
 
@@ -406,10 +407,9 @@ def test_search_handles_missing_sources_unreadable_rules_and_validation(
     monkeypatch.setattr(Path, "read_text", failing_read)
     sources = SearchSources(
         brain_store=BrainStore(brain_env),
-        personal_dir=pers_dir,
-        corporate_dir=tmp_path / "no-corp-dir",
+        corporate_dir=corp_dir,
     )
-    assert search(SearchQuery(text="hello"), sources) == []
+    assert search(SearchQuery(text="hello", kind="rule", scope="acme"), sources) == []
 
     with pytest.raises(ValueError, match="empty"):
         search(SearchQuery(text="   "))

@@ -96,6 +96,13 @@ def test_codex_and_antigravity_use_marker_blocks(home: Path) -> None:
     assert "tools:\n  - view_file\n  - grep_search\n  - find_by_name\n  - list_dir\n" in scout
     rule = (home / ".gemini" / "config" / "rules" / "ai-governance.md").read_text()
     assert rule.startswith("---\ntrigger: always_on\n---\n")
+    routing = "ai-governance-21-antigravity-model-routing.md"
+    models = (home / ".gemini" / "config" / "rules" / routing).read_text()
+    assert (
+        "swarm" in models and "gemini-4-hydrogen-low" in models and "gemini-4-neon-high" in models
+    )
+    assert not (home / ".codex" / "ai-governance" / "always" / routing).exists()
+    assert (home / ".gemini" / "config" / "skills" / "code-simplifier" / "SKILL.md").is_file()
     assert not (home / ".gemini" / "GEMINI.md").exists()
     uninstall_user(["codex"])
     assert (home / ".codex" / "AGENTS.md").read_text() == "# My rules\n"
@@ -332,7 +339,7 @@ def test_claude_user_scope_entry_files_preserve_content(home: Path) -> None:
     assert agents_text.startswith(existing_agents.rstrip())
     assert "<!-- ai-governance:start -->" in agents_text
     assert "<!-- ai-governance:end -->" in agents_text
-    assert "Personal preferences:" in agents_text
+    assert "Personal preferences:" not in agents_text
     assert "Company rules:" in agents_text
     assert "Engine catalog:" in agents_text
 
@@ -721,20 +728,45 @@ def test_engine_write_preserves_existing_file_permissions(tmp_path: Path) -> Non
         assert stat.S_IMODE(target.stat().st_mode) == expected_mode
 
 
-def test_user_install_creates_personal_rules_dir_and_readme_when_missing(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_install_removes_only_ledger_owned_legacy_personal_rule_links(
+    home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config_dir = tmp_path / ".config" / "ai-governance"
-    monkeypatch.setenv("AI_GOVERNANCE_CONFIG_DIR", str(config_dir))
-    monkeypatch.delenv("AI_GOVERNANCE_PERSONAL_DIR", raising=False)
-    expected_rules = config_dir / "personal" / "rules"
-    assert not expected_rules.exists()
+    monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(home / "missing-corporate-rules"))
+    install_user(["claude", "codex"])
+    source = home / ".config" / "ai-governance" / "personal" / "rules" / "voice.md"
+    source.parent.mkdir(parents=True)
+    source.write_text("# My voice\nBe concise.\n", encoding="utf-8")
+    claude_link = home / ".claude" / "rules" / "ai-governance-personal-voice.md"
+    codex_folder = home / ".codex" / "ai-governance" / "personal"
+    codex_link = codex_folder / "voice.md"
+    claude_link.symlink_to(source)
+    codex_link.parent.mkdir(parents=True, exist_ok=True)
+    codex_link.symlink_to(source)
+    user_file = codex_folder / "user-note.md"
+    user_file.write_text("Keep this file.\n", encoding="utf-8")
 
-    install_user(["claude"])
-    assert expected_rules.is_dir()
-    readme = expected_rules / "README.md"
-    assert readme.is_file()
-    assert "Personal Rules" in readme.read_text(encoding="utf-8")
+    ledger = installer.global_ledger()
+    ledger.entries.extend(
+        [
+            {"agent": "claude", "kind": "link", "path": str(claude_link), "target": str(source)},
+            {"agent": "codex", "kind": "link", "path": str(codex_link), "target": str(source)},
+        ]
+    )
+    ledger.save(installer.Report(), dry_run=False)
+
+    install_user(["claude", "codex"], dry_run=True)
+    assert claude_link.is_symlink() and codex_link.is_symlink()
+    assert source.is_file()
+
+    install_user(["claude", "codex"])
+
+    assert not claude_link.is_symlink()
+    assert not codex_link.is_symlink()
+    assert source.read_text(encoding="utf-8") == "# My voice\nBe concise.\n"
+    assert user_file.read_text(encoding="utf-8") == "Keep this file.\n"
+    assert not any(
+        "personal-voice.md" in entry["path"] for entry in installer.global_ledger().entries
+    )
 
 
 def test_doctor_warns_when_project_installed_without_user_scope(project: Path) -> None:

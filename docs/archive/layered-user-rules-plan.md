@@ -2,6 +2,10 @@
 
 Status: implemented in PR #51 (phases A, B and C plus the corporate pack safety fix, in one PR).
 
+Historical note: PR #85 retires the personal rules pack and moves shared working preferences
+into the versioned catalog. Corporate packs are now read from a private directory outside the
+repository. The details below describe the earlier implementation.
+
 ## Context
 
 Today the user-level instructions live in a hand-written `~/.claude/AGENTS.md` that mixes

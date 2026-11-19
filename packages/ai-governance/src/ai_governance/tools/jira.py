@@ -39,6 +39,7 @@ from ai_governance.tools.atlassian_common import (
     AtlassianError,
     atlassian_timeout,
     auth_header,
+    check_external_payload,
     execute_request,
     get_base_url,
     read_input_text,
@@ -83,10 +84,12 @@ def get(path: str) -> Any:
 
 
 def post(path: str, payload: dict[str, Any]) -> Any:
+    check_external_payload(payload)
     return _request("POST", path, payload)
 
 
 def put(path: str, payload: dict[str, Any]) -> Any:
+    check_external_payload(payload)
     return _request("PUT", path, payload)
 
 

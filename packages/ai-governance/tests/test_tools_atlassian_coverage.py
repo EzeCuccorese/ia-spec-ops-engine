@@ -13,6 +13,7 @@ import urllib.error
 from unittest.mock import MagicMock, patch
 
 import pytest
+from ai_governance.confidentiality import ConfidentialityError, reject_engine_references
 from ai_governance.tools import atlassian_common, confluence, jira
 
 _REAL_ADF_TO_STORAGE = confluence._adf_to_storage  # captured before conftest swaps it out
@@ -24,6 +25,37 @@ def _atlassian_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ATLASSIAN_API_TOKEN", "fake_token")
     monkeypatch.setenv("ATLASSIAN_URL", "https://company.atlassian.net")
     monkeypatch.setenv("ATLASSIAN_WORK_URL", "https://company.atlassian.net")
+
+
+def test_confidentiality_guard_blocks_internal_names_and_allows_domain_terms() -> None:
+    for text in (
+        "This project uses ai-governance for the rollout.",
+        "This project uses ai&#45;governance for the rollout.",
+        "Use ws&nbsp;check before publishing.",
+        "Import the ai_governance package.",
+        "Import the workspace_engine package.",
+    ):
+        with pytest.raises(ConfidentialityError):
+            reject_engine_references(text)
+    reject_engine_references("The payment engine supports workflow orchestration.")
+
+
+def test_jira_write_blocks_internal_references_before_request() -> None:
+    with (
+        patch.object(jira, "_request") as request,
+        pytest.raises(atlassian_common.AtlassianConfigError, match="restricted"),
+    ):
+        jira.cmd_create("PROJ", "Taskflow migration")
+    request.assert_not_called()
+
+
+def test_confluence_write_blocks_internal_references_before_request() -> None:
+    with (
+        patch.object(confluence, "_request") as request,
+        pytest.raises(atlassian_common.AtlassianConfigError, match="restricted"),
+    ):
+        confluence.cmd_create("ENG", "Release", "Run `ws check` before publishing.")
+    request.assert_not_called()
 
 
 def _mock_sequence(*bodies: dict | list) -> MagicMock:

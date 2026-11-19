@@ -14,9 +14,9 @@ def _no_real_home(
     """No test may write into the real home directory.
 
     A test that calls ``install_user`` without isolating the home would otherwise
-    reconfigure the agents running the suite: it rewrites their rules, drops the personal
-    rule links and leaves symlinks pointing into the pytest temp directory. ``HOME`` is
-    what ``Path.home()`` reads, so a test that sets its own still wins over this guard.
+    reconfigure the agents running the suite: it rewrites managed files and leaves
+    symlinks pointing into the pytest temp directory. ``HOME`` is what ``Path.home()``
+    reads, so a test that sets its own still wins over this guard.
     """
     monkeypatch.setenv("HOME", str(tmp_path_factory.mktemp("home-guard")))
 
@@ -48,16 +48,6 @@ def _no_corporate_packs(
 ) -> None:
     """The developer's own company packs (gitignored, next to the packages) must not leak in."""
     monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(tmp_path_factory.mktemp("no-packs")))
-
-
-@pytest.fixture(autouse=True)
-def _no_personal_packs(
-    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
-) -> None:
-    """The developer's own personal pack must not leak into tests."""
-    monkeypatch.setenv(
-        "AI_GOVERNANCE_PERSONAL_DIR", str(tmp_path_factory.mktemp("no-personal-packs"))
-    )
 
 
 @pytest.fixture(autouse=True)

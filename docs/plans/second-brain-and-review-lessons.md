@@ -1,6 +1,8 @@
 # Plan: second brain + three new review lessons
 
-Status: proposal, nothing implemented. Date: 2026-11-19.
+Status: the second-brain implementation, review lessons, and adapted review skills are in PR #85.
+Optional Orca brief and panel work is deferred. The original survey is historical context.
+Date: 2026-11-19.
 
 ## 1. How the user works today (survey)
 
@@ -15,15 +17,15 @@ Status: proposal, nothing implemented. Date: 2026-11-19.
   - Antigravity: its own `brain/` and `knowledge/` stores, separate again.
   - Taskflow: 88 tasks (50 active, 36 closed, 1 paused). `facts[]` is unused; decisions and
     lessons stay buried in `log.md` and `rounds/`. Closing a task moves nothing.
-  - Personal rules (`~/.config/ai-governance/personal/rules`, 10 files) are the only layer
-    deliberately shared by all three agents.
+  - Working preferences are now maintained as versioned, shared engineering rules in the
+    engine catalog. Company policies remain in private external packs.
   - No human-facing notes system (no Obsidian, no `~/notes`).
 - **Recurring kinds of knowledge:** working-style feedback (largest), gotchas (node version,
   VPN before staging, editable install), architecture decisions per service,
   references (chat channels, registries, service archetypes, PR/ticket links), process
   conventions.
 - **Pain points:** each new worktree starts blind; Orca worker briefs paste context instead of
-  pointing to it; a preference learned in Codex never reaches Claude; stale active tasks.
+  pointing to it, plus stale active tasks.
 
 ## 2. Second brain (PARA) design
 
@@ -32,7 +34,7 @@ PARA mapping onto what already exists — no duplication:
 | PARA | Source of truth | New work |
 |---|---|---|
 | Projects | Taskflow tasks (unchanged) | none |
-| Areas | Personal + corporate rules (unchanged) | none |
+| Areas | Engine catalog + active private corporate pack | none |
 | Resources | **new** `brain` notes | store + CLI |
 | Archive | **new** archive note written on `taskflow close` | close hook |
 
@@ -40,8 +42,7 @@ PARA mapping onto what already exists — no duplication:
 
 - `data_dir()/brain/` (`~/.local/share/ai-governance/brain/`), outside any cwd, so every
   agent and every worktree sees the same notes.
-- Two namespaces, same split as rules: `personal/` and `<company>/`.
-  Company notes never enter git (same treatment as `packages/corporate-rules/*/`).
+- Two namespaces for notes: `personal/` and `<company>/`. Company notes never enter git.
 - One Markdown file per note with front matter: `title`, `kind`
   (`gotcha|reference|decision|howto|archive`), `tags`, `scope` (`personal|<company>`),
   `repos` (optional), `source` (task id, PR, session), `created`, `updated`.
@@ -70,49 +71,45 @@ PARA mapping onto what already exists — no duplication:
 - **Rule:** small always-on rule (or a line in `14-taskflow`) telling agents: search the brain
   before asking the user something already answered; save durable lessons with `brain add`
   instead of agent-native memory.
-- **Claude native memory:** not removed. Once import is done, a personal rule points Claude to
+- **Claude native memory:** not removed. The shared engine catalog points agents to
   `brain add` for cross-agent facts; native memory stays for cwd-only details.
 - **Orca:** v2 only — worker briefs include `brain search` hits instead of pasted context;
   optional panel to browse notes.
 
-### Phases
+### Delivery status
 
-1. Store + `add/search/show/list` + tests (no hooks). Measure with real use for a week.
-2. `taskflow close` → archive; `brain archive` for the 36 already-closed tasks (dry-run first).
-3. SessionStart line + agent rule; check the rendered context budget tests.
-4. Curated import from Claude and Codex memories; dedup.
-5. Optional: Orca brief integration and panel; stale-task review (`brain list --stale`,
-   `taskflow list` of active tasks untouched for N days).
-
-### Open questions for the user
-
-- Location: `~/.local/share/...` (engine default) or a visible folder like `~/second-brain`?
-- Should `taskflow close` archive automatically or ask?
-- Which Codex/Antigravity knowledge is worth importing, if any?
+The Brain store, CLI, task-close archive, SessionStart digest, and curated import are implemented
+and covered in PR #85. The optional Orca brief integration and panel remain deferred.
 
 ### Risks / counter-metrics
 
 - Notes nobody reads → measure: `brain search` hits per week; prune with `--stale`.
 - Context bloat → hook budget stays at 400 chars, enforced by test.
-- Company data leaking into personal/public → scope split + secret check + gitignore.
+- Company data leaking across scopes → explicit private pack roots, scope checks, secret checks,
+  and repository/package publication guards.
 
 ## 3. Three new review lessons
 
-Constraint: the review-ready rule (`catalog/1-core/20-review-ready-code.md`) is always-on,
-1426 of 1500 bytes (74 left). The corporate pack is gitignored and has no size test.
+The three review lessons below are implemented in the always-on review-ready and Python async
+catalog rules. Each rule remains within its context budget. Company policies load only from an
+external private directory and are excluded from repository and package publication.
 
-| # | Lesson | Target | Proposed wording |
+| # | Lesson | Target | Shipped behavior |
 |---|---|---|---|
-| 1 | Format values (currency, units) travel as explicit data, never inferred from locale | `20-review-ready-code.md`, Types & API | "Send currency and units as explicit fields (ISO codes), never derived from locale or language." |
-| 2 | "Create only if absent" across services = conditional write enforced by the owner | `20-review-ready-code.md`, Errors & Timeouts | "Enforce create-if-absent across services with a conditional write in the owner service (409 on conflict), never a caller-side GET then POST." |
-| 3 | No `async` function without `await` (Sonar S7503) | `2-stacks/python-async.md` (1609/2000, scoped) | "Do not declare a function `async` unless it awaits; make it sync and drop `await` at call sites." |
+| 1 | Format values (currency, units) travel as explicit data, never inferred from locale | `20-review-ready-code.md`, Types & API | Currency and units are explicit fields |
+| 2 | "Create only if absent" across services = conditional write enforced by the owner | `20-review-ready-code.md`, Errors & Timeouts | Owner service enforces conditional write and conflict response |
+| 3 | No `async` function without `await` (Sonar S7503) | `2-stacks/python-async.md` | Unused async functions are synchronous |
 
-- To fit 1 and 2 (~230 bytes) in the always-on rule, tighten existing sentences
-  (~160 bytes) without dropping any invariant; if that is not possible, move "PR Hygiene"
-  to a scoped rule. The budget test must stay green.
-- The engine rules stay company-agnostic. Company-specific details (which service owns the
-  currency, which API returns 409) go only in the company pack, which is gitignored and
-  never published from this repo.
-- Company artifacts (rules for the corporate pack, PRs in company repos) never mention the
-  engine.
-- Ship as its own PR, separate from the second brain.
+## 4. Review skills adapted from a shared bundle
+
+The bundled `test-audit` skill requires a concrete contract, regression, and coverage gap before
+adding a test. It asks reviewers to cite the existing assertion that already covers a request
+when declining duplicate coverage. It audits assertions before recommending suite changes.
+
+The bundled `code-simplifier` skill limits edits to the current diff, protects behavior and error
+handling, checks truthiness and shared argument mutations, and asks for relevant checks after a
+simplification. It does not commit or publish changes.
+
+Cross-model review uses existing task debates. Reviewers examine distinct dimensions, findings
+are verified against current code, and the verdict appears before observations. The borrowed
+workflow's fixed model assumptions and company-specific examples were not adopted.

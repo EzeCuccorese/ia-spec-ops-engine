@@ -505,6 +505,19 @@ def test_ticket_draft_and_friction_file_are_in_english(state: TaskStore) -> None
     assert "**Done**" in draft and "Hecho" not in draft and "**PRs**" not in draft
 
 
+def test_ticket_draft_does_not_write_private_tool_references(
+    state: TaskStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    state.create(Task(id="TASK-1", title="Checkout", summary="Verified with ws check"))
+    output = tmp_path / "ticket.md"
+
+    assert main(["draft", "TASK-1", "--out", str(output)]) == 1
+    assert not output.exists()
+    messages = capsys.readouterr()
+    assert "restricted internal references" in messages.out + messages.err
+    assert "ws check" not in messages.out + messages.err
+
+
 def test_store_append_log_locks_without_deadlock_and_reserve_round_handles_any_digits(
     state: TaskStore,
 ) -> None:

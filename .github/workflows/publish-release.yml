@@ -43,6 +43,7 @@ jobs:
           APP_ID: ${{ vars.APP_ID }}
         run: |
           set -euo pipefail
+          python3 scripts/check_private_packs.py HEAD
           version="$(cat VERSION)"
           tag="v$version"
           if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then

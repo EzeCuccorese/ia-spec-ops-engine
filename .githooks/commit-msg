@@ -3,6 +3,9 @@
 
 set -euo pipefail
 
+HOOK_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+python3 "$HOOK_ROOT/scripts/check_private_packs.py"
+
 MSG_FILE="$1"
 MSG=$(head -n1 "$MSG_FILE")
 

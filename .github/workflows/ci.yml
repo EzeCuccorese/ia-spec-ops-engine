@@ -31,6 +31,9 @@ jobs:
           version: "latest"
           python-version: "3.11"
 
+      - name: Check private pack boundaries
+        run: python3 scripts/check_private_packs.py HEAD
+
       - name: Set up Git config
         run: |
           git config --global user.name "CI Test User"
@@ -88,10 +91,11 @@ jobs:
           uv run ai-governance --help
           uv run ws --help
 
-      - name: Build Monorepo Wheels
+      - name: Build Monorepo Distributions
         run: |
-          uv build packages/ai-governance --wheel --out-dir dist
-          uv build packages/workspace --wheel --out-dir dist
+          uv build packages/ai-governance --out-dir dist
+          uv build packages/workspace --out-dir dist
+          python3 scripts/check_private_packs.py --dist dist
 
       - name: Verify Wheel Hermeticity & CLI in Isolated Environment
         run: |

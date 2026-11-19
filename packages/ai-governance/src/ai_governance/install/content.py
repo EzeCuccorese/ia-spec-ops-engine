@@ -122,6 +122,11 @@ Debate rounds run in separate Orca workers (never launched directly by the engin
 3. `ai-governance taskflow debate <id> cross` — dispatch cross-examination rounds once theses are collected.
 4. `ai-governance taskflow debate <id> status` — check seat progress; `debate <id> close [--partial]` — write `synthesis.md` and turn open points into steps.
 
+## Paired implementation review
+Assign independent reviewers distinct areas. Give the verdict first and verify each finding
+against current code. Ask the implementer to address confirmed blockers and run the relevant
+checks before the follow-up review. Leave commits and publication to explicit authorization.
+
 Run `ai-governance taskflow --help` for full subcommand flags. Record only what a future session needs.
 """
 
@@ -141,7 +146,7 @@ Before writing a new test—or when a reviewer asks for one—answer four questi
 3. **Coverage gap**: Why do existing tests not already catch that bug?
 4. **Seam**: Does it require adding a test-only seam?
 
-If any answer is missing, do not write the test; decline the reviewer request with that reason. Keep a test when it is the sole guard of a real contract (and name that contract).
+For reviewer requests, identify the relevant existing assertion by file and line and explain why it misses the requested regression. Never request a test by reflex. If the contract, concrete regression, or coverage gap is missing, explain that before adding a test. Keep a test when it is the sole guard of a real contract (and name that contract).
 
 ## Low-value junk tests to avoid or prune
 - Language, stdlib, or framework behavior rather than project logic
@@ -160,18 +165,37 @@ If any answer is missing, do not write the test; decline the reviewer request wi
 3. **Re-verify deletions**: Before removing any test marked **Delete**, re-argue why it is redundant or valueless, then apply deletions and report what was kept and removed.
 """
 
-SKILLS = {"taskflow": TASKFLOW_SKILL, "test-audit": TEST_AUDIT_SKILL}
+CODE_SIMPLIFIER_SKILL = """\
+---
+name: code-simplifier
+description: Simplify only the current code diff while preserving behavior.
+---
+# Code Simplifier
+
+Simplify only code changed for the current task. Preserve public behavior, failure handling,
+and existing boundaries. Do not reformat unrelated code or expand the scope.
+
+Check boolean expressions for truthiness changes, keep real exception handling when cleanup or
+translation matters, and avoid mutating shared argument collections. Prefer the smallest clear
+change. Run relevant checks after simplifying and inspect the final diff for behavior drift.
+"""
+
+
+SKILLS = {
+    "code-simplifier": CODE_SIMPLIFIER_SKILL,
+    "taskflow": TASKFLOW_SKILL,
+    "test-audit": TEST_AUDIT_SKILL,
+}
 
 
 CLAUDE_ENTRY_BLOCK = "@AGENTS.md"
 
 
 def claude_agents_block(rules_dir: Path) -> str:
-    """Claude Code loads rules from ~/.claude/rules across three layers."""
+    """Point Claude Code to the installed engine and company rules."""
     return (
         "# AI governance\n"
-        f"- Installed rules live in `{rules_dir}` across three layers:\n"
-        "  - Personal preferences: `ai-governance-personal-*.md`\n"
+        f"- Installed rules live in `{rules_dir}` across two sources:\n"
         "  - Company rules: `ai-governance-<company>-*.md`\n"
         "  - Engine catalog: general tools and path-scoped language rules\n"
     )
@@ -192,7 +216,7 @@ def codex_rules_pointer(rules_dir: Path) -> str:
     """Codex has no per-file rules, so its instructions point to the installed indexes."""
     return (
         f"- Installed rules live in `{rules_dir}`: once per session read every file in "
-        "`always/` and `personal/` (if present); read `company/index.md` (if present) and open only "
+        "`always/`; read `company/index.md` (if present) and open only "
         "the rule needed for the task; before editing code, open `language-rules.md` and read the "
         "rules whose patterns match the file.\n"
     )

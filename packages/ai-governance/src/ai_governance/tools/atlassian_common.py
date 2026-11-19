@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from .._config_core import ConfigError
+from ..confidentiality import ConfidentialityError, reject_engine_references
 from ..paths import config_dir
 from ..settings import effective
 
@@ -40,6 +41,21 @@ class AtlassianRequestError(AtlassianError):
 
 class UnknownProfileError(AtlassianConfigError, LookupError):
     """Raised when a named Atlassian profile is not defined anywhere."""
+
+
+def check_external_payload(value: object) -> None:
+    """Checks every text value in an Atlassian write payload before submission."""
+    if isinstance(value, str):
+        try:
+            reject_engine_references(value)
+        except ConfidentialityError as exc:
+            raise AtlassianConfigError(str(exc)) from exc
+    elif isinstance(value, dict):
+        for item in value.values():
+            check_external_payload(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            check_external_payload(item)
 
 
 def atlassian_timeout() -> float:

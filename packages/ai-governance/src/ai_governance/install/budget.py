@@ -16,7 +16,7 @@ def _always_loaded(path: Path, text: str, agent: str = "") -> bool:
     if path.suffix != ".md":
         return False
     posix = path.as_posix()
-    if "/ai-governance/always/" in posix or "/ai-governance/personal/" in posix:
+    if "/ai-governance/always/" in posix:
         return True
     if posix.endswith("/ai-governance/company/index.md"):
         return True

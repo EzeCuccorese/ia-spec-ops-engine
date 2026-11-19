@@ -1,17 +1,20 @@
 # Corporate rules
 
-Company-specific, always-on rules, scripts and skills. A company is just a folder here: every
-folder present is installed by the regular user install, with no flag to pass.
+Company-specific, always-on rules, scripts and skills. Store each company folder outside the
+repository, by default under `~/.config/ai-governance/corporate-rules/`. Set
+`AI_GOVERNANCE_CORPORATE_DIR` to another private external directory when needed. The installer
+rejects locations inside a repository. Every company folder in the selected directory is
+installed by the regular user install, with no flag to pass.
 
 ```bash
-ai-governance install --scope user --agent claude --agent antigravity   # the engine and every pack below
+ai-governance install --scope user --agent claude --agent antigravity
 ```
 
-Packs are gitignored: they live only in the local checkout (read by the editable install,
-`uv tool install --editable ./packages/ai-governance`) or in `AI_GOVERNANCE_CORPORATE_DIR`,
-so company rules, scripts and corporate skills never reach git (unlike personal skills, which
-live versioned in [`skills/`](../../skills)). Changing companies means swapping the
-folder and running the install again: the old pack's files are removed, the new one's added.
+Packs live outside the repository and are never added to or published with it. Company work
+artifacts must describe only the company product, behavior, and code changes. Third-party skills
+live versioned in [`skills/`](../../skills). Changing companies means selecting the relevant
+private directory and running the install again: the old pack's files are removed, the new one's
+added.
 Only the agents named in that install are refreshed, so pass every agent you use; the others
 keep the previous pack's rules until their next install.
 
@@ -34,7 +37,7 @@ Layout of `<company>/`:
   ```
 
   Old copies made by earlier versions are replaced by links on the next install. If you move
-  or delete the checkout, the links break. Codex receives corporate rules linked into
+  or delete the private source directory, the links break. Codex receives corporate rules linked into
   `$CODEX_HOME/ai-governance/company/<company>-<name>.md`; its `AGENTS.md` block instructs
   Codex to read `company/` once per session.
 - `scripts/*` — files linked into `~/.local/bin` (override with `AI_GOVERNANCE_BIN_DIR`);
@@ -42,10 +45,9 @@ Layout of `<company>/`:
   with the same name, the first pack alphabetically wins and the install warns.
 - `skills/<name>/SKILL.md` — company-specific skills (plus optional scripts/files), synced as
   managed directory copies into `~/.claude/skills/<name>`, `~/.agents/skills/<name>` (Codex) and
-  `~/.gemini/config/skills/<name>` (Antigravity). Edit the source here and run
-  `ai-governance skills sync` to update the copies. Corporate skills stay gitignored inside this
-  folder and must never exist in git (use [`skills/`](../../skills) at the repo root only for
-  personal skills).
+  `~/.gemini/config/skills/<name>` (Antigravity). Edit the source in the private directory and
+  run `ai-governance skills sync` to update the copies. Corporate skills must never enter git.
+  Third-party skills supplied with the project live in [`skills/`](../../skills).
 
 Packs never hold credentials: tokens, passwords and personal data stay in the environment or
 the OS keychain.

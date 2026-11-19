@@ -223,10 +223,35 @@ def test_cli_installs_packs_with_a_plain_user_install(home: Path) -> None:
     assert _pack_rules(home)
 
 
-def test_corporate_root_defaults_to_the_packages_folder(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_corporate_root_defaults_to_external_config_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.delenv("AI_GOVERNANCE_CORPORATE_DIR")
+    monkeypatch.setenv("AI_GOVERNANCE_CONFIG_DIR", str(tmp_path / "config"))
     root = corporate.corporate_root()
-    assert (root.parent.name, root.name) == ("packages", "corporate-rules")
+    assert root == (tmp_path / "config" / "corporate-rules").resolve()
+
+
+def test_corporate_root_rejects_checkout_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+    checkout = Path(__file__).resolve().parents[3]
+    monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(checkout / "private-corporate"))
+    with pytest.raises(ValueError, match="outside Git worktrees"):
+        corporate.corporate_root()
+
+
+def test_pack_rejects_rule_symlinks_into_the_checkout(pack_root: Path) -> None:
+    rule = pack_root / "acme" / "rules" / "checkout-rule.md"
+    rule.symlink_to(
+        Path(__file__).resolve().parents[3] / "packages" / "corporate-rules" / "README.md"
+    )
+    (pack,) = corporate.packs()
+    with pytest.raises(ValueError, match="must not alias"):
+        pack.rules()
+
+
+def test_available_ignores_pack_symlinks(pack_root: Path, tmp_path: Path) -> None:
+    (pack_root / "globex").symlink_to(pack_root / "acme", target_is_directory=True)
+    assert corporate.available(pack_root) == ["acme"]
 
 
 def test_codex_installs_no_language_index_without_rules(home: Path) -> None:

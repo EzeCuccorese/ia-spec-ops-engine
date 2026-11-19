@@ -90,7 +90,7 @@ def test_budget_counts_shared_blocks_and_no_codex_project_rules(project: Path) -
     sync_project(project, add_agents=["codex"])
     user = fixed_cost(installer.global_ledger())
     lock = fixed_cost(Ledger(project / PROJECT_DIR / "lock.json", base=project))
-    # Codex carries its always-on rules (always/, personal/, company/index.md) and
+    # Codex carries its always-on rules (always/, company/index.md) and
     # the AGENTS.md block. At project scope it has no per-file rules.
     # The bound grew with the deploy-approvals, production-risk-window, surgical-changes
     # and pull-requests rules.

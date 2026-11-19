@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING
 
 from ..corporate import CorporateRule
 from ..frontmatter import _FRONTMATTER_RE
-from ..personal import PersonalRule
 from ..rules.catalog import RuleDefinition
 from ..settings import get as setting
 from . import content
@@ -169,10 +168,6 @@ class AgentSpec:
         """Always-on company rules at user level."""
         raise NotImplementedError
 
-    def personal_artifacts(self, rules: list[PersonalRule]) -> list[Artifact]:
-        """Always-on personal rules at user level."""
-        raise NotImplementedError
-
     def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
         """Path-scoped catalog rules at user level."""
         raise NotImplementedError
@@ -266,12 +261,6 @@ class ClaudeSpec(AgentSpec):
         home = claude_rules_dir()
         return [
             LinkArtifact(home / f"ai-governance-{r.pack}-{r.name}.md", str(r.path)) for r in rules
-        ]
-
-    def personal_artifacts(self, rules: list[PersonalRule]) -> list[Artifact]:
-        home = claude_rules_dir()
-        return [
-            LinkArtifact(home / f"ai-governance-personal-{r.name}.md", str(r.path)) for r in rules
         ]
 
     def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
@@ -373,10 +362,6 @@ class CodexSpec(AgentSpec):
         )
         return artifacts
 
-    def personal_artifacts(self, rules: list[PersonalRule]) -> list[Artifact]:
-        personal = codex_rules_dir() / "personal"
-        return [LinkArtifact(personal / f"{r.name}.md", str(r.path)) for r in rules]
-
     def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
         rules_dir = codex_rules_dir()
         if not rules:
@@ -410,12 +395,6 @@ class AntigravitySpec(AgentSpec):
         home = antigravity_rules_dir()
         return [
             LinkArtifact(home / f"ai-governance-{r.pack}-{r.name}.md", str(r.path)) for r in rules
-        ]
-
-    def personal_artifacts(self, rules: list[PersonalRule]) -> list[Artifact]:
-        home = antigravity_rules_dir()
-        return [
-            LinkArtifact(home / f"ai-governance-personal-{r.name}.md", str(r.path)) for r in rules
         ]
 
     def catalog_artifacts(self, rules: list[RuleDefinition]) -> list[Artifact]:
@@ -478,7 +457,7 @@ AGENTS: dict[str, AgentSpec] = {
         project_rules=".claude/rules/ai-governance-<id>.md -> symlink to .agents/rules",
         project_rules_mechanism="native `paths:` frontmatter (loaded per file)",
         scout="~/.claude/agents/scout.md (haiku, no web) + researcher.md (sonnet, web research) + runner.md (haiku, Bash, no edits), effort medium",
-        skills="~/.claude/skills/{taskflow,test-audit}/SKILL.md",
+        skills="~/.claude/skills/{taskflow,test-audit,code-simplifier}/SKILL.md",
     ),
     "codex": CodexSpec(
         id="codex",
@@ -488,7 +467,7 @@ AGENTS: dict[str, AgentSpec] = {
         project_rules=".agents/rules/ai-governance-<id>.md (shared)",
         project_rules_mechanism="injected on edit by a PreToolUse hook (planned)",
         scout="$CODEX_HOME/agents/scout.toml (gpt-6-luna, effort medium, read-only) + config.toml default subagent model gpt-6-luna",  # default of agents.codex_scout_model,
-        skills="~/.agents/skills/{taskflow,test-audit}/SKILL.md",
+        skills="~/.agents/skills/{taskflow,test-audit,code-simplifier}/SKILL.md",
     ),
     "antigravity": AntigravitySpec(
         id="antigravity",
@@ -498,7 +477,7 @@ AGENTS: dict[str, AgentSpec] = {
         project_rules=".agents/rules/ai-governance-<id>.md (single source)",
         project_rules_mechanism="`trigger: glob` activation (loaded per file; 20k-token rules budget)",
         scout="~/.gemini/config/agents/scout.md (model flash, read-only tools, no commands)",
-        skills="~/.gemini/config/skills/{taskflow,test-audit}/SKILL.md",
+        skills="~/.gemini/config/skills/{taskflow,test-audit,code-simplifier}/SKILL.md",
     ),
 }
 

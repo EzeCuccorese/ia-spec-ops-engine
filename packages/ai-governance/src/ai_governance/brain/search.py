@@ -1,4 +1,4 @@
-"""Unified plain-text search across brain notes, taskflow tasks, and personal/corporate rules."""
+"""Unified plain-text search across brain notes, taskflow tasks, and scoped corporate rules."""
 
 from __future__ import annotations
 
@@ -7,9 +7,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..corporate import corporate_root
+from .. import corporate
 from ..paths import state_dir
-from ..personal import personal_root
 from ..taskflow.handoff import scrub
 from ..taskflow.models import Task
 from ..taskflow.store import TaskStore
@@ -33,7 +32,6 @@ class SearchQuery:
 class SearchSources:
     brain_store: BrainStore | None = None
     task_store: TaskStore | None = None
-    personal_dir: Path | None = None
     corporate_dir: Path | None = None
 
 
@@ -205,33 +203,24 @@ def _rule_title(body: str, fallback: str) -> str:
     return fallback
 
 
-def _rule_files(folder: Path) -> list[Path]:
-    if not folder.is_dir():
-        return []
-    return [p for p in sorted(folder.glob("*.md")) if p.is_file() and p.name.lower() != "readme.md"]
-
-
 def _corporate_rule_entries(root: Path, scope: str | None) -> list[tuple[str, Path]]:
-    if not root.is_dir():
+    if not scope:
         return []
-    entries: list[tuple[str, Path]] = []
-    for pack_dir in sorted(root.iterdir()):
-        if not pack_dir.is_dir() or pack_dir.name.startswith("."):
-            continue
-        if scope and pack_dir.name != scope:
-            continue
-        entries.extend((pack_dir.name, p) for p in _rule_files(pack_dir / "rules"))
-    return entries
+    selected = corporate.selected_names()
+    if selected is not None and scope not in selected:
+        return []
+    if scope not in corporate.available(root):
+        return []
+    return [(scope, path) for path in corporate.rule_paths(root, scope)]
 
 
 def _iter_rule_entries(sources: SearchSources, scope: str | None) -> list[tuple[str, Path]]:
-    entries: list[tuple[str, Path]] = []
-    if scope in (None, DEFAULT_SCOPE):
-        p_root = sources.personal_dir if sources.personal_dir is not None else personal_root()
-        entries.extend((DEFAULT_SCOPE, p) for p in _rule_files(p_root / "rules"))
-    c_root = sources.corporate_dir if sources.corporate_dir is not None else corporate_root()
-    entries.extend(_corporate_rule_entries(c_root, scope))
-    return entries
+    if not scope or scope == DEFAULT_SCOPE:
+        return []
+    c_root = (
+        sources.corporate_dir if sources.corporate_dir is not None else corporate.corporate_root()
+    )
+    return _corporate_rule_entries(c_root, scope)
 
 
 def _search_rules(
@@ -265,7 +254,7 @@ def _search_rules(
 
 
 def search(query: SearchQuery, sources: SearchSources | None = None) -> list[SearchHit]:
-    """Search brain notes, taskflow tasks, and personal/corporate rules."""
+    """Search brain notes, taskflow tasks, and corporate rules in the requested scope."""
     if query.kind and query.kind not in SEARCH_KINDS:
         valid = ", ".join(SEARCH_KINDS)
         raise ValueError(f"Invalid search kind {query.kind!r}: expected one of {valid}")

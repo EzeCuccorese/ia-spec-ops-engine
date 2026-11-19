@@ -18,11 +18,13 @@ uv tool install ./packages/ai-governance   # CLI: ai-governance
 uv tool install ./packages/workspace       # CLI: ws (recommended)
 ```
 
-Corporate packs (gitignored) and personal skills (`skills/`, versioned in git) are read from
-the source checkout, so install with `uv tool install --editable ./packages/ai-governance` when
-you use them (or point `AI_GOVERNANCE_CORPORATE_DIR` / `AI_GOVERNANCE_PERSONAL_DIR` at your
-folders). When the corporate root directory does not exist, previously installed corporate rules
-and scripts are kept unchanged and a warning is printed instead of removing them.
+Corporate packs are read from `~/.config/ai-governance/corporate-rules/` or the external
+directory selected by `AI_GOVERNANCE_CORPORATE_DIR`. Corporate content is never stored in this
+checkout or included in a package. Third-party skills in `skills/` are versioned separately.
+Install with `uv tool install --editable ./packages/ai-governance` when
+you use checkout-local skills. When the corporate root directory does not exist, previously
+installed corporate rules and scripts are kept unchanged and a warning is printed instead of
+removing them.
 
 ## What gets installed where
 
@@ -34,11 +36,11 @@ agents.
 
 ### User scope — `ai-governance install --scope user --agent <claude|codex|antigravity>`
 
-Personal, project-agnostic harness, plus general tool rules and language rules: every non-profiled
+Global, project-agnostic harness, plus general tool rules and language rules: every non-profiled
 catalog rule marked `user_scope` (always-on general tool rules such as `circleci`, `deploy-approvals`,
 `production-risk-window`, `13-atlassian`, `14-taskflow`, `15-tool-confidentiality`,
 `16-git-branch-ownership`, `17-quality-gate`, `18-surgical-changes`, `19-pull-requests`,
-`20-review-ready-code`, all `2-stacks` rules and the code-level core rules) is written to the agent's
+`20-review-ready-code`, `21-antigravity-model-routing`, all `2-stacks` rules and the code-level core rules) is written to the agent's
 global rules folder with its globs (or always-on trigger), so it loads in any repository without
 committing anything. Opt-in profile rules (`architecture`, `distributed`, `api`) remain project-scoped.
 Always-on user-scope rules are not duplicated into project scope unless forced via `extra_rules`. Codex
@@ -51,7 +53,7 @@ has no per-file global rules: they are copied to `$CODEX_HOME/ai-governance/`, i
 | Global instructions | ~/.claude/rules/ai-governance.md + language rules (`paths:`) | $CODEX_HOME/AGENTS.md (marker block) + rule indexes in $CODEX_HOME/ai-governance/ | ~/.gemini/config/rules/ai-governance.md (`trigger: always_on`) + language rules (`trigger: glob`) |
 | Global hooks | ~/.claude/settings.json (Pre/PostToolUse Bash, SessionStart/End) | $CODEX_HOME/hooks.json SessionStart, PostToolUse condensing | ~/.gemini/config/hooks.json SessionStart, PreToolUse: raw noisy commands -> `ws run` |
 | Scout subagent | ~/.claude/agents/scout.md (haiku, no web) + researcher.md (sonnet, web research) + runner.md (haiku, Bash, no edits), effort medium | $CODEX_HOME/agents/scout.toml (gpt-6-luna, effort medium, read-only) + config.toml default subagent model gpt-6-luna | ~/.gemini/config/agents/scout.md (model flash, read-only tools, no commands) |
-| Skills | ~/.claude/skills/{taskflow,test-audit}/SKILL.md | ~/.agents/skills/{taskflow,test-audit}/SKILL.md | ~/.gemini/config/skills/{taskflow,test-audit}/SKILL.md |
+| Skills | ~/.claude/skills/{taskflow,test-audit,code-simplifier}/SKILL.md | ~/.agents/skills/{taskflow,test-audit,code-simplifier}/SKILL.md | ~/.gemini/config/skills/{taskflow,test-audit,code-simplifier}/SKILL.md |
 | Project rules | .claude/rules/ai-governance-<id>.md -> symlink to .agents/rules | .agents/rules/ai-governance-<id>.md (shared) | .agents/rules/ai-governance-<id>.md (single source) |
 | Rule loading | native `paths:` frontmatter (loaded per file) | injected on edit by a PreToolUse hook (planned) | `trigger: glob` activation (loaded per file; 20k-token rules budget) |
 <!-- agents-table:end -->
@@ -81,9 +83,10 @@ Claude Code user hooks (all through `ai-governance hook claude <event>`, fail-op
 
 ### Corporate packs
 
-Company-specific, always-on rules, scripts and skills live in `packages/corporate-rules/<company>/`
-of the local checkout (gitignored — company content must never exist in git, see
-[its README](../corporate-rules/README.md)), or wherever `AI_GOVERNANCE_CORPORATE_DIR` points.
+Company-specific, always-on rules, scripts and skills live outside the checkout, by default in
+`~/.config/ai-governance/corporate-rules/<company>/` (see
+[the corporate pack guide](../corporate-rules/README.md)), or wherever
+`AI_GOVERNANCE_CORPORATE_DIR` points.
 Every pack present is installed by the regular `install --scope user --agent ...`, with no extra
 flag. Removing or swapping the folder and installing again removes or swaps its files. When the
 corporate root directory does not exist, previously installed corporate rules and scripts are kept
@@ -103,36 +106,6 @@ the previous pack's rules until they are installed again, so pass every agent yo
 (`--agent claude --agent antigravity`). When two packs ship a script with the same name, the
 first pack alphabetically wins and the install warns.
 
-### Personal pack
-
-Personal preferences live outside the repository in `$AI_GOVERNANCE_PERSONAL_DIR` or
-`~/.config/ai-governance/personal/` (honouring `AI_GOVERNANCE_CONFIG_DIR`). Every rule
-in `<root>/rules/*.md` is installed as a symlink for each selected agent:
-
-| Pack content | Installed as |
-|---|---|
-| `rules/<name>.md` | Claude Code: `~/.claude/rules/ai-governance-personal-<name>.md` (symlink to the source file) |
-| | Antigravity: `~/.gemini/config/rules/ai-governance-personal-<name>.md` (symlink; front matter `trigger: always_on` is what Antigravity reads; no global `GEMINI.md` needed) |
-| | Codex: `$CODEX_HOME/ai-governance/personal/<name>.md` (symlink; the `AGENTS.md` block tells Codex to read `personal/` once per session) |
-
-When the personal root directory does not exist, previously installed personal links are kept
-unchanged and a warning is printed explaining how to set `AI_GOVERNANCE_PERSONAL_DIR`.
-An existing directory with an empty `rules` folder removes previous links as normal.
-Uninstalling an agent removes its personal links.
-
-Personal rules can be managed directly through the CLI:
-
-```bash
-ai-governance personal list                                                    # list personal rules and linked agents
-ai-governance personal add <name> [--from <file>] [--title <text>]             # create and link a personal rule
-ai-governance personal migrate --from <file> --name <name> [--section <title>] # migrate file or section to personal rule
-ai-governance personal rm <name>                                               # delete rule and its symlinks
-```
-
-- `add`: creates `<personal>/rules/<name>.md` with guaranteed `trigger: always_on` front matter and links it into all installed agents. With `--from`, seeds content from the file; without `--from`, generates a template.
-- `migrate`: moves a markdown section by heading title (`--section "Title"`) or the entire file into a personal rule, guaranteeing front matter and updating symlinks.
-- `rm`: deletes the rule file and removes its symlinks and ledger entries across installed agents.
-
 ### Skills
 
 A third-party skill is a directory (`SKILL.md` plus optional scripts) that lives in one source
@@ -140,12 +113,11 @@ directory and is copied into every installed agent as a managed directory copy t
 ownership ledger (agents such as Antigravity cannot read skill files across symlinks outside
 their config directory). Sources:
 
-- **Personal skills (versioned in git):** `skills/<name>/` at the repository root (or
-  `$AI_GOVERNANCE_PERSONAL_DIR/skills/<name>/` when set).
-- **Corporate skills (gitignored, never in git):** `packages/corporate-rules/<pack>/skills/<name>/`
-  for each selected company pack (or `$AI_GOVERNANCE_CORPORATE_DIR/<pack>/skills/<name>/`).
+- **Third-party skills (versioned in git):** `skills/<name>/` at the repository root.
+- **Corporate skills (private, outside this checkout):**
+  `$AI_GOVERNANCE_CORPORATE_DIR/<pack>/skills/<name>/`.
 
-Names must be unique across bundled, company and personal skills; a collision is an error. Copies
+Names must be unique across bundled, corporate and third-party skills. A collision is an error. Copies
 go to `~/.claude/skills/<name>`, `~/.agents/skills/<name>` (Codex) and
 `~/.gemini/config/skills/<name>` (Antigravity). Edit a skill in its source directory and run
 `ai-governance skills sync` to propagate updates. Locally edited copies and foreign entries are
@@ -172,24 +144,24 @@ agent. If real copies differ it changes nothing for that name unless `--from` pi
 At user scope, Claude Code receives entry files managed via marker blocks:
 
 - `~/.claude/CLAUDE.md`: contains only `@AGENTS.md` (does not @-import individual rules).
-- `~/.claude/AGENTS.md`: short text listing the three layers (engine catalog, corporate, personal) and where their files are installed.
+- `~/.claude/AGENTS.md`: short text pointing to the engine catalog and the active private company rules.
 
 Marker blocks never overwrite existing content: user content outside the markers is preserved
 byte-for-byte upon install, update, and uninstall. Re-running the install is idempotent.
 `ai-governance doctor` checks that both entry blocks are present when Claude is installed at user scope.
 For Antigravity, rules with `trigger: always_on` front matter in `~/.gemini/config/rules/` suffice; no global `GEMINI.md` is needed.
 
-### Rule layers and precedence
+### Rule sources
 
-The engine renders instructions across four layers:
+- **Engine catalog:** versioned, general engineering and agent-workflow rules shared across
+  repositories. Model routing and effort guidance for Antigravity are defined here.
+- **Repository rules:** project-specific instructions committed with the project. They can add
+  detail for the repository and must preserve the confidentiality requirements of the catalog.
+- **Corporate packs:** private company policies loaded from an external directory. They must
+  never be stored in the checkout, included in packages, or exposed in another company's scope.
 
-1. **Repository rules**: committed in `.agents/rules/` and project `AGENTS.md`.
-2. **Personal pack**: personal preferences in `~/.config/ai-governance/personal/rules/*.md`.
-3. **Corporate pack**: company rules in `packages/corporate-rules/<company>/rules/*.md`.
-4. **Engine catalog**: general tool rules and path-scoped language rules from the package.
-
-When rules conflict, the precedence order is:
-`repo rules > personal pack > corporate pack > engine catalog`. Repo rules always win.
+The engine catalog supplies the global rules. Repository and active corporate rules add
+scope-specific requirements. Corporate artifacts must never identify the engine or its tools.
 
 ### Project scope — `ai-governance install --scope project --agent <...>`
 
@@ -352,8 +324,8 @@ An unknown `--profile` for Jira/Confluence is an error that lists the known prof
 | `XDG_STATE_HOME` / `XDG_CONFIG_HOME` / `XDG_DATA_HOME` | Base of the default locations (`~/.local/state`, `~/.config`, `~/.local/share`) |
 | `AI_GOVERNANCE_AGENT` | Force agent (`1`) or human (`0`) output |
 | `CODEX_HOME` | Codex home (default `~/.codex`) |
-| `AI_GOVERNANCE_CORPORATE_DIR` | Where corporate packs are read from (default `packages/corporate-rules` of the checkout) |
-| `AI_GOVERNANCE_PERSONAL_DIR` | Override personal rules root (default `~/.config/ai-governance/personal`) and personal skills parent (`<dir>/skills/`, default `<checkout>/skills/`) |
+| `AI_GOVERNANCE_CORPORATE_DIR` | External corporate pack directory (default `~/.config/ai-governance/corporate-rules`) |
+| `AI_GOVERNANCE_PERSONAL_DIR` | Legacy override for third-party skill sources only, with `<dir>/skills/` |
 | `AI_GOVERNANCE_BIN_DIR` | Where corporate pack scripts are linked (default `~/.local/bin`) |
 | `FRUGAL=0` or `#nofrugal` in a command | Disable condensing for that command |
 | `ATLASSIAN_URL`, `ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN` | Default Jira/Confluence credentials |
