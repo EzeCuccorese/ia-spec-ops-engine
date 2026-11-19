@@ -327,3 +327,64 @@ def test_antigravity_pre_tool_use_wrappers_js_runners_and_edge_syntax(
         assert json.loads(out)["decision"] == "deny"
     else:
         assert out == ""
+
+
+def test_session_start_adds_compact_brain_line_within_budget(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    from ai_governance.brain.store import BrainStore, NoteDraft
+
+    monkeypatch.setenv("AI_GOVERNANCE_BRAIN_DIR", str(tmp_path / "brain"))
+    repo = _repo_with_task(monkeypatch, tmp_path)
+    store = BrainStore(tmp_path / "brain")
+    store.add(NoteDraft(body="Use Node 20", repos=(repo.name,)))
+
+    _stdin(monkeypatch, {"cwd": str(repo)})
+    assert hooks.main(["claude", "session-start"]) == 0
+    out = capsys.readouterr().out.strip()
+    assert f"BRAIN: 1 note for {repo.name}" in out
+    assert "ai-governance brain search" in out
+    assert len(out) <= hooks.SESSION_CONTEXT_CHARS
+
+    # Still fits within 400 chars even with a very long task summary and multiple notes.
+    store.add(NoteDraft(body="Second gotcha", repos=(repo.name,)))
+    TaskStore().mutate("T-1", lambda t: setattr(t, "summary", "S" * 380))
+    _stdin(monkeypatch, {"cwd": str(repo)})
+    assert hooks.main(["claude", "session-start"]) == 0
+    long_out = capsys.readouterr().out.strip()
+    assert f"BRAIN: 2 notes for {repo.name}" in long_out
+    assert len(long_out) <= hooks.SESSION_CONTEXT_CHARS
+
+
+def test_session_start_brain_hint_works_without_task_and_fails_open(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    from ai_governance.brain.store import BrainStore, NoteDraft
+
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("AI_GOVERNANCE_BRAIN_DIR", str(tmp_path / "brain"))
+    repo = tmp_path / "demo-repo"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    BrainStore(tmp_path / "brain").add(NoteDraft(body="Gotcha", repos=("demo-repo",)))
+
+    _stdin(monkeypatch, {"cwd": str(repo)})
+    assert hooks.main(["claude", "session-start"]) == 0
+    out = capsys.readouterr().out.strip()
+    assert hooks.NO_TASK_HINT in out
+    assert "BRAIN: 1 note for demo-repo" in out
+    assert len(out) <= hooks.SESSION_CONTEXT_CHARS
+
+    monkeypatch.setattr(
+        BrainStore, "count_for_repo", lambda self, r: (_ for _ in ()).throw(OSError("io"))
+    )
+    _stdin(monkeypatch, {"cwd": str(repo)})
+    assert hooks.main(["claude", "session-start"]) == 0
+    assert capsys.readouterr().out.strip() == hooks.NO_TASK_HINT
+
+
+def test_combine_session_message_respects_budget_extremes() -> None:
+    assert hooks._combine_session_message("", "BRAIN: 1 note", 40) == "BRAIN: 1 note"
+    assert hooks._combine_session_message("a" * 50, "BRAIN: 1 note", 25).endswith("\nBRAIN: 1 note")
+    assert len(hooks._combine_session_message("a" * 50, "BRAIN: 1 note", 25)) <= 25
+    oversized = hooks._combine_session_message("base", "BRAIN: " + "x" * 50, 20)
+    assert len(oversized) == 20 and oversized.endswith("…")

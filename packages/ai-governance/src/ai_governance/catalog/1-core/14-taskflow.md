@@ -6,3 +6,4 @@
 - **Task Notebook**: Record multi-step progress in Taskflow (`new`, `summary`, `step add|done`, `fact`, `decide --why`, `note`) rather than creating loose `.md` files.
 - **Approvals**: Record every user authorization for a risky action with `approve <id> --action <a> --target <t> --user-reply "<their words>"`. Risky actions require the user's explicit authorizing phrase, never a bare "ok".
 - **Design Debates**: Use `debate open|cross|status|close` and `round collect|abort` to run multi-provider design debates on a task when cross-model review is needed.
+- **Second Brain**: Run `ai-governance brain search <query>` before asking about prior context; save durable cross-agent lessons with `ai-governance brain add` instead of agent-local memory.

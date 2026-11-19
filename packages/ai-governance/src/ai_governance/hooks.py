@@ -74,14 +74,50 @@ NO_TASK_HINT = (
 )
 
 
+def _brain_hint(cwd: Path) -> str:
+    try:
+        from .brain.store import BrainStore, infer_repo
+
+        repo = infer_repo(cwd)
+        if not repo:
+            return ""
+        count = BrainStore().count_for_repo(repo)
+    except OSError:
+        return ""
+    if count <= 0:
+        return ""
+    noun = "note" if count == 1 else "notes"
+    return f"BRAIN: {count} {noun} for {repo} — `ai-governance brain search <query>`"
+
+
+def _combine_session_message(base: str, extra: str, max_chars: int) -> str:
+    if not extra:
+        return base[:max_chars] if len(base) > max_chars else base
+    if len(extra) >= max_chars:
+        return extra[: max_chars - 1] + "…" if len(extra) > max_chars else extra
+    if not base:
+        return extra
+    budget = max_chars - len(extra) - 1
+    if len(base) > budget:
+        base = base[: budget - 1] + "…" if budget > 1 else ""
+    return f"{base}\n{extra}" if base else extra
+
+
 def _session_start_message(cwd: Path) -> str:
+    brain_line = _brain_hint(cwd)
     found = _active_task(cwd)
     if found:
         from .taskflow.cli import digest
 
         store, task_id = found
-        return digest(store, task_id, max_chars=SESSION_CONTEXT_CHARS)
-    return _session_hint(cwd)
+        budget = (
+            max(0, SESSION_CONTEXT_CHARS - len(brain_line) - 1)
+            if brain_line
+            else SESSION_CONTEXT_CHARS
+        )
+        base = digest(store, task_id, max_chars=budget) if budget > 0 else ""
+        return _combine_session_message(base, brain_line, SESSION_CONTEXT_CHARS)
+    return _combine_session_message(_session_hint(cwd), brain_line, SESSION_CONTEXT_CHARS)
 
 
 def _claude_session_start() -> int:

@@ -43,6 +43,12 @@ def test_cli_dispatch_taskflow() -> None:
         mock_session.assert_called_once_with(["list"])
 
 
+def test_cli_dispatch_brain() -> None:
+    with patch("ai_governance.brain.cli.main", return_value=0) as mock_brain:
+        assert main(["brain", "list"]) == 0
+        mock_brain.assert_called_once_with(["list"])
+
+
 def test_cli_dispatch_jira() -> None:
     with patch("ai_governance.tools.jira.main", return_value=0) as mock_jira:
         assert main(["jira", "help"]) == 0
@@ -74,6 +80,7 @@ def test_cli_help_lists_all_canonical_subcommands(capsys: pytest.CaptureFixture[
         "rules",
         "personal",
         "taskflow",
+        "brain",
         "hook",
     ):
         assert subcommand in out
