@@ -96,7 +96,7 @@ def test_codex_and_antigravity_use_marker_blocks(home: Path) -> None:
     assert "tools:\n  - view_file\n  - grep_search\n  - find_by_name\n  - list_dir\n" in scout
     rule = (home / ".gemini" / "config" / "rules" / "ai-governance.md").read_text()
     assert rule.startswith("---\ntrigger: always_on\n---\n")
-    routing = "ai-governance-21-antigravity-model-routing.md"
+    routing = "ai-governance-21-antigravity-routing.md"
     models = (home / ".gemini" / "config" / "rules" / routing).read_text()
     assert (
         "swarm" in models and "gemini-4-hydrogen-low" in models and "gemini-4-neon-high" in models

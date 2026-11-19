@@ -380,9 +380,9 @@
       "user_scope": true
     },
     {
-      "id": "21-antigravity-model-routing",
+      "id": "21-antigravity-routing",
       "category": "1-core",
-      "file": "1-core/21-antigravity-model-routing.md",
+      "file": "1-core/21-antigravity-routing.md",
       "description": "Antigravity delegation with Hydrogen and Neon at effort levels matched to task complexity",
       "triggers": {
         "globs": [

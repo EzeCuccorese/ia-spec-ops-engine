@@ -165,7 +165,7 @@ def test_user_rules_cover_every_language_and_tool_rules() -> None:
         "18-surgical-changes",
         "19-pull-requests",
         "20-review-ready-code",
-        "21-antigravity-model-routing",
+        "21-antigravity-routing",
     }
     assert tool_rules <= user_ids
     assert {rule.id for rule in catalog.user_rules() if rule.always_on} == tool_rules

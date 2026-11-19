@@ -51,7 +51,7 @@ def test_always_on_rules_are_security_and_general_tools() -> None:
         "18-surgical-changes",
         "19-pull-requests",
         "20-review-ready-code",
-        "21-antigravity-model-routing",
+        "21-antigravity-routing",
         "circleci",
         "deploy-approvals",
         "production-risk-window",

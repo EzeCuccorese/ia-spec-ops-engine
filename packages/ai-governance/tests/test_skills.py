@@ -479,9 +479,7 @@ def test_personal_skills_dir_defaults_to_repo_root(
     assert personal_skills_dir(tmp_path) == tmp_path / "skills"
 
     # Wheel install (no checkout skills/ directory at parents[4]) falls back to personal_root/skills
-    fake_wheel = (
-        tmp_path / "venv" / "lib" / "py" / "site-packages" / "ai_governance" / "skills.py"
-    )
+    fake_wheel = tmp_path / "venv" / "lib" / "py" / "site-packages" / "ai_governance" / "skills.py"
     monkeypatch.setattr(skills, "__file__", str(fake_wheel))
     assert personal_skills_dir() == skills.config_dir() / "personal" / "skills"
 
