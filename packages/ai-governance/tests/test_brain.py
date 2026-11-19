@@ -761,7 +761,7 @@ def test_brain_cli_archive_and_import_subcommands(
     assert json.loads(capsys.readouterr().out)["applied"] is False
 
 
-def test_brain_cli_handles_missing_task_and_key_error(
+def test_brain_cli_handles_missing_task_without_swallowing_key_error(
     brain_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert brain_cli.main(["archive", "MISSING-999"]) == 1
@@ -770,8 +770,8 @@ def test_brain_cli_handles_missing_task_and_key_error(
     monkeypatch.setattr(
         brain_cli, "archive_task", lambda *_a, **_k: (_ for _ in ()).throw(KeyError("text"))
     )
-    assert brain_cli.main(["archive", "TASK-BAD"]) == 1
-    assert "text" in capsys.readouterr().err
+    with pytest.raises(KeyError, match="text"):
+        brain_cli.main(["archive", "TASK-BAD"])
 
 
 def test_every_brain_subcommand_has_help_and_taskflow_rule_stays_within_budget() -> None:
