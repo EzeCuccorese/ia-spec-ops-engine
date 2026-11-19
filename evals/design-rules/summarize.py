@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -28,88 +29,98 @@ def load_rows(path: Path = RESULTS_CSV) -> list[dict]:
         return list(csv.DictReader(f))
 
 
+def _is_valid_run(row: dict) -> bool:
+    if (row.get("error") or "").strip():
+        return False
+    try:
+        tests_total = int(row.get("hidden_tests_total") or 0)
+        cost = float(row.get("cost_usd") or 0)
+    except ValueError:
+        return False
+    return tests_total > 0 and math.isfinite(cost) and cost > 0
+
+
+def _col_sum(crows: list[dict], key: str) -> int:
+    return sum(_num(row, key) for row in crows)
+
+
+def _col_mean(crows: list[dict], key: str) -> float:
+    values = [float(row[key]) for row in crows if row.get(key)]
+    return sum(values) / len(values) if values else 0.0
+
+
+def _sum_violations_by_metric(crows: list[dict]) -> dict[str, int]:
+    by_metric: dict[str, int] = defaultdict(int)
+    for row in crows:
+        metrics = json.loads(row["violations_by_metric"] or "{}")
+        for metric, count in metrics.items():
+            by_metric[metric] += count
+    return by_metric
+
+
+def _summarize_condition(crows: list[dict]) -> dict:
+    total_added = _col_sum(crows, "added_lines") or 1
+    total_violations = _col_sum(crows, "violations_total")
+    by_metric = _sum_violations_by_metric(crows)
+    passed = _col_sum(crows, "hidden_tests_passed")
+    total_tests = _col_sum(crows, "hidden_tests_total") or 1
+    return {
+        "n_runs": len(crows),
+        "violations_per_100_lines": 100 * total_violations / total_added,
+        "violations_by_metric_per_100_lines": {
+            m: round(100 * c / total_added, 3) for m, c in by_metric.items()
+        },
+        "hidden_pass_rate": passed / total_tests,
+        "mean_cost_usd": _col_mean(crows, "cost_usd"),
+        "mean_turns": _col_mean(crows, "num_turns"),
+    }
+
+
 def per_condition_stats(rows: list[dict]) -> dict[str, dict]:
     by_condition: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
-        if row.get("error"):
-            continue
-        by_condition[row["condition"]].append(row)
+        if _is_valid_run(row):
+            by_condition[row["condition"]].append(row)
+    return {cond: _summarize_condition(crows) for cond, crows in by_condition.items()}
 
-    stats = {}
-    for condition, crows in by_condition.items():
-        total_added = sum(int(r["added_lines"]) for r in crows) or 1
-        total_violations = sum(int(r["violations_total"]) for r in crows)
-        by_metric: dict[str, int] = defaultdict(int)
-        for r in crows:
-            metrics = json.loads(r["violations_by_metric"] or "{}")
-            for metric, count in metrics.items():
-                by_metric[metric] += count
 
-        passed = sum(int(r["hidden_tests_passed"]) for r in crows)
-        total_tests = sum(int(r["hidden_tests_total"]) for r in crows) or 1
-        costs = [float(r["cost_usd"]) for r in crows if r["cost_usd"]]
-        turns = [int(r["num_turns"]) for r in crows if r["num_turns"]]
+def _decide_rules_vs_none(none: dict | None, rules: dict | None) -> str:
+    if not (none and rules):
+        return "- Not enough data for `rules` vs `none` (missing runs)."
+    reduction = _reduction(none["violations_per_100_lines"], rules["violations_per_100_lines"])
+    keep = reduction >= 0.30 and rules["hidden_pass_rate"] >= none["hidden_pass_rate"]
+    bar = "meets" if reduction >= 0.30 else "below"
+    verdict = "keep" if keep else "drop"
+    return (
+        f"- `rules` vs `none`: violations/100 lines reduced by "
+        f"{reduction * 100:.1f}% ({bar} the 30% bar); "
+        f"pass rate {rules['hidden_pass_rate']:.0%} vs {none['hidden_pass_rate']:.0%}. "
+        f"**Decision: {verdict} the text rules on their own.**"
+    )
 
-        stats[condition] = {
-            "n_runs": len(crows),
-            "violations_per_100_lines": 100 * total_violations / total_added,
-            "violations_by_metric_per_100_lines": {
-                m: round(100 * c / total_added, 3) for m, c in by_metric.items()
-            },
-            "hidden_pass_rate": passed / total_tests,
-            "mean_cost_usd": sum(costs) / len(costs) if costs else 0.0,
-            "mean_turns": sum(turns) / len(turns) if turns else 0.0,
-        }
-    return stats
+
+def _decide_rules_gate(gate: dict | None, rules_gate: dict | None) -> str:
+    if not (gate and rules_gate):
+        return "- Not enough data for `rules+gate` vs `gate` (missing runs)."
+    reduction = _reduction(gate["violations_per_100_lines"], rules_gate["violations_per_100_lines"])
+    no_more_violations = rules_gate["violations_per_100_lines"] <= gate["violations_per_100_lines"]
+    lower_cost = rules_gate["mean_cost_usd"] < gate["mean_cost_usd"]
+    worth_it = no_more_violations and (reduction >= 0.30 or lower_cost)
+    verdict = "worth it" if worth_it else "not worth it"
+    return (
+        f"- `rules+gate` vs `gate`: violations/100 lines reduced by "
+        f"{reduction * 100:.1f}%; turns {rules_gate['mean_turns']:.1f} vs "
+        f"{gate['mean_turns']:.1f}, cost ${rules_gate['mean_cost_usd']:.3f} vs "
+        f"${gate['mean_cost_usd']:.3f}. "
+        f"**Decision: rules are {verdict} on top of the gate.**"
+    )
 
 
 def decision(stats: dict[str, dict]) -> list[str]:
-    lines = []
-    none = stats.get("none")
-    rules = stats.get("rules")
-    gate = stats.get("gate")
-    rules_gate = stats.get("rules+gate")
-
-    if none and rules:
-        reduction = (
-            (none["violations_per_100_lines"] - rules["violations_per_100_lines"])
-            / none["violations_per_100_lines"]
-            if none["violations_per_100_lines"] > 0
-            else 0.0
-        )
-        keep = reduction >= 0.30 and rules["hidden_pass_rate"] >= none["hidden_pass_rate"]
-        lines.append(
-            f"- `rules` vs `none`: violations/100 lines reduced by "
-            f"{reduction * 100:.1f}% ({'meets' if reduction >= 0.30 else 'below'} the "
-            f"30% bar); pass rate {rules['hidden_pass_rate']:.0%} vs {none['hidden_pass_rate']:.0%}. "
-            f"**Decision: {'keep' if keep else 'drop'} the text rules on their own.**"
-        )
-    else:
-        lines.append("- Not enough data for `rules` vs `none` (missing runs).")
-
-    if gate and rules_gate:
-        reduction = (
-            (gate["violations_per_100_lines"] - rules_gate["violations_per_100_lines"])
-            / gate["violations_per_100_lines"]
-            if gate["violations_per_100_lines"] > 0
-            else 0.0
-        )
-        cheaper = (
-            rules_gate["mean_turns"] < gate["mean_turns"]
-            or rules_gate["mean_cost_usd"] < gate["mean_cost_usd"]
-        )
-        worth_it = reduction >= 0.30 or cheaper
-        lines.append(
-            f"- `rules+gate` vs `gate`: violations/100 lines reduced by "
-            f"{reduction * 100:.1f}%; turns {rules_gate['mean_turns']:.1f} vs "
-            f"{gate['mean_turns']:.1f}, cost ${rules_gate['mean_cost_usd']:.3f} vs "
-            f"${gate['mean_cost_usd']:.3f}. "
-            f"**Decision: rules are {'worth it' if worth_it else 'not worth it'} on top of the gate.**"
-        )
-    else:
-        lines.append("- Not enough data for `rules+gate` vs `gate` (missing runs).")
-
-    return lines
+    return [
+        _decide_rules_vs_none(stats.get("none"), stats.get("rules")),
+        _decide_rules_gate(stats.get("gate"), stats.get("rules+gate")),
+    ]
 
 
 TEST_CONDITIONS = ["tests-none", "tests-rules", "tests-gate", "tests-rules+gate"]
@@ -119,33 +130,32 @@ def _num(row: dict, key: str) -> int:
     return int(row.get(key) or 0)
 
 
+def _summarize_test_condition(crows: list[dict]) -> dict:
+    n = len(crows)
+    prod = _col_sum(crows, "prod_loc_added") or 1
+    mut_total = _col_sum(crows, "mutants_total")
+    passed = _col_sum(crows, "hidden_tests_passed")
+    total = _col_sum(crows, "hidden_tests_total") or 1
+    return {
+        "n_runs": n,
+        "test_loc_per_100_prod": 100 * _col_sum(crows, "test_loc_added") / prod,
+        "test_functions": _col_sum(crows, "test_functions_added") / n,
+        "test_violations": _col_sum(crows, "test_violations") / n,
+        "mutation_score": (
+            100 * _col_sum(crows, "mutants_killed") / mut_total if mut_total else None
+        ),
+        "hidden_pass_rate": passed / total,
+        "mean_cost_usd": sum(float(r["cost_usd"] or 0) for r in crows) / n,
+        "mean_turns": _col_sum(crows, "num_turns") / n,
+    }
+
+
 def test_condition_stats(rows: list[dict]) -> dict[str, dict]:
     by_condition: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
-        if not row.get("error") and row["condition"] in TEST_CONDITIONS:
+        if _is_valid_run(row) and row["condition"] in TEST_CONDITIONS:
             by_condition[row["condition"]].append(row)
-    stats = {}
-    for condition, crows in by_condition.items():
-        n = len(crows)
-        prod = sum(_num(r, "prod_loc_added") for r in crows) or 1
-        mut_total = sum(_num(r, "mutants_total") for r in crows)
-        passed = sum(_num(r, "hidden_tests_passed") for r in crows)
-        total = sum(_num(r, "hidden_tests_total") for r in crows) or 1
-        stats[condition] = {
-            "n_runs": n,
-            "test_loc_per_100_prod": 100 * sum(_num(r, "test_loc_added") for r in crows) / prod,
-            "test_functions": sum(_num(r, "test_functions_added") for r in crows) / n,
-            "test_violations": sum(_num(r, "test_violations") for r in crows) / n,
-            "mutation_score": (
-                100 * sum(_num(r, "mutants_killed") for r in crows) / mut_total
-                if mut_total
-                else None
-            ),
-            "hidden_pass_rate": passed / total,
-            "mean_cost_usd": sum(float(r["cost_usd"] or 0) for r in crows) / n,
-            "mean_turns": sum(_num(r, "num_turns") for r in crows) / n,
-        }
-    return stats
+    return {cond: _summarize_test_condition(crows) for cond, crows in by_condition.items()}
 
 
 def _reduction(base: float, new: float) -> float:

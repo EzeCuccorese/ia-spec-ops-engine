@@ -29,9 +29,9 @@ on:
         default: "EzeCuccorese/ia-spec-ops-engine"
         type: string
       engine-ref:
-        description: "Git ref or branch to fetch engine scripts from"
+        description: "Pinned release tag or commit SHA to fetch engine scripts from"
         required: false
-        default: "main"
+        default: "v3.0.0"
         type: string
     secrets:
       GEMINI_API_KEY:

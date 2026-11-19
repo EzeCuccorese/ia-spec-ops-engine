@@ -5,6 +5,7 @@ name: Publish Release
 on:
   pull_request:
     types: [closed]
+    branches: [main]
   # Re-run by hand for an already merged release PR (for example after a failed run).
   workflow_dispatch:
 
@@ -16,6 +17,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.pull_request.merged == true &&
+        github.event.pull_request.base.ref == 'main' &&
         startsWith(github.event.pull_request.head.ref, 'release/v'))
     runs-on: ubuntu-latest
     steps:
@@ -25,6 +27,8 @@ jobs:
         with:
           app-id: ${{ vars.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
 
       - name: Checkout the merge commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

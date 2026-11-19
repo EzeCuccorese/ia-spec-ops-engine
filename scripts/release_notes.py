@@ -7,6 +7,7 @@ nothing and exits 0, so the release falls back to the plain commit list.
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import sys
@@ -15,6 +16,16 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+_FALLBACK_ERRORS = (
+    urllib.error.URLError,
+    http.client.HTTPException,
+    TimeoutError,
+    OSError,
+    UnicodeDecodeError,
+    ValueError,
+    KeyError,
+)
 
 API = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 DEFAULT_MODEL = "gemini-flash-latest"
@@ -84,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         options = DraftOptions(args.language, args.model, api_key, args.timeout)
         notes = draft(args.commits.read_text(encoding="utf-8"), options)
-    except (urllib.error.URLError, TimeoutError, ValueError, KeyError) as error:
+    except _FALLBACK_ERRORS as error:
         print(f"AI notes unavailable ({type(error).__name__}): using the commit list instead")
         return 0
     if not notes:

@@ -42,14 +42,17 @@ uv run python -m pytest -q --cov
 
 ## Gemini PR review: recommended trigger for consumers
 
-Repositories that call `reusable-gemini-review.yml` should run the review once per PR and
-re-run it on demand with a label. Do not trigger on `synchronize`: it re-runs the review on
-every push, so each fix produces a new batch of comments and the review never converges.
+Repositories that call `reusable-gemini-review.yml` run a full review on PR open, reopen,
+`ready_for_review`, or on-demand via the `gemini-review` label (even on drafts). Including
+`synchronize` runs an **incremental diff** review covering only commits pushed since the last
+reviewed SHA (matching `.github/workflows/gemini-pr-review.yml`). Omit `synchronize` (and set
+`cancel-in-progress: false`) if you prefer strictly one-shot reviews re-triggered only by adding
+the `gemini-review` label.
 
 ```yaml
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review, labeled]
+    types: [opened, reopened, ready_for_review, synchronize, labeled]
 
 permissions:
   contents: read
@@ -57,16 +60,17 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false # an unrelated label event must not abort a review in progress
+  # Cancel stale incremental runs on new pushes; keep labeled/open runs intact.
+  cancel-in-progress: ${{ github.event.action == 'synchronize' }}
 
 jobs:
   review:
-    # Automatic once per PR (opened/reopened/ready, never for drafts); on demand with the
+    # Automatic on PR open/reopen/ready/synchronize (never for drafts); on demand with the
     # `gemini-review` label, even on drafts.
     if: >-
       (github.event.action == 'labeled' && github.event.label.name == 'gemini-review') ||
       (github.event.action != 'labeled' && github.event.pull_request.draft == false)
-    uses: EzeCuccorese/ia-spec-ops-engine/.github/workflows/reusable-gemini-review.yml@main
+    uses: EzeCuccorese/ia-spec-ops-engine/.github/workflows/reusable-gemini-review.yml@v3.0.0
     secrets: inherit
 
   clear-label:
@@ -86,11 +90,13 @@ jobs:
 
 Notes:
 
+- Pin the reusable workflow to a release tag (e.g. `@v3.0.0`) or a full commit SHA rather than
+  `@main`; `engine-ref` defaults to `v3.0.0` and should match the pinned release.
 - Create the `gemini-review` label in each consumer repository.
 - The caller needs `permissions: pull-requests: write` (and `contents: read`) so the review
   can post comments and `clear-label` can remove the label.
-- To request another review, add the `gemini-review` label to the PR; it is removed
-  automatically once the run finishes.
+- To request a fresh full review at any time, add the `gemini-review` label to the PR; it is
+  removed automatically once the run finishes.
 
 ## License
 

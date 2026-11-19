@@ -134,6 +134,7 @@ def read_commits(git_log: str) -> list[Commit]:
     return commits
 
 
+PROJECT_SECTION = re.compile(r"^\[project\]\s*(?:#.*)?$")
 PYPROJECT_VERSION = re.compile(r'^version = "[^"]*"$', re.MULTILINE)
 INIT_VERSION = re.compile(r'^__version__ = "[^"]*"$', re.MULTILINE)
 
@@ -149,6 +150,26 @@ INIT_FILES = (
 )
 
 
+def _replace_project_version(text: str, version: str, relative: str) -> str:
+    """Replace ``version = "..."`` strictly within the ``[project]`` TOML section."""
+    in_project = False
+    replaced = False
+    out: list[str] = []
+    for line in text.splitlines(keepends=True):
+        raw = line.rstrip("\r\n")
+        eol = line[len(raw) :]
+        if raw.startswith("[") and not raw.startswith(('["', "['")):
+            in_project = PROJECT_SECTION.match(raw) is not None
+        elif in_project and not replaced and PYPROJECT_VERSION.match(raw):
+            out.append(f'version = "{version}"{eol}')
+            replaced = True
+            continue
+        out.append(line)
+    if not replaced:
+        raise ValueError(f"no version line found in [project] of {relative}")
+    return "".join(out)
+
+
 def write_version_files(root: Path, version: str) -> list[str]:
     """Write ``version`` into every version field and return the files that changed."""
     parse_version(version)
@@ -156,9 +177,7 @@ def write_version_files(root: Path, version: str) -> list[str]:
     for relative in PYPROJECT_FILES:
         path = root / relative
         text = path.read_text(encoding="utf-8")
-        new_text, count = PYPROJECT_VERSION.subn(f'version = "{version}"', text, count=1)
-        if count != 1:
-            raise ValueError(f"no version line found in {relative}")
+        new_text = _replace_project_version(text, version, relative)
         if new_text != text:
             path.write_text(new_text, encoding="utf-8")
             changed.append(relative)
@@ -185,7 +204,12 @@ def prepend_changelog(changelog: Path, section: str) -> None:
 def extract_section(changelog: Path, version: str) -> str:
     """Return the body of one version's section (without its heading)."""
     lines = changelog.read_text(encoding="utf-8").splitlines()
-    start = next(i for i, line in enumerate(lines) if line.startswith(f"## {version} "))
+    start = next(
+        (i for i, line in enumerate(lines) if line.startswith(f"## {version} ")),
+        None,
+    )
+    if start is None:
+        raise ValueError(f"version {version!r} not found in {changelog}")
     end = next(
         (i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")),
         len(lines),

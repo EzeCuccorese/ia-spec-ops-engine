@@ -142,10 +142,22 @@ def test_write_version_files_is_idempotent(tmp_path: Path) -> None:
     assert release.write_version_files(tmp_path, "1.0.0") == []
 
 
-def test_write_version_files_rejects_missing_version_line(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "pyproject_text",
+    [
+        pytest.param('[project]\nname = "root"\n', id="missing-version-line"),
+        pytest.param(
+            '[project]\nname = "root"\n\n[tool.demo]\nversion = "9.9.9"\n',
+            id="version-only-outside-project-section",
+        ),
+    ],
+)
+def test_write_version_files_rejects_missing_version_line(
+    tmp_path: Path, pyproject_text: str
+) -> None:
     _seed_repo(tmp_path)
-    (tmp_path / "pyproject.toml").write_text('[project]\nname = "root"\n', encoding="utf-8")
-    with pytest.raises(ValueError, match="no version line"):
+    (tmp_path / "pyproject.toml").write_text(pyproject_text, encoding="utf-8")
+    with pytest.raises(ValueError, match=r"no version line.*\[project\]"):
         release.write_version_files(tmp_path, "1.0.0")
 
 
@@ -223,3 +235,22 @@ def test_breaking_mentioned_in_prose_is_not_a_breaking_change() -> None:
 @pytest.mark.parametrize("footer", ["BREAKING CHANGE: config moved", "BREAKING-CHANGE: x"])
 def test_breaking_footer_at_line_start_is_breaking(footer: str) -> None:
     assert release.next_version("1.0.0", [c("fix: x", body=footer)]) == "2.0.0"
+
+
+def test_extract_section_raises_value_error_for_missing_version(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text("# Changelog\n\n## 1.0.0 - 2026-10-16\n\n- first\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="9.9.9"):
+        release.extract_section(changelog, "9.9.9")
+
+
+def test_write_version_files_anchors_replacement_inside_project_section(tmp_path: Path) -> None:
+    _seed_repo(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.demo]\nversion = "9.9.9"\n\n[project]\nname = "root"\nversion = "0.0.0"\n',
+        encoding="utf-8",
+    )
+    release.write_version_files(tmp_path, "1.2.3")
+    content = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
+    assert '[tool.demo]\nversion = "9.9.9"\n' in content
+    assert '[project]\nname = "root"\nversion = "1.2.3"\n' in content
