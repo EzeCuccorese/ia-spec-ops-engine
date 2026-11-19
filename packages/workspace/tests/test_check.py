@@ -213,3 +213,17 @@ def test_check_changed_validates_uncommitted_files_end_to_end(
     assert passed["status"] == "passed"
     assert check_cli.check(["--dir", str(repo), "--changed", "--cache", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "skipped"
+
+
+def test_record_cache_cleans_up_temp_file_on_replace_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    marker = tmp_path / ".git" / "ws-check-pass"
+
+    def fail_replace(src, dst):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(check_cli.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="disk full"):
+        check_cli._record_cache(marker, "key1")
+    assert list(marker.parent.glob(".check-pass-*")) == []

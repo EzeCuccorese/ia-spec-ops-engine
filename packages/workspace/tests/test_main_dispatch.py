@@ -143,3 +143,16 @@ def test_main_dispatches_detect(tmp_path, capsys):
         main()
     assert exc.value.code == 0
     assert '"python"' in capsys.readouterr().out
+
+
+def test_main_delegated_returning_none_does_not_exit(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[list[str]] = []
+
+    def returns_none(argv: list[str]) -> None:
+        seen.append(argv)
+        return None
+
+    monkeypatch.setattr("sys.argv", ["ws", "run", "--", "echo", "hi"])
+    monkeypatch.setattr("workspace_engine.condense.cli.run", returns_none)
+    assert main() is None
+    assert seen == [["--", "echo", "hi"]]

@@ -1319,3 +1319,18 @@ def test_pre_push_skips_tests_when_deleting_remote_branch(tmp_path: Path) -> Non
     assert proc.returncode == 0
     assert "No new commits, skipping." in proc.stdout + proc.stderr
     assert not log_file.exists()
+
+
+def test_is_script_outdated_returns_false_on_oserror(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from workspace_engine.services.git_hooks import _is_script_outdated
+
+    hook_file = tmp_path / "pre-push"
+    hook_file.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    def fail_read(*args, **kwargs):
+        raise OSError("unreadable")
+
+    monkeypatch.setattr(Path, "read_text", fail_read)
+    assert _is_script_outdated(hook_file) is False

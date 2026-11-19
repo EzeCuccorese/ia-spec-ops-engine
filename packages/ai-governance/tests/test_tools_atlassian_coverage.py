@@ -1140,3 +1140,67 @@ def test_jira_cmd_sprint_paginates(capsys: pytest.CaptureFixture[str]) -> None:
     with patch("urllib.request.urlopen", _mock_sequence(boards, page1, page2, {})):
         jira.cmd_sprint("PROJ-1", "26-Q4-SP1")
     assert "26-Q4-SP1" in capsys.readouterr().out
+
+
+def test_sanitize_secrets_handles_unknown_profile(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profiles_file = tmp_path / "profiles.json"
+    profiles_file.write_text(json.dumps({"other": {"token": "other-tok"}}))
+    monkeypatch.setenv("ATLASSIAN_PROFILES_FILE", str(profiles_file))
+    monkeypatch.setenv("ATLASSIAN_PROFILE", "missing-prof")
+    monkeypatch.setenv("ATLASSIAN_API_TOKEN", "env-secret-1234")
+    redacted = atlassian_common.sanitize_secrets("Bearer tok-abc env-secret-1234")
+    assert "env-secret-1234" not in redacted
+    assert "Bearer [REDACTED]" in redacted
+
+
+def test_read_input_text_bare_path_falls_back_to_literal(tmp_path) -> None:
+    existing = tmp_path / "note.md"
+    existing.write_text("from file", encoding="utf-8")
+    assert atlassian_common.read_input_text(str(existing), allow_bare_path=True) == "from file"
+    assert (
+        atlassian_common.read_input_text("plain literal", allow_bare_path=True) == "plain literal"
+    )
+
+
+def test_redirect_handler_allows_same_origin_https_redirect() -> None:
+    import urllib.request
+
+    handler = atlassian_common._SameOriginRedirectHandler()
+    req = urllib.request.Request("https://company.atlassian.net/rest/api/3/issue/P-1")
+    redirected = handler.redirect_request(
+        req, None, 302, "Found", {}, "https://company.atlassian.net/rest/api/3/issue/P-2"
+    )
+    assert redirected is not None
+    assert redirected.full_url == "https://company.atlassian.net/rest/api/3/issue/P-2"
+
+
+def test_execute_request_empty_body_returns_empty_dict(monkeypatch: pytest.MonkeyPatch) -> None:
+    resp = MagicMock()
+    resp.read.return_value = b""
+    mock_open = MagicMock()
+    mock_open.return_value.__enter__.return_value = resp
+    monkeypatch.setattr(atlassian_common._SAME_ORIGIN_OPENER, "open", mock_open)
+    result = atlassian_common.execute_request(
+        "DELETE", "https://company.atlassian.net/rest/api/3/issue/P-1"
+    )
+    assert result == {}
+    mock_open.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("runner", "argv", "expected_err"),
+    [
+        (confluence.main, ["comment", "123"], "needs a body or --file"),
+        (jira.main, ["comment", "PROJ-1"], "needs a text or --file"),
+    ],
+    ids=["confluence-missing-body", "jira-missing-text"],
+)
+def test_atlassian_cli_requires_content_or_file(
+    capsys: pytest.CaptureFixture[str], runner, argv: list[str], expected_err: str
+) -> None:
+    with pytest.raises(SystemExit) as exc:
+        runner(argv)
+    assert exc.value.code == 2
+    assert expected_err in capsys.readouterr().err

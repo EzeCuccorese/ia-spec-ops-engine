@@ -745,3 +745,32 @@ def test_doctor_warns_when_project_installed_without_user_scope(project: Path) -
     install_user(["claude"])
     rows_after = check(project)
     assert not any(label == "project:user-scope" for label, _, _ in rows_after)
+
+
+def test_doctor_antigravity_frontmatter_checks_and_missing_rules_dir(home: Path) -> None:
+    from ai_governance.install.doctor import _antigravity_frontmatter_row
+
+    assert _antigravity_frontmatter_row() is None
+
+    install_user(["antigravity"])
+    rules_dir = home / ".gemini" / "config" / "rules"
+    (rules_dir / "valid.md").write_text("---\ntrigger: always_on\n---\n# Valid\n", encoding="utf-8")
+    assert _antigravity_frontmatter_row() is None
+    assert not any(
+        label == "user:antigravity" and status == FAIL and "trigger front matter" in detail
+        for label, status, detail in check(None)
+    )
+
+    (rules_dir / "broken.md").write_text("# Missing frontmatter\n", encoding="utf-8")
+    row = _antigravity_frontmatter_row()
+    assert row is not None and row[1] == FAIL and "broken.md" in row[2]
+
+
+def test_doctor_reports_orca_warning_when_cli_problem(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import ai_governance.taskflow.orca as orca_mod
+
+    monkeypatch.setattr(orca_mod, "orca_problem", lambda: "orca CLI missing")
+    rows = check(None)
+    assert ("taskflow:orca", WARN, "orca CLI missing") in rows

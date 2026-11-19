@@ -270,3 +270,60 @@ def test_codex_post_tool_use_blocks_with_condensed_reason(monkeypatch, capsys) -
     _stdin(monkeypatch, {"tool_input": {"command": "pytest"}, "tool_output": "x" * 5000})
     assert hooks.main(["codex", "post-tool-use"]) == 0
     assert json.loads(capsys.readouterr().out) == {"decision": "block", "reason": "short summary"}
+
+
+def test_codex_post_tool_use_silent_when_nothing_condensed(monkeypatch, capsys) -> None:
+    from ai_governance.frugality import cli as frugal
+
+    monkeypatch.setattr(frugal, "condensed_output", lambda payload, cfg: None)
+    _stdin(monkeypatch, {"tool_input": {"command": "echo ok"}, "tool_output": "ok"})
+    assert hooks.main(["codex", "post-tool-use"]) == 0
+    assert capsys.readouterr().out == ""
+
+
+def test_antigravity_session_start_silent_outside_git_repo(monkeypatch, capsys, tmp_path) -> None:
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
+    _stdin(monkeypatch, {"workspacePaths": [str(tmp_path)]})
+    assert hooks.main(["antigravity", "session-start"]) == 0
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize(
+    ("command", "expect_deny"),
+    [
+        ("FOO=1 uv run pytest -q", True),
+        ("npx jest", True),
+        ("python3 -m pytest", True),
+        ("npm run test", True),
+        ("pnpm build", True),
+        ("cargo test", True),
+        ("npm install", False),
+        ("FOO=1", False),
+        ("pytest 'unclosed", False),
+        ("echo ok ;; ls &&", False),
+    ],
+    ids=[
+        "env-uv-pytest",
+        "npx-jest",
+        "python3-m-pytest",
+        "npm-run-test",
+        "pnpm-build",
+        "cargo-test",
+        "npm-install-allowed",
+        "env-only-allowed",
+        "unclosed-quote-allowed",
+        "empty-segments-allowed",
+    ],
+)
+def test_antigravity_pre_tool_use_wrappers_js_runners_and_edge_syntax(
+    monkeypatch, capsys, command: str, expect_deny: bool
+) -> None:
+    monkeypatch.setattr(hooks.shutil, "which", lambda name: "/bin/ws")
+    monkeypatch.delenv("FRUGAL", raising=False)
+    _stdin(monkeypatch, {"toolCall": {"name": "run_command", "args": {"CommandLine": command}}})
+    assert hooks.main(["antigravity", "pre-tool-use"]) == 0
+    out = capsys.readouterr().out
+    if expect_deny:
+        assert json.loads(out)["decision"] == "deny"
+    else:
+        assert out == ""

@@ -278,3 +278,33 @@ def test_show_log_rejects_invalid_grep_regex_cleanly(capsys) -> None:
     log_id = logs.save("alpha\nbeta", "cmd")
     assert cli.show_log([log_id, "--grep", "[unclosed"]) == 1
     assert "Invalid grep regex" in capsys.readouterr().err
+
+
+def test_condense_omits_trailing_noise_and_caps_many_failures() -> None:
+    trailing = "\n".join(["ERROR: first failure"] + [f"trailing {i}" for i in range(40)])
+    omitted = condense(trailing, "./run.sh", exit_code=1, budget=350)
+    assert "ERROR: first failure" in omitted.text
+    assert "lines omitted" in omitted.text
+
+    many_errors = "\n".join(f"ERROR: {chr(65 + i) * 12} failed in subsystem" for i in range(20))
+    capped = condense(many_errors, "./run.sh", exit_code=1, budget=250)
+    assert len(capped.text) <= 250
+    assert "more failures omitted" in capped.text
+
+
+def test_condense_all_blank_lines_over_budget_returns_empty() -> None:
+    result = condense("\n" * 120, "./run.sh", exit_code=1, budget=50)
+    assert result.text == ""
+    assert result.truncated
+
+
+def test_logs_latest_empty_and_config_error_fallback(monkeypatch, tmp_path) -> None:
+    with pytest.raises(FileNotFoundError, match="No saved logs"):
+        logs.latest()
+
+    cfg_dir = tmp_path / "repo" / ".workspace"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "config.toml").write_text("bad = [toml", encoding="utf-8")
+    monkeypatch.chdir(tmp_path / "repo")
+    log_id = logs.save("hello", "echo hi")
+    assert logs.latest() == log_id

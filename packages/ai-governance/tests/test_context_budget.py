@@ -163,3 +163,16 @@ def test_codex_fixed_cost_includes_always_personal_and_company_index(
     glossary_size = len((codex_home / "company" / "acme-glossary.md").read_bytes())
     assert cost["codex"] < always_size + personal_size + company_index_size + glossary_size
     assert cost["codex"] >= always_size + personal_size + company_index_size
+
+
+def test_user_content_without_markers_counts_full_agents_md(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
+    install_user(["claude"])
+
+    agents_md = tmp_path / ".claude" / "AGENTS.md"
+    custom = "# Custom instructions without governance markers\nFollow project rules.\n"
+    agents_md.write_text(custom, encoding="utf-8")
+
+    cost = fixed_cost(installer.global_ledger())
+    assert cost["user_custom"] == len(custom.strip().encode("utf-8"))
