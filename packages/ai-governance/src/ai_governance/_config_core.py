@@ -18,6 +18,7 @@ nested TOML tables (``[frugality] threshold_chars = 4000``).
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 import tomllib
@@ -149,13 +150,28 @@ def _split_items(raw: object) -> list[str]:
     return [str(item).strip() for item in items if str(item).strip()]
 
 
+def _to_int(raw: object) -> int:
+    if isinstance(raw, bool):
+        raise ValueError(raw)
+    return raw if isinstance(raw, int) else int(str(raw))
+
+
+def _to_float(raw: object) -> float:
+    if isinstance(raw, bool):
+        raise ValueError(raw)
+    value = float(str(raw))
+    if not math.isfinite(value):
+        raise ValueError(raw)
+    return value
+
+
 def _convert(raw: object, like: object) -> object:
     if isinstance(like, bool):
         return _to_bool(raw)
     if isinstance(like, int):
-        return raw if isinstance(raw, int) else int(str(raw))
+        return _to_int(raw)
     if isinstance(like, float):
-        return float(str(raw))
+        return _to_float(raw)
     if isinstance(like, list | tuple):
         return _split_items(raw)
     return raw if like is None else str(raw)

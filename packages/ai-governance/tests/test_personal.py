@@ -670,3 +670,43 @@ def test_rm_reports_the_links_it_cleaned_for_a_hand_deleted_rule(
     (personal_root / "rules" / "voice.md").unlink()
     assert main(["rm", "voice"]) == 0
     assert not link.exists()
+
+
+@pytest.mark.parametrize(
+    "bad_name",
+    ["../escape", "sub/rule", "sub\\rule", "..", ".hidden", "-bad", "has space", "", ".md", "a.b"],
+)
+def test_personal_rejects_path_traversal_and_invalid_rule_names(
+    personal_root: Path, tmp_path: Path, bad_name: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(ValueError, match="Invalid personal rule name"):
+        personal.create_rule(bad_name, "# Bad\n", root=personal_root)
+    assert personal.main(["add", "--", bad_name]) == 1
+    captured = capsys.readouterr()
+    assert "Invalid personal rule name" in captured.out + captured.err
+
+    source = tmp_path / "src.md"
+    source.write_text("# Keep\n", encoding="utf-8")
+    assert personal.main(["migrate", "--from", str(source), f"--name={bad_name}"]) == 1
+    assert source.is_file()
+    assert personal.main(["rm", "--", bad_name]) == 1
+
+
+def test_personal_add_and_migrate_emit_sync_warnings(
+    home: Path, personal_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    install_user(["claude"])
+    for rule_name in ("clash-add", "clash-mig"):
+        foreign = home / ".claude" / "rules" / f"ai-governance-personal-{rule_name}.md"
+        foreign.write_text("user owned", encoding="utf-8")
+
+    capsys.readouterr()
+    assert personal.main(["add", "clash-add"]) == 0
+    out_add = capsys.readouterr()
+    assert "not created by ai-governance" in out_add.out + out_add.err
+
+    source = tmp_path / "note.md"
+    source.write_text("# Note\nBody.\n", encoding="utf-8")
+    assert personal.main(["migrate", "--from", str(source), "--name", "clash-mig.md"]) == 0
+    out_mig = capsys.readouterr()
+    assert "not created by ai-governance" in out_mig.out + out_mig.err

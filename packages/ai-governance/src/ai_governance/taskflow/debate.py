@@ -334,12 +334,15 @@ def _check_task_ready(task: Task) -> None:
 
 
 def _rollback_dispatched(store: TaskStore, task_id: str, dispatched: list[Dispatched]) -> None:
-    rounds_dir = store.rounds_dir(task_id)
-    for item in dispatched:
-        shutil.rmtree(run_dir(store, task_id, item.n), ignore_errors=True)
-        for round_file in rounds_dir.glob(f"{item.n:03d}-*.md"):
-            round_file.unlink(missing_ok=True)
-        seal_path(store, task_id, item.n).unlink(missing_ok=True)
+    if not dispatched:
+        return
+    with store._lock(task_id):
+        rounds_dir = store.rounds_dir(task_id)
+        for item in dispatched:
+            shutil.rmtree(run_dir(store, task_id, item.n), ignore_errors=True)
+            for round_file in rounds_dir.glob(f"{item.n:03d}-*.md"):
+                round_file.unlink(missing_ok=True)
+            seal_path(store, task_id, item.n).unlink(missing_ok=True)
 
 
 def _dispatch_seats(

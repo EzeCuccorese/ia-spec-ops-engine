@@ -202,7 +202,7 @@ def _claude_subagents(agents_dir: Path) -> list[Artifact]:
             agents_dir / "scout.md",
             "---\n"
             "name: scout\n"
-            f"description: {content.CLAUDE_SCOUT_DESCRIPTION}\n"
+            f"description: {json.dumps(content.CLAUDE_SCOUT_DESCRIPTION)}\n"
             "tools: Read, Grep, Glob\n"
             "model: haiku\n"
             "effort: medium\n"
@@ -213,7 +213,7 @@ def _claude_subagents(agents_dir: Path) -> list[Artifact]:
             agents_dir / "researcher.md",
             "---\n"
             "name: researcher\n"
-            f"description: {content.RESEARCHER_DESCRIPTION}\n"
+            f"description: {json.dumps(content.RESEARCHER_DESCRIPTION)}\n"
             "tools: Read, WebSearch, WebFetch\n"
             "model: sonnet\n"
             "effort: medium\n"
@@ -224,7 +224,7 @@ def _claude_subagents(agents_dir: Path) -> list[Artifact]:
             agents_dir / "runner.md",
             "---\n"
             "name: runner\n"
-            f"description: {content.RUNNER_DESCRIPTION}\n"
+            f"description: {json.dumps(content.RUNNER_DESCRIPTION)}\n"
             "tools: Bash, Read, Grep, Glob\n"
             "model: haiku\n"
             "effort: medium\n"

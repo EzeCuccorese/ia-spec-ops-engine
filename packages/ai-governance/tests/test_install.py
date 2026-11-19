@@ -774,3 +774,70 @@ def test_doctor_reports_orca_warning_when_cli_problem(
     monkeypatch.setattr(orca_mod, "orca_problem", lambda: "orca CLI missing")
     rows = check(None)
     assert ("taskflow:orca", WARN, "orca CLI missing") in rows
+
+
+def test_missing_ws_preserves_previously_installed_stack_rules_on_update(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(installer, "detect_stacks", lambda root: {"java", "docker", "sql"})
+    sync_project(project, add_agents=["claude"])
+    rules_dir = project / ".agents" / "rules"
+    assert (rules_dir / "ai-governance-java-spring.md").is_file()
+    assert (rules_dir / "ai-governance-docker-containers.md").is_file()
+    assert (rules_dir / "ai-governance-sql-database-modeling.md").is_file()
+
+    monkeypatch.setattr(installer, "detect_stacks", lambda root: None)
+    report = sync_project(project)
+    assert any(
+        "`ws` not found" in w and "keeping previously installed" in w for w in report.warnings
+    )
+    assert (rules_dir / "ai-governance-java-spring.md").is_file()
+    assert (rules_dir / "ai-governance-docker-containers.md").is_file()
+    lock_path = project / installer.PROJECT_DIR / "lock.json"
+    assert json.loads(lock_path.read_text(encoding="utf-8"))["stacks"] == ["docker", "java", "sql"]
+
+    # Legacy ledger without extra["stacks"] still preserves installed stack rules minimally
+    data = json.loads(lock_path.read_text(encoding="utf-8"))
+    data.pop("stacks", None)
+    lock_path.write_text(json.dumps(data), encoding="utf-8")
+    sync_project(project)
+    assert (rules_dir / "ai-governance-java-spring.md").is_file()
+    assert (rules_dir / "ai-governance-sql-database-modeling.md").is_file()
+    assert not (rules_dir / "ai-governance-database-migrations.md").exists()
+
+
+def test_claude_memory_migration_skips_bare_agents_imports(project: Path) -> None:
+    (project / "CLAUDE.md").write_text("@AGENTS.md\n  @AGENTS.md  \n", encoding="utf-8")
+    sync_project(project, add_agents=["claude"])
+    assert not (project / "CLAUDE.md").exists()
+    agents_text = (project / "AGENTS.md").read_text(encoding="utf-8")
+    assert "@AGENTS.md" not in agents_text
+
+    (project / ".claude").mkdir(exist_ok=True)
+    (project / ".claude" / "CLAUDE.md").write_text(
+        "@AGENTS.md\n\nUse tabs.\n  @AGENTS.md\nDocument @AGENTS.md usage.\n",
+        encoding="utf-8",
+    )
+    sync_project(project)
+    agents_lines = (project / "AGENTS.md").read_text(encoding="utf-8").splitlines()
+    assert "Use tabs." in agents_lines
+    assert "Document @AGENTS.md usage." in agents_lines
+    assert not any(line.strip() == "@AGENTS.md" for line in agents_lines)
+
+
+def test_claude_subagents_quote_yaml_descriptions(home: Path) -> None:
+    from ai_governance.install import content
+
+    install_user(["claude"])
+    expected = {
+        "scout.md": content.CLAUDE_SCOUT_DESCRIPTION,
+        "researcher.md": content.RESEARCHER_DESCRIPTION,
+        "runner.md": content.RUNNER_DESCRIPTION,
+    }
+    for filename, description in expected.items():
+        text = (home / ".claude" / "agents" / filename).read_text(encoding="utf-8")
+        frontmatter = text.split("---\n", 2)[1]
+        desc_line = next(ln for ln in frontmatter.splitlines() if ln.startswith("description: "))
+        raw_scalar = desc_line.removeprefix("description: ")
+        assert raw_scalar.startswith('"') and raw_scalar.endswith('"')
+        assert json.loads(raw_scalar) == description

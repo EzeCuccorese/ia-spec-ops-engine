@@ -503,3 +503,63 @@ def test_ticket_draft_and_friction_file_are_in_english(state: TaskStore) -> None
     main(["new", "TASK-1", "--title", "Fix"])
     draft = handoff.ticket_draft(state.get("TASK-1"))
     assert "**Done**" in draft and "Hecho" not in draft and "**PRs**" not in draft
+
+
+def test_store_append_log_locks_without_deadlock_and_reserve_round_handles_any_digits(
+    state: TaskStore,
+) -> None:
+    from contextlib import contextmanager
+
+    state.create(Task(id="T", title="t"))
+    locks: list[str] = []
+    real_lock = state._lock
+
+    @contextmanager
+    def tracked_lock(task_id: str):  # type: ignore[no-untyped-def]
+        locks.append(task_id)
+        with real_lock(task_id) as directory:
+            yield directory
+
+    state._lock = tracked_lock  # type: ignore[method-assign]
+    state.append_log("T", "direct")
+    assert state.append_log_once("T", "mark-1", "once") is True
+    assert state.append_log_once("T", "mark-1", "once") is False
+    state.mutate("T", lambda t: setattr(t, "summary", "updated"), log="mutated")
+    assert locks == ["T", "T", "T", "T"]
+    log_text = state.read_log("T")
+    assert "direct" in log_text and "once" in log_text and "mutated" in log_text
+
+    rounds = state.rounds_dir("T")
+    rounds.mkdir(parents=True, exist_ok=True)
+    (rounds / "notes.md").write_text("ignore\n", encoding="utf-8")
+    (rounds / "12-work-debater-claude.md").write_text("", encoding="utf-8")
+    assert state.reserve_round("T", RoundSlot("work", "debater", "claude"))[0] == 13
+    (rounds / "999-work-debater-claude.md").write_text("", encoding="utf-8")
+    assert state.reserve_round("T", RoundSlot("work", "debater", "claude"))[0] == 1000
+    assert state.reserve_round("T", RoundSlot("work", "debater", "claude"))[0] == 1001
+
+
+def test_production_window_enforces_strictest_cutoff_across_bound_repos(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    repo_a = tmp_path / "repo_a"
+    repo_b = tmp_path / "repo_b"
+    repo_loose = tmp_path / "repo_loose"
+    for path, body in (
+        (repo_a, "[risk_window]\ncutoff_hour = 14\n"),
+        (repo_b, "[risk_window]\nfriday_cutoff_hour = 11\n"),
+        (repo_loose, "[risk_window]\ncutoff_hour = 20\nfriday_cutoff_hour = 18\n"),
+    ):
+        (path / ".ai-governance").mkdir(parents=True)
+        (path / ".ai-governance" / "config.toml").write_text(body, encoding="utf-8")
+
+    assert approvals.production_window_cutoffs(repos=(repo_a, repo_b)) == (14, 11)
+    assert approvals.production_window_cutoffs(repos=(repo_loose,)) == (16, 13)
+
+    req = ApprovalRequest("deploy", "api", DEPLOY_REPLY, CONSEQUENCE, task_id="T", reference="k1")
+    ctx_ok = ApprovalContext("k1", datetime(2026, 10, 28, 13, 59), repos=(repo_a,))
+    assert build_approval(req, ctx_ok)["action"] == "deploy"
+    ctx_late = ApprovalContext("k1", datetime(2026, 10, 28, 14, 0), repos=(repo_a,))
+    with pytest.raises(ApprovalError, match="never after 14:00"):
+        build_approval(req, ctx_late)
