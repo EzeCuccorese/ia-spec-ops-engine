@@ -470,12 +470,24 @@ def test_install_keeps_existing_skill_copies_on_collision(
 def test_personal_skills_dir_defaults_to_repo_root(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    from ai_governance import personal
     from ai_governance.personal import personal_skills_dir
 
     repo_root = Path(__file__).resolve().parents[3]
     monkeypatch.delenv("AI_GOVERNANCE_PERSONAL_DIR", raising=False)
     assert personal_skills_dir() == repo_root / "skills"
     assert personal_skills_dir(tmp_path) == tmp_path / "skills"
+
+    # Wheel install (no checkout skills/ directory at parents[4]) falls back to personal_root/skills
+    fake_wheel = (
+        tmp_path / "venv" / "lib" / "py" / "site-packages" / "ai_governance" / "personal.py"
+    )
+    monkeypatch.setattr(personal, "__file__", str(fake_wheel))
+    assert personal_skills_dir() == personal.personal_root() / "skills"
+
+    monkeypatch.setattr(personal, "__file__", "/a/b/personal.py")
+    assert personal_skills_dir() == personal.personal_root() / "skills"
+
     monkeypatch.setenv("AI_GOVERNANCE_PERSONAL_DIR", str(tmp_path / "custom"))
     assert personal_skills_dir() == tmp_path / "custom" / "skills"
 

@@ -26,6 +26,7 @@ except ImportError:  # pragma: no cover - Windows
     fcntl = None  # type: ignore[assignment]
 
 TASK_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+ROUND_FILE_RE = re.compile(r"^(\d+)-.*\.md$")
 STATE_FILE = "state.json"
 LOG_FILE = "log.md"
 FRICTION_FILE = "friction.md"
@@ -130,8 +131,8 @@ class TaskStore:
             task = self._read(directory)
             change(task)
             self._write(directory, task)
-        if log:
-            self.append_log(task_id, log)
+            if log:
+                self._append_log_unlocked(task_id, log)
         return task
 
     def list(self, include_closed: bool = False) -> list[Task]:
@@ -162,7 +163,7 @@ class TaskStore:
             task = self._read(directory)
             rounds = directory / "rounds"
             rounds.mkdir(parents=True, exist_ok=True)
-            taken = [int(p.name[:3]) for p in rounds.glob("[0-9][0-9][0-9]-*.md")]
+            taken = _taken_round_numbers(rounds)
             recorded = [int(r.get("n", 0)) for r in task.rounds]
             number = max([0, *taken, *recorded]) + 1
             path = rounds / f"{number:03d}-{slot.phase}-{slot.role}-{_slug(slot.agent)}.md"
@@ -176,12 +177,16 @@ class TaskStore:
             return number, path
 
     # -- log -----------------------------------------------------------------------------
-    def append_log(self, task_id: str, entry: str) -> None:
+    def _append_log_unlocked(self, task_id: str, entry: str) -> None:
         stamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
         path = self.task_dir(task_id) / LOG_FILE
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "a", encoding="utf-8") as handle:
             handle.write(f"\n### {stamp}\n\n{entry.strip()}\n")
+
+    def append_log(self, task_id: str, entry: str) -> None:
+        with self._lock(task_id):
+            self._append_log_unlocked(task_id, entry)
 
     def append_log_once(self, task_id: str, marker: str, entry: str) -> bool:
         """Append ``entry`` unless the log already holds ``marker`` (a projection that can be
@@ -189,12 +194,20 @@ class TaskStore:
         with self._lock(task_id):
             if marker in self.read_log(task_id):
                 return False
-            self.append_log(task_id, f"{entry.strip()}\n\n<!-- {marker} -->")
+            self._append_log_unlocked(task_id, f"{entry.strip()}\n\n<!-- {marker} -->")
             return True
 
     def read_log(self, task_id: str) -> str:
         path = self.task_dir(task_id) / LOG_FILE
         return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
+def _taken_round_numbers(rounds: Path) -> list[int]:
+    numbers: list[int] = []
+    for path in rounds.glob("*.md"):
+        if match := ROUND_FILE_RE.match(path.name):
+            numbers.append(int(match.group(1)))
+    return numbers
 
 
 def _slug(text: str) -> str:

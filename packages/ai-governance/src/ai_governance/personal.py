@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from .install.engine import Report
 
 PERSONAL_DIR = "personal"
+RULE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
 README_CONTENT = """# Personal Rules
 
@@ -55,14 +56,39 @@ def personal_root() -> Path:
     return config_dir() / PERSONAL_DIR
 
 
+def _repo_skills_dir() -> Path | None:
+    parents = Path(__file__).resolve().parents
+    if len(parents) <= 4:
+        return None
+    candidate = parents[4] / "skills"
+    return candidate if candidate.is_dir() else None
+
+
 def personal_skills_dir(root: Path | None = None) -> Path:
-    """Where personal skills live: ``<repo>/skills`` (tracked in git) or ``$AI_GOVERNANCE_PERSONAL_DIR/skills``."""
+    """Where personal skills live: ``<repo>/skills`` in a checkout, else ``personal_root() / 'skills'``."""
     if root is not None:
         return root / "skills"
     explicit = os.environ.get("AI_GOVERNANCE_PERSONAL_DIR")
     if explicit:
         return Path(explicit).expanduser() / "skills"
-    return Path(__file__).resolve().parents[4] / "skills"
+    repo_skills = _repo_skills_dir()
+    if repo_skills is not None:
+        return repo_skills
+    return personal_root() / "skills"
+
+
+def validate_rule_name(name: str) -> str:
+    """Validate a personal rule slug (optional ``.md`` suffix) and return its filename."""
+    if not isinstance(name, str) or "/" in name or "\\" in name or ".." in name:
+        raise ValueError(
+            f"Invalid personal rule name {name!r}: use letters, digits, '-' or '_' only."
+        )
+    stem = name[:-3] if name.endswith(".md") else name
+    if not RULE_NAME_RE.fullmatch(stem):
+        raise ValueError(
+            f"Invalid personal rule name {name!r}: use letters, digits, '-' or '_' only."
+        )
+    return f"{stem}.md"
 
 
 def is_default_root() -> bool:
@@ -86,8 +112,8 @@ def create_rule(
     trigger: str = "always_on",
 ) -> Path:
     """Create or seed a personal rule, guaranteeing valid trigger front matter."""
+    file_name = validate_rule_name(name)
     rules_dir = ensure_personal_dir(root)
-    file_name = name if name.endswith(".md") else f"{name}.md"
     path = rules_dir / file_name
     final_content = ensure_frontmatter(content, default_trigger=trigger)
     path.write_text(final_content, encoding="utf-8")
@@ -201,11 +227,20 @@ class RuleTarget:
     root: Path | None = None
 
 
+def _emit_sync_warnings(report: Report) -> None:
+    for warning in report.warnings:
+        emit_status("warn", warning)
+
+
 def _resolve_target(target: RuleTarget) -> tuple[Path, Path] | None:
     """The personal root and the rule path, or None after reporting why it cannot be used."""
+    try:
+        file_name = validate_rule_name(target.name)
+    except ValueError as exc:
+        emit_status("error", str(exc))
+        return None
     root = target.root or personal_root()
     rules_dir = ensure_personal_dir(root)
-    file_name = target.name if target.name.endswith(".md") else f"{target.name}.md"
     path = rules_dir / file_name
     if path.exists() and not target.force:
         emit_status(
@@ -244,7 +279,7 @@ def add_rule(target: RuleTarget, *, from_file: Path | None = None, title: str | 
     else:
         content = _template_body(target.name, title)
     created = create_rule(target.name, content, root=root, trigger="always_on")
-    _sync(root)
+    _emit_sync_warnings(_sync(root))
     emit_status("ok", f"Created personal rule '{created.stem}' at {created}")
     return 0
 
@@ -283,7 +318,7 @@ def migrate_rule(target: RuleTarget, *, from_file: Path, section: str | None = N
         from_file.unlink()
     else:
         from_file.write_text(remaining, encoding="utf-8")
-    _sync(root)
+    _emit_sync_warnings(_sync(root))
     emit_status("ok", f"Migrated to personal rule '{created.stem}' at {created}")
     return 0
 
@@ -303,8 +338,12 @@ def _unlink_leftover_links(stem: str, rule_path: Path) -> int:
 
 
 def remove_rule(name: str, *, root: Path | None = None) -> int:
+    try:
+        file_name = validate_rule_name(name)
+    except ValueError as exc:
+        emit_status("error", str(exc))
+        return 1
     r_root = root or personal_root()
-    file_name = name if name.endswith(".md") else f"{name}.md"
     rule_path = r_root / "rules" / file_name
     stem = rule_path.stem
 

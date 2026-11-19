@@ -681,7 +681,7 @@ def test_never_started_is_an_audited_operator_assertion(
 def test_abort_crash_windows(world: OrcaWorld, monkeypatch: pytest.MonkeyPatch) -> None:
     _dispatch(world)
     world.finish(1, "D1")
-    real_write, real_log = TaskStore._write, TaskStore.append_log
+    real_write, real_log = TaskStore._write, TaskStore._append_log_unlocked
     hits: list[str] = []
 
     def flaky_write(self: TaskStore, directory: Path, task: object) -> object:
@@ -697,7 +697,7 @@ def test_abort_crash_windows(world: OrcaWorld, monkeypatch: pytest.MonkeyPatch) 
         real_log(self, task_id, entry)
 
     monkeypatch.setattr(TaskStore, "_write", flaky_write)
-    monkeypatch.setattr(TaskStore, "append_log", flaky_log)
+    monkeypatch.setattr(TaskStore, "_append_log_unlocked", flaky_log)
     tail = ("--reason", "r", "--dispatch-id", "D1")
     assert world.abort(1, *tail).code == 1
     assert world.task().rounds == [] and world.task().evidence == []
@@ -734,14 +734,13 @@ def test_crash_after_markdown_before_record_retry_succeeds_identically(
     res = world.collect(1, "D1")
     assert res.code == 1 and "disk full" in res.text
     assert world.task().rounds == []
-    first = Path(world.dispatch_json(1)["file"]).read_text(encoding="utf-8")
+    round_path = Path(world.dispatch_json(1)["file"])
+    assert round_path.exists() and round_path.read_text(encoding="utf-8") == ""
     assert world.collect(1, "D1").code == 0
     record = world.record(1)
-    second = Path(str(record["file"])).read_text(encoding="utf-8")
-    keep = ("- Verdict", "- Dispatch", "## Answer")
-    assert [ln for ln in first.splitlines() if ln.startswith(keep)] == [
-        ln for ln in second.splitlines() if ln.startswith(keep)
-    ]
+    settled_text = Path(str(record["file"])).read_text(encoding="utf-8")
+    assert "- Dispatch: D1" in settled_text and "- Verdict: info (valid)" in settled_text
+    assert "## Answer\n\nok\nPOSITION: Final." in settled_text
     assert record["verdict"] == "info"
 
 
@@ -1331,3 +1330,53 @@ def test_collect_ignores_non_dict_launch_json_when_no_denied_models(world: OrcaW
     res = world.collect(1, "D1")
     assert res.code == 0
     assert world.record(1)["launch_verified"] is False
+
+
+def test_collect_rechecks_drift_under_lock_before_writing(
+    world: OrcaWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ai_governance.taskflow import collect as collect_mod
+
+    _dispatch(world, "codex")
+    world.finish(1, "D1", answer="ok\nPOSITION: Final.\n", agent="codex")
+    real_launch = collect_mod.launch_verified
+
+    def tamper_mid_collect(found: dict[str, object], dispatch_id: str) -> bool:
+        world.edit_state(lambda data: data["code_stamp"].update(key="tampered"))
+        return real_launch(found, dispatch_id)
+
+    monkeypatch.setattr(collect_mod, "launch_verified", tamper_mid_collect)
+    with pytest.raises(DispatchError, match="control files changed"):
+        collect_round(world.store, RoundRef(TASK, 1), "D1")
+    assert world.task().rounds == []
+    assert Path(world.dispatch_json(1)["file"]).read_text(encoding="utf-8") == ""
+
+
+def test_write_settled_rolls_back_missing_prior_and_preserves_save_error(
+    world: OrcaWorld, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from ai_governance.taskflow import collect as collect_mod
+
+    def fail_write(*_args: object) -> object:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(TaskStore, "_write", fail_write)
+
+    absent = tmp_path / "absent.md"
+    rec = {"n": 9, "file": str(absent), "session": "D9"}
+    with pytest.raises(OSError, match="disk full"):
+        collect_mod._write_settled(world.store, TASK, collect_mod._Settlement(rec, "new"))
+    assert not absent.exists()
+
+    existing = tmp_path / "existing.md"
+    existing.write_text("prior", encoding="utf-8")
+    rec_prev = {"n": 10, "file": str(existing), "session": "D10"}
+    with pytest.raises(OSError, match="disk full"):
+        collect_mod._write_settled(world.store, TASK, collect_mod._Settlement(rec_prev, "new"))
+    assert existing.read_text(encoding="utf-8") == "prior"
+
+    monkeypatch.setattr(
+        collect_mod, "_restore_text", lambda *_a: (_ for _ in ()).throw(OSError("cleanup"))
+    )
+    with pytest.raises(OSError, match="disk full"):
+        collect_mod._write_settled(world.store, TASK, collect_mod._Settlement(rec_prev, "new"))

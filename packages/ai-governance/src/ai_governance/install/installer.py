@@ -579,6 +579,11 @@ def uninstall_user(
 # -- project scope -----------------------------------------------------------------
 
 
+def _strip_agents_imports(text: str) -> str:
+    kept = [line for line in text.splitlines() if line.strip() != "@AGENTS.md"]
+    return "\n".join(kept).strip()
+
+
 def _migrate_claude_memory(root: Path, report: Report, dry_run: bool) -> None:
     """Moves CLAUDE.md content into AGENTS.md (the only instructions file we support)."""
     agents_md = root / "AGENTS.md"
@@ -586,7 +591,7 @@ def _migrate_claude_memory(root: Path, report: Report, dry_run: bool) -> None:
         source = root / relative
         if not source.is_file():
             continue
-        text = source.read_text(encoding="utf-8").strip()
+        text = _strip_agents_imports(source.read_text(encoding="utf-8"))
         if text and not dry_run:
             existing = agents_md.read_text(encoding="utf-8") if agents_md.exists() else ""
             joined = f"{existing.rstrip()}\n\n{text}\n" if existing.strip() else f"{text}\n"
@@ -652,10 +657,42 @@ def _changed_config(config: ProjectConfig, *, agents: Change, profiles: Change) 
     return config
 
 
-def _stacks_or_warn(root: Path, report: Report) -> set[str]:
+def _most_specific_stack(rule: RuleDefinition, catalog: RuleCatalog) -> str:
+    """Stack tag from ``rule.stacks`` matching the fewest catalog rules."""
+    return min(
+        rule.stacks,
+        key=lambda stack: sum(1 for other in catalog.rules if stack in other.stacks),
+    )
+
+
+def _preserved_stacks(root: Path, config: ProjectConfig | None = None) -> set[str]:
+    """Stacks recorded in or implied by the project ledger when ``ws`` is missing."""
+    ledger = Ledger(root / PROJECT_DIR / "lock.json", base=root)
+    preserved = {str(s) for s in ledger.extra.get("stacks", []) if isinstance(s, str)}
+    extra = set(config.extra_rules) if config is not None else set()
+    catalog = RuleCatalog()
+    stack_rules = [
+        rule
+        for rule_id in sorted(_installed_rule_ids(ledger) - extra)
+        if (rule := catalog.get(rule_id)) is not None and rule.stacks
+    ]
+    for rule in sorted(stack_rules, key=lambda r: len(r.stacks)):
+        if not rule.applies_to(preserved):
+            preserved.add(_most_specific_stack(rule, catalog))
+    return preserved
+
+
+def _stacks_or_warn(root: Path, report: Report, config: ProjectConfig | None = None) -> set[str]:
     stacks = detect_stacks(root)
     if stacks is not None:
         return stacks
+    preserved = _preserved_stacks(root, config)
+    if preserved:
+        report.warnings.append(
+            "`ws` not found: stack detection skipped, keeping previously installed stack rules. "
+            "Install the workspace package and run `ai-governance update`."
+        )
+        return preserved
     report.warnings.append(
         "`ws` not found: stack detection skipped, only general rules selected. "
         "Install the workspace package and run `ai-governance update`."
@@ -667,7 +704,7 @@ def _prepare_project(
     root: Path, config: ProjectConfig, report: Report, *, dry_run: bool
 ) -> set[str]:
     """Detects the stacks and moves CLAUDE.md into AGENTS.md for Claude projects."""
-    stacks = _stacks_or_warn(root, report)
+    stacks = _stacks_or_warn(root, report, config)
     if "claude" in config.agents:
         _migrate_claude_memory(root, report, dry_run)
     return stacks

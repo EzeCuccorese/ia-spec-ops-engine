@@ -296,3 +296,16 @@ def test_every_language_rule_states_how_to_validate_input() -> None:
     for rule in RuleCatalog().rules:
         if rule.category == "2-stacks":
             assert "valid" in rule.content.lower(), rule.id
+
+
+def test_review_lessons_in_core_and_python_rules() -> None:
+    catalog = RuleCatalog()
+    review = catalog.get("20-review-ready-code")
+    assert review is not None
+    assert "ISO codes" in review.content and "locale" in review.content
+    assert "conditional write" in review.content and "409" in review.content
+    assert "GET then POST" in review.content
+
+    py_rule = catalog.get("python-async")
+    assert py_rule is not None
+    assert "S7503" in py_rule.content and "unless it awaits" in py_rule.content

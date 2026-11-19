@@ -1002,3 +1002,35 @@ def test_synthesis_handles_invalid_cross_unreadable_rounds_and_string_drops(
     missing = _section(text, "Missing")
     assert "Invalid cross round 004" in missing and "Unreadable thesis round file" in missing
     assert "manual drop note" in missing
+
+
+def test_rollback_dispatched_acquires_task_lock_and_skips_empty(
+    world: OrcaWorld, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from contextlib import contextmanager
+
+    locks: list[str] = []
+    real_lock = world.store._lock
+
+    @contextmanager
+    def tracked_lock(task_id: str):  # type: ignore[no-untyped-def]
+        locks.append(task_id)
+        with real_lock(task_id) as directory:
+            yield directory
+
+    monkeypatch.setattr(world.store, "_lock", tracked_lock)
+    debate._rollback_dispatched(world.store, TASK, [])
+    assert locks == []
+
+    topic = _topic(tmp_path)
+    monkeypatch.setattr(debate, "save_debate", lambda *_a: (_ for _ in ()).throw(OSError("disk")))
+    with pytest.raises(OSError, match="disk"):
+        debate.open_debate(
+            world.store,
+            TASK,
+            load_config([world.repo]),
+            OpenDebateOptions(topic_file=topic, agents=("claude", "codex")),
+        )
+    # 1 lock for refresh + 2 locks for reserve_round + 1 lock for _rollback_dispatched
+    assert len(locks) >= 4 and locks[-1] == TASK
+    _check_clean_store(world)
