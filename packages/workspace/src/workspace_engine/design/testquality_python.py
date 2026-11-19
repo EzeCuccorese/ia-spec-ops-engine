@@ -85,8 +85,36 @@ def _py_assertions(fn: PyFunction) -> tuple[str, ...]:
     return tuple(kind for kind in kinds if kind)
 
 
+_SKIP_DECORATOR_NAMES = frozenset(
+    {
+        "skip",
+        "skipIf",
+        "skipUnless",
+        "unittest.skip",
+        "unittest.skipIf",
+        "unittest.skipUnless",
+        "pytest.mark.skip",
+        "pytest.mark.skipif",
+        "mark.skip",
+        "mark.skipif",
+    }
+)
+
+
+def _decorator_name(decorator: ast.expr) -> str:
+    target = decorator.func if isinstance(decorator, ast.Call) else decorator
+    parts: list[str] = []
+    while isinstance(target, ast.Attribute):
+        parts.append(target.attr)
+        target = target.value
+    if isinstance(target, ast.Name):
+        parts.append(target.id)
+        return ".".join(reversed(parts))
+    return ""
+
+
 def _is_skipped(fn: PyFunction) -> bool:
-    return any("skip" in ast.unparse(d) for d in fn.decorator_list)
+    return any(_decorator_name(d) in _SKIP_DECORATOR_NAMES for d in fn.decorator_list)
 
 
 def _py_cases(tree: ast.Module) -> list[_Case]:

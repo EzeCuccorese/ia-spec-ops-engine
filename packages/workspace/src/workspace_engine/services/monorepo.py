@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -12,6 +14,9 @@ from typing import Any
 from ruamel.yaml import YAML
 
 logger = logging.getLogger(__name__)
+
+_PRUNED_DIRS = frozenset({"node_modules", ".git", "dist", "build", ".venv"})
+_GLOB_META = frozenset("*?[")
 
 MONOREPO_TEST_SCRIPT_RE = re.compile(
     r"(?:yarn\s+workspaces?\s+(?:run|foreach)|\bpnpm\s+(?:-r|--recursive)|\bnpm\s+(?:run\s+\S+\s+(?:--(?:workspaces?|ws)|-ws)|(?:--(?:workspaces?|ws)|-ws)\s+run))\b"
@@ -100,23 +105,88 @@ def _clean_glob(pat: str) -> str:
     return pat.rstrip("/")
 
 
+def _glob_parts(pat: str) -> tuple[str, ...]:
+    raw = [p for p in _clean_glob(pat).split("/") if p and p != "."]
+    collapsed: list[str] = []
+    for part in raw:
+        if part == "**" and collapsed and collapsed[-1] == "**":
+            continue
+        collapsed.append(part)
+    return tuple(collapsed)
+
+
+def _match_parts(path_parts: tuple[str, ...], pat_parts: tuple[str, ...]) -> bool:
+    if not pat_parts:
+        return not path_parts
+    head, tail = pat_parts[0], pat_parts[1:]
+    if head == "**":
+        if _match_parts(path_parts, tail):
+            return True
+        return bool(path_parts) and _match_parts(path_parts[1:], pat_parts)
+    if not path_parts or not fnmatch.fnmatchcase(path_parts[0], head):
+        return False
+    return _match_parts(path_parts[1:], tail)
+
+
 def matches_glob(rel_path: str, glob_pattern: str) -> bool:
     """Matches a relative POSIX path against a glob pattern."""
-    clean_pat = _clean_glob(glob_pattern)
-    return PurePosixPath(rel_path).match(clean_pat)
+    path_parts = tuple(p for p in PurePosixPath(rel_path).parts if p not in ("", "."))
+    return _match_parts(path_parts, _glob_parts(glob_pattern))
+
+
+def _record_package(root: Path, directory: Path, candidates: set[str]) -> None:
+    if directory != root and (directory / "package.json").is_file():
+        candidates.add(directory.relative_to(root).as_posix())
+
+
+def _walk_recursive(root: Path, base: Path, tail: tuple[str, ...], candidates: set[str]) -> None:
+    for current, dirs, _ in os.walk(base):
+        dirs[:] = [d for d in dirs if d not in _PRUNED_DIRS]
+        current_path = Path(current)
+        if not tail:
+            _record_package(root, current_path, candidates)
+        else:
+            _walk_pattern(root, current_path, tail, candidates)
+
+
+def _walk_wildcard(root: Path, base: Path, parts: tuple[str, ...], candidates: set[str]) -> None:
+    head, tail = parts[0], parts[1:]
+    try:
+        entries = list(os.scandir(base))
+    except OSError as exc:
+        logger.debug("Error scanning %s: %s", base, exc)
+        return
+    for entry in entries:
+        if entry.name in _PRUNED_DIRS or not fnmatch.fnmatchcase(entry.name, head):
+            continue
+        if entry.is_dir():
+            _walk_pattern(root, Path(entry.path), tail, candidates)
+
+
+def _walk_pattern(root: Path, base: Path, parts: tuple[str, ...], candidates: set[str]) -> None:
+    if not parts:
+        _record_package(root, base, candidates)
+        return
+    head, tail = parts[0], parts[1:]
+    if head == "**":
+        _walk_recursive(root, base, tail, candidates)
+        return
+    if any(ch in _GLOB_META for ch in head):
+        _walk_wildcard(root, base, parts, candidates)
+        return
+    if head in _PRUNED_DIRS or head == "..":
+        return
+    child = base / head
+    if child.is_dir():
+        _walk_pattern(root, child, tail, candidates)
 
 
 def _scan_glob_candidates(root: Path, pos_globs: list[str]) -> set[str]:
     candidates: set[str] = set()
     for pat in pos_globs:
-        try:
-            matched_dirs = [
-                d for d in root.glob(pat) if d.is_dir() and (d / "package.json").is_file()
-            ]
-            for d in matched_dirs:
-                candidates.add(d.relative_to(root).as_posix())
-        except (OSError, ValueError) as exc:
-            logger.debug("Error globbing %s under %s: %s", pat, root, exc)
+        parts = _glob_parts(pat)
+        if parts:
+            _walk_pattern(root, root, parts, candidates)
     return candidates
 
 
@@ -125,9 +195,7 @@ def find_workspace_packages(root: Path, globs: list[str]) -> set[str]:
     pos_globs = [_clean_glob(g) for g in globs if not g.startswith("!")]
     neg_globs = [_clean_glob(g[1:]) for g in globs if g.startswith("!")]
     candidates = _scan_glob_candidates(root, pos_globs)
-    return {
-        cand for cand in candidates if not any(PurePosixPath(cand).match(neg) for neg in neg_globs)
-    }
+    return {cand for cand in candidates if not any(matches_glob(cand, neg) for neg in neg_globs)}
 
 
 def resolve_owning_package(rel_file: str, package_dirs: set[str]) -> str | None:

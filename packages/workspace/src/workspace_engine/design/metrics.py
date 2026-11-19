@@ -229,6 +229,18 @@ def function_at(root: Path, path: Path, line: int) -> FunctionMetrics | None:
     return min(candidates, key=lambda fm: fm.end_line - fm.start_line)
 
 
+def _is_test_path(path: str) -> bool:
+    """Whether ``path`` is a Python test file or lives under a ``tests/`` directory."""
+    parts = path.replace("\\", "/").split("/")
+    name = parts[-1]
+    directories = parts[:-1]
+    return (
+        (name.startswith("test_") and name.endswith(".py"))
+        or name.endswith("_test.py")
+        or "tests" in directories
+    )
+
+
 def violations_for(
     fm: FunctionMetrics,
     config: DesignConfig,
@@ -238,8 +250,9 @@ def violations_for(
     checks: list[tuple[str, int, int]] = [
         ("complexity", fm.complexity, config.max_complexity),
         ("length", fm.length, config.max_function_lines),
-        ("args", fm.args, config.max_args),
     ]
+    if not _is_test_path(fm.path):
+        checks.append(("args", fm.args, config.max_args))
     if fm.nesting is not None:
         checks.append(("nesting", fm.nesting, config.max_nesting))
     return [
@@ -271,6 +284,29 @@ def _touches(changed: dict[str, set[int] | None], path: str, start: int, end: in
 _FunctionKey = tuple[str, int]
 
 
+def _base_name(symbol: str) -> str:
+    return symbol.split("(", 1)[0].strip()
+
+
+def _unique_by_base_name(functions: list[FunctionMetrics]) -> dict[str, FunctionMetrics]:
+    """Maps base function name to metrics only for names appearing once in the file."""
+    named = [(name, fm) for fm in functions if (name := _base_name(fm.symbol))]
+    counts = Counter(name for name, _ in named)
+    return {name: fm for name, fm in named if counts[name] == 1}
+
+
+@dataclass(frozen=True)
+class _BaseSnapshot:
+    by_key: dict[_FunctionKey, FunctionMetrics]
+    unique_by_name: dict[str, FunctionMetrics]
+
+    def match(self, key: _FunctionKey, allow_name_fallback: bool) -> FunctionMetrics | None:
+        previous = self.by_key.get(key)
+        if previous is not None or not allow_name_fallback:
+            return previous
+        return self.unique_by_name.get(_base_name(key[0]))
+
+
 def _keyed(functions: list[FunctionMetrics]) -> list[tuple[_FunctionKey, FunctionMetrics]]:
     """Functions keyed by ``(signature, occurrence)`` so duplicate names stay distinct."""
     seen: Counter[str] = Counter()
@@ -281,15 +317,16 @@ def _keyed(functions: list[FunctionMetrics]) -> list[tuple[_FunctionKey, Functio
     return keyed
 
 
-def _base_functions(root: Path, base: str, relative: str) -> dict[_FunctionKey, FunctionMetrics]:
+def _base_functions(root: Path, base: str, relative: str) -> _BaseSnapshot:
     """The file's functions as of ``base``; empty when it did not exist or cannot be parsed."""
     code, source, _ = run_command_safe(
         ["git", "show", f"{base}:./{relative}"], cwd=root, isolated_git=True
     )
     if code != 0:
-        return {}
+        return _BaseSnapshot({}, {})
     extension = Path(relative).suffix.lstrip(".")
-    return dict(_keyed(analyze_source(relative, extension, source)))
+    functions = analyze_source(relative, extension, source)
+    return _BaseSnapshot(dict(_keyed(functions)), _unique_by_base_name(functions))
 
 
 @dataclass(frozen=True)
@@ -304,7 +341,7 @@ def _function_violations(
     entry: tuple[_FunctionKey, FunctionMetrics],
     config: DesignConfig,
     scope: DiffScope | None,
-    at_base: Callable[[], dict[_FunctionKey, FunctionMetrics]],
+    lookup: Callable[[_FunctionKey], FunctionMetrics | None],
 ) -> list[Violation]:
     key, fm = entry
     found = violations_for(fm, config)
@@ -312,8 +349,31 @@ def _function_violations(
         return found
     if not _touches(scope.changed, fm.path, fm.start_line, fm.end_line):
         return found
-    previous = at_base().get(key)
+    previous = lookup(key)
     return violations_for(fm, config, "new" if previous is None else "legacy", previous)
+
+
+def _file_violations(
+    root: Path, path: Path, config: DesignConfig, scope: DiffScope | None
+) -> list[Violation]:
+    relative = path.resolve().relative_to(root).as_posix()
+    functions = analyze_file(root, path)
+    if not functions:
+        return []
+    unique_current = frozenset(_unique_by_base_name(functions))
+    base = scope.base if scope else None
+
+    @cache
+    def at_base() -> _BaseSnapshot:
+        return _base_functions(root, base, relative) if base else _BaseSnapshot({}, {})
+
+    def lookup(key: _FunctionKey) -> FunctionMetrics | None:
+        return at_base().match(key, _base_name(key[0]) in unique_current)
+
+    violations: list[Violation] = []
+    for entry in _keyed(functions):
+        violations.extend(_function_violations(entry, config, scope, lookup))
+    return violations
 
 
 def measure(
@@ -326,21 +386,8 @@ def measure(
     root_resolved = root.resolve()
     violations: list[Violation] = []
     for path in paths:
-        if not path.is_file():
+        if not path.is_file() or not supported(path):
             continue
-        relative = path.resolve().relative_to(root_resolved).as_posix()
-        if not supported(path):
-            continue
-        functions = analyze_file(root_resolved, path)
-        if not functions:
-            continue
-
-        @cache
-        def at_base(relative: str = relative) -> dict[_FunctionKey, FunctionMetrics]:
-            base = scope.base if scope else None
-            return _base_functions(root, base, relative) if base else {}
-
-        for entry in _keyed(functions):
-            violations.extend(_function_violations(entry, config, scope, at_base))
+        violations.extend(_file_violations(root_resolved, path, config, scope))
     violations.sort(key=lambda v: (v.path, v.start_line, v.metric))
     return violations

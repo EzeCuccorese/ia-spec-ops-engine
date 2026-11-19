@@ -502,3 +502,40 @@ def test_cli_reports_junk_tests_unless_their_check_is_disabled(
     out = capsys.readouterr().out
     assert exit_code == code
     assert ("assert the observable result or delete the test" in out) is bool(code)
+
+
+@pytest.mark.parametrize(
+    ("decorator", "expected_flagged"),
+    [
+        ('@pytest.mark.parametrize("mode", ["skip", "run"])', True),
+        ('@pytest.mark.parametrize("skip_flag", [True])', True),
+        ('@custom_skip_helper("reason")', True),
+        ('@make_decorator("skip")()', True),
+        ("@pytest.mark.skip", False),
+        ('@pytest.mark.skip(reason="todo")', False),
+        ('@pytest.mark.skipif(True, reason="todo")', False),
+        ('@skip("todo")', False),
+        ('@skipIf(True, "todo")', False),
+        ('@skipUnless(False, "todo")', False),
+        ('@unittest.skipIf(True, "todo")', False),
+    ],
+    ids=[
+        "parametrize-value-contains-skip",
+        "parametrize-arg-contains-skip",
+        "custom-decorator-name-contains-skip",
+        "call-expression-decorator-contains-skip",
+        "pytest-mark-skip-bare",
+        "pytest-mark-skip-called",
+        "pytest-mark-skipif",
+        "bare-skip",
+        "bare-skipIf",
+        "bare-skipUnless",
+        "unittest-skipIf",
+    ],
+)
+def test_python_skip_detection_inspects_decorator_name_only(
+    tmp_path: Path, decorator: str, expected_flagged: bool
+) -> None:
+    source = f"import pytest, unittest\n\n{decorator}\ndef test_case(mode=None):\n    run(mode)\n"
+    found = run(tmp_path, "test_skip.py", source, ("test-no-assert",))
+    assert bool(found) is expected_flagged

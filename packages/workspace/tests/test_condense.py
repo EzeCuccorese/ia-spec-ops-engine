@@ -308,3 +308,84 @@ def test_logs_latest_empty_and_config_error_fallback(monkeypatch, tmp_path) -> N
     monkeypatch.chdir(tmp_path / "repo")
     log_id = logs.save("hello", "echo hi")
     assert logs.latest() == log_id
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process-group kill requires POSIX")
+def test_ws_run_timeout_kills_process_group_and_grandchildren(tmp_path, capsys) -> None:
+    pid_file = tmp_path / "grandchild.pid"
+    script = (
+        f'"{sys.executable}" -c "import time; time.sleep(60)" & '
+        f'echo $! > "{pid_file}"; '
+        'echo "PARTIAL_BEFORE_TIMEOUT"; '
+        "wait"
+    )
+    code = cli.run(["--timeout", "1", "--", script])
+    captured = capsys.readouterr()
+
+    assert code == 124
+    assert "PARTIAL_BEFORE_TIMEOUT" in captured.out
+    assert "ERROR: command timed out after 1s" in captured.err
+    grandchild_pid = int(pid_file.read_text(encoding="utf-8").strip())
+    with pytest.raises(ProcessLookupError):
+        os.kill(grandchild_pid, 0)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="SIGTERM/SIGKILL escalation requires POSIX")
+def test_ws_run_timeout_escalates_to_sigkill_when_sigterm_ignored(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(cli, "_TERM_GRACE_SECONDS", 0.1)
+    script = "trap '' TERM; echo STUBBORN_OUTPUT; exec sleep 60"
+    code = cli.run(["--timeout", "1", "--", script])
+    captured = capsys.readouterr()
+
+    assert code == 124
+    assert "STUBBORN_OUTPUT" in captured.out
+    assert "ERROR: command timed out after 1s" in captured.err
+
+
+@pytest.mark.parametrize(
+    ("fails_before_exit", "expected_events"),
+    [
+        (1, ["start_new_session=False", "terminate"]),
+        (2, ["start_new_session=False", "terminate", "kill"]),
+    ],
+    ids=["exits-on-terminate", "escalates-to-kill"],
+)
+def test_ws_run_timeout_non_posix_fallback_terminates_and_kills(
+    monkeypatch, capsys, fails_before_exit: int, expected_events: list[str]
+) -> None:
+    events: list[str] = []
+
+    class FakePopen:
+        pid = 99999
+        returncode = -9
+
+        def __init__(self, *args, **kwargs):
+            events.append(f"start_new_session={kwargs.get('start_new_session')}")
+            self.calls = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def communicate(self, timeout=None):
+            self.calls += 1
+            if self.calls <= fails_before_exit:
+                raise subprocess.TimeoutExpired(cmd="fake", timeout=timeout or 1)
+            return ("partial-win", "")
+
+        def terminate(self):
+            events.append("terminate")
+
+        def kill(self):
+            events.append("kill")
+
+    monkeypatch.setattr(cli.os, "name", "nt")
+    monkeypatch.setattr(cli.subprocess, "Popen", FakePopen)
+    code = cli.run(["--timeout", "1", "--", "echo", "hi"])
+    captured = capsys.readouterr()
+
+    assert code == 124
+    assert "partial-win" in captured.out
+    assert events == expected_events
