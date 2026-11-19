@@ -667,7 +667,7 @@
 
   <header class="topbar">
     <div class="brand">
-      <span class="hud-chip"><span class="hud-dot" aria-hidden="true"></span>ENGINE v2.3.0 // ORCA</span>
+      <span class="hud-chip"><span class="hud-dot" aria-hidden="true"></span>ENGINE v3.0.0 // ORCA</span>
       <span>ia-spec-ops-engine · Team Adoption</span>
     </div>
     <div class="top-actions">
@@ -940,7 +940,7 @@ Pre-existing: 1 warning (non-blocking)
 
     <!-- SLIDE 7: DEBATE MODE -->
     <section class="slide" data-title="Debate Mode">
-      <span class="eyebrow">07 / New in v2.3.0 · taskflow debate in Orca</span>
+      <span class="eyebrow">07 / v3.0.0 · taskflow debate in Orca</span>
       <h2 class="slide-title">Multi-provider design debate before writing code</h2>
       <p class="lead">
         Facing a tough technical decision? Have 2+ providers debate in Orca. The Engine coordinates
@@ -1063,7 +1063,7 @@ uv tool install --editable ./packages/ai-governance
 uv tool install --editable ./packages/workspace
 
 # 2. Install agent rules and repo pre-push hooks
-ai-governance install --scope user --agent all
+ai-governance install --scope user --agent claude --agent codex --agent antigravity
 ws hooks install
 
 # 3. Verify everything is healthy and ready for Orca
@@ -1292,9 +1292,9 @@ ai-governance taskflow debate my-design open --topic-file topic.md --agents clau
         self: {
           st: "The same model approves its own code",
           sb: "You ask an agent to implement and then validate with a skill: it tends to rationalize its own shortcuts.",
-          et: "Provider separation of powers in Orca",
-          eb: "<code>INDEPENDENT_ROLES</code> prevents <code>validator</code> and <code>judge</code> from running on the same provider as <code>builder</code>.",
-          term: "taskflow round TASK-1 dispatch --role validator --agent claude\n→ ERROR: validator and builder would both use provider 'claude': pick another agent",
+          et: "Multi-provider debates in Orca",
+          eb: "<code>debate open</code> requires 2+ distinct providers so a single provider never debates or approves its own design.",
+          term: "ai-governance taskflow debate TASK-1 open --topic-file topic.md --agents claude,claude\n→ ERROR: debate needs at least two distinct agents/providers",
         },
         edit: {
           st: "A 'read-only' reviewer edits files",

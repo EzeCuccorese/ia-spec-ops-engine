@@ -735,3 +735,13 @@ def test_user_install_creates_personal_rules_dir_and_readme_when_missing(
     readme = expected_rules / "README.md"
     assert readme.is_file()
     assert "Personal Rules" in readme.read_text(encoding="utf-8")
+
+
+def test_doctor_warns_when_project_installed_without_user_scope(project: Path) -> None:
+    sync_project(project, add_agents=["claude"])
+    rows = check(project)
+    assert any(label == "project:user-scope" and status == WARN for label, status, _ in rows)
+
+    install_user(["claude"])
+    rows_after = check(project)
+    assert not any(label == "project:user-scope" for label, _, _ in rows_after)

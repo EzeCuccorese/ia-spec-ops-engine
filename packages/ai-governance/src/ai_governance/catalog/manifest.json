@@ -191,8 +191,7 @@
           "**/*.pyi"
         ]
       },
-      "stacks": [],
-      "user_scope": true
+      "stacks": []
     },
     {
       "id": "11-self-documenting-code",
@@ -624,8 +623,7 @@
           "**/webapp.*"
         ]
       },
-      "stacks": [],
-      "user_scope": true
+      "stacks": []
     },
     {
       "id": "observability",

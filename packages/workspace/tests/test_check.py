@@ -157,3 +157,59 @@ def test_check_skip_help_lists_the_gate_stages(capsys):
         check_cli.check(["--help"])
     help_text = " ".join(capsys.readouterr().out.split())
     assert f"Stages to skip: {','.join(QG_STAGES)}" in help_text
+
+
+def test_check_surfaces_warnings_when_gate_passes(repo: Path, monkeypatch, capsys) -> None:
+    def passing_with_warn(root, capture=None, **_):
+        capture.append("⚠  gitleaks is not installed, skipping.\n🚀 All good.")
+        return 0
+
+    monkeypatch.setattr(check_cli, "run_quality_gate", passing_with_warn)
+    assert check_cli.check(["--dir", str(repo), "--changed", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "passed"
+    assert "✓ gate: passed" in payload["text"]
+    assert "⚠  gitleaks is not installed" in payload["text"]
+
+
+def _write_failing_and_passing_python_repo(repo: Path, fake_home: Path) -> None:
+    """Commits an unrelated file on HEAD so HEAD~1..HEAD has no Python files."""
+    (repo / "notes.md").write_text("unrelated commit\n", encoding="utf-8")
+    _git(repo, "add", "notes.md")
+    _git(repo, "commit", "-q", "-m", "docs: add notes")
+    (repo / "pyproject.toml").write_text('[project]\nname = "demo"\n', encoding="utf-8")
+    pytest_bin = repo / ".venv" / "bin" / "pytest"
+    pytest_bin.parent.mkdir(parents=True)
+    pytest_bin.write_text(
+        '#!/bin/sh\nfor f in "$@"; do\n'
+        '  case "$f" in *test_uncommitted.py) grep -q "PASS" "$f" || exit 1 ;; esac\n'
+        "done\nexit 0\n",
+        encoding="utf-8",
+    )
+    pytest_bin.chmod(0o755)
+    fake_home.mkdir(exist_ok=True)
+
+
+def test_check_changed_validates_uncommitted_files_end_to_end(
+    repo: Path, tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """Real run_quality_gate (no mock) catches uncommitted failures outside HEAD~1..HEAD."""
+    fake_home = tmp_path / "home"
+    _write_failing_and_passing_python_repo(repo, fake_home)
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("WORKSPACE_LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setenv("QG_SKIP", "gitleaks,commits,lint,design")
+
+    test_file = repo / "test_uncommitted.py"
+    test_file.write_text("def test_fail(): assert False\n", encoding="utf-8")
+    assert check_cli.check(["--dir", str(repo), "--changed", "--cache", "--json"]) == 1
+    failed = json.loads(capsys.readouterr().out)
+    assert failed["status"] == "failed"
+
+    test_file.write_text("# PASS\ndef test_ok(): assert True\n", encoding="utf-8")
+    assert check_cli.check(["--dir", str(repo), "--changed", "--cache", "--json"]) == 0
+    passed = json.loads(capsys.readouterr().out)
+    assert passed["status"] == "passed"
+    assert check_cli.check(["--dir", str(repo), "--changed", "--cache", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "skipped"

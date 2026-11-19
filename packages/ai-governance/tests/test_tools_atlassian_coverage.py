@@ -887,8 +887,8 @@ def test_read_input_text_at_file(tmp_path) -> None:
 def test_read_input_text_plain_existing_path(tmp_path) -> None:
     f = tmp_path / "body2.txt"
     f.write_text("more content")
-    assert atlassian_common.read_input_text(str(f)) == "more content"
-    assert atlassian_common.read_input_text(str(f), allow_bare_path=False) == str(f)
+    assert atlassian_common.read_input_text(str(f)) == str(f)
+    assert atlassian_common.read_input_text(str(f), allow_bare_path=True) == "more content"
 
 
 def test_read_input_text_literal() -> None:
@@ -902,25 +902,27 @@ def test_read_input_text_literal() -> None:
 def test_execute_request_http_error_json_body(mock_urlopen: MagicMock) -> None:
     err_resp = MagicMock()
     err_resp.read.return_value = json.dumps({"errorMessages": ["Bad request"]}).encode()
-    mock_urlopen.side_effect = urllib.error.HTTPError("http://x", 400, "Bad Request", {}, err_resp)
+    mock_urlopen.side_effect = urllib.error.HTTPError("https://x", 400, "Bad Request", {}, err_resp)
     with pytest.raises(atlassian_common.AtlassianRequestError, match="HTTP 400 Error"):
-        atlassian_common.execute_request("GET", "http://x")
+        atlassian_common.execute_request("GET", "https://x")
 
 
 @patch("urllib.request.urlopen")
 def test_execute_request_http_error_non_json_body(mock_urlopen: MagicMock) -> None:
     err_resp = MagicMock()
     err_resp.read.return_value = b"plain text error"
-    mock_urlopen.side_effect = urllib.error.HTTPError("http://x", 500, "Server Error", {}, err_resp)
+    mock_urlopen.side_effect = urllib.error.HTTPError(
+        "https://x", 500, "Server Error", {}, err_resp
+    )
     with pytest.raises(atlassian_common.AtlassianRequestError, match="plain text error"):
-        atlassian_common.execute_request("GET", "http://x")
+        atlassian_common.execute_request("GET", "https://x")
 
 
 @patch("urllib.request.urlopen")
 def test_execute_request_timeout_error(mock_urlopen: MagicMock) -> None:
     mock_urlopen.side_effect = TimeoutError("timed out")
     with pytest.raises(atlassian_common.AtlassianRequestError, match="Timeout error"):
-        atlassian_common.execute_request("GET", "http://x")
+        atlassian_common.execute_request("GET", "https://x")
 
 
 # ── remaining branch coverage ────────────────────────────────────────────────
@@ -1001,8 +1003,59 @@ def test_load_profile_config_from_file_target_missing(
         atlassian_common.load_profile_config("teamC")
 
 
-def test_read_input_text_at_missing_file_falls_back_to_literal() -> None:
-    assert atlassian_common.read_input_text("@no-such-file.txt") == "@no-such-file.txt"
+def test_read_input_text_at_missing_file_raises() -> None:
+    with pytest.raises(atlassian_common.AtlassianConfigError, match="Input file not found"):
+        atlassian_common.read_input_text("@no-such-file.txt")
+
+
+@pytest.mark.parametrize(
+    "bad_url",
+    ["http://company.atlassian.net/rest/api/3/myself", "file:///etc/passwd", "https:///no-host"],
+    ids=["http-scheme", "file-scheme", "missing-host"],
+)
+def test_execute_request_rejects_non_https_urls(bad_url: str) -> None:
+    with (
+        patch("urllib.request.urlopen") as mock_urlopen,
+        pytest.raises(atlassian_common.AtlassianConfigError, match="https://"),
+    ):
+        atlassian_common.execute_request("GET", bad_url)
+    mock_urlopen.assert_not_called()
+
+
+def test_redirect_handler_blocks_cross_origin_and_http_downgrade() -> None:
+    import urllib.request
+
+    handler = atlassian_common._SameOriginRedirectHandler()
+    req = urllib.request.Request("https://company.atlassian.net/rest/api/3/issue/P-1")
+    for target in ("https://evil.example.com/steal", "http://company.atlassian.net/downgrade"):
+        with pytest.raises(atlassian_common.AtlassianRequestError, match="redirect"):
+            handler.redirect_request(req, None, 302, "Found", {}, target)
+
+
+@patch("urllib.request.urlopen")
+def test_execute_request_wraps_invalid_json_200(mock_urlopen: MagicMock) -> None:
+    resp = MagicMock()
+    resp.read.return_value = b"<html>SSO login</html>"
+    mock_urlopen.return_value.__enter__.return_value = resp
+    with pytest.raises(atlassian_common.AtlassianRequestError, match="Invalid JSON response"):
+        atlassian_common.execute_request("GET", "https://company.atlassian.net/rest/api/3/myself")
+
+
+@pytest.mark.parametrize("raw", ["0", "-5", "nan", "inf"], ids=["zero", "neg", "nan", "inf"])
+def test_atlassian_timeout_rejects_non_positive_or_non_finite(
+    monkeypatch: pytest.MonkeyPatch, raw: str
+) -> None:
+    monkeypatch.setenv("ATLASSIAN_TIMEOUT", raw)
+    assert atlassian_common.atlassian_timeout() == atlassian_common.DEFAULT_TIMEOUT_SECONDS
+
+
+def test_jira_cmd_assign_url_encodes_query_and_key() -> None:
+    users = [{"accountId": "u1", "displayName": "Alice", "emailAddress": "alice+ops@example.com"}]
+    mock_open = _mock_sequence(users, {})
+    with patch("urllib.request.urlopen", mock_open):
+        jira.cmd_assign("PROJ-1", "alice+ops@example.com")
+    first_req = mock_open.call_args_list[0].args[0]
+    assert "query=alice%2Bops%40example.com" in first_req.full_url
 
 
 # ── markdown → ADF / storage ────────────────────────────────────────────────

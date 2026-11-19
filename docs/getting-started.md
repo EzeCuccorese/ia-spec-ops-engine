@@ -5,7 +5,7 @@ every piece. Each step says **what it does**, **what changes on disk** and **wha
 see**. Nothing is installed for an agent you do not name with `--agent`.
 
 - `ai-governance` connects agents: instructions, per-stack rules, hooks, a cheap `scout`
-  subagent, task flow and Claude spend telemetry.
+  subagent, task notebook & design debates, and Atlassian utilities.
 - `ws` (package `workspace`) executes deterministic work: stack detection, quality gates,
   Git hooks and condensed command output.
 
@@ -53,6 +53,7 @@ What gets written for Claude Code:
 | `~/.claude/rules/ai-governance.md` | ≤1 KB of global instructions: prefer `ws`/`ai-governance` tools, frugal reads, delegation to `scout`/`researcher` | Yes, every session |
 | `~/.claude/agents/scout.md` | Read-only subagent on `haiku`, effort `medium`, for exploration, reading and summaries (no web tools) | Only its name and description |
 | `~/.claude/agents/researcher.md` | Read-only subagent on `sonnet`, effort `medium`, for web research | Only its name and description |
+| `~/.claude/agents/runner.md` | Command runner on `haiku`, effort `medium`, for noisy builds/tests/CI logs (no edits) | Only its name and description |
 | `~/.claude/skills/{taskflow,test-audit}/SKILL.md` | How to use the task flow; how to write, review and prune tests | Only their names and descriptions |
 | `~/.claude/settings.json` (merged) | Four hooks: `PreToolUse`/`PostToolUse` (Bash), `SessionStart`, `SessionEnd`, all as `ai-governance hook claude <event>` | Only what each hook returns (see below) |
 | `~/.local/state/ai-governance/installed.json` | Ownership ledger and the list of projects you install | No |
@@ -69,8 +70,8 @@ What each Claude hook does:
 Other agents (`--agent codex`, `--agent antigravity`) get the same pieces in their own
 locations; run `ai-governance agents` for the matrix. Codex also gets
 `agents.default_subagent_model = "gpt-6-luna"` and `agents.default_subagent_reasoning_effort =
-"medium"` in a marked block at the top of `~/.codex/config.toml`. Their output hooks are only
-installed after step 8 verifies them.
+"medium"` in a marked block at the top of `~/.codex/config.toml`. Their hooks are installed
+directly with `--scope user`.
 
 **Company packs (optional)**: every folder under `packages/corporate-rules/<company>/` (or
 under `AI_GOVERNANCE_CORPORATE_DIR`) is installed by this same command: its `rules/*.md` become
@@ -255,64 +256,7 @@ cd /tmp/gov-demo && claude
 - Run `/context`: only the security rule and the global instructions are loaded until you
   open matching files.
 
-## 8. Probe: verify what each agent really loads
-
-Some behaviours are only documented, not proven on your machine (which instruction files an
-agent reads, whether it follows symlinks, whether hooks fire, whether it delegates to a
-subagent). The probe proves them with *canaries*: unique tokens such as `CANARY-AGENTS-MD`
-placed in each candidate location. If the agent can quote a token, it loaded that location.
-
-It runs in three moves, per agent:
-
-1. **Build** a throwaway folder (nothing else is touched):
-
-   ```bash
-   ai-governance probe --agent claude     # prints "Probe project: <folder>" and a prompt
-   ```
-
-   The folder contains `AGENTS.md`, rules in every candidate place (for Claude, a rule reached
-   through a symlink; for Antigravity, a rule with the combined front matter), a
-   `probe-scout` subagent that starts every reply with `CANARY-SCOUT`, a `sample.probe` file
-   that activates path-scoped rules, and (Codex/Antigravity) hooks that record which events
-   fire.
-
-2. **Ask the agent**: open it in that folder (`cd <folder> && claude`, `codex`, or Antigravity)
-   and paste the printed prompt. It reads `sample.probe`, runs `echo probe`, asks
-   `probe-scout` to read the file, and answers with the `CANARY-…` tokens it can see, e.g.
-   `CANARY-AGENTS-MD, CANARY-CLAUDE-PATHS, CANARY-CLAUDE-LINK, CANARY-SCOUT`.
-
-3. **Record the answer**:
-
-   ```bash
-   ai-governance probe --agent claude --verify --seen CANARY-AGENTS-MD,CANARY-CLAUDE-PATHS,CANARY-CLAUDE-LINK,CANARY-SCOUT
-   ```
-
-`--verify` prints what was proven (stored in `~/.local/state/ai-governance/probe/verified.json`):
-
-| Field | Meaning | If it fails |
-|---|---|---|
-| `canaries_missing` | Locations the agent did not load | Report it: that location must change for this agent |
-| `scout_verified` | The agent delegated to the subagent | The subagent file format needs adjusting |
-| `shell_hooks_verified` | (Codex, Antigravity) Pre/PostToolUse fired with the shell command | Their output hooks stay uninstalled |
-| `agent_frontmatter_hooks_fired` | (Antigravity) hooks declared in an agent's front matter fired | Fallback channel for the desktop app |
-
-Then install the agent globally; Codex/Antigravity output hooks are added only if
-`shell_hooks_verified` is true:
-
-```bash
-ai-governance install --scope user --agent codex        # after its probe
-ai-governance install --scope user --agent antigravity  # after its probe (CLI and desktop app)
-```
-
-Expected tokens per agent:
-
-| Agent | Tokens you should see |
-|---|---|
-| claude | `CANARY-AGENTS-MD`, `CANARY-CLAUDE-PATHS`, `CANARY-CLAUDE-LINK`, `CANARY-SCOUT` |
-| codex | `CANARY-AGENTS-MD`, `CANARY-CODEX-NESTED`, `CANARY-SCOUT` |
-| antigravity | `CANARY-AGENTS-MD`, `CANARY-AG-ALWAYS`, `CANARY-AG-GLOB`, `CANARY-AG-DUAL`, `CANARY-SCOUT` |
-
-## 9. Uninstall
+## 8. Uninstall
 
 ```bash
 cd /tmp/gov-demo || return

@@ -25,20 +25,37 @@ import sys
 from workspace_engine.common import emit_rows, is_agent_mode
 
 
+def _hooks_scope_state(hooks_stat: dict[str, dict[str, object]]) -> tuple[str, bool]:
+    local_active = bool(hooks_stat["local"]["is_active"])
+    global_active = bool(hooks_stat["global"]["is_active"])
+    if local_active and global_active:
+        scope = "Local & Global"
+    elif local_active:
+        scope = "Local"
+    elif global_active:
+        scope = "Global"
+    else:
+        return ("", False)
+    outdated = (local_active and bool(hooks_stat["local"].get("is_outdated"))) or (
+        global_active and bool(hooks_stat["global"].get("is_outdated"))
+    )
+    return (scope, outdated)
+
+
 def _hooks_doctor_row(*, agent_mode: bool) -> tuple[str, str, str]:
     from workspace_engine.services.git_hooks import get_hooks_status
 
-    hooks_stat = get_hooks_status()
-    local_active = bool(hooks_stat["local"]["is_active"])
-    global_active = bool(hooks_stat["global"]["is_active"])
-    if not (local_active or global_active):
+    active_scope, outdated = _hooks_scope_state(get_hooks_status())
+    if not active_scope:
         status = "Inactive" if agent_mode else "⚠ Inactive"
         return ("git-hooks", status, "Run 'ws hooks install --global' to protect git push")
-
-    if local_active and global_active:
-        active_scope = "Local & Global"
-    else:
-        active_scope = "Local" if local_active else "Global"
+    if outdated:
+        status = "Outdated" if agent_mode else "⚠ Outdated"
+        return (
+            "git-hooks",
+            status,
+            f"Pre-Push Quality Gate ({active_scope}) — run 'ws hooks install' to update",
+        )
     status = "Active" if agent_mode else "✓ Active"
     return ("git-hooks", status, f"Pre-Push Quality Gate ({active_scope})")
 

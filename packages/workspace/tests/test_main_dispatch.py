@@ -42,6 +42,23 @@ def test_doctor_check_rows(agent_mode, git_path, local, glob, git_status, hooks_
     assert hooks_row[1] in rows["git-hooks"][2]
 
 
+def test_doctor_reports_outdated_hooks():
+    hooks_stat = {
+        "local": {"is_active": True, "is_outdated": True},
+        "global": {"is_active": False, "is_outdated": False},
+    }
+    with (
+        patch("workspace_engine.cli.main.is_agent_mode", return_value=True),
+        patch("workspace_engine.cli.main.shutil.which", return_value="/usr/bin/git"),
+        patch("workspace_engine.services.git_hooks.get_hooks_status", return_value=hooks_stat),
+        patch("workspace_engine.cli.main.emit_rows") as mock_emit,
+    ):
+        doctor_check()
+    rows = {r[0]: r for r in mock_emit.call_args.args[0]}
+    assert rows["git-hooks"][1] == "Outdated"
+    assert "ws hooks install" in rows["git-hooks"][2]
+
+
 # ---------------------------------------------------------------------------
 # main() — subcommand dispatch table
 # ---------------------------------------------------------------------------

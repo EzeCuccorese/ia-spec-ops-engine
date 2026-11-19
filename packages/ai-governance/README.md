@@ -34,13 +34,16 @@ agents.
 
 ### User scope — `ai-governance install --scope user --agent <claude|codex|antigravity>`
 
-Personal, project-agnostic harness, plus general tool rules and language rules: every catalog rule
-marked `user_scope` (always-on general tool rules such as `circleci`, `13-atlassian`, `14-taskflow`,
-`15-tool-confidentiality`, `16-git-branch-ownership`, `17-quality-gate`, `18-surgical-changes`, `19-pull-requests`, all `2-stacks` rules, the code-level core rules
-and `api-design`) is written to the agent's global rules folder with its globs (or always-on trigger),
-so it loads in any repository without committing anything. Codex has no per-file global rules: they are
-copied to `$CODEX_HOME/ai-governance/`, indexed in `language-rules.md`, and the `AGENTS.md` block
-points to that index.
+Personal, project-agnostic harness, plus general tool rules and language rules: every non-profiled
+catalog rule marked `user_scope` (always-on general tool rules such as `circleci`, `deploy-approvals`,
+`production-risk-window`, `13-atlassian`, `14-taskflow`, `15-tool-confidentiality`,
+`16-git-branch-ownership`, `17-quality-gate`, `18-surgical-changes`, `19-pull-requests`,
+`20-review-ready-code`, all `2-stacks` rules and the code-level core rules) is written to the agent's
+global rules folder with its globs (or always-on trigger), so it loads in any repository without
+committing anything. Opt-in profile rules (`architecture`, `distributed`, `api`) remain project-scoped.
+Always-on user-scope rules are not duplicated into project scope unless forced via `extra_rules`. Codex
+has no per-file global rules: they are copied to `$CODEX_HOME/ai-governance/`, indexed in
+`language-rules.md`, and the `AGENTS.md` block points to that index.
 
 <!-- agents-table:start -->
 | | Claude Code | OpenAI Codex | Google Antigravity 2 |
@@ -267,16 +270,15 @@ task state, open steps, and debate status.
 | `bind <id> --repo P [--integration-branch B] [--pr N]`, `unbind` | Bind repositories/worktrees |
 | `stamp <id> [--remote]` | Code stamp of the bound repositories (HEAD + every changed path) |
 | `debate <id> open --topic-file F --agents a,b [--model a=m] [--web] [--artifact P]`, `debate <id> cross`, `debate <id> status`, `debate <id> close [--partial]` | Run a multi-provider design debate: open independent thesis rounds, run all-against-all cross-examination rounds, inspect seat state, or write `synthesis.md` (and record open points as steps) |
-| `round <id> collect --round N --dispatch-id D`, `round <id> abort` / `round <id> record` | Settle or abort a dispatched debate worker round, or log a round run elsewhere |
+| `round <id> collect --round N --dispatch-id D`, `round <id> abort` | Settle or abort a dispatched debate worker round |
 | `close [--abandon]`, `block`/`unblock` | Close or pause a task |
 | `approve <id> --action A --target T --user-reply "..." [--consequence "..."]` | Record an approval the user gave in the chat |
 | `deploy <id> ...`, `evidence <id> ...` | Record a deployment the user made and evidence bound to its SHA |
 | `config` | Show and validate `taskflow.toml` |
 
 Risky approvals (deploy, prod, migration, infra, permissions, delete, policy-downgrade,
-restaging) need the consequence shown, a reply naming action and target, and that reply in
-a real user message of the Claude transcript; production actions are refused after 16:00
-and on Friday after 13:00.
+restaging) require the consequence to be shown and a reply explicitly naming action and target
+(recorded as declared); production actions are refused after 16:00 and on Friday after 13:00.
 
 ## Configuration and environment
 

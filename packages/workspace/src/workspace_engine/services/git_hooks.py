@@ -26,6 +26,7 @@ from typing import Any
 
 from workspace_engine._config_core import xdg_dir
 from workspace_engine.common import run_command_safe
+from workspace_engine.services.changes import base_ref, changed_files
 
 HOOK_NAME = "workspace-gate"
 HOOK_EVENT = "pre-push"
@@ -168,6 +169,15 @@ def uninstall_git_hooks(
     }
 
 
+def _is_script_outdated(hook_path: Path) -> bool:
+    if not hook_path.is_file():
+        return False
+    try:
+        return hook_path.read_text(encoding="utf-8") != generate_canonical_pre_push_script()
+    except OSError:
+        return False
+
+
 def _scope_status(cwd: Path, is_global: bool, hook_path: Path) -> dict[str, Any]:
     scope = ["--global"] if is_global else ["--local"]
     _, command, _ = run_command_safe(
@@ -188,6 +198,7 @@ def _scope_status(cwd: Path, is_global: bool, hook_path: Path) -> dict[str, Any]
         "hook_path": str(hook_path),
         "configured_command": configured,
         "is_active": executable and configured == str(hook_path) and HOOK_EVENT in events.split(),
+        "is_outdated": _is_script_outdated(hook_path),
     }
 
 
@@ -233,7 +244,10 @@ class GateOptions:
     capture: list[str] | None = None
 
 
-def _gate_environment(options: GateOptions) -> dict[str, str]:
+_ZERO_SHA = "0000000000000000000000000000000000000000"
+
+
+def _gate_environment(options: GateOptions, files_list: Path | None = None) -> dict[str, str]:
     env = os.environ.copy()
     env.update(QG_SCOPE=options.scope, QG_OUTPUT=options.output)
     if options.timeout is not None:
@@ -242,14 +256,30 @@ def _gate_environment(options: GateOptions) -> dict[str, str]:
         env["QG_SKIP"] = options.skip
     if options.commit_style:
         env["QG_COMMIT_STYLE"] = options.commit_style
+    if files_list is not None:
+        env["QG_FILES_FILE"] = str(files_list)
     return env
 
 
+def _write_changed_files_list(root: Path) -> Path | None:
+    files = changed_files(root)
+    if not files:
+        return None
+    fd, raw_path = tempfile.mkstemp(prefix="ws_qg_files_", suffix=".txt")
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(files) + "\n")
+    return Path(raw_path)
+
+
 def _push_ref_line(root: Path) -> str:
-    _, head_sha, _ = run_command_safe("git rev-parse HEAD", cwd=root)
-    head_sha = head_sha.strip() or "0000000000000000000000000000000000000000"
-    _, prev_sha, _ = run_command_safe("git rev-parse HEAD~1", cwd=root)
-    prev_sha = prev_sha.strip() or "0000000000000000000000000000000000000000"
+    _, head_out, _ = run_command_safe(["git", "rev-parse", "HEAD"], cwd=root, isolated_git=True)
+    head_sha = head_out.strip() or _ZERO_SHA
+    prev_sha = base_ref(root)
+    if not prev_sha:
+        _, parent_out, _ = run_command_safe(
+            ["git", "rev-parse", "HEAD~1"], cwd=root, isolated_git=True
+        )
+        prev_sha = parent_out.strip() or _ZERO_SHA
     return f"refs/heads/current {head_sha} refs/heads/current {prev_sha}\n"
 
 
@@ -279,6 +309,13 @@ _GATE_SIGNATURE = _parameters(
 )
 
 
+def _cleanup_temp_files(temp_hook: Path | None, files_list: Path | None) -> None:
+    if temp_hook and temp_hook.exists():
+        shutil.rmtree(temp_hook.parent, ignore_errors=True)
+    if files_list and files_list.exists():
+        files_list.unlink(missing_ok=True)
+
+
 def run_quality_gate(*args: object, **kwargs: object) -> int:
     """
     Runs the Git Hooks Quality Gate on demand in the given repository:
@@ -293,13 +330,14 @@ def run_quality_gate(*args: object, **kwargs: object) -> int:
     gate = GateOptions(**bound.arguments)
     root = Path(target_dir).resolve() if target_dir else Path.cwd().resolve()
     hook_to_run, temp_hook = _resolve_hook_to_run(root)
+    files_list = _write_changed_files_list(root) if gate.scope == "changed" else None
     try:
         proc = subprocess.run(
             [str(hook_to_run), "origin"],
             cwd=root,
             input=_push_ref_line(root),
             text=True,
-            env=_gate_environment(gate),
+            env=_gate_environment(gate, files_list=files_list),
             capture_output=gate.capture is not None,
             errors="replace",
         )
@@ -307,8 +345,7 @@ def run_quality_gate(*args: object, **kwargs: object) -> int:
             gate.capture.append(proc.stdout + proc.stderr)
         return proc.returncode
     finally:
-        if temp_hook and temp_hook.exists():
-            shutil.rmtree(temp_hook.parent, ignore_errors=True)
+        _cleanup_temp_files(temp_hook, files_list)
 
 
 run_quality_gate.__signature__ = _GATE_SIGNATURE  # type: ignore[attr-defined]

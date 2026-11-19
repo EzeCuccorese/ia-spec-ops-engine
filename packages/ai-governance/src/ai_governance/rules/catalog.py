@@ -77,9 +77,11 @@ class RuleCatalog:
         return list(self._rules.values())
 
     def user_rules(self) -> list[RuleDefinition]:
-        """Language-level rules installed globally: they load per file in every repo,
-        so basic practices never depend on a project having opted in."""
-        return sorted((rule for rule in self.rules if rule.user_scope), key=lambda r: r.id)
+        """Non-profiled user-scope rules installed globally across repositories."""
+        return sorted(
+            (rule for rule in self.rules if rule.user_scope and rule.profile is None),
+            key=lambda r: r.id,
+        )
 
     def get(self, rule_id: str) -> RuleDefinition | None:
         return self._rules.get(rule_id)
@@ -101,14 +103,15 @@ class RuleCatalog:
         excluded: tuple[str, ...] = (),
     ) -> list[RuleDefinition]:
         """Rules a project needs: general + detected stacks + enabled profiles + extra,
-        minus excluded. A rule tied to a profile is only chosen when that profile is
-        enabled (unless forced in via ``extra``)."""
+        minus excluded. Always-on user-scope rules live in user scope (unless forced via
+        ``extra``) so sessions never load them twice."""
         chosen = [
             rule
             for rule in self.rules
             if (
                 (
-                    (rule.profile is None or rule.profile in profiles)
+                    not (rule.user_scope and rule.always_on)
+                    and (rule.profile is None or rule.profile in profiles)
                     and rule.applies_to(detected_stacks)
                 )
                 or rule.id in extra

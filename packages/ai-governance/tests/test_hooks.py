@@ -189,7 +189,28 @@ def test_antigravity_session_start_uses_inject_steps(monkeypatch, capsys, tmp_pa
     assert "T-1" in msg
 
 
+def test_stop_gate_handles_timeout_cleanly_without_traceback(
+    monkeypatch, capsys, tmp_path: Path
+) -> None:
+    seen_timeout: list[float] = []
+
+    def timed_out(*args, **kwargs):
+        seen_timeout.append(kwargs["timeout"])
+        raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs["timeout"])
+
+    monkeypatch.setenv("AI_GOVERNANCE_GATE_TIMEOUT_SECONDS", "12")
+    monkeypatch.setattr(hooks.shutil, "which", lambda name: "/bin/ws")
+    monkeypatch.setattr(hooks.subprocess, "run", timed_out)
+    _stdin(monkeypatch, {"cwd": str(tmp_path)})
+    assert hooks.main(["claude", "stop-gate"]) == 0
+    assert seen_timeout == [12.0]
+    err = capsys.readouterr().err
+    assert "timed out" in err and "Traceback" not in err
+
+
 def test_antigravity_pre_tool_use_denies_noisy_commands_never_edits(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(hooks.shutil, "which", lambda name: "/bin/ws")
+    monkeypatch.delenv("FRUGAL", raising=False)
     _stdin(
         monkeypatch,
         {"toolCall": {"name": "run_command", "args": {"CommandLine": "pytest -q"}}},
@@ -198,14 +219,48 @@ def test_antigravity_pre_tool_use_denies_noisy_commands_never_edits(monkeypatch,
     denied = json.loads(capsys.readouterr().out)
     assert denied["decision"] == "deny" and "ws run -- pytest -q" in denied["reason"]
 
+    _stdin(
+        monkeypatch,
+        {"toolCall": {"name": "run_command", "args": {"CommandLine": "cd sub && pytest -q"}}},
+    )
+    assert hooks.main(["antigravity", "pre-tool-use"]) == 0
+    compound = json.loads(capsys.readouterr().out)
+    assert (
+        compound["decision"] == "deny"
+        and "ws run -- sh -c 'cd sub && pytest -q'" in compound["reason"]
+    )
+
     for payload in (
         {"toolCall": {"name": "run_command", "args": {"CommandLine": "ws run -- pytest -q"}}},
         {"toolCall": {"name": "run_command", "args": {"CommandLine": "pytest --help"}}},
+        {"toolCall": {"name": "run_command", "args": {"CommandLine": "which pytest ruff"}}},
+        {
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": 'git commit -m "fix pytest failure"'},
+            }
+        },
         {"toolCall": {"name": "write_to_file", "args": {"TargetFile": "a.py"}}},
     ):
         _stdin(monkeypatch, payload)
         assert hooks.main(["antigravity", "pre-tool-use"]) == 0
         assert capsys.readouterr().out == ""
+
+
+def test_antigravity_pre_tool_use_allows_when_ws_missing_or_frugal_disabled(
+    monkeypatch, capsys
+) -> None:
+    payload = {"toolCall": {"name": "run_command", "args": {"CommandLine": "pytest -q"}}}
+    monkeypatch.setattr(hooks.shutil, "which", lambda name: None)
+    _stdin(monkeypatch, payload)
+    assert hooks.main(["antigravity", "pre-tool-use"]) == 0
+    assert capsys.readouterr().out == ""
+
+    monkeypatch.setattr(hooks.shutil, "which", lambda name: "/bin/ws")
+    monkeypatch.setenv("FRUGAL", "0")
+    _stdin(monkeypatch, payload)
+    assert hooks.main(["antigravity", "pre-tool-use"]) == 0
+    assert capsys.readouterr().out == ""
 
 
 def test_codex_post_tool_use_blocks_with_condensed_reason(monkeypatch, capsys) -> None:

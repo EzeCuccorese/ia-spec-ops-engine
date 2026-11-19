@@ -224,6 +224,14 @@ def _antigravity_rows(root: Path) -> list[Row]:
 def _project_rows(root: Path) -> list[Row]:
     config = ProjectConfig.load(root)
     rows: list[Row] = [("project:agents", OK, ", ".join(config.agents))]
+    if not installed_agents(global_ledger()):
+        rows.append(
+            (
+                "project:user-scope",
+                WARN,
+                "user scope not installed; run `ai-governance install --scope user --agent ...` for transversal rules",
+            )
+        )
     rows.extend(_ledger_rows(Ledger(root / PROJECT_DIR / "lock.json", base=root), "project"))
     if "claude" in config.agents:
         rows.extend(_claude_rows(root))

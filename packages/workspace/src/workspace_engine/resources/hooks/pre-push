@@ -480,8 +480,26 @@ if [ "$NOTHING_NEW" = "0" ]; then
     git rev-list ${LOGOPTS[$i]} 2>/dev/null >> "$COMMITS_FILE"
     i=$((i + 1))
   done
-  sort -u "$DIFF_FILES_FILE" > "$TMPD/f2" && mv "$TMPD/f2" "$DIFF_FILES_FILE"
-  sort -u "$COMMITS_FILE" > "$TMPD/c2" && mv "$TMPD/c2" "$COMMITS_FILE"
+fi
+
+# `ws check --changed` passes working-tree + branch files via QG_FILES_FILE so uncommitted
+# edits are linted, design-checked and tested alongside committed changes.
+if [ -n "${QG_FILES_FILE:-}" ] && [ -f "$QG_FILES_FILE" ]; then
+  while IFS= read -r f; do
+    [ -n "$f" ] && [ -f "$f" ] && printf '%s\n' "$f" >> "$DIFF_FILES_FILE"
+  done < "$QG_FILES_FILE"
+fi
+
+sort -u "$DIFF_FILES_FILE" > "$TMPD/f2" && mv "$TMPD/f2" "$DIFF_FILES_FILE"
+sort -u "$COMMITS_FILE" > "$TMPD/c2" && mv "$TMPD/c2" "$COMMITS_FILE"
+
+HAS_COMMITS=0
+[ -s "$COMMITS_FILE" ] && HAS_COMMITS=1
+HAS_DIFF_FILES=0
+[ -s "$DIFF_FILES_FILE" ] && HAS_DIFF_FILES=1
+[ "$HAS_DIFF_FILES" = "1" ] && NOTHING_NEW=0
+
+if [ "$NOTHING_NEW" = "0" ]; then
   note "$(wc -l < "$COMMITS_FILE" | tr -d ' ') commit(s) and $(wc -l < "$DIFF_FILES_FILE" | tr -d ' ') file(s) in this push. Lint/test scope: $QG_SCOPE"
 fi
 
@@ -503,7 +521,7 @@ echo ""
 echo "🔒 [1/5] Checking for secrets in the commits being pushed..."
 if skipped gitleaks; then
   warn "Security and Secrets: skipped by $QG_SKIP_SOURCE"
-elif [ "$NOTHING_NEW" = "1" ]; then
+elif [ "$HAS_COMMITS" = "0" ]; then
   note "No new commits, skipping."
 elif ! command -v gitleaks >/dev/null 2>&1; then
   warn "gitleaks is not installed, skipping the scan (brew install gitleaks)."
@@ -545,7 +563,7 @@ echo ""
 echo "📝 [2/5] Checking commit policies..."
 if skipped commits; then
   warn "Git Policies: skipped by $QG_SKIP_SOURCE"
-elif [ "$NOTHING_NEW" = "1" ]; then
+elif [ "$HAS_COMMITS" = "0" ]; then
   note "No new commits, skipping."
 else
   COMMITS_OK=1
@@ -819,7 +837,9 @@ else
 
       if [ "$IS_MONOREPO" = "1" ]; then
         if [ "$SCOPED_TESTS" = "0" ]; then
-          note "Full test scope requested on monorepo, but full suite is disabled in pre-push hook."
+          RAN_ANY=1
+          note "Running full monorepo test suite ('$JS_PM test')"
+          run_to "$QG_TIMEOUT" "$JS_PM" test || TESTS_OK=0
         elif ! command -v ws >/dev/null 2>&1; then
           warn "Monorepo test scoping: 'ws' CLI not found on PATH; skipping monorepo tests."
         else

@@ -9,6 +9,7 @@ is the project quality gate (``stop-gate``), and only when the gate fails.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import shutil
@@ -153,20 +154,26 @@ def _claude_stop_gate() -> int:
     payload = _payload()
     if payload.get("stop_hook_active"):
         return 0  # already continued once because of this gate: never loop
-    settings = effective()
+    cwd = _cwd(payload)
+    settings = effective(cwd)
     command = shlex.split(str(settings["hooks.gate_command"].value))
     program = shutil.which(command[0]) if command else None
     if program is None:
         return 0
     budget = settings["hooks.gate_budget_chars"].value
-    proc = subprocess.run(
-        [program, *_with_budget_arg(command[1:], budget)],
-        cwd=_cwd(payload),
-        capture_output=True,
-        text=True,
-        timeout=float(settings["hooks.gate_timeout_seconds"].value),  # type: ignore[arg-type]
-        check=False,
-    )
+    timeout = float(settings["hooks.gate_timeout_seconds"].value)  # type: ignore[arg-type]
+    try:
+        proc = subprocess.run(
+            [program, *_with_budget_arg(command[1:], budget)],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        print(f"Quality gate timed out after {timeout:.0f}s; allowing stop.", file=sys.stderr)
+        return 0
     try:
         result = json.loads(proc.stdout)
     except ValueError:
@@ -175,7 +182,7 @@ def _claude_stop_gate() -> int:
         return 0
     log = f"\nFull log: ws log {result['log_id']}" if result.get("log_id") else ""
     label = " ".join(a for a in command if a not in ("--cache", "--json"))
-    print(f"Quality gate failed ({label}):\n{result['text']}{log}", file=sys.stderr)
+    print(f"Quality gate failed ({label}):\n{result.get('text', '')}{log}", file=sys.stderr)
     return 2
 
 
@@ -189,20 +196,98 @@ def _codex_post_tool_use() -> int:
     return 0
 
 
+_SHELL_SEPARATORS = frozenset({"&&", "||", ";", "|"})
+_NOISY_EXECUTABLES = frozenset(
+    {"pytest", "py.test", "jest", "vitest", "mvn", "mvnw", "gradle", "gradlew", "tsc", "eslint"}
+)
+_NOISY_SUBCOMMANDS: dict[str, frozenset[str]] = {
+    "go": frozenset({"test"}),
+    "cargo": frozenset({"test", "build"}),
+    "docker": frozenset({"build"}),
+}
+_JS_RUNNERS = frozenset({"npm", "yarn", "pnpm"})
+_ENV_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def _command_segments(command: str) -> list[list[str]]:
+    """Splits a shell line into unquoted command segments; empty on syntax errors."""
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+    lexer.whitespace_split = True
+    try:
+        tokens = list(lexer)
+    except ValueError:
+        return []
+    segments: list[list[str]] = []
+    current: list[str] = []
+    for token in tokens:
+        if token in _SHELL_SEPARATORS:
+            if current:
+                segments.append(current)
+                current = []
+        else:
+            current.append(token)
+    if current:
+        segments.append(current)
+    return segments
+
+
+def _segment_executable(tokens: list[str]) -> list[str]:
+    idx = 0
+    while idx < len(tokens) and _ENV_ASSIGN.match(tokens[idx]):
+        idx += 1
+    parts = tokens[idx:]
+    if not parts:
+        return []
+    exe = Path(parts[0]).name
+    if exe == "npx":
+        return parts[1:]
+    if exe == "uv" and parts[1:2] == ["run"]:
+        return parts[2:]
+    if exe in {"python", "python3"} and parts[1:2] == ["-m"]:
+        return parts[2:]
+    return parts
+
+
+def _is_noisy_segment(tokens: list[str]) -> bool:
+    parts = _segment_executable(tokens)
+    if not parts:
+        return False
+    exe = Path(parts[0]).name
+    if exe == "ws":
+        return False
+    if exe in _NOISY_EXECUTABLES:
+        return True
+    if exe in _JS_RUNNERS:
+        sub = (
+            parts[2]
+            if len(parts) > 2 and parts[1] == "run"
+            else (parts[1] if len(parts) > 1 else "")
+        )
+        return sub in {"test", "build"}
+    return len(parts) > 1 and parts[1] in _NOISY_SUBCOMMANDS.get(exe, frozenset())
+
+
 def _antigravity_pre_tool_use() -> int:
     """Antigravity cannot rewrite output: deny raw noisy commands and ask for `ws run`."""
     from .frugality.cli import HELP_FLAG, SKIP_CONDENSE
 
     command = antigravity_command(_payload()).strip()
-    if not command or command.startswith("ws ") or "#nofrugal" in command:
-        return 0
     if (
-        SKIP_CONDENSE.match(command)
-        or HELP_FLAG.search(command)
-        or not NOISY_COMMAND.search(command)
+        not command
+        or "#nofrugal" in command
+        or os.environ.get("FRUGAL") == "0"
+        or shutil.which("ws") is None
     ):
         return 0
-    reason = f"Re-run it as `ws run -- {command}` to get a condensed summary (full log kept)."
+    if SKIP_CONDENSE.match(command) or HELP_FLAG.search(command):
+        return 0
+    segments = _command_segments(command)
+    if not any(_is_noisy_segment(seg) for seg in segments):
+        return 0
+    suggestion = (
+        f"ws run -- {command}" if len(segments) == 1 else f"ws run -- sh -c {shlex.quote(command)}"
+    )
+    reason = f"Re-run it as `{suggestion}` to get a condensed summary (full log kept)."
     print(json.dumps({"decision": "deny", "reason": reason}))
     return 0
 

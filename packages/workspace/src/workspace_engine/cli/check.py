@@ -75,6 +75,15 @@ def _build_check_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _warning_lines(output: str) -> list[str]:
+    seen: list[str] = []
+    for raw in output.splitlines():
+        line = raw.strip()
+        if line.startswith("⚠") and line not in seen:
+            seen.append(line)
+    return seen
+
+
 def _execute_gate(
     root: Path, scope: str, args: argparse.Namespace, entry: str | None
 ) -> tuple[str, int, str, str | None]:
@@ -87,7 +96,8 @@ def _execute_gate(
     if code == 0:
         if entry is not None:
             _record_cache(_pass_marker(root), entry)
-        text = "✓ gate: passed"
+        warnings = _warning_lines(output)
+        text = "✓ gate: passed" if not warnings else "✓ gate: passed\n" + "\n".join(warnings)
     return status, code, text, log_id
 
 

@@ -76,9 +76,19 @@ def test_fixed_session_cost_for_a_typical_install(monkeypatch, tmp_path: Path) -
     rendered_cap = GLOBAL_MAX + ENTRY_BLOCK_MAX + 12 * (ALWAYS_ON_RULE_MAX + 300)
     for agent in ("claude", "codex", "antigravity"):
         assert user[agent] <= rendered_cap
-    # The always-on rules (read by each agent once) plus the shared AGENTS.md block.
-    assert project["claude"] <= 12 * (ALWAYS_ON_RULE_MAX + 300)
-    assert project["project"] <= PROJECT_BLOCK_MAX + 12 * (ALWAYS_ON_RULE_MAX + 300)
+    # Project scope carries only 06-security-privacy (not the 11 user-scope always-on rules),
+    # and Claude symlinks into .agents/rules/ are not double-counted.
+    assert project.get("claude", 0) == 0
+    assert project["project"] <= PROJECT_BLOCK_MAX + (ALWAYS_ON_RULE_MAX + 300)
+
+
+def test_budget_respects_agent_frontmatter_semantics(tmp_path: Path) -> None:
+    from ai_governance.install.budget import _always_loaded
+
+    rule = tmp_path / ".claude" / "rules" / "custom.md"
+    glob_only = "---\ntrigger: glob\nglob: '*.py'\n---\n# Custom\n"
+    assert _always_loaded(rule, glob_only, "claude") is True
+    assert _always_loaded(rule, glob_only, "antigravity") is False
 
 
 def test_readme_agents_table_is_generated() -> None:

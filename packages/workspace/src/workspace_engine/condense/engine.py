@@ -14,8 +14,14 @@ from dataclasses import dataclass
 DEFAULT_BUDGET = 2500
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07")
 _TIMESTAMP = re.compile(r"^\s*\[?\d{4}-\d{2}-\d{2}[T ][\d:.,]+Z?\]?\s*")
-# Progress redraws: bracketed bars, or lines ending in a percentage (downloads, pytest dots).
-_PROGRESS = re.compile(r"^\s*\[[#=>\-\s.]+\]|\d{1,3}(\.\d+)?%\]?\s*$")
+# Progress redraws: bracketed bars, pytest `[ 45%]` counters, or progress-verb percentages.
+_PROGRESS = re.compile(
+    r"^\s*\[[#=>\-\s.]+\]|"
+    r"\[\s*\d{1,3}(?:\.\d+)?%\]\s*$|"
+    r"^\s*(?:(?:downloading|uploading|fetching|installing|resolving|unpacking|"
+    r"building|compiling|loading|progress:?)\s+(?:\S+\s+)?)?\d{1,3}(?:\.\d+)?%\s*$",
+    re.IGNORECASE,
+)
 _TEMPLATE_TOKENS = re.compile(r"0x[0-9a-f]+|\b[0-9a-f]{7,40}\b|\d+(\.\d+)?|(/[\w.\-]+)+")
 
 _GENERIC_SIGNAL = re.compile(
@@ -38,8 +44,17 @@ PROFILES: tuple[ToolProfile, ...] = (
     ToolProfile(
         "pytest",
         re.compile(r"\b(pytest|py\.test)\b|-m pytest"),
-        re.compile(r"^=+ .*\b(passed|failed|error|errors|no tests ran)\b.* in [\d.]+s"),
+        re.compile(
+            r"(^=+ .*\b(passed|failed|error|errors|no tests ran)\b.* in [\d.]+s|"
+            r"^\d+\s+(passed|failed|error|errors|skipped|xfailed)\b.* in [\d.]+s)"
+        ),
         re.compile(r"^(E\s|FAILED |ERROR |_{3,} .* _{3,}$|\S+\.py:\d+: )"),
+    ),
+    ToolProfile(
+        "ws-check",
+        re.compile(r"\bws\s+check\b"),
+        re.compile(r"^(🛑 Quality Gate failed|🚀 All good|✓ gate:)"),
+        re.compile(r"^(✘ |⚠ |   > |   Failed command|FAILED |ERROR |E\s|\S+:\d+)"),
     ),
     ToolProfile(
         "jest",
@@ -144,17 +159,52 @@ def _select_with_omissions(lines: list[str], keep: list[int]) -> list[str]:
     return selected
 
 
+_OMIT_NOTE = "  … more failures omitted (use the saved log)"
+
+
+def _clip_line(line: str, limit: int) -> str:
+    if limit <= 1 or len(line) <= limit:
+        return line[: max(limit, 0)] if limit <= 1 else line
+    return line[: limit - 1] + "…"
+
+
+def _bounded_tail(lines: list[str], budget: int) -> list[str]:
+    if not lines:
+        return []
+    line_cap = max(80, budget // 3) if budget >= 80 else max(1, budget)
+    tail_cap = (
+        max(line_cap, budget - len(_OMIT_NOTE) - 1) if budget > len(_OMIT_NOTE) + 1 else budget
+    )
+    kept: list[str] = []
+    used = 0
+    for raw in reversed(lines[-8:]):
+        clipped = _clip_line(raw, min(line_cap, budget))
+        added = len(clipped) + (1 if kept else 0)
+        if kept and used + added > tail_cap:
+            break
+        kept.append(clipped)
+        used += added
+    kept.reverse()
+    return kept
+
+
 def _fit_within_budget(compact: list[str], budget: int) -> str:
-    tail = compact[-8:]
-    result: list[str] = []
+    if not compact:
+        return ""
+    tail = _bounded_tail(compact, budget)
+    head_pool = compact[: len(compact) - len(tail)]
+    line_cap = max(80, budget // 3) if budget >= 80 else max(1, budget)
     used = sum(len(line) + 1 for line in tail)
-    for line in compact[:-8]:
-        if used + len(line) + 1 > budget - 80:
-            result.append("  … more failures omitted (use the saved log)")
+    result: list[str] = []
+    for raw in head_pool:
+        line = _clip_line(raw, line_cap)
+        if used + len(line) + 1 + len(_OMIT_NOTE) + 1 > budget:
+            if used + len(_OMIT_NOTE) + 1 <= budget:
+                result.append(_OMIT_NOTE)
             break
         result.append(line)
         used += len(line) + 1
-    return "\n".join(result + tail)
+    return "\n".join(result + tail)[:budget]
 
 
 def _collapse_success(tool: str, lines: list[str], summaries: list[str]) -> str:

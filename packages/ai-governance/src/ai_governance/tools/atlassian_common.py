@@ -8,12 +8,15 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import math
 import os
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 from .._config_core import ConfigError
 from ..paths import config_dir
@@ -42,9 +45,10 @@ class UnknownProfileError(AtlassianConfigError, LookupError):
 def atlassian_timeout() -> float:
     """HTTP timeout in seconds: ``$ATLASSIAN_TIMEOUT``, ``[atlassian] timeout_seconds``, 30."""
     try:
-        return float(str(effective()["atlassian.timeout_seconds"].value))
+        value = float(str(effective()["atlassian.timeout_seconds"].value))
     except (ConfigError, ValueError):
         return DEFAULT_TIMEOUT_SECONDS
+    return value if math.isfinite(value) and value > 0 else DEFAULT_TIMEOUT_SECONDS
 
 
 def _default_credentials() -> dict[str, str]:
@@ -205,14 +209,15 @@ def sanitize_secrets(msg: str) -> str:
     return msg
 
 
-def read_input_text(source: str, *, allow_bare_path: bool = True) -> str:
-    """Reads text from literal string, stdin ('-'), or file path ('@path' or path if exists)."""
+def read_input_text(source: str, *, allow_bare_path: bool = False) -> str:
+    """Reads text from literal string, stdin ('-'), or file path ('@path', or bare path if enabled)."""
     if source == "-":
         return sys.stdin.read()
     if source.startswith("@"):
         path = Path(source[1:])
-        if path.is_file():
-            return path.read_text(encoding="utf-8")
+        if not path.is_file():
+            raise AtlassianConfigError(f"Input file not found: {path}")
+        return path.read_text(encoding="utf-8")
     if allow_bare_path:
         p = Path(source)
         if p.is_file():
@@ -229,26 +234,80 @@ def _format_error_body(raw: str) -> str:
         return raw
 
 
+def _validate_https_url(url: str) -> None:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise AtlassianConfigError(
+            f"Atlassian URL must use https:// with a valid host: {sanitize_secrets(url)}"
+        )
+
+
+def _same_origin(origin_url: str, target_url: str) -> bool:
+    src = urllib.parse.urlparse(origin_url)
+    dst = urllib.parse.urlparse(urllib.parse.urljoin(origin_url, target_url))
+    return dst.scheme == "https" and src.netloc.lower() == dst.netloc.lower()
+
+
+class _SameOriginRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Prevents leaking Authorization headers across origins or downgrading to HTTP."""
+
+    def redirect_request(self, req: urllib.request.Request, *args: Any) -> Any:
+        newurl = str(args[-1])
+        if not _same_origin(req.full_url, newurl):
+            raise AtlassianRequestError(
+                f"Refusing cross-origin or insecure redirect from "
+                f"{sanitize_secrets(req.full_url)} to {sanitize_secrets(newurl)}"
+            )
+        return super().redirect_request(req, *args)
+
+
+_DEFAULT_URLOPEN = urllib.request.urlopen
+_SAME_ORIGIN_OPENER = urllib.request.build_opener(_SameOriginRedirectHandler())
+
+
+def _open_request(req: urllib.request.Request, timeout: float) -> Any:
+    if urllib.request.urlopen is _DEFAULT_URLOPEN:
+        return _SAME_ORIGIN_OPENER.open(req, timeout=timeout)
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
+def _decode_json_body(body: str, method: str, safe_url: str) -> dict | list:
+    if not body:
+        return {}
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise AtlassianRequestError(
+            f"Invalid JSON response calling {method} {safe_url}: {exc}"
+        ) from exc
+
+
 def execute_request(
     method: str, url: str, payload: dict | list | None = None, timeout: float | None = None
 ) -> dict | list:
     check_env()
+    _validate_https_url(url)
+    safe_url = sanitize_secrets(url)
     req_timeout = timeout if timeout is not None else atlassian_timeout()
     data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(url, data=data, headers=auth_header(), method=method)
     try:
-        with urllib.request.urlopen(req, timeout=req_timeout) as resp:
-            body = resp.read().decode()
-            return json.loads(body) if body else {}
+        with _open_request(req, req_timeout) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+            return _decode_json_body(body, method, safe_url)
     except urllib.error.HTTPError as e:
         err = _format_error_body(e.read().decode("utf-8", errors="replace"))
         sanitized = sanitize_secrets(err)
         raise AtlassianRequestError(
-            f"HTTP {e.code} Error calling {method} {url}:\n{sanitized}"
+            f"HTTP {e.code} Error calling {method} {safe_url}:\n{sanitized}"
         ) from e
     except urllib.error.URLError as e:
         sanitized = sanitize_secrets(str(e.reason))
-        raise AtlassianRequestError(f"Network error calling {method} {url}: {sanitized}") from e
+        raise AtlassianRequestError(
+            f"Network error calling {method} {safe_url}: {sanitized}"
+        ) from e
     except TimeoutError as e:
         sanitized = sanitize_secrets(str(e))
-        raise AtlassianRequestError(f"Timeout error calling {method} {url}: {sanitized}") from e
+        raise AtlassianRequestError(
+            f"Timeout error calling {method} {safe_url}: {sanitized}"
+        ) from e

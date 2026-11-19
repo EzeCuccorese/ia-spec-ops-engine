@@ -242,3 +242,39 @@ def test_ws_run_timeout_flag_values(monkeypatch, extra_args, expected_timeout) -
     monkeypatch.setattr(cli.subprocess, "run", fake_run)
     assert cli.run([*extra_args, "--", "echo", "ok"]) == 0
     assert seen["timeout"] == expected_timeout
+
+
+def test_clean_lines_keeps_coverage_percentages_and_drops_progress() -> None:
+    raw = (
+        "Downloading 42%\n"
+        "[=====>        ] 45%\n"
+        "tests/test_a.py .... [ 50%]\n"
+        "TOTAL                                  4500    200    95%\n"
+        "Disk usage: 82%\n"
+    )
+    assert clean_lines(raw) == [
+        "TOTAL                                  4500    200    95%",
+        "Disk usage: 82%",
+    ]
+
+
+def test_condense_strictly_bounds_oversized_tail_lines() -> None:
+    huge = "x" * 4000
+    text = "\n".join(["ERROR: minified crash", huge, huge])
+    result = condense(text, "npm run build", exit_code=1, budget=300)
+    assert result.truncated
+    assert len(result.text) <= 300
+
+
+def test_condense_recognizes_pytest_quiet_summary_and_ws_check_profile() -> None:
+    body = "\n".join(["." * 80 for _ in range(20)] + ["42 passed in 1.23s", "trailing note"])
+    result = condense(body, "pytest -q", exit_code=0, budget=200)
+    assert result.text == "✓ pytest: 42 passed in 1.23s"
+    profile = profile_for("ws check --changed")
+    assert profile is not None and profile.name == "ws-check"
+
+
+def test_show_log_rejects_invalid_grep_regex_cleanly(capsys) -> None:
+    log_id = logs.save("alpha\nbeta", "cmd")
+    assert cli.show_log([log_id, "--grep", "[unclosed"]) == 1
+    assert "Invalid grep regex" in capsys.readouterr().err

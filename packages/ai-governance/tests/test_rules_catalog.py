@@ -149,7 +149,10 @@ def test_user_rules_cover_every_language_and_tool_rules() -> None:
     user_ids = {rule.id for rule in catalog.user_rules()}
     stacks = {rule.id for rule in catalog.rules if rule.category == "2-stacks"}
     assert stacks <= user_ids
-    assert "api-design" in user_ids
+    # Profile-gated opt-in rules must never leak into user scope
+    assert "api-design" not in user_ids
+    assert "10-refactoring-strangler" not in user_ids
+    assert all(rule.profile is None for rule in catalog.user_rules())
     tool_rules = {
         "circleci",
         "deploy-approvals",
@@ -168,6 +171,16 @@ def test_user_rules_cover_every_language_and_tool_rules() -> None:
     # language-level rules remain path-scoped
     language_rules = [r for r in catalog.user_rules() if r.id not in tool_rules]
     assert not any(rule.always_on for rule in language_rules)
+
+
+def test_select_excludes_always_on_user_rules_unless_forced() -> None:
+    catalog = RuleCatalog()
+    user_always = {rule.id for rule in catalog.user_rules() if rule.always_on}
+    project_ids = {rule.id for rule in catalog.select({"python"})}
+    assert not (user_always & project_ids)
+    assert "06-security-privacy" in project_ids
+    forced_ids = {rule.id for rule in catalog.select(set(), extra=("13-atlassian",))}
+    assert "13-atlassian" in forced_ids
 
 
 def test_git_branch_and_circleci_rule_content_semantics() -> None:

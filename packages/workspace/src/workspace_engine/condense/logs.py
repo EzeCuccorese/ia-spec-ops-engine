@@ -66,7 +66,10 @@ def _filter_lines(numbered: list[tuple[int, str]], lines: str) -> list[tuple[int
 
 
 def _filter_grep(numbered: list[tuple[int, str]], grep: str) -> list[tuple[int, str]]:
-    pattern = re.compile(grep, re.IGNORECASE)
+    try:
+        pattern = re.compile(grep, re.IGNORECASE)
+    except re.error as exc:
+        raise ValueError(f"Invalid grep regex: {exc}") from exc
     return [(n, line) for n, line in numbered if pattern.search(line)]
 
 

@@ -1119,6 +1119,33 @@ def test_monorepo_without_ws_on_path_warns_and_skips_full_suite(tmp_path: Path) 
     assert proc.returncode == 0
 
 
+@requires_node
+def test_monorepo_scope_all_runs_root_test_script_instead_of_silent_pass(tmp_path: Path) -> None:
+    project_dir = tmp_path / "repo"
+    bin_dir = tmp_path / "bin"
+    _setup_monorepo_project(project_dir, bin_dir)
+
+    proc = _run_generated_hook(
+        project_dir,
+        output="verbose",
+        skip="gitleaks,commits,lint,design",
+        env_overrides={**_prepended_path(bin_dir), "QG_SCOPE": "all"},
+    )
+    combined = proc.stdout + proc.stderr
+    assert "YARN_EXECUTED: test" in combined
+    assert proc.returncode == 1
+
+
+def test_hooks_status_detects_outdated_script(tmp_path: Path) -> None:
+    project_dir = tmp_path / "repo"
+    _init_test_git_repo(project_dir)
+    _commit_fixture(project_dir)
+    assert install_git_hooks(target_dir=project_dir)["success"] is True
+    assert get_hooks_status(target_dir=project_dir)["local"]["is_outdated"] is False
+    local_hook_path(project_dir).write_text("#!/bin/sh\n# stale\n", encoding="utf-8")
+    assert get_hooks_status(target_dir=project_dir)["local"]["is_outdated"] is True
+
+
 def _setup_monorepo_stdin_repo(tmp_path: Path) -> tuple[Path, Path, Path]:
     project_dir = tmp_path / "repo"
     bin_dir = tmp_path / "bin"

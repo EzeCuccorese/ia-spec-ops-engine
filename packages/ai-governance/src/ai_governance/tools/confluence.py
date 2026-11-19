@@ -154,24 +154,28 @@ def _shift_task_ids(new_body: str, existing_body: str) -> str:
 # ── Commands ──────────────────────────────────────────────────────────────────
 
 
+def _quote_seg(segment: str) -> str:
+    return urllib.parse.quote(str(segment), safe="")
+
+
 def cmd_read(page_id: str, as_json: bool = False) -> None:
     """Displays page in clean Markdown or JSON."""
-    data = get(f"/content/{page_id}?expand=body.storage,version,space")
+    safe_id = _quote_seg(page_id)
+    data = get(f"/content/{safe_id}?expand=body.storage,version,space")
     if as_json:
         print(json.dumps(data, indent=2))
         return
 
     title = data.get("title", "")
-    space = data.get("space", {}).get("name", "")
-    ver = data.get("version", {}).get("number", 1)
-    body_html = data.get("body", {}).get("storage", {}).get("value", "")
+    space_info = data.get("space") or {}
+    space = space_info.get("name", "")
+    ver = (data.get("version") or {}).get("number", 1)
+    body_html = ((data.get("body") or {}).get("storage") or {}).get("value", "")
     md = html_to_md(body_html)
 
     print(f"# {title}\n")
     print(f"**Space**: {space}  |  **Version**: {ver}  |  **ID**: {page_id}")
-    print(
-        f"**URL**: {_get_base_url()}/wiki/spaces/{data.get('space', {}).get('key', '')}/pages/{page_id}\n"
-    )
+    print(f"**URL**: {_get_base_url()}/wiki/spaces/{space_info.get('key', '')}/pages/{page_id}\n")
     print("---\n")
     print(md)
 
@@ -212,7 +216,7 @@ def cmd_search(
     print("| ID | Space | Title |")
     print("|---|---|---|")
     for r in results:
-        space = r.get("space", {}).get("key", "—")
+        space = (r.get("space") or {}).get("key", "—")
         print(f"| {r['id']} | {space} | {r.get('title', '')} |")
 
     if total > start + len(results):
@@ -260,10 +264,11 @@ def cmd_create(space_key: str, title: str, body_md: str, parent_id: str | None =
 
 def cmd_update(page_id: str, body_md: str, expected_version: int | None = None) -> None:
     """Updates page body with version conflict checking."""
-    current = get(f"/content/{page_id}?expand=version,space")
+    safe_id = _quote_seg(page_id)
+    current = get(f"/content/{safe_id}?expand=version,space")
     title = current.get("title", "")
-    space = current.get("space", {}).get("key", "")
-    ver = current.get("version", {}).get("number", 1)
+    space = (current.get("space") or {}).get("key", "")
+    ver = (current.get("version") or {}).get("number", 1)
 
     if expected_version is not None and int(expected_version) != ver:
         print(
@@ -280,16 +285,17 @@ def cmd_update(page_id: str, body_md: str, expected_version: int | None = None) 
         "body": {"storage": {"value": md_to_storage(content_text), "representation": "storage"}},
         "version": {"number": ver + 1},
     }
-    put(f"/content/{page_id}", payload)
+    put(f"/content/{safe_id}", payload)
     print(f"✅ Page updated: **{title}** (v{ver + 1})")
 
 
 def cmd_append(page_id: str, text: str, expected_version: int | None = None) -> None:
     """Appends content to the end of a page with version conflict checking."""
-    current = get(f"/content/{page_id}?expand=body.storage,version,space")
+    safe_id = _quote_seg(page_id)
+    current = get(f"/content/{safe_id}?expand=body.storage,version,space")
     title = current.get("title", "")
-    space = current.get("space", {}).get("key", "")
-    ver = current.get("version", {}).get("number", 1)
+    space = (current.get("space") or {}).get("key", "")
+    ver = (current.get("version") or {}).get("number", 1)
 
     if expected_version is not None and int(expected_version) != ver:
         print(
@@ -298,7 +304,7 @@ def cmd_append(page_id: str, text: str, expected_version: int | None = None) -> 
         )
         sys.exit(1)
 
-    old_body = current.get("body", {}).get("storage", {}).get("value", "")
+    old_body = ((current.get("body") or {}).get("storage") or {}).get("value", "")
     append_text = read_input_text(text, allow_bare_path=False)
     new_content = _shift_task_ids(md_to_storage(append_text), old_body)
     combined = old_body + new_content
@@ -310,7 +316,7 @@ def cmd_append(page_id: str, text: str, expected_version: int | None = None) -> 
         "body": {"storage": {"value": combined, "representation": "storage"}},
         "version": {"number": ver + 1},
     }
-    put(f"/content/{page_id}", payload)
+    put(f"/content/{safe_id}", payload)
     print(f"✅ Content appended to **{title}** (v{ver + 1})")
 
 
