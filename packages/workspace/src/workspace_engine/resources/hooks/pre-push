@@ -138,22 +138,23 @@ python_manager_envs() {
 }
 
 # How to run a Python tool from the project's own environment: .venv/venv, a uv
-# project, then a Poetry/Pipenv/PDM env. Prints nothing when there is none here.
+# project, then a Poetry/Pipenv/PDM env. Prints one argv element per line so
+# paths containing spaces stay intact; prints nothing when there is none here.
 python_project_tool() {
   local tool="$1" dir
   for dir in "$REPO_ROOT/.venv" "$REPO_ROOT/venv"; do
     if [ -x "$dir/bin/$tool" ]; then
-      echo "$dir/bin/$tool"
+      printf '%s\n' "$dir/bin/$tool"
       return 0
     fi
   done
   if [ -f "$REPO_ROOT/uv.lock" ] && command -v uv >/dev/null 2>&1; then
-    echo "uv run $tool"
+    printf '%s\n' uv run "$tool"
     return 0
   fi
   while IFS= read -r dir; do
     if [ -n "$dir" ] && [ -x "$dir/bin/$tool" ]; then
-      echo "$dir/bin/$tool"
+      printf '%s\n' "$dir/bin/$tool"
       return 0
     fi
   done < <(python_manager_envs)
@@ -219,7 +220,7 @@ js_pm() {
 # checkout has not installed (a new worktree has no node_modules).
 js_install_hint() {
   { [ -d "$REPO_ROOT/node_modules" ] || [ -f "$REPO_ROOT/.pnp.cjs" ]; } && return 0
-  node -e "const p=require('$REPO_ROOT/package.json'); process.exit(Object.keys({...p.dependencies, ...p.devDependencies}).length ? 0 : 1)" 2>/dev/null || return 0
+  node -e "const p=require(process.argv[1]); process.exit(Object.keys({...p.dependencies, ...p.devDependencies}).length ? 0 : 1)" "$REPO_ROOT/package.json" 2>/dev/null || return 0
   local pm
   pm="$(js_pm)"
   if [ "$pm" = "npm" ] && [ -f "$REPO_ROOT/package-lock.json" ]; then echo "npm ci"
@@ -260,19 +261,20 @@ php_install_hint() {
 }
 
 # The Flutter SDK tool (flutter|dart) the repo pins with FVM, else the global one.
+# Prints one argv element per line so paths containing spaces stay intact.
 flutter_tool() {
   local tool="$1"
   if [ -f "$REPO_ROOT/.fvmrc" ] || [ -f "$REPO_ROOT/.fvm/fvm_config.json" ]; then
     if [ -x "$REPO_ROOT/.fvm/flutter_sdk/bin/$tool" ]; then
-      echo "$REPO_ROOT/.fvm/flutter_sdk/bin/$tool"
+      printf '%s\n' "$REPO_ROOT/.fvm/flutter_sdk/bin/$tool"
       return 0
     fi
     if command -v fvm >/dev/null 2>&1; then
-      echo "fvm $tool"
+      printf '%s\n' fvm "$tool"
       return 0
     fi
   fi
-  command -v "$tool" >/dev/null 2>&1 && echo "$tool"
+  command -v "$tool" >/dev/null 2>&1 && printf '%s\n' "$tool"
   return 0
 }
 
@@ -621,7 +623,7 @@ else
     JS_INSTALL_HINT="$(js_install_hint)"
     HAS_LINT_SCRIPT=0
     if command -v node >/dev/null 2>&1 && \
-       node -e "const p=require('$REPO_ROOT/package.json'); process.exit(p.scripts && p.scripts.lint ? 0 : 1)" 2>/dev/null; then
+       node -e "const p=require(process.argv[1]); process.exit(p.scripts && p.scripts.lint ? 0 : 1)" "$REPO_ROOT/package.json" 2>/dev/null; then
       HAS_LINT_SCRIPT=1
     fi
 
@@ -656,19 +658,22 @@ else
     # The project's own environment first: a global ruff may be another version.
     # ruff has no dependencies: without the project's env, run the version its
     # lockfile pins, and only then a global one.
-    RUFF_EXE="$(python_project_tool ruff)"
+    RUFF_CMD=()
+    while IFS= read -r arg; do
+      [ -n "$arg" ] && RUFF_CMD+=("$arg")
+    done < <(python_project_tool ruff)
     RUFF_LOCKED="$(ruff_locked_version)"
-    if [ -z "$RUFF_EXE" ]; then
+    if [ "${#RUFF_CMD[@]}" -eq 0 ]; then
       if [ -n "$RUFF_LOCKED" ] && command -v uv >/dev/null 2>&1; then
-        RUFF_EXE="uv tool run ruff@$RUFF_LOCKED"
+        RUFF_CMD=(uv tool run "ruff@$RUFF_LOCKED")
       elif command -v ruff >/dev/null 2>&1; then
-        RUFF_EXE="ruff"
+        RUFF_CMD=(ruff)
       elif command -v uv >/dev/null 2>&1; then
-        RUFF_EXE="uv run --with ruff ruff"
+        RUFF_CMD=(uv run --with ruff ruff)
       fi
     fi
 
-    if [ -n "$RUFF_EXE" ]; then
+    if [ "${#RUFF_CMD[@]}" -gt 0 ]; then
       PY_FILES=()
       if [ "$QG_SCOPE" = "changed" ] && [ "$NOTHING_NEW" = "0" ]; then
         while IFS= read -r f; do
@@ -680,13 +685,13 @@ else
         if [ "${#PY_FILES[@]}" -gt 0 ]; then
           LINT_RAN=1
           note "ruff on ${#PY_FILES[@]} file(s) from the push"
-          run_to "$QG_TIMEOUT" $RUFF_EXE check "${PY_FILES[@]}" || LINT_OK=0
+          run_to "$QG_TIMEOUT" "${RUFF_CMD[@]}" check "${PY_FILES[@]}" || LINT_OK=0
         else
           note "No Python files in the push, skipping ruff."
         fi
       else
         LINT_RAN=1
-        run_to "$QG_TIMEOUT" $RUFF_EXE check . || LINT_OK=0
+        run_to "$QG_TIMEOUT" "${RUFF_CMD[@]}" check . || LINT_OK=0
       fi
     fi
   fi
@@ -707,16 +712,22 @@ else
 
   # --- Flutter / Dart ---
   if [ -f "$REPO_ROOT/pubspec.yaml" ]; then
-    FLUTTER_EXE="$(flutter_tool flutter)"
-    DART_EXE="$(flutter_tool dart)"
-    if [ -n "$FLUTTER_EXE" ]; then
+    FLUTTER_CMD=()
+    while IFS= read -r arg; do
+      [ -n "$arg" ] && FLUTTER_CMD+=("$arg")
+    done < <(flutter_tool flutter)
+    DART_CMD=()
+    while IFS= read -r arg; do
+      [ -n "$arg" ] && DART_CMD+=("$arg")
+    done < <(flutter_tool dart)
+    if [ "${#FLUTTER_CMD[@]}" -gt 0 ]; then
       LINT_RAN=1
-      note "$FLUTTER_EXE analyze"
-      run_to "$QG_TIMEOUT" $FLUTTER_EXE analyze || LINT_OK=0
-    elif [ -n "$DART_EXE" ]; then
+      note "${FLUTTER_CMD[*]} analyze"
+      run_to "$QG_TIMEOUT" "${FLUTTER_CMD[@]}" analyze || LINT_OK=0
+    elif [ "${#DART_CMD[@]}" -gt 0 ]; then
       LINT_RAN=1
-      note "$DART_EXE analyze"
-      run_to "$QG_TIMEOUT" $DART_EXE analyze || LINT_OK=0
+      note "${DART_CMD[*]} analyze"
+      run_to "$QG_TIMEOUT" "${DART_CMD[@]}" analyze || LINT_OK=0
     fi
   fi
 
@@ -801,7 +812,7 @@ else
     JS_PM="$(js_pm)"
     JS_INSTALL_HINT="$(js_install_hint)"
     if command -v "$JS_PM" >/dev/null 2>&1 && \
-       node -e "const p=require('$REPO_ROOT/package.json'); process.exit(p.scripts && p.scripts.test ? 0 : 1)" 2>/dev/null; then
+       node -e "const p=require(process.argv[1]); process.exit(p.scripts && p.scripts.test ? 0 : 1)" "$REPO_ROOT/package.json" 2>/dev/null; then
       HAS_TEST_SCRIPT=1
     fi
   fi
@@ -811,7 +822,7 @@ else
       TESTS_OK=0
       env_missing "JS/TS" "$JS_INSTALL_HINT"
     else
-      TEST_SCRIPT="$(node -e "const p=require('$REPO_ROOT/package.json'); process.stdout.write(String(p.scripts.test||''))" 2>/dev/null)"
+      TEST_SCRIPT="$(node -e "const p=require(process.argv[1]); process.stdout.write(String(p.scripts.test||''))" "$REPO_ROOT/package.json" 2>/dev/null)"
 
       JS_FILES=()
       if [ "$SCOPED_TESTS" = "1" ]; then
@@ -903,19 +914,22 @@ else
   # The project's own environment first: a global pytest lacks the project's
   # dependencies. A project whose manager (Poetry, Pipenv, PDM) has no env in
   # this checkout is reported as such instead of running a global pytest.
-  PYTEST_EXE="$(python_project_tool pytest)"
+  PYTEST_CMD=()
+  while IFS= read -r arg; do
+    [ -n "$arg" ] && PYTEST_CMD+=("$arg")
+  done < <(python_project_tool pytest)
   PY_ENV_HINT=""
-  if [ -z "$PYTEST_EXE" ]; then
+  if [ "${#PYTEST_CMD[@]}" -eq 0 ]; then
     if [ -f "$REPO_ROOT/poetry.lock" ] || [ -f "$REPO_ROOT/Pipfile.lock" ] || [ -f "$REPO_ROOT/pdm.lock" ]; then
       PY_ENV_HINT="$(python_install_cmd)"
     elif command -v pytest >/dev/null 2>&1; then
-      PYTEST_EXE="pytest"
+      PYTEST_CMD=(pytest)
     elif command -v uv >/dev/null 2>&1; then
-      PYTEST_EXE="uv run pytest"
+      PYTEST_CMD=(uv run pytest)
     fi
   fi
 
-  if [ -n "$PYTEST_EXE" ] || [ -n "$PY_ENV_HINT" ]; then
+  if [ "${#PYTEST_CMD[@]}" -gt 0 ] || [ -n "$PY_ENV_HINT" ]; then
     PY_TEST_FILES=()
     PY_RUN=0
     if [ "$SCOPED_TESTS" = "1" ]; then
@@ -950,13 +964,13 @@ else
       RAN_ANY=1
       if [ "$SCOPED_TESTS" = "1" ]; then
         note "pytest scoped to ${#PY_TEST_FILES[@]} test file(s) from the push"
-        run_to "$QG_TIMEOUT" $PYTEST_EXE -q "${PY_TEST_FILES[@]}"; pt_rc=$?
+        run_to "$QG_TIMEOUT" "${PYTEST_CMD[@]}" -q "${PY_TEST_FILES[@]}"; pt_rc=$?
       else
-        run_to "$QG_TIMEOUT" $PYTEST_EXE -q; pt_rc=$?
+        run_to "$QG_TIMEOUT" "${PYTEST_CMD[@]}" -q; pt_rc=$?
       fi
       if [ "$pt_rc" != "0" ] && [ "$pt_rc" != "5" ]; then
         TESTS_OK=0
-        explain_missing_module "$PYTEST_EXE"
+        explain_missing_module "${PYTEST_CMD[*]}"
       fi
     fi
   fi
@@ -977,16 +991,22 @@ else
 
   # --- Flutter / Dart Tests ---
   if [ -f "$REPO_ROOT/pubspec.yaml" ]; then
-    FLUTTER_EXE="$(flutter_tool flutter)"
-    DART_EXE="$(flutter_tool dart)"
-    if [ -n "$FLUTTER_EXE" ]; then
+    FLUTTER_CMD=()
+    while IFS= read -r arg; do
+      [ -n "$arg" ] && FLUTTER_CMD+=("$arg")
+    done < <(flutter_tool flutter)
+    DART_CMD=()
+    while IFS= read -r arg; do
+      [ -n "$arg" ] && DART_CMD+=("$arg")
+    done < <(flutter_tool dart)
+    if [ "${#FLUTTER_CMD[@]}" -gt 0 ]; then
       RAN_ANY=1
-      note "$FLUTTER_EXE test"
-      run_to "$QG_TIMEOUT" $FLUTTER_EXE test || TESTS_OK=0
-    elif [ -n "$DART_EXE" ]; then
+      note "${FLUTTER_CMD[*]} test"
+      run_to "$QG_TIMEOUT" "${FLUTTER_CMD[@]}" test || TESTS_OK=0
+    elif [ "${#DART_CMD[@]}" -gt 0 ]; then
       RAN_ANY=1
-      note "$DART_EXE test"
-      run_to "$QG_TIMEOUT" $DART_EXE test || TESTS_OK=0
+      note "${DART_CMD[*]} test"
+      run_to "$QG_TIMEOUT" "${DART_CMD[@]}" test || TESTS_OK=0
     fi
   fi
 

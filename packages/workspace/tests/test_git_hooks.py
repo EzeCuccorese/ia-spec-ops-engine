@@ -1334,3 +1334,67 @@ def test_is_script_outdated_returns_false_on_oserror(
 
     monkeypatch.setattr(Path, "read_text", fail_read)
     assert _is_script_outdated(hook_file) is False
+
+
+def test_pre_push_passes_package_json_via_argv_without_inline_interpolation() -> None:
+    script = generate_canonical_pre_push_script()
+    assert "require('$REPO_ROOT/package.json')" not in script
+    assert "require(process.argv[1])" in script
+
+
+@requires_node
+def test_pre_push_handles_spaces_and_quotes_in_repo_path_for_js_and_python(
+    tmp_path: Path,
+) -> None:
+    project_dir = tmp_path / "my 'quoted' repo"
+    project_dir.mkdir()
+    _init_test_git_repo(project_dir)
+    _commit_fixture(project_dir)
+
+    (project_dir / "package.json").write_text(
+        '{"scripts": {"lint": "eslint .", "test": "vitest"}, "devDependencies": {"vitest": "1"}}',
+        encoding="utf-8",
+    )
+    (project_dir / "node_modules").mkdir()
+    (project_dir / "pyproject.toml").write_text('[project]\nname = "demo"\n', encoding="utf-8")
+    (project_dir / "test_ok.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+
+    log_file = tmp_path / "invoked.log"
+    _write_exe(project_dir / ".venv" / "bin" / "ruff", f'echo "RUFF:$*" >> "{log_file}"')
+    _write_exe(project_dir / ".venv" / "bin" / "pytest", f'echo "PYTEST:$*" >> "{log_file}"')
+    bin_dir = tmp_path / "bin"
+    _write_exe(bin_dir / "npm", f'echo "NPM:$*" >> "{log_file}"')
+
+    proc = _run_generated_hook(
+        project_dir,
+        skip="gitleaks,commits,design",
+        env_overrides=_prepended_path(bin_dir),
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    invoked = log_file.read_text(encoding="utf-8").splitlines()
+    assert "RUFF:check ." in invoked
+    assert "PYTEST:-q" in invoked
+    assert "NPM:run lint" in invoked
+    assert "NPM:test" in invoked
+
+
+def test_pre_push_handles_flutter_fvm_binary_in_spaced_repo_path(tmp_path: Path) -> None:
+    project_dir = tmp_path / "my flutter repo"
+    project_dir.mkdir()
+    _init_test_git_repo(project_dir)
+    _commit_fixture(project_dir)
+
+    (project_dir / "pubspec.yaml").write_text("name: fixture\n", encoding="utf-8")
+    (project_dir / ".fvmrc").write_text('{"flutter": "3.0.0"}', encoding="utf-8")
+    log_file = tmp_path / "flutter.log"
+    _write_exe(
+        project_dir / ".fvm" / "flutter_sdk" / "bin" / "flutter",
+        f'echo "FLUTTER:$*" >> "{log_file}"',
+    )
+
+    proc = _run_generated_hook(project_dir, skip="gitleaks,commits,design")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert log_file.read_text(encoding="utf-8").splitlines() == [
+        "FLUTTER:analyze",
+        "FLUTTER:test",
+    ]

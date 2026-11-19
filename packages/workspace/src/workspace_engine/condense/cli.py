@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
+import os
 import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -13,6 +16,9 @@ from workspace_engine.common.subprocess import DEFAULT_COMMAND_TIMEOUT
 
 from . import logs
 from .engine import DEFAULT_BUDGET, condense
+
+_SUBPROCESS_RUN = subprocess.run
+_TERM_GRACE_SECONDS = 1.0
 
 
 def _decode_partial(stream: bytes | str | None) -> str:
@@ -68,15 +74,36 @@ def _parse_run_args(argv: list[str]) -> tuple[list[str], int, int]:
     return command, args.budget, args.timeout
 
 
-def run(argv: list[str]) -> int:
-    command, budget, raw_timeout = _parse_run_args(argv)
-    shell = len(command) == 1
-    timeout = raw_timeout if raw_timeout > 0 else None
-    display = command[0] if shell else shlex.join(command)
-    started = time.monotonic()
+def _kill_process_tree(proc: subprocess.Popen[str], sig: int, is_posix: bool) -> None:
+    if is_posix:
+        with contextlib.suppress(OSError):
+            os.killpg(proc.pid, sig)
+        return
+    if sig == signal.SIGTERM:
+        proc.terminate()
+    else:
+        proc.kill()
+
+
+def _terminate_and_drain(proc: subprocess.Popen[str], is_posix: bool) -> tuple[str, str]:
+    _kill_process_tree(proc, signal.SIGTERM, is_posix)
     try:
-        proc = subprocess.run(
-            command[0] if shell else command,
+        stdout, stderr = proc.communicate(timeout=_TERM_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        _kill_process_tree(proc, signal.SIGKILL, is_posix)
+        stdout, stderr = proc.communicate()
+    else:
+        if is_posix:
+            _kill_process_tree(proc, signal.SIGKILL, True)
+    return stdout, stderr
+
+
+def _run_subprocess(
+    target: str | list[str], shell: bool, timeout: int | None
+) -> subprocess.CompletedProcess[str]:
+    if subprocess.run is not _SUBPROCESS_RUN:
+        return subprocess.run(
+            target,
             shell=shell,
             capture_output=True,
             text=True,
@@ -84,6 +111,34 @@ def run(argv: list[str]) -> int:
             check=False,
             timeout=timeout,
         )
+    is_posix = os.name == "posix"
+    with subprocess.Popen(
+        target,
+        shell=shell,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        errors="replace",
+        start_new_session=is_posix,
+    ) as proc:
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+            return subprocess.CompletedProcess(target, proc.returncode, stdout, stderr)
+        except subprocess.TimeoutExpired as exc:
+            stdout, stderr = _terminate_and_drain(proc, is_posix)
+            raise subprocess.TimeoutExpired(
+                cmd=target, timeout=exc.timeout, output=stdout, stderr=stderr
+            ) from exc
+
+
+def run(argv: list[str]) -> int:
+    command, budget, raw_timeout = _parse_run_args(argv)
+    shell = len(command) == 1
+    timeout = raw_timeout if raw_timeout > 0 else None
+    display = command[0] if shell else shlex.join(command)
+    started = time.monotonic()
+    try:
+        proc = _run_subprocess(command[0] if shell else command, shell, timeout)
     except subprocess.TimeoutExpired as exc:
         output = _combine_output(_decode_partial(exc.stdout), _decode_partial(exc.stderr))
         print(f"ERROR: command timed out after {raw_timeout}s: {display}", file=sys.stderr)

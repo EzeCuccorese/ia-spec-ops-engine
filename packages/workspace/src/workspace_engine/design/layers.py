@@ -18,6 +18,7 @@ from posixpath import normpath
 
 from .config import LayersConfig
 from .metrics import Violation
+from .testquality_parse import _mask
 
 _JAVA_IMPORT = re.compile(r"^\s*import\s+(static\s+)?([\w.]+?)(\.\*)?\s*;?\s*$")
 _PY_IMPORT = re.compile(r"^\s*import\s+([\w.]+)")
@@ -29,6 +30,14 @@ _JS_SPEC = re.compile(r"""(?:from|require\(|import\()\s*['"]([^'"]+)['"]""")
 _GO_QUOTED = re.compile(r'"([^"]+)"')
 _DART_PACKAGE = re.compile(r"""^\s*import\s+['"]package:([^'"]+)['"]""")
 _DART_RELATIVE = re.compile(r"""^\s*import\s+['"](\.[^'"]+)['"]""")
+_HASH_TOKEN = re.compile(
+    r"#[^\n]*"
+    r'|""".*?(?:"""|\Z)'
+    r"|'''.*?(?:'''|\Z)"
+    r'|"(?:\\.|[^"\\\n])*(?:"|(?=\n)|\Z)'
+    r"|'(?:\\.|[^'\\\n])*(?:'|(?=\n)|\Z)",
+    re.S,
+)
 
 
 @dataclass(frozen=True)
@@ -38,13 +47,19 @@ class Import:
     module: str  # repo-relative pseudo-path, slash-separated; empty if not resolvable
 
 
+def _strip_hash_comments(source: str) -> str:
+    return _HASH_TOKEN.sub(
+        lambda m: " " * len(m.group()) if m.group().startswith("#") else m.group(),
+        source,
+    )
+
+
 def _strip_comments(source: str, style: str) -> list[str]:
     """Blanks out comments so commented-out imports never match, line-aligned."""
     if style == "hash":
-        return [re.sub(r"#.*$", "", line) for line in source.splitlines()]
-    # C-style: strip // line comments and /* */ block comments (line-aligned).
-    without_block = re.sub(r"/\*.*?\*/", "", source, flags=re.S)
-    return [re.sub(r"//.*$", "", line) for line in without_block.splitlines()]
+        return _strip_hash_comments(source).splitlines()
+    _, code = _mask(source)
+    return code.splitlines()
 
 
 def _java_kotlin(lines: list[str]) -> list[Import]:
@@ -228,7 +243,10 @@ def extract_imports(
 
 def _matches(path: str, patterns: tuple[str, ...]) -> bool:
     candidate = f"/{path}"
-    return any(fnmatch.fnmatch(candidate, pattern) for pattern in patterns)
+    return any(
+        fnmatch.fnmatch(path, pattern) or fnmatch.fnmatch(candidate, pattern)
+        for pattern in patterns
+    )
 
 
 def layer_of(path: str, config: LayersConfig) -> str | None:
