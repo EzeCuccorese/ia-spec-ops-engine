@@ -34,7 +34,9 @@ def personal_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     rules = root / "rules"
     rules.mkdir(parents=True)
     (rules / "voice.md").write_text("---\ntrigger: always_on\n---\n# Voice\nBe concise.\n")
-    (rules / "style.md").write_text("# Style\nPrefer explicit arguments.\n")
+    (rules / "style.md").write_text(
+        "---\ntrigger: always_on\n---\n# Style\nPrefer explicit arguments.\n"
+    )
     monkeypatch.setenv("AI_GOVERNANCE_PERSONAL_DIR", str(root))
     return root
 
@@ -279,6 +281,7 @@ def test_personal_rules_ignores_readme_and_warns_on_missing_frontmatter(
     personal_root: Path,
 ) -> None:
     rules_dir = personal_root / "rules"
+    (rules_dir / "style.md").write_text("# Style\nPrefer explicit arguments.\n", encoding="utf-8")
     (rules_dir / "README.md").write_text("# Readme", encoding="utf-8")
     with pytest.warns(UserWarning, match="style.md.*missing YAML front matter"):
         loaded = personal.rules(personal_root)
@@ -323,6 +326,9 @@ def test_doctor_personal_empty_and_missing_dir(home: Path, personal_root: Path) 
 def test_doctor_antigravity_missing_trigger_check(home: Path, personal_root: Path) -> None:
     from ai_governance.install import doctor
 
+    (personal_root / "rules" / "style.md").write_text(
+        "# Style\nPrefer explicit arguments.\n", encoding="utf-8"
+    )
     install_user(["antigravity"])
     rows = doctor.check(None)
     assert any(
@@ -703,10 +709,10 @@ def test_personal_add_and_migrate_emit_sync_warnings(
     capsys.readouterr()
     assert personal.main(["add", "clash-add"]) == 0
     out_add = capsys.readouterr()
-    assert "not created by ai-governance" in out_add.out + out_add.err
+    assert "not created by ai-governance" in " ".join((out_add.out + out_add.err).split())
 
     source = tmp_path / "note.md"
     source.write_text("# Note\nBody.\n", encoding="utf-8")
     assert personal.main(["migrate", "--from", str(source), "--name", "clash-mig.md"]) == 0
     out_mig = capsys.readouterr()
-    assert "not created by ai-governance" in out_mig.out + out_mig.err
+    assert "not created by ai-governance" in " ".join((out_mig.out + out_mig.err).split())
