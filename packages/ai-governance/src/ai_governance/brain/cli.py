@@ -358,7 +358,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     try:
         return int(handler(args))
-    except (SecretContentError, ValueError, OSError) as exc:
+    except (SecretContentError, ValueError, OSError, KeyError) as exc:
         emit_status("error", str(exc))
         return 1
 

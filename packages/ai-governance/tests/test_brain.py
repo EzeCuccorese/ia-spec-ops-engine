@@ -490,6 +490,28 @@ def test_taskflow_close_archives_automatically_and_warns_without_blocking_on_fai
     assert "WARN: could not archive 'TASK-11'" in capsys.readouterr().err
 
 
+def test_archive_task_enforces_secret_guard_and_handles_missing_repo_path(
+    brain_env: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    b_store = BrainStore(brain_env)
+    t_store = TaskStore(tmp_path / "state" / "taskflow")
+    t_store.create(
+        Task(id="TASK-NOPATH", title="Missing repo path", repos=[{"branch": "feat/no-path"}])
+    )
+    opts = brain_archive.ArchiveOptions(brain_store=b_store, task_store=t_store)
+    res = brain_archive.archive_task("TASK-NOPATH", opts)
+    assert "`?` (branch: `feat/no-path`)" in res.note.body
+
+    t_store.create(Task(id="TASK-LEAK", title="Unscrubbed leak"))
+    monkeypatch.setattr(
+        brain_archive, "_render_archive_body", lambda _t: "Leak " + "ghp_" + "b" * 30
+    )
+    with pytest.raises(SecretContentError, match="secret or credential"):
+        brain_archive.archive_task("TASK-LEAK", opts)
+    with pytest.raises(FileNotFoundError):
+        b_store.get("archive-task-leak")
+
+
 # -- curated import (Claude & Codex) -------------------------------------------------------
 
 
@@ -557,6 +579,32 @@ def test_import_codex_and_missing_or_unreadable_sources(
 
     with pytest.raises(ValueError, match="Unsupported import source"):
         brain_archive.import_memories(brain_archive.ImportOptions(source="other"), b_store)
+
+
+def test_import_dedup_rejects_intra_batch_duplicate_titles_across_slugs() -> None:
+    entries = [
+        brain_archive._RawEntry(
+            slug="alpha-slug",
+            title="Shared Finding",
+            kind="reference",
+            body="First body.",
+            source="claude:p1/a.md",
+            origin_path="/tmp/a.md",
+            mtime=1.0,
+        ),
+        brain_archive._RawEntry(
+            slug="beta-slug",
+            title="shared finding",
+            kind="reference",
+            body="Second body.",
+            source="claude:p1/b.md",
+            origin_path="/tmp/b.md",
+            mtime=2.0,
+        ),
+    ]
+    by_slug = {c.slug: c for c in brain_archive._dedup_entries(entries, set(), set())}
+    assert by_slug["alpha-slug"].status == "new"
+    assert by_slug["beta-slug"].status == "duplicate"
 
 
 # -- CLI end-to-end ------------------------------------------------------------------------
@@ -711,6 +759,19 @@ def test_brain_cli_archive_and_import_subcommands(
         == 0
     )
     assert json.loads(capsys.readouterr().out)["applied"] is False
+
+
+def test_brain_cli_handles_missing_task_and_key_error(
+    brain_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert brain_cli.main(["archive", "MISSING-999"]) == 1
+    assert "does not exist" in capsys.readouterr().err
+
+    monkeypatch.setattr(
+        brain_cli, "archive_task", lambda *_a, **_k: (_ for _ in ()).throw(KeyError("text"))
+    )
+    assert brain_cli.main(["archive", "TASK-BAD"]) == 1
+    assert "text" in capsys.readouterr().err
 
 
 def test_every_brain_subcommand_has_help_and_taskflow_rule_stays_within_budget() -> None:

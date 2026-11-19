@@ -145,7 +145,7 @@ def _render_archive_body(task: Task) -> str:
         ],
     ]
     repos = [
-        f"- `{r['path']}` (branch: `{r.get('branch', '?')}`"
+        f"- `{r.get('path', '?')}` (branch: `{r.get('branch', '?')}`"
         + (f", PR: {r['pr']}" if r.get("pr") else "")
         + ")"
         for r in task.repos
@@ -187,8 +187,8 @@ def _build_archive_note(
         scope=scope,
         body=_render_archive_body(task),
         tags=("archive", "taskflow"),
-        repos=_task_repos(task),
-        source=task.id,
+        repos=tuple(scrub(r) for r in _task_repos(task)),
+        source=scrub(task.id),
         created=created,
         updated=today_iso(),
         path=store.note_path(scope, slug),
@@ -208,7 +208,7 @@ def archive_task(task_id: str, options: ArchiveOptions | None = None) -> Archive
         return ArchiveResult(task.id, "unchanged", existing)
     if opts.dry_run:
         return ArchiveResult(task.id, "would-update" if existing else "would-create", proposed)
-    saved = b_store.save(proposed, reject_secrets=False)
+    saved = b_store.save(proposed)
     return ArchiveResult(task.id, "updated" if existing else "created", saved)
 
 
@@ -350,6 +350,8 @@ def _dedup_entries(
             status = "duplicate"
         else:
             status = "new"
+            existing_slugs.add(slug)
+            existing_titles.add(winner.title.lower())
         candidates.append(
             ImportCandidate(
                 slug=slug,
