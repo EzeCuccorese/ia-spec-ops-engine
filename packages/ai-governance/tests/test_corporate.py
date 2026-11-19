@@ -33,7 +33,7 @@ def pack_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     rules.mkdir(parents=True)
     scripts.mkdir()
     (rules / "glossary.md").write_text("---\ntrigger: always_on\n---\n# Glossary\n")
-    (rules / "principles.md").write_text("# Principles\n")
+    (rules / "principles.md").write_text("---\ntrigger: always_on\n---\n# Principles\n")
     script = scripts / "acme-up"
     script.write_text("#!/bin/sh\necho ok\n")
     script.chmod(0o755)
@@ -47,7 +47,7 @@ def personal_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     rules = root / "rules"
     rules.mkdir(parents=True)
     (rules / "voice.md").write_text("---\ntrigger: always_on\n---\n# Voice\n")
-    (rules / "style.md").write_text("# Style\n")
+    (rules / "style.md").write_text("---\ntrigger: always_on\n---\n# Style\n")
     monkeypatch.setenv("AI_GOVERNANCE_PERSONAL_DIR", str(root))
     return root
 
@@ -202,7 +202,9 @@ def test_bin_dir_override(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _add_pack(pack_root: Path, name: str, script: str) -> None:
     (pack_root / name / "rules").mkdir(parents=True)
-    (pack_root / name / "rules" / "glossary.md").write_text("# Glossary\n")
+    (pack_root / name / "rules" / "glossary.md").write_text(
+        "---\ntrigger: always_on\n---\n# Glossary\n"
+    )
     (pack_root / name / "scripts").mkdir()
     (pack_root / name / "scripts" / script).write_text("#!/bin/sh\n")
 
@@ -402,12 +404,14 @@ def test_is_corporate_entry_edge_cases(home: Path, agent: str, path: str, target
     assert not _is_corporate_entry(ledger, entry, catalog=catalog)
 
 
-def test_corporate_rule_frontmatter_validation(home: Path) -> None:
+def test_corporate_rule_frontmatter_validation(home: Path, pack_root: Path) -> None:
+    (pack_root / "acme" / "rules" / "principles.md").write_text("# Principles\n")
     (pack,) = corporate.packs()
     with pytest.warns(UserWarning, match="principles.md.*missing YAML front matter"):
         rules = pack.rules()
     assert {r.name for r in rules} == {"glossary", "principles"}
 
-    report = install_user(["claude"])
+    with pytest.warns(UserWarning, match="principles.md.*missing YAML front matter"):
+        report = install_user(["claude"])
     assert any("Corporate rule 'principles' in pack 'acme'" in w for w in report.warnings)
     assert not any("Corporate rule 'glossary'" in w for w in report.warnings)

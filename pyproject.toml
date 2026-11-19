@@ -28,7 +28,6 @@ dev = [
     "pytest>=8.0",
     "pytest-cov",
     "pytest-asyncio",
-    "pytest-xdist>=3.6",
     "ruff>=0.9",
     "mypy>=1.10",
     "pytest-xdist>=3.8.0",

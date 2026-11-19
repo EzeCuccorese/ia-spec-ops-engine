@@ -227,3 +227,68 @@ def test_record_cache_cleans_up_temp_file_on_replace_failure(
     with pytest.raises(OSError, match="disk full"):
         check_cli._record_cache(marker, "key1")
     assert list(marker.parent.glob(".check-pass-*")) == []
+
+
+def test_fingerprint_hashes_multichunk_untracked_file(repo: Path) -> None:
+    payload = b"a" * (70 * 1024)
+    target = repo / "chunked.bin"
+    target.write_bytes(payload)
+    first = changes.tree_fingerprint(repo)
+    target.write_bytes(payload[:-1] + b"b")
+    assert changes.tree_fingerprint(repo) != first
+
+
+def test_fingerprint_large_untracked_file_uses_metadata_without_reading(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(changes, "_MAX_CONTENT_HASH_BYTES", 32)
+    large = repo / "large.bin"
+    large.write_bytes(b"x" * 64)
+    real_open = Path.open
+
+    def guard_open(self: Path, *args, **kwargs):
+        if self == large:
+            raise AssertionError("large untracked file should not be read")
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", guard_open)
+    first = changes.tree_fingerprint(repo)
+    st = large.stat()
+    os.utime(large, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000))
+    assert changes.tree_fingerprint(repo) != first
+
+
+def test_fingerprint_skips_unreadable_untracked_file(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    blocked = repo / "secret.bin"
+    blocked.write_bytes(b"top-secret")
+    real_open = Path.open
+
+    def deny_open(self: Path, *args, **kwargs):
+        if self == blocked:
+            raise PermissionError("denied")
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", deny_open)
+    digest = changes.tree_fingerprint(repo)
+    assert len(digest) == 16
+
+
+def test_check_only_computes_fingerprint_for_cache_or_json(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    calls: list[Path] = []
+    monkeypatch.setattr(
+        check_cli, "tree_fingerprint", lambda root: (calls.append(root), "fp123")[1]
+    )
+    monkeypatch.setattr(check_cli, "run_quality_gate", lambda *_a, **_kw: 0)
+
+    assert check_cli.check(["--dir", str(repo)]) == 0
+    assert calls == []
+    capsys.readouterr()
+    assert check_cli.check(["--dir", str(repo), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["fingerprint"] == "fp123"
+    assert len(calls) == 1
+    assert check_cli.check(["--dir", str(repo), "--cache"]) == 0
+    assert len(calls) == 2

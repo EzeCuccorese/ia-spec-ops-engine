@@ -101,13 +101,23 @@ def _execute_gate(
     return status, code, text, log_id
 
 
+def _resolve_fingerprint_and_entry(
+    root: Path, scope: str, args: argparse.Namespace
+) -> tuple[str | None, str | None]:
+    if not (args.cache or args.json):
+        return None, None
+    fingerprint = tree_fingerprint(root)
+    skip_key = _effective_skip(root, args.skip)
+    if skip_key is None:
+        return fingerprint, None
+    return fingerprint, _cache_entry(root, scope, skip_key, fingerprint)
+
+
 def check(argv: list[str]) -> int:
     args = _build_check_parser().parse_args(argv)
     root = Path(args.dir).resolve()
     scope = "changed" if args.changed else "all"
-    fingerprint = tree_fingerprint(root)
-    skip_key = _effective_skip(root, args.skip)
-    entry = _cache_entry(root, scope, skip_key, fingerprint) if skip_key is not None else None
+    fingerprint, entry = _resolve_fingerprint_and_entry(root, scope, args)
 
     if args.cache and entry is not None and entry in _read_entries(_pass_marker(root)):
         status, code, text, log_id = "skipped", 0, "✓ gate: unchanged since last pass", None
