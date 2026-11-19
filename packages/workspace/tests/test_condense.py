@@ -3,6 +3,8 @@ import os
 import stat
 import subprocess
 import sys
+import time
+from pathlib import Path
 
 import pytest
 from workspace_engine.common.subprocess import DEFAULT_COMMAND_TIMEOUT
@@ -310,6 +312,20 @@ def test_logs_latest_empty_and_config_error_fallback(monkeypatch, tmp_path) -> N
     assert logs.latest() == log_id
 
 
+def _is_process_gone(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    try:
+        stat_text = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except OSError:
+        return False
+    _, _, rest = stat_text.rpartition(")")
+    fields = rest.split()
+    return bool(fields) and fields[0] in {"Z", "X"}
+
+
 @pytest.mark.skipif(os.name != "posix", reason="process-group kill requires POSIX")
 def test_ws_run_timeout_kills_process_group_and_grandchildren(tmp_path, capsys) -> None:
     pid_file = tmp_path / "grandchild.pid"
@@ -326,8 +342,10 @@ def test_ws_run_timeout_kills_process_group_and_grandchildren(tmp_path, capsys) 
     assert "PARTIAL_BEFORE_TIMEOUT" in captured.out
     assert "ERROR: command timed out after 1s" in captured.err
     grandchild_pid = int(pid_file.read_text(encoding="utf-8").strip())
-    with pytest.raises(ProcessLookupError):
-        os.kill(grandchild_pid, 0)
+    deadline = time.monotonic() + 2.0
+    while not _is_process_gone(grandchild_pid):
+        assert time.monotonic() < deadline, f"grandchild {grandchild_pid} still alive"
+        time.sleep(0.02)
 
 
 @pytest.mark.skipif(os.name != "posix", reason="SIGTERM/SIGKILL escalation requires POSIX")
