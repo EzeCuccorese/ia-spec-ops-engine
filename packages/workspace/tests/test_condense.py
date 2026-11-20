@@ -52,8 +52,12 @@ def test_error_in_the_middle_survives_and_output_shrinks() -> None:
 
 
 def test_success_collapses_to_one_line() -> None:
-    text = _pytest_failure_output().replace("1 failed, ", "")
-    result = condense(text, "pytest", exit_code=0, budget=500)
+    lines = ["============================= test session starts =============================="]
+    lines += [
+        f"tests/test_mod{i}.py ........................................ [{i}%]" for i in range(80)
+    ]
+    lines += ["========================= 812 passed in 4.21s ========================="]
+    result = condense("\n".join(lines), "pytest", exit_code=0, budget=500)
     assert result.text.startswith("✓ pytest:")
     assert "812 passed" in result.text
     assert "\n" not in result.text
@@ -467,3 +471,93 @@ def test_ws_run_caps_captured_output_in_memory(
     captured = capsys.readouterr()
     assert code == 0
     assert "exit=0" in captured.out
+
+
+def test_clean_lines_preserves_failed_and_error_progress_lines() -> None:
+    raw = (
+        "tests/test_a.py::test_ok PASSED [ 25%]\n"
+        "tests/test_a.py::test_fail FAILED [ 45%]\n"
+        "tests/test_a.py::test_err ERROR [ 65%]\n"
+        "Downloading 50%\n"
+        "ERROR: downloading 50%\n"
+        "tests/test_a.py .... [ 80%]\n"
+    )
+    assert clean_lines(raw) == [
+        "tests/test_a.py::test_fail FAILED [ 45%]",
+        "tests/test_a.py::test_err ERROR [ 65%]",
+        "ERROR: downloading 50%",
+    ]
+
+
+def test_condense_exit_zero_with_failure_signal_does_not_collapse_to_success() -> None:
+    text = _pytest_failure_output()
+    result = condense(text, "uv run pytest -q", exit_code=0, budget=1500)
+    assert result.truncated
+    assert not result.text.startswith("✓")
+    assert "E       assert 3 == 4" in result.text
+    assert "1 failed, 812 passed" in result.text
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process-group kill requires POSIX")
+def test_ws_run_keyboard_interrupt_kills_process_group(tmp_path, monkeypatch) -> None:
+    pid_file = tmp_path / "grandchild.pid"
+    script = f'"{sys.executable}" -c "import time; time.sleep(60)" & echo $! > "{pid_file}"; wait'
+    orig_wait = subprocess.Popen.wait
+    interrupted = False
+
+    def wait_with_interrupt(self, timeout=None):
+        nonlocal interrupted
+        if not interrupted:
+            interrupted = True
+            deadline = time.monotonic() + 2.0
+            while not pid_file.exists() or not pid_file.read_text(encoding="utf-8").strip():
+                assert time.monotonic() < deadline, "grandchild pid file was not written"
+                time.sleep(0.02)
+            raise KeyboardInterrupt
+        return orig_wait(self, timeout=timeout)
+
+    monkeypatch.setattr(subprocess.Popen, "wait", wait_with_interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        cli.run(["--", script])
+
+    grandchild_pid = int(pid_file.read_text(encoding="utf-8").strip())
+    deadline = time.monotonic() + 2.0
+    while not _is_process_gone(grandchild_pid):
+        assert time.monotonic() < deadline, f"grandchild {grandchild_pid} still alive"
+        time.sleep(0.02)
+
+
+def test_ws_run_popen_mock_keyboard_interrupt_terminates_and_reraises(monkeypatch) -> None:
+    events: list[str] = []
+
+    class FakePopen:
+        pid = 99999
+        returncode = -15
+
+        def __init__(self, *args, **kwargs):
+            self.calls = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def communicate(self, timeout=None):
+            self.calls += 1
+            if self.calls == 1:
+                raise KeyboardInterrupt
+            events.append("drain")
+            return ("", "")
+
+        def terminate(self):
+            events.append("terminate")
+
+        def kill(self):
+            events.append("kill")
+
+    monkeypatch.setattr(cli.os, "name", "nt")
+    monkeypatch.setattr(cli.subprocess, "Popen", FakePopen)
+    with pytest.raises(KeyboardInterrupt):
+        cli.run(["--", "echo", "hi"])
+    assert events == ["terminate", "drain"]

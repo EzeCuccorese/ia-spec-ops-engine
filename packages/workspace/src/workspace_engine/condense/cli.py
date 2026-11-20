@@ -167,6 +167,9 @@ def _run_popen_mock(
             raise subprocess.TimeoutExpired(
                 cmd=target, timeout=exc.timeout, output=stdout, stderr=stderr
             ) from exc
+        except BaseException:
+            _terminate_and_drain(proc, is_posix)
+            raise
 
 
 def _collect_popen(
@@ -193,6 +196,11 @@ def _collect_popen(
     except subprocess.TimeoutExpired as exc:
         timed_out_exc = exc
         _terminate_process(proc, is_posix)
+    except BaseException:
+        _terminate_process(proc, is_posix)
+        t_out.join(timeout=1.0)
+        t_err.join(timeout=1.0)
+        raise
     t_out.join(timeout=1.0)
     t_err.join(timeout=1.0)
     return (

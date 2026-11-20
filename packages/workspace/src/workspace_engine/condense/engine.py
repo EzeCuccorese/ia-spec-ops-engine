@@ -22,6 +22,7 @@ _PROGRESS = re.compile(
     r"building|compiling|loading|progress:?)\s+(?:\S+\s+)?)?\d{1,3}(?:\.\d+)?%\s*$",
     re.IGNORECASE,
 )
+_PROGRESS_EXEMPT = re.compile(r"\b(?:FAILED|ERROR)\b")
 _TEMPLATE_TOKENS = re.compile(r"0x[0-9a-f]+|\b[0-9a-f]{7,40}\b|\d+(\.\d+)?|(/[\w.\-]+)+")
 
 _GENERIC_SIGNAL = re.compile(
@@ -100,7 +101,7 @@ def clean_lines(text: str) -> list[str]:
     lines: list[str] = []
     for raw in _ANSI.sub("", text).splitlines():
         line = _TIMESTAMP.sub("", raw.rsplit("\r", 1)[-1]).rstrip()
-        if line and not _PROGRESS.search(line):
+        if line and (not _PROGRESS.search(line) or _PROGRESS_EXEMPT.search(line)):
             lines.append(line)
     return lines
 
@@ -212,6 +213,20 @@ def _collapse_success(tool: str, lines: list[str], summaries: list[str]) -> str:
     return f"✓ {tool}: {head.strip('= ').strip()}" if head else f"✓ {tool}: ok"
 
 
+def _should_collapse_success(
+    exit_code: int | None,
+    profile: ToolProfile | None,
+    lines: list[str],
+    over_budget: bool,
+) -> bool:
+    return (
+        exit_code == 0
+        and profile is not None
+        and over_budget
+        and not any(profile.signal.search(line) for line in lines)
+    )
+
+
 def condense(
     text: str, command: str = "", exit_code: int | None = None, budget: int = DEFAULT_BUDGET
 ) -> Condensed:
@@ -221,7 +236,7 @@ def condense(
     lines = clean_lines(text)
     summaries = [line for line in lines if profile and profile.summary.search(line)]
 
-    if exit_code == 0 and profile is not None and len(text) > budget:
+    if _should_collapse_success(exit_code, profile, lines, len(text) > budget):
         return Condensed(_collapse_success(tool, lines, summaries), tool, len(text), True)
     if len(text) <= budget:
         return Condensed("\n".join(lines), tool, len(text), False)
