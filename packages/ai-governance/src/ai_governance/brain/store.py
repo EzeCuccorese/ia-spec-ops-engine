@@ -10,6 +10,8 @@ import json
 import os
 import re
 import subprocess
+import tempfile
+import warnings
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -28,6 +30,22 @@ _SCOPE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _PLAIN_SCALAR_RE = re.compile(r"^[A-Za-z0-9._/@ -]+$")
 _YAML_KEYWORDS = frozenset({"true", "false", "null", "yes", "no", "on", "off", "~"})
 _FRONTMATTER_RE = re.compile(r"^---\r?\n(.*?)\r?\n---(?:\r?\n|$)", re.DOTALL)
+_LINE_SPLIT_RE = re.compile(r"\r?\n")
+_EXTRA_SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        r'["\'](?:password|passwd|token|secret|api[_-]?key|access[_-]?token|'
+        r'client[_-]?secret|private[_-]?key)["\']\s*[:=]\s*["\'][^"\']+["\']',
+        re.IGNORECASE,
+    ),
+    re.compile(r"-----BEGIN [A-Z0-9 ]{0,32}PRIVATE KEY(?: BLOCK)?-----"),
+    re.compile(r"\bauthorization\s*:\s*(?:bearer|basic|token)\s+\S+", re.IGNORECASE),
+    re.compile(r"\b[a-z][a-z0-9+.-]{1,15}://[^\s/@:]+:[^\s/@]+@[^\s/]+", re.IGNORECASE),
+    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"),
+    re.compile(
+        r"\baws_(?:secret_access_key|session_token|access_key_id)\s*[:=]\s*\S+",
+        re.IGNORECASE,
+    ),
+)
 
 
 class SecretContentError(ValueError):
@@ -138,7 +156,9 @@ def parse_ref(ref: str) -> tuple[str | None, str]:
 
 
 def has_secret(text: str) -> bool:
-    return bool(text) and scrub(text) != text
+    if not text:
+        return False
+    return scrub(text) != text or any(pat.search(text) for pat in _EXTRA_SECRET_PATTERNS)
 
 
 def check_no_secrets(*texts: str) -> None:
@@ -256,7 +276,7 @@ def serialize_note(note: BrainNote) -> str:
         "---",
         "",
     ]
-    body = note.body.strip()
+    body = note.body.strip("\n")
     return "\n".join(lines) + (body + "\n" if body else "")
 
 
@@ -336,7 +356,7 @@ def _apply_frontmatter_line(
 def _parse_frontmatter(block: str) -> dict[str, object]:
     data: dict[str, object] = {}
     list_key: str | None = None
-    for raw_line in block.splitlines():
+    for raw_line in _LINE_SPLIT_RE.split(block):
         list_key = _apply_frontmatter_line(raw_line, data, list_key)
     return data
 
@@ -363,7 +383,7 @@ def _file_date(path: Path | None) -> str:
 def parse_note(text: str, *, slug: str, scope: str, path: Path | None = None) -> BrainNote:
     match = _FRONTMATTER_RE.match(text)
     meta = _parse_frontmatter(match.group(1)) if match else {}
-    body = text[match.end() :].strip() if match else text.strip()
+    body = text[match.end() :].strip("\n") if match else text.strip("\n")
     fallback_date = _file_date(path)
     created = _meta_str(meta, "created") or fallback_date
     return BrainNote(
@@ -416,6 +436,20 @@ def _dedup_tuple(values: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(seen)
 
 
+def _write_exclusive(path: Path, content: str) -> None:
+    """Atomically create ``path`` without overwriting any existing file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.link(temp, path)
+    finally:
+        Path(temp).unlink(missing_ok=True)
+
+
 class BrainStore:
     """Manages Markdown notes partitioned by scope under ``self.root``."""
 
@@ -442,9 +476,22 @@ class BrainStore:
                 return numbered
             counter += 1
 
+    def _create_note(self, note: BrainNote, *, auto_slug: bool) -> BrainNote:
+        base_slug = note.slug
+        while True:
+            slug = self._unique_slug(note.scope, base_slug) if auto_slug else base_slug
+            path = self.note_path(note.scope, slug)
+            stored = replace(note, slug=slug, path=path)
+            try:
+                _write_exclusive(path, serialize_note(stored))
+                return stored
+            except FileExistsError:
+                if not auto_slug:
+                    raise FileExistsError(f"Note '{note.scope}/{slug}' already exists") from None
+
     def add(self, draft: NoteDraft) -> BrainNote:
-        body = draft.body.strip()
-        if not body:
+        body = draft.body.strip("\n")
+        if not body.strip():
             raise ValueError("Note text cannot be empty.")
         kind = validate_kind(draft.kind)
         scope = validate_scope(draft.scope)
@@ -452,15 +499,11 @@ class BrainStore:
         tags = _dedup_tuple(draft.tags)
         repos = _dedup_tuple(draft.repos)
         check_no_secrets(title, body, draft.source, *tags, *repos)
-        if draft.slug:
-            slug = validate_slug(draft.slug)
-            if self.note_path(scope, slug).exists():
-                raise FileExistsError(f"Note '{scope}/{slug}' already exists")
-        else:
-            slug = self._unique_slug(scope, slugify(title))
+        auto_slug = not draft.slug
+        base_slug = slugify(title) if auto_slug else validate_slug(draft.slug)
         stamp = today_iso()
         note = BrainNote(
-            slug=slug,
+            slug=base_slug,
             title=title,
             kind=kind,
             scope=scope,
@@ -471,7 +514,7 @@ class BrainStore:
             created=stamp,
             updated=stamp,
         )
-        return self.save(note, reject_secrets=False)
+        return self._create_note(note, auto_slug=auto_slug)
 
     def save(self, note: BrainNote, *, reject_secrets: bool = True) -> BrainNote:
         validate_kind(note.kind)
@@ -534,7 +577,13 @@ class BrainStore:
         for path in sorted(folder.glob("*.md")):
             if not path.is_file() or not _SLUG_RE.fullmatch(path.stem):
                 continue
-            note = self._read_file(scope, path)
+            try:
+                note = self._read_file(scope, path)
+            except (OSError, UnicodeDecodeError) as exc:
+                warnings.warn(
+                    f"Skipping unreadable brain note {path}: {exc}", UserWarning, stacklevel=2
+                )
+                continue
             if self._matches_filter(note, flt):
                 notes.append(note)
         return notes

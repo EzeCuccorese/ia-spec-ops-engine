@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
+import warnings
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -159,7 +161,8 @@ def _render_archive_body(task: Task) -> str:
 
 def _same_content(existing: BrainNote, proposed: BrainNote) -> bool:
     return (
-        existing.title == proposed.title
+        existing.scope == proposed.scope
+        and existing.title == proposed.title
         and existing.kind == proposed.kind
         and existing.tags == proposed.tags
         and existing.repos == proposed.repos
@@ -168,17 +171,56 @@ def _same_content(existing: BrainNote, proposed: BrainNote) -> bool:
     )
 
 
-def _existing_archive(store: BrainStore, scope: str, slug: str) -> BrainNote | None:
-    path = store.note_path(scope, slug)
-    if not path.is_file():
-        return None
-    return parse_note(path.read_text(encoding="utf-8"), slug=slug, scope=scope, path=path)
+def archive_slug(task_id: str) -> str:
+    """Stable, collision-resistant slug derived from the full ``task_id``."""
+    digest = hashlib.sha256(task_id.encode("utf-8")).hexdigest()[:8]
+    prefix = slugify(f"archive-{task_id}", max_len=71)
+    return f"{prefix}-{digest}"
+
+
+def _task_source(task_id: str) -> str:
+    return f"task:{scrub(task_id)}"
+
+
+def _same_task_file(path: Path, expected_source: str) -> bool:
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    note = parse_note(raw, slug=path.stem, scope=path.parent.name, path=path)
+    return note.kind == "archive" and note.source == expected_source
+
+
+def _find_existing_archive(store: BrainStore, task_id: str) -> BrainNote | None:
+    expected = _task_source(task_id)
+    for note in store.list(NoteFilter(kind="archive")):
+        if note.source == expected:
+            return note
+    return None
+
+
+def _resolve_archive_slug(
+    store: BrainStore, scope: str, base_slug: str, expected_source: str
+) -> str:
+    candidate = base_slug
+    counter = 2
+    while True:
+        path = store.note_path(scope, candidate)
+        if not path.exists() or _same_task_file(path, expected_source):
+            return candidate
+        suffix = f"-{counter}"
+        candidate = f"{base_slug[: 80 - len(suffix)]}{suffix}"
+        counter += 1
 
 
 def _build_archive_note(
     task: Task, scope: str, store: BrainStore, existing: BrainNote | None
 ) -> BrainNote:
-    slug = slugify(f"archive-{task.id}")
+    expected_source = _task_source(task.id)
+    base_slug = (
+        existing.slug if existing is not None and existing.scope == scope else archive_slug(task.id)
+    )
+    slug = _resolve_archive_slug(store, scope, base_slug, expected_source)
     created = existing.created if existing else (task.created_at[:10] or today_iso())
     return BrainNote(
         slug=slug,
@@ -188,11 +230,16 @@ def _build_archive_note(
         body=_render_archive_body(task),
         tags=("archive", "taskflow"),
         repos=tuple(scrub(r) for r in _task_repos(task)),
-        source=scrub(task.id),
+        source=expected_source,
         created=created,
         updated=today_iso(),
         path=store.note_path(scope, slug),
     )
+
+
+def _cleanup_moved_archive(existing: BrainNote | None, saved: BrainNote) -> None:
+    if existing and existing.path is not None and existing.path != saved.path:
+        existing.path.unlink(missing_ok=True)
 
 
 def archive_task(task_id: str, options: ArchiveOptions | None = None) -> ArchiveResult:
@@ -202,13 +249,14 @@ def archive_task(task_id: str, options: ArchiveOptions | None = None) -> Archive
     t_store = opts.task_store or TaskStore()
     task = t_store.get(task_id)
     chosen_scope = _task_scope(task, opts.scope, b_store.root)
-    existing = _existing_archive(b_store, chosen_scope, slugify(f"archive-{task.id}"))
+    existing = _find_existing_archive(b_store, task.id)
     proposed = _build_archive_note(task, chosen_scope, b_store, existing)
     if existing and _same_content(existing, proposed):
         return ArchiveResult(task.id, "unchanged", existing)
     if opts.dry_run:
         return ArchiveResult(task.id, "would-update" if existing else "would-create", proposed)
     saved = b_store.save(proposed)
+    _cleanup_moved_archive(existing, saved)
     return ArchiveResult(task.id, "updated" if existing else "created", saved)
 
 
@@ -252,7 +300,8 @@ def _read_claude_entry(path: Path) -> _RawEntry | None:
     try:
         raw = path.read_text(encoding="utf-8")
         mtime = path.stat().st_mtime
-    except OSError:
+    except (OSError, UnicodeDecodeError) as exc:
+        warnings.warn(f"Skipping unreadable memory file {path}: {exc}", UserWarning, stacklevel=2)
         return None
     match = _FRONTMATTER_RE.match(raw)
     header = _parse_kv_header(match.group(1)) if match else {}
@@ -292,7 +341,8 @@ def _split_codex_memory_md(path: Path) -> list[_RawEntry]:
     try:
         text = path.read_text(encoding="utf-8")
         mtime = path.stat().st_mtime
-    except OSError:
+    except (OSError, UnicodeDecodeError) as exc:
+        warnings.warn(f"Skipping unreadable memory file {path}: {exc}", UserWarning, stacklevel=2)
         return []
     matches = list(_HEADING_H2_RE.finditer(text))
     entries: list[_RawEntry] = []
@@ -403,11 +453,12 @@ def import_memories(options: ImportOptions, brain_store: BrainStore | None = Non
         if options.source == "claude"
         else _discover_codex(options.source_dir)
     )
+    if options.select:
+        selected = set(options.select)
+        raw = [entry for entry in raw if entry.slug in selected]
     candidates = _dedup_entries(
         raw, {n.slug for n in existing}, {n.title.lower() for n in existing}
     )
-    if options.select:
-        candidates = [c for c in candidates if c.slug in set(options.select)]
     if not options.apply:
         return ImportReport(options.source, applied=False, candidates=tuple(candidates))
     imported = _write_imported(store, candidates, scope, options.source)

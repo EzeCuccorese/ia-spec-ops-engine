@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -144,12 +145,14 @@ def _task_lines(task: Task) -> list[str]:
     return [scrub(line) for line in lines if line.strip()]
 
 
-def _task_scope(task: Task, brain_dir: Path) -> str:
+def _task_scope(task: Task, brain_dir: Path, cache: dict[str, str]) -> str:
     for entry in task.repos:
         raw_path = str(entry.get("path", ""))
         if not raw_path:
             continue
-        inferred = infer_scope(Path(raw_path), root=brain_dir)
+        if raw_path not in cache:
+            cache[raw_path] = infer_scope(Path(raw_path), root=brain_dir)
+        inferred = cache[raw_path]
         if inferred != DEFAULT_SCOPE:
             return inferred
     return DEFAULT_SCOPE
@@ -162,6 +165,26 @@ def _resolve_task_store(sources: SearchSources) -> TaskStore | None:
     return TaskStore() if tasks_dir.is_dir() else None
 
 
+def _task_hit(
+    task: Task, scope: str, t_store: TaskStore, query_bits: tuple[str, list[str]]
+) -> SearchHit | None:
+    phrase, tokens = query_bits
+    lines = _task_lines(task)
+    title = f"{task.id}: {task.title} [{task.status}]"
+    score = _score_text(phrase, tokens, title, "\n".join(lines))
+    if score == 0:
+        return None
+    return SearchHit(
+        source="taskflow",
+        kind="task",
+        scope=scope,
+        title=title,
+        path=str(t_store.task_dir(task.id) / "state.json"),
+        snippet=_best_snippet(lines, tokens, task.title),
+        score=score,
+    )
+
+
 def _search_tasks(
     sources: SearchSources, query: SearchQuery, phrase: str, tokens: list[str]
 ) -> list[SearchHit]:
@@ -171,27 +194,15 @@ def _search_tasks(
     if t_store is None:
         return []
     b_root = sources.brain_store.root if sources.brain_store else BrainStore().root
+    scope_cache: dict[str, str] = {}
     hits: list[SearchHit] = []
     for task in t_store.list(include_closed=True):
-        scope = _task_scope(task, b_root)
+        scope = _task_scope(task, b_root, scope_cache) if query.scope else DEFAULT_SCOPE
         if query.scope and scope != query.scope:
             continue
-        lines = _task_lines(task)
-        title = f"{task.id}: {task.title} [{task.status}]"
-        score = _score_text(phrase, tokens, title, "\n".join(lines))
-        if score == 0:
-            continue
-        hits.append(
-            SearchHit(
-                source="taskflow",
-                kind="task",
-                scope=scope,
-                title=title,
-                path=str(t_store.task_dir(task.id) / "state.json"),
-                snippet=_best_snippet(lines, tokens, task.title),
-                score=score,
-            )
-        )
+        hit = _task_hit(task, scope, t_store, (phrase, tokens))
+        if hit is not None:
+            hits.append(hit)
     return hits
 
 
@@ -204,18 +215,19 @@ def _rule_title(body: str, fallback: str) -> str:
 
 
 def _corporate_rule_entries(root: Path, scope: str | None) -> list[tuple[str, Path]]:
-    if not scope:
-        return []
     selected = corporate.selected_names()
-    if selected is not None and scope not in selected:
-        return []
-    if scope not in corporate.available(root):
-        return []
-    return [(scope, path) for path in corporate.rule_paths(root, scope)]
+    available = corporate.available(root)
+    if scope is not None:
+        if selected is not None and scope not in selected:
+            return []
+        packs = [scope] if scope in available else []
+    else:
+        packs = [name for name in available if selected is None or name in selected]
+    return [(pack, path) for pack in packs for path in corporate.rule_paths(root, pack)]
 
 
 def _iter_rule_entries(sources: SearchSources, scope: str | None) -> list[tuple[str, Path]]:
-    if not scope or scope == DEFAULT_SCOPE:
+    if scope == DEFAULT_SCOPE:
         return []
     c_root = (
         sources.corporate_dir if sources.corporate_dir is not None else corporate.corporate_root()
@@ -232,7 +244,8 @@ def _search_rules(
     for scope, path in _iter_rule_entries(sources, query.scope):
         try:
             raw = path.read_text(encoding="utf-8")
-        except OSError:
+        except (OSError, UnicodeDecodeError) as exc:
+            warnings.warn(f"Skipping unreadable rule {path}: {exc}", UserWarning, stacklevel=2)
             continue
         body = _FRONTMATTER_RE.sub("", raw).strip()
         title = _rule_title(body, path.stem)

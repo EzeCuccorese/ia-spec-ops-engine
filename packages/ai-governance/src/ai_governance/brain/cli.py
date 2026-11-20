@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import shlex
 import subprocess
 import sys
+import tempfile
 from dataclasses import replace
 from pathlib import Path
 
@@ -23,8 +25,10 @@ from .archive import (
 )
 from .search import DEFAULT_LIMIT, SEARCH_KINDS, SearchQuery, search
 from .store import (
+    _FRONTMATTER_RE,
     DEFAULT_STALE_DAYS,
     VALID_KINDS,
+    BrainNote,
     BrainStore,
     NoteDraft,
     NoteFilter,
@@ -34,6 +38,7 @@ from .store import (
     infer_scope,
     parse_note,
     today_iso,
+    validate_kind,
 )
 
 
@@ -153,24 +158,49 @@ def _editor_cmd(explicit: str | None) -> list[str]:
     return parts
 
 
+def _edit_in_temp(before: str, slug: str, editor: list[str]) -> tuple[int, str]:
+    fd, raw_temp = tempfile.mkstemp(prefix=f"brain-edit-{slug}-", suffix=".md")
+    temp_path = Path(raw_temp)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            os.chmod(temp_path, 0o600)
+            handle.write(before)
+        proc = subprocess.run([*editor, str(temp_path)], check=False)
+        after = temp_path.read_text(encoding="utf-8") if proc.returncode == 0 else ""
+        return proc.returncode, after
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
+def _validate_edited_note(after: str, note: BrainNote, path: Path) -> BrainNote:
+    if after.startswith("---") and not _FRONTMATTER_RE.match(after):
+        raise ValueError("Invalid frontmatter: missing closing '---' delimiter.")
+    edited = parse_note(after, slug=note.slug, scope=note.scope, path=path)
+    if not edited.body.strip():
+        raise ValueError("Note text cannot be empty.")
+    validate_kind(edited.kind)
+    check_no_secrets(edited.title, edited.body, edited.source, *edited.tags, *edited.repos)
+    return replace(edited, scope=note.scope, slug=note.slug, path=path, updated=today_iso())
+
+
 def cmd_edit(args: argparse.Namespace) -> int:
     store = BrainStore()
     note = store.get(args.slug, scope=args.scope)
     path = note.path or store.note_path(note.scope, note.slug)
     before = path.read_text(encoding="utf-8")
-    proc = subprocess.run([*_editor_cmd(args.editor), str(path)], check=False)
-    if proc.returncode != 0:
-        emit_status("error", f"Editor exited with code {proc.returncode}")
+    before_digest = hashlib.sha256(before.encode("utf-8")).hexdigest()
+    returncode, after = _edit_in_temp(before, note.slug, _editor_cmd(args.editor))
+    if returncode != 0:
+        emit_status("error", f"Editor exited with code {returncode}")
         return 1
-    after = path.read_text(encoding="utf-8")
     if after != before:
-        edited = parse_note(after, slug=note.slug, scope=note.scope, path=path)
-        try:
-            check_no_secrets(edited.title, edited.body, edited.source, *edited.tags, *edited.repos)
-        except SecretContentError:
-            path.write_text(before, encoding="utf-8")
-            raise
-        store.save(replace(edited, updated=today_iso()), reject_secrets=False)
+        validated = _validate_edited_note(after, note, path)
+        current = path.read_text(encoding="utf-8")
+        if hashlib.sha256(current.encode("utf-8")).hexdigest() != before_digest:
+            raise ValueError(
+                f"Note '{note.ref}' changed on disk while editing; aborting without overwriting."
+            )
+        store.save(validated, reject_secrets=False)
     emit_status("ok", f"Edited {note.ref} ({path})")
     return 0
 

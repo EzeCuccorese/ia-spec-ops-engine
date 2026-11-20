@@ -367,7 +367,7 @@ def test_unified_search_hits_brain_taskflow_and_rules_with_filters(
     sources = _seed_search_world(brain_env, monkeypatch, tmp_path)
 
     all_hits = search(SearchQuery(text="staging"), sources)
-    assert {h.source for h in all_hits} == {"brain", "taskflow"}
+    assert {h.source for h in all_hits} == {"brain", "taskflow", "rule"}
     task_hit = next(h for h in all_hits if h.source == "taskflow")
     assert "TASK-99" in task_hit.title and "leakme123" not in task_hit.snippet
     assert all(len(h.snippet) <= 120 for h in all_hits)
@@ -384,8 +384,8 @@ def test_unified_search_hits_brain_taskflow_and_rules_with_filters(
     assert search(SearchQuery(text="staging", kind="rule", scope="acme"), sources) == []
     assert search(SearchQuery(text="staging", kind="rule", scope="globex"), sources)
 
-    unscoped_rules = search(SearchQuery(text="staging", kind="rule"), sources)
-    assert unscoped_rules == []
+    unscoped_selected = search(SearchQuery(text="staging", kind="rule"), sources)
+    assert [h.scope for h in unscoped_selected] == ["globex"]
     personal_scope = search(SearchQuery(text="staging", kind="rule", scope="personal"), sources)
     assert personal_scope == []
 
@@ -477,7 +477,7 @@ def test_taskflow_close_archives_automatically_and_warns_without_blocking_on_fai
     t_store.create(Task(id="TASK-10", title="Ship archive", summary="All green"))
     assert taskflow_cli.main(["close", "TASK-10", "--reason", "done"]) == 0
     assert t_store.get("TASK-10").status == "closed"
-    archived = BrainStore(brain_env).get("archive-task-10")
+    archived = BrainStore(brain_env).get(brain_archive.archive_slug("TASK-10"))
     assert archived.kind == "archive" and "All green" in archived.body
 
     t_store.create(Task(id="TASK-11", title="Close survives error"))
@@ -509,7 +509,7 @@ def test_archive_task_enforces_secret_guard_and_handles_missing_repo_path(
     with pytest.raises(SecretContentError, match="secret or credential"):
         brain_archive.archive_task("TASK-LEAK", opts)
     with pytest.raises(FileNotFoundError):
-        b_store.get("archive-task-leak")
+        b_store.get(brain_archive.archive_slug("TASK-LEAK"))
 
 
 # -- curated import (Claude & Codex) -------------------------------------------------------
