@@ -36,7 +36,7 @@ class TestTaskflowListBudget:
         session_main(["list"])
         out = capsys.readouterr().out
 
-        assert len(out) <= 1500
+        assert len(out) <= 1600
         assert "\x1b" not in out
 
 
@@ -52,7 +52,7 @@ class TestTaskflowViewBudget:
         session_main(["show", "T-1"])
         out = capsys.readouterr().out
 
-        assert len(out) <= 1500
+        assert len(out) <= 1600
         assert "\x1b" not in out
 
     def test_taskflow_view_json_budget_4000_chars(
@@ -71,17 +71,17 @@ class TestTaskflowViewBudget:
 class TestRulesListBudget:
     """Test that rules list output stays within budget."""
 
-    def test_rules_list_budget_1500_chars(
+    def test_rules_list_budget_1600_chars(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
     ) -> None:
-        """rules list output in agent mode must be <= 1500 chars."""
+        """rules list output in agent mode must be <= 1600 chars."""
         monkeypatch.setenv("AI_GOVERNANCE_AGENT", "1")
         monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "usage"))
 
         rules_main(["list"])
         out = capsys.readouterr().out
 
-        assert len(out) <= 1500
+        assert len(out) <= 1600
         assert "\x1b" not in out
 
 

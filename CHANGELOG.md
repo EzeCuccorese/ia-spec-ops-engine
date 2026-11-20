@@ -33,6 +33,10 @@
 
 ## Unreleased
 
+### Features
+- Add `22-user-communication` rule (reply language, plain explanations, drafts for others, writing as the user).
+- Add owning-branch fixes, post-push CI follow-through and Jira scope placement to the surgical-changes, pull-requests and Atlassian rules.
+
 ### Breaking changes
 - Retire `ai-governance personal` and remove managed personal-rule links on upgrade.
 
