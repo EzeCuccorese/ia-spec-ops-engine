@@ -46,13 +46,24 @@ jobs:
           python3 scripts/check_private_packs.py HEAD
           version="$(cat VERSION)"
           tag="v$version"
-          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-            echo "Tag $tag already exists; refusing to republish." >&2
-            exit 1
+          head_sha="$(git rev-parse HEAD)"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            git fetch --force origin "refs/tags/$tag:refs/tags/$tag"
+            tag_sha="$(git rev-parse "refs/tags/$tag^{commit}")"
+            if [ "$tag_sha" != "$head_sha" ]; then
+              echo "Tag $tag already exists on origin pointing to $tag_sha (expected $head_sha); refusing to republish." >&2
+              exit 1
+            fi
+            echo "Tag $tag already exists at $head_sha; continuing to release publication."
+          else
+            git config user.name "ia-spec-ops-release[bot]"
+            git config user.email "${APP_ID}+ia-spec-ops-release[bot]@users.noreply.github.com"
+            git tag -a "$tag" -m "Release $tag"
+            git push origin "$tag"
           fi
           python3 scripts/release.py notes "$version" > notes.md
-          git config user.name "ia-spec-ops-release[bot]"
-          git config user.email "${APP_ID}+ia-spec-ops-release[bot]@users.noreply.github.com"
-          git tag -a "$tag" -m "Release $tag"
-          git push origin "$tag"
-          gh release create "$tag" --title "$tag" --notes-file notes.md --verify-tag
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; skipping creation."
+          else
+            gh release create "$tag" --title "$tag" --notes-file notes.md --verify-tag
+          fi

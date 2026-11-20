@@ -1846,3 +1846,15 @@ def test_empty_catch_masks_strings_and_comments(
 ) -> None:
     violations = empty_catch_violations(filename, ext, source)
     assert [v.start_line for v in violations] == expected_lines
+
+
+def test_analyze_source_and_file_warn_on_syntax_error_and_non_utf8(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert analyze_source("broken.py", "py", "def bad(:\n") == []
+    assert "skipping broken.py" in capsys.readouterr().err
+
+    binary = tmp_path / "latin1.py"
+    binary.write_bytes(b"def f():\n    return '\xff'\n")
+    assert measure(tmp_path, [binary], DesignConfig()) == []
+    assert "skipping" in capsys.readouterr().err

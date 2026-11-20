@@ -15,7 +15,7 @@ from ruamel.yaml import YAML
 
 logger = logging.getLogger(__name__)
 
-_PRUNED_DIRS = frozenset({"node_modules", ".git", "dist", "build", ".venv"})
+_PRUNED_DIRS = frozenset({"node_modules", ".git", ".venv", "__pycache__"})
 _GLOB_META = frozenset("*?[")
 
 MONOREPO_TEST_SCRIPT_RE = re.compile(

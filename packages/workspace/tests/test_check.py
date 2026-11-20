@@ -143,11 +143,54 @@ def test_changed_cli_json_and_text(repo: Path, capsys) -> None:
     assert capsys.readouterr().out.strip() == "x.txt"
 
 
-def test_base_ref_without_default_branch(tmp_path: Path) -> None:
+def test_base_ref_without_default_branch_warns(tmp_path: Path, capsys) -> None:
     root = tmp_path / "solo"
     root.mkdir()
     _git(root, "init", "-q", "-b", "trunk")
     assert changes.base_ref(root) is None
+    assert "could not resolve base branch" in capsys.readouterr().err
+
+
+def test_base_ref_falls_back_to_upstream(tmp_path: Path) -> None:
+    upstream = tmp_path / "upstream.git"
+    upstream.mkdir()
+    _git(upstream, "init", "--bare", "-q", "-b", "trunk")
+
+    root = tmp_path / "work"
+    root.mkdir()
+    _git(root, "init", "-q", "-b", "trunk")
+    (root / "a.txt").write_text("a")
+    _git(root, "add", ".")
+    _git(root, "commit", "-q", "-m", "init")
+    _git(root, "remote", "add", "origin", str(upstream))
+    _git(root, "push", "-q", "-u", "origin", "trunk")
+
+    (root / "b.txt").write_text("b")
+    _git(root, "add", ".")
+    _git(root, "commit", "-q", "-m", "second")
+    assert changes.base_ref(root) is not None
+    assert changes.changed_files(root) == ["b.txt"]
+
+
+def test_check_cache_includes_git_config_workspace_skip(repo: Path, monkeypatch, capsys) -> None:
+    calls: list[str] = []
+
+    def fake_gate(root, scope="all", skip=None, output="errors", capture=None, **_):
+        calls.append(scope)
+        capture.append("ok")
+        return 0
+
+    monkeypatch.setattr(check_cli, "run_quality_gate", fake_gate)
+    _git(repo, "config", "workspace.skip", "tests")
+    assert check_cli.check(["--dir", str(repo), "--changed", "--cache", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "passed"
+    assert check_cli.check(["--dir", str(repo), "--changed", "--cache", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "skipped"
+
+    _git(repo, "config", "--unset", "workspace.skip")
+    assert check_cli.check(["--dir", str(repo), "--changed", "--cache", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "passed"
+    assert len(calls) == 2
 
 
 def test_check_skip_help_lists_the_gate_stages(capsys):
@@ -238,23 +281,16 @@ def test_fingerprint_hashes_multichunk_untracked_file(repo: Path) -> None:
     assert changes.tree_fingerprint(repo) != first
 
 
-def test_fingerprint_large_untracked_file_uses_metadata_without_reading(
-    repo: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(changes, "_MAX_CONTENT_HASH_BYTES", 32)
+def test_fingerprint_large_untracked_file_streams_content(repo: Path) -> None:
     large = repo / "large.bin"
-    large.write_bytes(b"x" * 64)
-    real_open = Path.open
-
-    def guard_open(self: Path, *args, **kwargs):
-        if self == large:
-            raise AssertionError("large untracked file should not be read")
-        return real_open(self, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "open", guard_open)
-    first = changes.tree_fingerprint(repo)
+    payload_a = b"x" * (11 * 1024 * 1024)
+    payload_b = b"y" + payload_a[1:]
+    large.write_bytes(payload_a)
     st = large.stat()
-    os.utime(large, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000))
+    first = changes.tree_fingerprint(repo)
+
+    large.write_bytes(payload_b)
+    os.utime(large, ns=(st.st_atime_ns, st.st_mtime_ns))
     assert changes.tree_fingerprint(repo) != first
 
 

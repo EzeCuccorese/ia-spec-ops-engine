@@ -407,3 +407,63 @@ def test_ws_run_timeout_non_posix_fallback_terminates_and_kills(
     assert code == 124
     assert "partial-win" in captured.out
     assert events == expected_events
+
+
+def test_ws_run_preserves_exit_code_when_log_dir_unwritable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    blocked = tmp_path / "blocked-file"
+    blocked.write_text("not a dir", encoding="utf-8")
+    monkeypatch.setenv("WORKSPACE_LOG_DIR", str(blocked / "logs"))
+
+    noise = "\n".join(f"line {i}" for i in range(80))
+    code = cli.run(
+        [
+            "--budget",
+            "150",
+            "--",
+            sys.executable,
+            "-c",
+            f"import sys; print({noise!r}); sys.exit(7)",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert code == 7
+    assert "WARNING: could not save full log" in captured.err
+    assert "[exit=7" in captured.out
+
+    timeout_code = cli.run(
+        [
+            "--budget",
+            "150",
+            "--timeout",
+            "1",
+            "--",
+            sys.executable,
+            "-c",
+            f"import time; print({noise!r}, flush=True); time.sleep(10)",
+        ]
+    )
+    timeout_captured = capsys.readouterr()
+    assert timeout_code == 124
+    assert "WARNING: could not save full log" in timeout_captured.err
+    assert "[exit=124" in timeout_captured.out
+
+
+def test_ws_run_caps_captured_output_in_memory(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "_MAX_CAPTURE_BYTES", 256)
+    code = cli.run(
+        [
+            "--budget",
+            "400",
+            "--",
+            sys.executable,
+            "-c",
+            "print('A' * 1024)",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "exit=0" in captured.out

@@ -17,6 +17,7 @@ order. Without a ``changed`` map (a plain scan) everything is ``legacy``.
 
 from __future__ import annotations
 
+import sys
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -187,7 +188,11 @@ def analyze_source(relative: str, extension: str, source: str) -> list[FunctionM
     if extension in nesting.PYTHON_EXTENSIONS:
         try:
             python_depths = nesting.python_nesting(source)
-        except SyntaxError:
+        except SyntaxError as exc:
+            print(
+                f"⚠ ws design: skipping {relative} (syntax error: {exc.msg})",
+                file=sys.stderr,
+            )
             return []
     analyzer = lizard.FileAnalyzer(lizard.get_extensions([]))
     info = analyzer.analyze_source_code(relative, source)
@@ -212,7 +217,8 @@ def analyze_file(root: Path, path: Path) -> list[FunctionMetrics] | None:
         return None
     try:
         source = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"⚠ ws design: skipping {path} ({exc})", file=sys.stderr)
         return None
     relative = path.resolve().relative_to(root.resolve()).as_posix()
     return analyze_source(relative, path.suffix.lstrip("."), source)

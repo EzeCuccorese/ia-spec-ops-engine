@@ -94,7 +94,20 @@ def test_test_condition_stats_filters_broken_runs() -> None:
     stats = summarize.test_condition_stats(rows)
     assert stats["tests-gate"]["n_runs"] == 3
     assert stats["tests-gate"]["hidden_pass_rate"] == pytest.approx(7 / 12)
-    assert stats["tests-gate"]["mean_cost_usd"] == pytest.approx(0.05)
+    assert stats["tests-gate"]["mean_cost_usd"] == pytest.approx(0.075)
+
+
+def test_missing_costs_yield_none_and_prevent_free_cost_verdict() -> None:
+    rows = [
+        _row("gate", cost_usd="0.30"),
+        _row("rules+gate", cost_usd=""),
+    ]
+    stats = summarize.per_condition_stats(rows)
+    assert stats["rules+gate"]["mean_cost_usd"] is None
+    rendered = summarize.render(stats)
+    assert "| rules+gate | 1 | 0.50 | 100% | n/a | 10.0 |" in rendered
+    assert "**Decision: rules are not worth it on top of the gate.**" in rendered
+    assert "cost n/a" in rendered
 
 
 @pytest.mark.parametrize(

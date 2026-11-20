@@ -49,6 +49,11 @@ def _col_mean(crows: list[dict], key: str) -> float:
     return sum(values) / len(values) if values else 0.0
 
 
+def _mean_known_cost(crows: list[dict]) -> float | None:
+    values = [float(raw) for row in crows if (raw := (row.get("cost_usd") or "").strip())]
+    return sum(values) / len(values) if values else None
+
+
 def _sum_violations_by_metric(crows: list[dict]) -> dict[str, int]:
     by_metric: dict[str, int] = defaultdict(int)
     for row in crows:
@@ -71,7 +76,7 @@ def _summarize_condition(crows: list[dict]) -> dict:
             m: round(100 * c / total_added, 3) for m, c in by_metric.items()
         },
         "hidden_pass_rate": passed / total_tests,
-        "mean_cost_usd": _col_mean(crows, "cost_usd"),
+        "mean_cost_usd": _mean_known_cost(crows),
         "mean_turns": _col_mean(crows, "num_turns"),
     }
 
@@ -104,14 +109,17 @@ def _decide_rules_gate(gate: dict | None, rules_gate: dict | None) -> str:
         return "- Not enough data for `rules+gate` vs `gate` (missing runs)."
     reduction = _reduction(gate["violations_per_100_lines"], rules_gate["violations_per_100_lines"])
     no_more_violations = rules_gate["violations_per_100_lines"] <= gate["violations_per_100_lines"]
-    lower_cost = rules_gate["mean_cost_usd"] < gate["mean_cost_usd"]
+    gate_cost = gate.get("mean_cost_usd")
+    rg_cost = rules_gate.get("mean_cost_usd")
+    comparable_cost = gate_cost is not None and rg_cost is not None
+    lower_cost = comparable_cost and rg_cost < gate_cost
     worth_it = no_more_violations and (reduction >= 0.30 or lower_cost)
     verdict = "worth it" if worth_it else "not worth it"
+    cost_text = f"cost ${rg_cost:.3f} vs ${gate_cost:.3f}" if comparable_cost else "cost n/a"
     return (
         f"- `rules+gate` vs `gate`: violations/100 lines reduced by "
         f"{reduction * 100:.1f}%; turns {rules_gate['mean_turns']:.1f} vs "
-        f"{gate['mean_turns']:.1f}, cost ${rules_gate['mean_cost_usd']:.3f} vs "
-        f"${gate['mean_cost_usd']:.3f}. "
+        f"{gate['mean_turns']:.1f}, {cost_text}. "
         f"**Decision: rules are {verdict} on top of the gate.**"
     )
 
@@ -145,7 +153,7 @@ def _summarize_test_condition(crows: list[dict]) -> dict:
             100 * _col_sum(crows, "mutants_killed") / mut_total if mut_total else None
         ),
         "hidden_pass_rate": passed / total,
-        "mean_cost_usd": sum(float(r.get("cost_usd") or 0) for r in crows) / n,
+        "mean_cost_usd": _mean_known_cost(crows),
         "mean_turns": _col_sum(crows, "num_turns") / n,
     }
 
@@ -190,6 +198,10 @@ def test_decision(stats: dict[str, dict]) -> list[str]:
     return lines
 
 
+def _format_cost(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.3f}"
+
+
 def render_tests(stats: dict[str, dict]) -> list[str]:
     if not stats:
         return []
@@ -208,7 +220,7 @@ def render_tests(stats: dict[str, dict]) -> list[str]:
         lines.append(
             f"| {condition} | {s['n_runs']} | {s['test_loc_per_100_prod']:.1f} | "
             f"{s['test_functions']:.1f} | {s['test_violations']:.2f} | {mutation} | "
-            f"{s['hidden_pass_rate']:.0%} | {s['mean_cost_usd']:.3f} | {s['mean_turns']:.1f} |"
+            f"{s['hidden_pass_rate']:.0%} | {_format_cost(s['mean_cost_usd'])} | {s['mean_turns']:.1f} |"
         )
     lines += ["", "### Test decision", "", *test_decision(stats), ""]
     return lines
@@ -230,7 +242,7 @@ def render(stats: dict[str, dict], tstats: dict[str, dict] | None = None) -> str
             continue
         lines.append(
             f"| {condition} | {s['n_runs']} | {s['violations_per_100_lines']:.2f} | "
-            f"{s['hidden_pass_rate']:.0%} | {s['mean_cost_usd']:.3f} | {s['mean_turns']:.1f} |"
+            f"{s['hidden_pass_rate']:.0%} | {_format_cost(s['mean_cost_usd'])} | {s['mean_turns']:.1f} |"
         )
     lines.append("")
 

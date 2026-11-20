@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import stat
+import sys
 from pathlib import Path
 from typing import Protocol
 
@@ -16,7 +17,6 @@ from workspace_engine.common import run_command_safe
 
 SCHEMA_VERSION = 1
 _HASH_CHUNK_BYTES = 64 * 1024
-_MAX_CONTENT_HASH_BYTES = 10 * 1024 * 1024
 
 
 class _Hasher(Protocol):
@@ -29,13 +29,18 @@ def _git(root: Path, *args: str) -> str:
 
 
 def base_ref(root: Path) -> str | None:
-    """Merge-base with the default branch (origin/HEAD, main or master)."""
+    """Merge-base with the default branch (origin/HEAD, main, master, or @{u})."""
     candidates = [_git(root, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD").strip()]
-    candidates += ["origin/main", "origin/master", "main", "master"]
+    candidates += ["origin/main", "origin/master", "main", "master", "@{u}"]
     for candidate in filter(None, candidates):
         merge_base = _git(root, "merge-base", "HEAD", candidate).strip()
         if merge_base:
             return merge_base
+    print(
+        "⚠ ws: could not resolve base branch (tried origin/HEAD, main, master, @{u}); "
+        "committed changes will not be included.",
+        file=sys.stderr,
+    )
     return None
 
 
@@ -75,10 +80,6 @@ def _hash_untracked_file(digest: _Hasher, path: Path, rel_path: str) -> None:
     except OSError:
         return
     if not stat.S_ISREG(st.st_mode):
-        return
-    if st.st_size > _MAX_CONTENT_HASH_BYTES:
-        meta = f"{rel_path}\0{st.st_size}\0{st.st_mtime_ns}".encode("utf-8", "replace")
-        digest.update(meta)
         return
     try:
         with path.open("rb") as handle:

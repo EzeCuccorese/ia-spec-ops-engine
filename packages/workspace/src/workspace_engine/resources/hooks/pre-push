@@ -44,10 +44,14 @@ if ! command -v ws >/dev/null 2>&1; then
   done
 fi
 if command -v ws >/dev/null 2>&1; then
-  RAW_GATE_CONFIG="$(ws hooks gate-config --dir "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" 2>/dev/null)" || RAW_GATE_CONFIG=""
-  if [ -n "$RAW_GATE_CONFIG" ]; then
-    eval "$RAW_GATE_CONFIG" || true
-    PROTECTED_BRANCHES="${QG_PROTECTED:-$PROTECTED_BRANCHES}"
+  if RAW_GATE_CONFIG="$(ws hooks gate-config --dir "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" 2>/dev/null)"; then
+    if [ -n "$RAW_GATE_CONFIG" ]; then
+      eval "$RAW_GATE_CONFIG" || true
+      PROTECTED_BRANCHES="${QG_PROTECTED:-$PROTECTED_BRANCHES}"
+    fi
+  else
+    echo "⚠  ws hooks gate-config failed; using built-in/env defaults." >&2
+    RAW_GATE_CONFIG=""
   fi
 fi
 
@@ -75,6 +79,11 @@ fail() { echo "✘ $1: FAIL"; FAILED=1; FAILED_STEPS="${FAILED_STEPS}  - $1"$'\n
 pass() { echo "✔ $1: PASS"; }
 warn() { echo "⚠  $1"; }
 note() { echo "   $1"; }
+
+if ! [[ "$QG_TIMEOUT" =~ ^[1-9][0-9]*$ ]]; then
+  warn "Invalid QG_TIMEOUT='$QG_TIMEOUT' (expected positive integer); falling back to 900s."
+  QG_TIMEOUT=900
+fi
 
 # Prints the bin dir of the newest nvm-installed Node for a version spec ("20",
 # "v20.1.0"); a non-numeric spec ("lts/*", "node") takes the newest installed.
@@ -434,7 +443,12 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   target_ref="$remote_ref"
   [ -n "$target_ref" ] || target_ref="$local_ref"
   branch_name="${target_ref#refs/heads/}"
-  if [[ "$branch_name" =~ $PROTECTED_BRANCHES ]]; then
+  [[ "$branch_name" =~ $PROTECTED_BRANCHES ]]
+  match_rc=$?
+  if [ "$match_rc" -eq 2 ]; then
+    echo "🚫 Invalid protected-branch regex: '$PROTECTED_BRANCHES' (failing closed)." >&2
+    exit 1
+  elif [ "$match_rc" -eq 0 ]; then
     if [ "$local_sha" = "$ZERO" ]; then
       echo "🚫 Deleting the protected branch '$branch_name' on the remote is blocked."
     else
@@ -477,7 +491,9 @@ if [ "$NOTHING_NEW" = "0" ]; then
   i=0
   while [ "$i" -lt "${#TIPS[@]}" ]; do
     # --diff-filter=ACMR excludes deletions: no point linting a file that no longer exists.
-    git diff --name-only --diff-filter=ACMR "${BASES[$i]}" "${TIPS[$i]}" 2>/dev/null >> "$DIFF_FILES_FILE"
+    while IFS= read -r -d '' f; do
+      [ -n "$f" ] && printf '%s\n' "$f" >> "$DIFF_FILES_FILE"
+    done < <(git -c core.quotepath=off diff --name-only -z --diff-filter=ACMR "${BASES[$i]}" "${TIPS[$i]}" 2>/dev/null)
     # shellcheck disable=SC2086
     git rev-list ${LOGOPTS[$i]} 2>/dev/null >> "$COMMITS_FILE"
     i=$((i + 1))
@@ -693,21 +709,31 @@ else
         LINT_RAN=1
         run_to "$QG_TIMEOUT" "${RUFF_CMD[@]}" check . || LINT_OK=0
       fi
+    else
+      warn "Python project detected but ruff is not available; skipping Python lint."
     fi
   fi
 
   # --- Go ---
-  if [ -f "$REPO_ROOT/go.mod" ] && command -v go >/dev/null 2>&1; then
-    LINT_RAN=1
-    note "go vet on the repository"
-    run_to "$QG_TIMEOUT" go vet ./... || LINT_OK=0
+  if [ -f "$REPO_ROOT/go.mod" ]; then
+    if command -v go >/dev/null 2>&1; then
+      LINT_RAN=1
+      note "go vet on the repository"
+      run_to "$QG_TIMEOUT" go vet ./... || LINT_OK=0
+    else
+      warn "go.mod is present but 'go' is not installed; skipping Go lint."
+    fi
   fi
 
   # --- Rust ---
-  if [ -f "$REPO_ROOT/Cargo.toml" ] && command -v cargo >/dev/null 2>&1; then
-    LINT_RAN=1
-    note "cargo clippy"
-    run_to "$QG_TIMEOUT" cargo clippy -- -D warnings || LINT_OK=0
+  if [ -f "$REPO_ROOT/Cargo.toml" ]; then
+    if command -v cargo >/dev/null 2>&1; then
+      LINT_RAN=1
+      note "cargo clippy"
+      run_to "$QG_TIMEOUT" cargo clippy -- -D warnings || LINT_OK=0
+    else
+      warn "Cargo.toml is present but 'cargo' is not installed; skipping Rust lint."
+    fi
   fi
 
   # --- Flutter / Dart ---
@@ -728,6 +754,8 @@ else
       LINT_RAN=1
       note "${DART_CMD[*]} analyze"
       run_to "$QG_TIMEOUT" "${DART_CMD[@]}" analyze || LINT_OK=0
+    else
+      warn "pubspec.yaml is present but neither 'flutter' nor 'dart' is installed; skipping Dart lint."
     fi
   fi
 
@@ -761,7 +789,7 @@ else
   fi
 
   if [ "$LINT_RAN" = "0" ]; then
-    note "No applicable linters detected; skipping."
+    warn "No applicable linters ran; skipping."
     pass "Linters and Static Analysis"
   elif [ "$LINT_OK" = "1" ]; then
     pass "Linters and Static Analysis"
@@ -937,7 +965,7 @@ else
       : > "$PY_RAW_TESTS"
       while IFS= read -r f; do
         [ -n "$f" ] && [ -f "$f" ] && printf '%s\n' "$f" >> "$PY_RAW_TESTS"
-      done < <(changed_files '*test_*.py' '*_test.py' '*/tests/*.py')
+      done < <(changed_files '*test_*.py' '*_test.py' '*tests/*.py')
       while IFS= read -r f; do
         [ -n "$f" ] || continue
         stem="$(basename "$f" .py)"
@@ -968,7 +996,9 @@ else
       else
         run_to "$QG_TIMEOUT" "${PYTEST_CMD[@]}" -q; pt_rc=$?
       fi
-      if [ "$pt_rc" != "0" ] && [ "$pt_rc" != "5" ]; then
+      if [ "$pt_rc" = "5" ]; then
+        warn "pytest collected no tests (exit 5)."
+      elif [ "$pt_rc" != "0" ]; then
         TESTS_OK=0
         explain_missing_module "${PYTEST_CMD[*]}"
       fi
@@ -976,17 +1006,25 @@ else
   fi
 
   # --- Go Tests ---
-  if [ -f "$REPO_ROOT/go.mod" ] && command -v go >/dev/null 2>&1; then
-    RAN_ANY=1
-    note "go test ./..."
-    run_to "$QG_TIMEOUT" go test ./... || TESTS_OK=0
+  if [ -f "$REPO_ROOT/go.mod" ]; then
+    if command -v go >/dev/null 2>&1; then
+      RAN_ANY=1
+      note "go test ./..."
+      run_to "$QG_TIMEOUT" go test ./... || TESTS_OK=0
+    else
+      warn "go.mod is present but 'go' is not installed; skipping tests."
+    fi
   fi
 
   # --- Rust Tests ---
-  if [ -f "$REPO_ROOT/Cargo.toml" ] && command -v cargo >/dev/null 2>&1; then
-    RAN_ANY=1
-    note "cargo test"
-    run_to "$QG_TIMEOUT" cargo test || TESTS_OK=0
+  if [ -f "$REPO_ROOT/Cargo.toml" ]; then
+    if command -v cargo >/dev/null 2>&1; then
+      RAN_ANY=1
+      note "cargo test"
+      run_to "$QG_TIMEOUT" cargo test || TESTS_OK=0
+    else
+      warn "Cargo.toml is present but 'cargo' is not installed; skipping tests."
+    fi
   fi
 
   # --- Flutter / Dart Tests ---
@@ -1070,7 +1108,7 @@ else
   fi
 
   if [ "$RAN_ANY" = "0" ]; then
-    note "No test suites were run for this stack; skipping."
+    warn "No test suites were run for this stack; skipping."
     pass "Test Suites"
   elif [ "$TESTS_OK" = "1" ]; then
     pass "Test Suites"

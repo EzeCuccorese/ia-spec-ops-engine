@@ -326,11 +326,10 @@ def test_find_workspace_packages_prunes_ignored_directories_without_descending(
     for ignored in (
         tmp_path / "node_modules" / "dep",
         tmp_path / ".git" / "hooks" / "pkg",
-        tmp_path / "dist" / "out",
-        tmp_path / "build" / "out",
+        tmp_path / "__pycache__" / "out",
         tmp_path / ".venv" / "lib" / "pkg",
         tmp_path / "packages" / "pkg-a" / "node_modules" / "inner",
-        tmp_path / "packages" / "pkg-a" / "dist" / "bundle",
+        tmp_path / "packages" / "pkg-a" / "__pycache__" / "bundle",
     ):
         _make_pkg(ignored)
 
@@ -357,8 +356,22 @@ def test_find_workspace_packages_prunes_ignored_directories_without_descending(
         ],
     )
     assert found == {"packages/pkg-a", "packages/nested/pkg-b", "libs/shared"}
-    for pruned in ("node_modules", ".git", "dist", "build", ".venv"):
+    for pruned in ("node_modules", ".git", "__pycache__", ".venv"):
         assert not any(pruned in Path(p).parts for p in visited)
+
+
+def test_find_workspace_packages_keeps_ordinary_package_dir_names(tmp_path: Path) -> None:
+    (tmp_path / "package.json").write_text("{}", encoding="utf-8")
+    _make_pkg(tmp_path / "packages" / "build")
+    _make_pkg(tmp_path / "packages" / "dist")
+    _make_pkg(tmp_path / "packages" / "app")
+
+    assert find_workspace_packages(tmp_path, ["packages/*"]) == {
+        "packages/build",
+        "packages/dist",
+        "packages/app",
+    }
+    assert find_workspace_packages(tmp_path, ["packages/build"]) == {"packages/build"}
 
 
 def test_find_workspace_packages_supports_recursive_and_negative_globs_and_oserror(
