@@ -181,6 +181,27 @@ ai-governance uninstall --scope project --profile architecture   # keeps agents,
 `ai-governance update` removes the rules of a profile that is no longer enabled and tells you
 how to re-enable it. Details: [packages/ai-governance/README.md](../packages/ai-governance/README.md#profiles).
 
+## Second brain (optional)
+
+`ai-governance brain` stores cross-agent notes (PARA Resources and Archive) outside the repo,
+scoped to `global`, `repo`, or `company`, with a secret guard that rejects secret-like content:
+
+```bash
+ai-governance brain add --title "Deploy checklist" --scope global
+ai-governance brain list
+ai-governance brain show <slug>
+ai-governance brain edit <slug>
+ai-governance brain search "checklist"
+ai-governance brain archive <task-id>             # archive a taskflow task
+ai-governance brain import --from claude|codex    # curated import from agent memory
+```
+
+## Upgrading from retired personal rules
+
+If you previously used personal rules, your retained personal source directory is left untouched.
+Copy any custom rules you want to keep into each agent's supported instructions directory
+(for example `~/.claude/rules/`, `~/.gemini/config/rules/`, or `$CODEX_HOME/AGENTS.md`).
+
 ## 5. Condensed output and Git hooks with `ws`
 
 ```bash

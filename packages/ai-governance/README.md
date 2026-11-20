@@ -218,6 +218,7 @@ hint to re-enable it.
 | `ai-governance rules list` / `rules show <id>` / `rules profiles` | Browse the rule catalog and opt-in profiles |
 | `ai-governance skills <subcommand>` | Keep each third-party skill in one source directory and copy it into Claude, Codex and Antigravity (see above) |
 | `ai-governance taskflow <subcommand>` | Task notebook and multi-provider design debates across agents (see below) |
+| `ai-governance brain <subcommand>` | Cross-agent second brain notes (`add`, `list`, `show`, `edit`, `search`, `archive`, `import`; see below) |
 | `ai-governance jira ...` / `confluence ...` | Atlassian as compact Markdown (`jira` / `confluence` without arguments print their usage) |
 | `ai-governance hook <agent> <event>` | Entry point used by the installed hooks |
 
@@ -251,6 +252,28 @@ task state, open steps, and debate status.
 Risky approvals (deploy, prod, migration, infra, permissions, delete, policy-downgrade,
 restaging) require the consequence to be shown and a reply explicitly naming action and target
 (recorded as declared); production actions are refused after 16:00 and on Friday after 13:00.
+
+### Second brain
+
+`ai-governance brain` manages cross-agent notes (PARA Resources and Archive) outside the
+repository. Notes are organized by scope (`global`, `repo`, or `company`) and protected by a
+secret guard that rejects secret-like content on write.
+
+| Subcommand | Purpose |
+|---|---|
+| `add` | Capture a new note (rejects secret-like content) |
+| `list` | List notes with optional filters |
+| `show <slug>` | Show a note by slug or `<scope>/<slug>` |
+| `edit <slug>` | Open an existing note in `$VISUAL` / `$EDITOR` |
+| `search <query>` | Search brain notes, taskflow tasks, and rules |
+| `archive <task-id>` | Write an idempotent archive note from a taskflow task |
+| `import` | Curated, deduplicated import from Claude or Codex memory |
+
+### Upgrading from retired personal rules
+
+If you previously used personal rules, your retained personal source directory is left untouched.
+Copy any custom rules you want to keep into each agent's supported instructions directory
+(`~/.claude/rules/`, `~/.gemini/config/rules/`, or `$CODEX_HOME/AGENTS.md`).
 
 ## Configuration and environment
 
