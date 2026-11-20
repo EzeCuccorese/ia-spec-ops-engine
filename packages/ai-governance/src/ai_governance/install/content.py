@@ -209,6 +209,11 @@ description: Format and deliver Slack messages that render correctly. Use before
 - For real lists use `rich_text_list` blocks (`indent` for nesting) or the `markdown` block
   (up to 12,000 characters).
 
+## Reports to the user
+- Scheduled or long reports go to the user's private report channel when a local or company
+  rule names one: a short title as the parent message, details as thread replies.
+- Sending there is pre-authorized; any other channel still needs the user's OK.
+
 ## Content
 - Never mention internal tooling. Link sources instead of copying them.
 """
