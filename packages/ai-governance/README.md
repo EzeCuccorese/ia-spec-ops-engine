@@ -40,7 +40,7 @@ Global, project-agnostic harness, plus general tool rules and language rules: ev
 catalog rule marked `user_scope` (always-on general tool rules such as `circleci`, `deploy-approvals`,
 `production-risk-window`, `13-atlassian`, `14-taskflow`, `15-tool-confidentiality`,
 `16-git-branch-ownership`, `17-quality-gate`, `18-surgical-changes`, `19-pull-requests`,
-`20-review-ready-code`, `21-antigravity-routing`, all `2-stacks` rules and the code-level core rules) is written to the agent's
+`20-review-ready-code`, `21-antigravity-routing`, `22-user-communication`, all `2-stacks` rules and the code-level core rules) is written to the agent's
 global rules folder with its globs (or always-on trigger), so it loads in any repository without
 committing anything. Opt-in profile rules (`architecture`, `distributed`, `api`) remain project-scoped.
 Always-on user-scope rules are not duplicated into project scope unless forced via `extra_rules`. Codex

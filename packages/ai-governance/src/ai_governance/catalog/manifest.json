@@ -394,6 +394,19 @@
       "user_scope": true
     },
     {
+      "id": "22-user-communication",
+      "category": "1-core",
+      "file": "1-core/22-user-communication.md",
+      "description": "Reply language, plain explanations, writing as the user",
+      "triggers": {
+        "globs": [
+          "**/*"
+        ]
+      },
+      "stacks": [],
+      "user_scope": true
+    },
+    {
       "id": "production-risk-window",
       "category": "1-core",
       "file": "1-core/production-risk-window.md",

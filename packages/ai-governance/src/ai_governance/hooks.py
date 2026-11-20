@@ -278,13 +278,17 @@ def _segment_executable(tokens: list[str]) -> list[str]:
     parts = tokens[idx:]
     if not parts:
         return []
-    exe = Path(parts[0]).name
-    if exe == "npx":
-        return parts[1:]
-    if exe == "uv" and parts[1:2] == ["run"]:
-        return parts[2:]
-    if exe in {"python", "python3"} and parts[1:2] == ["-m"]:
-        return parts[2:]
+    # Unwrap launchers repeatedly so chains like `uv run python -m pytest` reach the tool.
+    while parts:
+        exe = Path(parts[0]).name
+        if exe == "npx":
+            parts = parts[1:]
+        elif (exe == "uv" and parts[1:2] == ["run"]) or (
+            exe in {"python", "python3"} and parts[1:2] == ["-m"]
+        ):
+            parts = parts[2:]
+        else:
+            break
     return parts
 
 
@@ -352,12 +356,6 @@ def antigravity_command(payload: dict[str, Any]) -> str:
         return ""
     args = call.get("args") or {}
     return str(args.get("CommandLine", "")) if isinstance(args, dict) else ""
-
-
-NOISY_COMMAND = re.compile(
-    r"\b(pytest|jest|vitest|go test|cargo (test|build)|mvnw?|gradlew?|npm (run )?(test|build)|"
-    r"yarn (test|build)|pnpm (test|build)|tsc|eslint|docker build)\b"
-)
 
 
 HANDLERS: dict[tuple[str, str], Callable[[], int]] = {

@@ -52,6 +52,7 @@ def test_always_on_rules_are_security_and_general_tools() -> None:
         "19-pull-requests",
         "20-review-ready-code",
         "21-antigravity-routing",
+        "22-user-communication",
         "circleci",
         "deploy-approvals",
         "production-risk-window",
@@ -74,10 +75,10 @@ def test_fixed_session_cost_for_a_typical_install(monkeypatch, tmp_path: Path) -
     assert always_on_total <= ALWAYS_ON_TOTAL_MAX
 
     # Global instructions, entry blocks and always-on tool rules per installed agent.
-    rendered_cap = GLOBAL_MAX + ENTRY_BLOCK_MAX + 12 * (ALWAYS_ON_RULE_MAX + 300)
+    rendered_cap = GLOBAL_MAX + ENTRY_BLOCK_MAX + 13 * (ALWAYS_ON_RULE_MAX + 300)
     for agent in ("claude", "codex", "antigravity"):
         assert user[agent] <= rendered_cap
-    # Project scope carries only 06-security-privacy (not the 11 user-scope always-on rules),
+    # Project scope carries only 06-security-privacy (not the 12 user-scope always-on rules),
     # and Claude symlinks into .agents/rules/ are not double-counted.
     assert project.get("claude", 0) == 0
     assert project["project"] <= PROJECT_BLOCK_MAX + (ALWAYS_ON_RULE_MAX + 300)

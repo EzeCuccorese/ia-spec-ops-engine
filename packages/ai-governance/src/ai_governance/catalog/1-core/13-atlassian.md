@@ -7,3 +7,4 @@
 - **Confluence read gotcha**: `confluence read` flattens tables and drops macros and child-page links. For rich pages read `body.storage` from the REST API.
 - **Confluence write gotcha**: `confluence update` can corrupt existing macros and tables. To edit a rich page, PUT `body.storage` with `version.number` + 1, keeping the original HTML and adding only the delta.
 - **Jira formatting**: `jira create|update` already converts headings and checkboxes; never hand-build ADF. If a ticket renders wrong, tell the user before working around the tool.
+- **Jira scope**: Put scope in the ticket description by editing it, never in a scope-change comment; comments carry tests and evidence. A parent ticket holds the formal definition (context, goal, scope, approach, docs, exit criteria); concrete work goes in subtasks, and finished work becomes a subtask in Done.
