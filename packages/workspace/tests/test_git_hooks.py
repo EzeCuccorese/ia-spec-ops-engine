@@ -1507,11 +1507,21 @@ def test_pre_push_warns_when_detected_stack_tool_is_missing(tmp_path: Path) -> N
     )
     bin_dir = tmp_path / "bin"
     _write_exe(bin_dir / "ws", "exit 0")
+    # Build an isolated PATH with standard shell tools so preinstalled /usr/bin/cargo on CI
+    # does not satisfy `command -v cargo`.
+    shell_tools = (
+        "awk basename bash cat chmod cp cut date dirname env find git grep head kill "
+        "mkdir mktemp mv printf ps rm sed sh sleep sort tail tee tr uname uniq wc xargs"
+    )
+    for tool in shell_tools.split():
+        resolved = shutil.which(tool)
+        if resolved and not (bin_dir / tool).exists():
+            (bin_dir / tool).symlink_to(resolved)
 
     proc = _run_generated_hook(
         tmp_path,
         skip="gitleaks,commits,design",
-        env_overrides={"PATH": f"{bin_dir}:/usr/bin:/bin"},
+        env_overrides={"PATH": str(bin_dir)},
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "Cargo.toml is present but 'cargo' is not installed" in proc.stdout
