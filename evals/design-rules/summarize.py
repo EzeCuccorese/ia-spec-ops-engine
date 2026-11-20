@@ -37,7 +37,7 @@ def _is_valid_run(row: dict) -> bool:
         cost = float(row.get("cost_usd") or 0)
     except ValueError:
         return False
-    return tests_total > 0 and math.isfinite(cost) and cost > 0
+    return tests_total > 0 and math.isfinite(cost) and cost >= 0
 
 
 def _col_sum(crows: list[dict], key: str) -> int:
@@ -145,7 +145,7 @@ def _summarize_test_condition(crows: list[dict]) -> dict:
             100 * _col_sum(crows, "mutants_killed") / mut_total if mut_total else None
         ),
         "hidden_pass_rate": passed / total,
-        "mean_cost_usd": sum(float(r["cost_usd"] or 0) for r in crows) / n,
+        "mean_cost_usd": sum(float(r.get("cost_usd") or 0) for r in crows) / n,
         "mean_turns": _col_sum(crows, "num_turns") / n,
     }
 

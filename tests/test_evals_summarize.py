@@ -65,26 +65,33 @@ def test_per_condition_stats_filters_broken_and_incomplete_runs() -> None:
         ),
         _row("rules+gate", hidden_tests_passed="0", hidden_tests_total="0", cost_usd="0.16"),
         _row("rules+gate", hidden_tests_passed="0", hidden_tests_total="0", cost_usd="0"),
-        _row("rules+gate", cost_usd="0", error=""),
-        _row("rules+gate", cost_usd="nan", error=""),
+        _row("rules+gate", cost_usd="0", hidden_tests_passed="2"),
+        _row("rules+gate", cost_usd="", hidden_tests_passed="1"),
+        _row("rules+gate", cost_usd="nan"),
+        _row("rules+gate", cost_usd="-0.10"),
         _row("rules+gate", error="timeout"),
     ]
     stats = summarize.per_condition_stats(rows)
-    assert stats["rules+gate"]["n_runs"] == 1
-    assert stats["rules+gate"]["mean_cost_usd"] == pytest.approx(0.40)
-    assert stats["rules+gate"]["mean_turns"] == pytest.approx(20.0)
+    assert stats["rules+gate"]["n_runs"] == 3
+    assert stats["rules+gate"]["hidden_pass_rate"] == pytest.approx(7 / 12)
+    assert stats["rules+gate"]["mean_cost_usd"] == pytest.approx(0.20)
+    assert stats["rules+gate"]["mean_turns"] == pytest.approx(40 / 3)
     assert stats["rules+gate"]["violations_per_100_lines"] == pytest.approx(0.5)
 
 
 def test_test_condition_stats_filters_broken_runs() -> None:
+    without_cost = _test_row("tests-gate", hidden_tests_passed="1")
+    del without_cost["cost_usd"]
     rows = [
         _test_row("tests-gate", cost_usd="0.15", num_turns="6"),
         _test_row("tests-gate", hidden_tests_passed="0", hidden_tests_total="0", cost_usd="0.10"),
-        _test_row("tests-gate", cost_usd="0", error=""),
+        _test_row("tests-gate", cost_usd="0", hidden_tests_passed="2"),
+        without_cost,
     ]
     stats = summarize.test_condition_stats(rows)
-    assert stats["tests-gate"]["n_runs"] == 1
-    assert stats["tests-gate"]["mean_cost_usd"] == pytest.approx(0.15)
+    assert stats["tests-gate"]["n_runs"] == 3
+    assert stats["tests-gate"]["hidden_pass_rate"] == pytest.approx(7 / 12)
+    assert stats["tests-gate"]["mean_cost_usd"] == pytest.approx(0.05)
 
 
 @pytest.mark.parametrize(
