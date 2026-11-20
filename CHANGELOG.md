@@ -1,5 +1,36 @@
 # Changelog
 
+## 4.0.0 - 2026-11-20
+
+### Breaking changes
+- Harden workspace/governance checks, consolidate rules, and add cross-agent brain (#85).
+- Consolidate rules and protect company policies.
+
+### Features
+- Add cross-agent PARA second brain store, search, archive, and import.
+- Add bundled slack-formatting skill.
+- Route user reports to a private Slack channel.
+
+### Fixes
+- Close false-pass checks, rule duplication, and Atlassian/hook gaps.
+- Harden design checks, quoting, timeouts, and scan.
+- Harden taskflow locking, installer/personal safety, config coercion, and review rules.
+- Tighten core taskflow and review-ready rules within codex budget.
+- Normalize wrapped rich output in personal sync warning test.
+- Enforce secret guard on archive, guard repo path, and dedupe batch imports.
+- Handle Linux process-group reap timing in timeout test.
+- Keep KeyError uncaught at top-level CLI entrypoint.
+- Keep migration and catalog checks green.
+- Retain runs with zero or missing cost.
+- Handle missing cost_usd in per_condition_stats and fix empty-cost test.
+- Harden store atomicity, secret detection, archive collisions, safe edit, and search.
+- Address PR #85 review findings.
+- Address PR #85 review findings and add regression tests.
+- Isolate PATH from system cargo in missing-tool hook test.
+- Isolate HOME in missing-tool hook test to avoid runner ~/.cargo/bin.
+- Clean up interrupted subprocesses, preserve failure progress lines, and guard workflow_dispatch.
+- Address remaining PR #85 review comments and update tests.
+
 ## Unreleased
 
 ### Breaking changes
