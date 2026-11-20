@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.1.0 - 2026-11-20
+
+### Features
+- Add user-communication rule and working agreements.
+
+### Fixes
+- Unwrap chained launchers in the Antigravity noisy-command check.
+
 ## 4.0.0 - 2026-11-20
 
 ### Breaking changes
