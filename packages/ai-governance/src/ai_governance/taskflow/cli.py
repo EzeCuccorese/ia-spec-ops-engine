@@ -292,6 +292,7 @@ def _archive_closed_task(store: TaskStore, task_id: str) -> None:
 def cmd_close(args: argparse.Namespace) -> int:
     store = _store()
     task = store.get(args.task_id)
+    was_closed = task.status == "closed"
     done_outside = bool(getattr(args, "done_outside", False))
     forced = bool(getattr(args, "force", False) or getattr(args, "abandon", False) or done_outside)
     if not forced and (pending := _in_flight_debate_rounds(store, task)):
@@ -303,7 +304,8 @@ def cmd_close(args: argparse.Namespace) -> int:
     if done_outside and not getattr(args, "reason", ""):
         args.reason = "done outside flow"
     result = _set_status("closed")(args)
-    _archive_closed_task(store, task.id)
+    if not was_closed:
+        _archive_closed_task(store, task.id)
     return result
 
 

@@ -59,7 +59,7 @@ def test_jira_md_to_adf():
     assert adf["content"][0]["type"] == "bulletList"
 
 
-@patch("urllib.request.urlopen")
+@patch("ai_governance.tools.atlassian_common._SAME_ORIGIN_OPENER.open")
 def test_jira_cmd_issue(mock_urlopen, monkeypatch, capsys):
     monkeypatch.setenv("ATLASSIAN_EMAIL", "test@example.com")
     monkeypatch.setenv("ATLASSIAN_API_TOKEN", "fake_token")
@@ -121,7 +121,7 @@ def test_confluence_md_to_storage():
     assert "<p>Some paragraph</p>" in storage
 
 
-@patch("urllib.request.urlopen")
+@patch("ai_governance.tools.atlassian_common._SAME_ORIGIN_OPENER.open")
 def test_confluence_cmd_read(mock_urlopen, monkeypatch, capsys):
     monkeypatch.setenv("ATLASSIAN_EMAIL", "test@example.com")
     monkeypatch.setenv("ATLASSIAN_API_TOKEN", "fake_token")
@@ -137,7 +137,7 @@ def test_confluence_cmd_read(mock_urlopen, monkeypatch, capsys):
     assert "Hello Confluence" in captured
 
 
-@patch("urllib.request.urlopen")
+@patch("ai_governance.tools.atlassian_common._SAME_ORIGIN_OPENER.open")
 def test_atlassian_urlopen_timeout(mock_urlopen, monkeypatch):
     monkeypatch.setenv("ATLASSIAN_EMAIL", "test@example.com")
     monkeypatch.setenv("ATLASSIAN_API_TOKEN", "fake_token")
@@ -163,7 +163,7 @@ def test_confluence_escape_cql_literal():
     assert confluence.escape_cql_literal("simple query") == "simple query"
 
 
-@patch("urllib.request.urlopen")
+@patch("ai_governance.tools.atlassian_common._SAME_ORIGIN_OPENER.open")
 def test_confluence_cmd_search_pagination(mock_urlopen, monkeypatch, capsys):
     monkeypatch.setenv("ATLASSIAN_EMAIL", "test@example.com")
     monkeypatch.setenv("ATLASSIAN_API_TOKEN", "fake_token")
@@ -184,7 +184,7 @@ def test_confluence_cmd_search_pagination(mock_urlopen, monkeypatch, capsys):
     assert "More results exist (2 of 10 shown)" in captured
 
 
-@patch("urllib.request.urlopen")
+@patch("ai_governance.tools.atlassian_common._SAME_ORIGIN_OPENER.open")
 def test_atlassian_urlerror_handling(mock_urlopen, monkeypatch):
     import urllib.error
 
@@ -201,6 +201,22 @@ def test_atlassian_urlerror_handling(mock_urlopen, monkeypatch):
 
     with pytest.raises(AtlassianRequestError, match="Network error"):
         confluence.get("/content/FAIL-1")
+
+
+@patch("ai_governance.tools.atlassian_common._SAME_ORIGIN_OPENER.open")
+def test_atlassian_urlerror_wrapping_timeout_reports_timeout_error(mock_open, monkeypatch):
+    import urllib.error
+
+    from ai_governance.tools.atlassian_common import AtlassianRequestError
+
+    monkeypatch.setenv("ATLASSIAN_EMAIL", "test@example.com")
+    monkeypatch.setenv("ATLASSIAN_API_TOKEN", "fake_token")
+    monkeypatch.setenv("ATLASSIAN_URL", "https://company.atlassian.net")
+
+    mock_open.side_effect = urllib.error.URLError(TimeoutError("timed out"))
+
+    with pytest.raises(AtlassianRequestError, match="Timeout error"):
+        jira.get("/issue/TIMEOUT-1")
 
 
 def test_unknown_profile_raises_with_known_list(monkeypatch, tmp_path):
@@ -251,7 +267,7 @@ def test_cli_entrypoints_catch_atlassian_errors(monkeypatch, tmp_path, capsys):
     assert "Missing required environment variables" in capsys.readouterr().err
 
 
-@patch("urllib.request.urlopen")
+@patch("ai_governance.tools.atlassian_common._SAME_ORIGIN_OPENER.open")
 def test_cli_entrypoints_catch_request_errors(mock_urlopen, monkeypatch, capsys):
     import urllib.error
 
@@ -267,7 +283,7 @@ def test_cli_entrypoints_catch_request_errors(mock_urlopen, monkeypatch, capsys)
     assert "Network error" in capsys.readouterr().err
 
 
-@patch("urllib.request.urlopen")
+@patch("ai_governance.tools.atlassian_common._SAME_ORIGIN_OPENER.open")
 def test_execute_request_http_error_replaces_non_utf8_bytes(mock_urlopen, monkeypatch):
     import email.message
     import io

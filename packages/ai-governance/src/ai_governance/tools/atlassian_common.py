@@ -277,14 +277,11 @@ class _SameOriginRedirectHandler(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, *args)
 
 
-_DEFAULT_URLOPEN = urllib.request.urlopen
 _SAME_ORIGIN_OPENER = urllib.request.build_opener(_SameOriginRedirectHandler())
 
 
 def _open_request(req: urllib.request.Request, timeout: float) -> Any:
-    if urllib.request.urlopen is _DEFAULT_URLOPEN:
-        return _SAME_ORIGIN_OPENER.open(req, timeout=timeout)
-    return urllib.request.urlopen(req, timeout=timeout)
+    return _SAME_ORIGIN_OPENER.open(req, timeout=timeout)
 
 
 def _decode_json_body(body: str, method: str, safe_url: str) -> dict | list:
@@ -319,9 +316,8 @@ def execute_request(
         ) from e
     except urllib.error.URLError as e:
         sanitized = sanitize_secrets(str(e.reason))
-        raise AtlassianRequestError(
-            f"Network error calling {method} {safe_url}: {sanitized}"
-        ) from e
+        kind = "Timeout error" if isinstance(e.reason, TimeoutError) else "Network error"
+        raise AtlassianRequestError(f"{kind} calling {method} {safe_url}: {sanitized}") from e
     except TimeoutError as e:
         sanitized = sanitize_secrets(str(e))
         raise AtlassianRequestError(

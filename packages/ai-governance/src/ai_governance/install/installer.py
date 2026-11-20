@@ -500,7 +500,7 @@ def install_user(
         report.warnings.append(
             f"Managed personal-rule links were removed on upgrade; your source Markdown remains at {', '.join(dirs)} ({files}). "
             "Copy or adapt custom rules into each agent's supported instructions: "
-            "Claude (~/.claude/rules/ or ~/.claude/AGENTS.md), Antigravity (~/.gemini/config/rules/), Codex (~/.codex/AGENTS.md)."
+            "Claude (~/.claude/rules/ or ~/.claude/CLAUDE.md), Antigravity (~/.gemini/config/rules/), Codex ($CODEX_HOME/AGENTS.md or ~/.codex/AGENTS.md)."
         )
     ledger.extra["package_version"] = __version__
     ledger.save(report, dry_run)

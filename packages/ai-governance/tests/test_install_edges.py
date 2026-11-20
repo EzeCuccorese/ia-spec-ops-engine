@@ -219,6 +219,9 @@ def test_upgrade_emits_diagnostic_when_personal_rule_links_removed(
     assert not link.exists()
     assert personal_src.is_file()
     assert any(
-        "personal-rule links were removed" in w and str(personal_src) in w and "AGENTS.md" in w
+        "personal-rule links were removed" in w
+        and str(personal_src) in w
+        and "~/.claude/CLAUDE.md" in w
+        and "$CODEX_HOME/AGENTS.md" in w
         for w in report.warnings
     )

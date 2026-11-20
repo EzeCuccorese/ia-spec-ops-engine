@@ -28,7 +28,7 @@ from ai_governance.tools import confluence, jira
 # ── U06: Atlassian Profiles and Pagination ────────────────────────────────────
 
 
-@patch("urllib.request.urlopen")
+@patch("ai_governance.tools.atlassian_common._SAME_ORIGIN_OPENER.open")
 def test_atlassian_profiles_and_pagination(
     mock_urlopen, monkeypatch, capsys, tmp_path: Path
 ) -> None:
@@ -111,7 +111,7 @@ def test_atlassian_profiles_and_pagination(
 # ── U07: Ambiguous Write Does Not Send Request ────────────────────────────────
 
 
-@patch("urllib.request.urlopen")
+@patch("ai_governance.tools.atlassian_common._SAME_ORIGIN_OPENER.open")
 def test_ambiguous_write_does_not_send_request(mock_urlopen, monkeypatch, capsys) -> None:
     """U07: Ambiguous transitions or user assignments (multiple matches found)
 
@@ -169,7 +169,7 @@ def test_ambiguous_write_does_not_send_request(mock_urlopen, monkeypatch, capsys
 # ── U08: Timeouts and Network Errors Are Reported ─────────────────────────────
 
 
-@patch("urllib.request.urlopen")
+@patch("ai_governance.tools.atlassian_common._SAME_ORIGIN_OPENER.open")
 def test_timeouts_and_network_errors_are_reported(mock_urlopen, monkeypatch, capsys) -> None:
     """U08: HTTP timeouts, URLError, and 4xx/5xx return non-zero exit codes
 
@@ -212,7 +212,7 @@ def test_timeouts_and_network_errors_are_reported(mock_urlopen, monkeypatch, cap
 # ── U09: Confluence Preserves Body and Version ────────────────────────────────
 
 
-@patch("urllib.request.urlopen")
+@patch("ai_governance.tools.atlassian_common._SAME_ORIGIN_OPENER.open")
 def test_confluence_preserves_body_and_version(mock_urlopen, monkeypatch, capsys) -> None:
     """U09: Confluence update/append preserves existing macros/tables
 
@@ -279,7 +279,7 @@ def test_confluence_preserves_body_and_version(mock_urlopen, monkeypatch, capsys
 # ── U10: File Input and JSON Match Markdown ───────────────────────────────────
 
 
-@patch("urllib.request.urlopen")
+@patch("ai_governance.tools.atlassian_common._SAME_ORIGIN_OPENER.open")
 def test_file_input_and_json_match_markdown(
     mock_urlopen, monkeypatch, capsys, tmp_path: Path
 ) -> None:

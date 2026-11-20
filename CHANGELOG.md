@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Breaking changes
+- Retire `ai-governance personal` and remove managed personal-rule links on upgrade.
+
+### Fixes
+- corporate: preserve previously installed corporate rules and scripts when the corporate root directory does not exist, warning instead of removing them.
+
 ## 3.0.0 - 2026-11-18
 
 ### Breaking changes

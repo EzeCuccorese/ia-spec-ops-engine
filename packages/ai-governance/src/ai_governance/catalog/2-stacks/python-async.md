@@ -7,7 +7,7 @@
 - **Strict Integer Checks**: In Python, `bool` is a subclass of `int` (`isinstance(True, int)` is `True`), so check `type(x) is int` (or explicitly reject `bool`) whenever strict integers are required.
 - **Explicit Error Handling**: Catch specific exception classes; never use bare `except:` or silent `except Exception: pass`.
 - **Structured Logging**: Use the `logging` module with lazy `%s` formatting instead of `print` or eager f-strings.
-- **Async Safety**: Never block the `asyncio` event loop with synchronous I/O or CPU work; offload blocking calls via `asyncio.to_thread`. Do not declare a function `async` unless it awaits; make it sync and drop `await` at call sites (Sonar S7503).
+- **Async Safety**: Never block the `asyncio` event loop with synchronous I/O or CPU work; offload blocking calls via `asyncio.to_thread`. Do not declare a private helper `async` unless it awaits and has no async ABC/Protocol interface or framework callback to satisfy; make it sync and drop `await` at call sites (Sonar S7503).
 - **ASGI Middleware Order**: In Starlette and FastAPI, `add_middleware` wraps in reverse registration order—the last middleware added runs outermost on incoming requests.
 - **Package & Class Structure**: Keep `__init__.py` limited to package exports and imports, and declare instance attributes in `__init__` rather than mutating `__dict__`.
 - **Testing**: Write hermetic `pytest` tests using typed fixtures.

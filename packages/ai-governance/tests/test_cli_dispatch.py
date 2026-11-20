@@ -102,9 +102,13 @@ def test_cli_unknown_subcommand_errors() -> None:
         main(["not-a-real-subcommand"])
 
 
-def test_cli_personal_rules_command_is_retired() -> None:
-    with pytest.raises(SystemExit):
+def test_cli_personal_rules_command_is_retired(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exc_info:
         main(["personal", "list"])
+    assert exc_info.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
 
 
 def test_cli_dispatch_install_commands() -> None:
