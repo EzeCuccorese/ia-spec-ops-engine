@@ -33,6 +33,9 @@
 
 ## Unreleased
 
+### Fixes
+- Antigravity pre-tool hook: catch chained launchers such as `uv run python -m pytest` and drop the unused `NOISY_COMMAND` regex.
+
 ### Features
 - Add `22-user-communication` rule (reply language, plain explanations, drafts for others, writing as the user).
 - Add owning-branch fixes, post-push CI follow-through and Jira scope placement to the surgical-changes, pull-requests and Atlassian rules.

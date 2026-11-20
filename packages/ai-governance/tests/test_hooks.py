@@ -230,8 +230,34 @@ def test_antigravity_pre_tool_use_denies_noisy_commands_never_edits(monkeypatch,
         and "ws run -- sh -c 'cd sub && pytest -q'" in compound["reason"]
     )
 
+    _stdin(
+        monkeypatch,
+        {
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": "uv run python -m pytest -x"},
+            }
+        },
+    )
+    assert hooks.main(["antigravity", "pre-tool-use"]) == 0
+    assert json.loads(capsys.readouterr().out)["decision"] == "deny"
+
     for payload in (
         {"toolCall": {"name": "run_command", "args": {"CommandLine": "ws run -- pytest -q"}}},
+        {
+            "toolCall": {
+                "name": "run_command",
+                "args": {
+                    "CommandLine": "orca orchestration send --to dispatch:x --body 'run pytest -x'"
+                },
+            }
+        },
+        {
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": 'orca orchestration send --body "a; pytest && b"'},
+            }
+        },
         {"toolCall": {"name": "run_command", "args": {"CommandLine": "pytest --help"}}},
         {"toolCall": {"name": "run_command", "args": {"CommandLine": "which pytest ruff"}}},
         {
