@@ -3,6 +3,8 @@ import os
 import stat
 import subprocess
 import sys
+import time
+from pathlib import Path
 
 import pytest
 from workspace_engine.common.subprocess import DEFAULT_COMMAND_TIMEOUT
@@ -50,8 +52,12 @@ def test_error_in_the_middle_survives_and_output_shrinks() -> None:
 
 
 def test_success_collapses_to_one_line() -> None:
-    text = _pytest_failure_output().replace("1 failed, ", "")
-    result = condense(text, "pytest", exit_code=0, budget=500)
+    lines = ["============================= test session starts =============================="]
+    lines += [
+        f"tests/test_mod{i}.py ........................................ [{i}%]" for i in range(80)
+    ]
+    lines += ["========================= 812 passed in 4.21s ========================="]
+    result = condense("\n".join(lines), "pytest", exit_code=0, budget=500)
     assert result.text.startswith("✓ pytest:")
     assert "812 passed" in result.text
     assert "\n" not in result.text
@@ -242,3 +248,316 @@ def test_ws_run_timeout_flag_values(monkeypatch, extra_args, expected_timeout) -
     monkeypatch.setattr(cli.subprocess, "run", fake_run)
     assert cli.run([*extra_args, "--", "echo", "ok"]) == 0
     assert seen["timeout"] == expected_timeout
+
+
+def test_clean_lines_keeps_coverage_percentages_and_drops_progress() -> None:
+    raw = (
+        "Downloading 42%\n"
+        "[=====>        ] 45%\n"
+        "tests/test_a.py .... [ 50%]\n"
+        "TOTAL                                  4500    200    95%\n"
+        "Disk usage: 82%\n"
+    )
+    assert clean_lines(raw) == [
+        "TOTAL                                  4500    200    95%",
+        "Disk usage: 82%",
+    ]
+
+
+def test_condense_strictly_bounds_oversized_tail_lines() -> None:
+    huge = "x" * 4000
+    text = "\n".join(["ERROR: minified crash", huge, huge])
+    result = condense(text, "npm run build", exit_code=1, budget=300)
+    assert result.truncated
+    assert len(result.text) <= 300
+
+
+def test_condense_recognizes_pytest_quiet_summary_and_ws_check_profile() -> None:
+    body = "\n".join(["." * 80 for _ in range(20)] + ["42 passed in 1.23s", "trailing note"])
+    result = condense(body, "pytest -q", exit_code=0, budget=200)
+    assert result.text == "✓ pytest: 42 passed in 1.23s"
+    profile = profile_for("ws check --changed")
+    assert profile is not None and profile.name == "ws-check"
+
+
+def test_show_log_rejects_invalid_grep_regex_cleanly(capsys) -> None:
+    log_id = logs.save("alpha\nbeta", "cmd")
+    assert cli.show_log([log_id, "--grep", "[unclosed"]) == 1
+    assert "Invalid grep regex" in capsys.readouterr().err
+
+
+def test_condense_omits_trailing_noise_and_caps_many_failures() -> None:
+    trailing = "\n".join(["ERROR: first failure"] + [f"trailing {i}" for i in range(40)])
+    omitted = condense(trailing, "./run.sh", exit_code=1, budget=350)
+    assert "ERROR: first failure" in omitted.text
+    assert "lines omitted" in omitted.text
+
+    many_errors = "\n".join(f"ERROR: {chr(65 + i) * 12} failed in subsystem" for i in range(20))
+    capped = condense(many_errors, "./run.sh", exit_code=1, budget=250)
+    assert len(capped.text) <= 250
+    assert "more failures omitted" in capped.text
+
+
+def test_condense_all_blank_lines_over_budget_returns_empty() -> None:
+    result = condense("\n" * 120, "./run.sh", exit_code=1, budget=50)
+    assert result.text == ""
+    assert result.truncated
+
+
+def test_logs_latest_empty_and_config_error_fallback(monkeypatch, tmp_path) -> None:
+    with pytest.raises(FileNotFoundError, match="No saved logs"):
+        logs.latest()
+
+    cfg_dir = tmp_path / "repo" / ".workspace"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "config.toml").write_text("bad = [toml", encoding="utf-8")
+    monkeypatch.chdir(tmp_path / "repo")
+    log_id = logs.save("hello", "echo hi")
+    assert logs.latest() == log_id
+
+
+def _is_process_gone(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    try:
+        stat_text = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except OSError:
+        return False
+    _, _, rest = stat_text.rpartition(")")
+    fields = rest.split()
+    return bool(fields) and fields[0] in {"Z", "X"}
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process-group kill requires POSIX")
+def test_ws_run_timeout_kills_process_group_and_grandchildren(tmp_path, capsys) -> None:
+    pid_file = tmp_path / "grandchild.pid"
+    script = (
+        f'"{sys.executable}" -c "import time; time.sleep(60)" & '
+        f'echo $! > "{pid_file}"; '
+        'echo "PARTIAL_BEFORE_TIMEOUT"; '
+        "wait"
+    )
+    code = cli.run(["--timeout", "1", "--", script])
+    captured = capsys.readouterr()
+
+    assert code == 124
+    assert "PARTIAL_BEFORE_TIMEOUT" in captured.out
+    assert "ERROR: command timed out after 1s" in captured.err
+    grandchild_pid = int(pid_file.read_text(encoding="utf-8").strip())
+    deadline = time.monotonic() + 2.0
+    while not _is_process_gone(grandchild_pid):
+        assert time.monotonic() < deadline, f"grandchild {grandchild_pid} still alive"
+        time.sleep(0.02)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="SIGTERM/SIGKILL escalation requires POSIX")
+def test_ws_run_timeout_escalates_to_sigkill_when_sigterm_ignored(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(cli, "_TERM_GRACE_SECONDS", 0.1)
+    script = "trap '' TERM; echo STUBBORN_OUTPUT; exec sleep 60"
+    code = cli.run(["--timeout", "1", "--", script])
+    captured = capsys.readouterr()
+
+    assert code == 124
+    assert "STUBBORN_OUTPUT" in captured.out
+    assert "ERROR: command timed out after 1s" in captured.err
+
+
+@pytest.mark.parametrize(
+    ("fails_before_exit", "expected_events"),
+    [
+        (1, ["start_new_session=False", "terminate"]),
+        (2, ["start_new_session=False", "terminate", "kill"]),
+    ],
+    ids=["exits-on-terminate", "escalates-to-kill"],
+)
+def test_ws_run_timeout_non_posix_fallback_terminates_and_kills(
+    monkeypatch, capsys, fails_before_exit: int, expected_events: list[str]
+) -> None:
+    events: list[str] = []
+
+    class FakePopen:
+        pid = 99999
+        returncode = -9
+
+        def __init__(self, *args, **kwargs):
+            events.append(f"start_new_session={kwargs.get('start_new_session')}")
+            self.calls = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def communicate(self, timeout=None):
+            self.calls += 1
+            if self.calls <= fails_before_exit:
+                raise subprocess.TimeoutExpired(cmd="fake", timeout=timeout or 1)
+            return ("partial-win", "")
+
+        def terminate(self):
+            events.append("terminate")
+
+        def kill(self):
+            events.append("kill")
+
+    monkeypatch.setattr(cli.os, "name", "nt")
+    monkeypatch.setattr(cli.subprocess, "Popen", FakePopen)
+    code = cli.run(["--timeout", "1", "--", "echo", "hi"])
+    captured = capsys.readouterr()
+
+    assert code == 124
+    assert "partial-win" in captured.out
+    assert events == expected_events
+
+
+def test_ws_run_preserves_exit_code_when_log_dir_unwritable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    blocked = tmp_path / "blocked-file"
+    blocked.write_text("not a dir", encoding="utf-8")
+    monkeypatch.setenv("WORKSPACE_LOG_DIR", str(blocked / "logs"))
+
+    noise = "\n".join(f"line {i}" for i in range(80))
+    code = cli.run(
+        [
+            "--budget",
+            "150",
+            "--",
+            sys.executable,
+            "-c",
+            f"import sys; print({noise!r}); sys.exit(7)",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert code == 7
+    assert "WARNING: could not save full log" in captured.err
+    assert "[exit=7" in captured.out
+
+    timeout_code = cli.run(
+        [
+            "--budget",
+            "150",
+            "--timeout",
+            "1",
+            "--",
+            sys.executable,
+            "-c",
+            f"import time; print({noise!r}, flush=True); time.sleep(10)",
+        ]
+    )
+    timeout_captured = capsys.readouterr()
+    assert timeout_code == 124
+    assert "WARNING: could not save full log" in timeout_captured.err
+    assert "[exit=124" in timeout_captured.out
+
+
+def test_ws_run_caps_captured_output_in_memory(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "_MAX_CAPTURE_BYTES", 256)
+    code = cli.run(
+        [
+            "--budget",
+            "400",
+            "--",
+            sys.executable,
+            "-c",
+            "print('A' * 1024)",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "exit=0" in captured.out
+
+
+def test_clean_lines_preserves_failed_and_error_progress_lines() -> None:
+    raw = (
+        "tests/test_a.py::test_ok PASSED [ 25%]\n"
+        "tests/test_a.py::test_fail FAILED [ 45%]\n"
+        "tests/test_a.py::test_err ERROR [ 65%]\n"
+        "Downloading 50%\n"
+        "ERROR: downloading 50%\n"
+        "tests/test_a.py .... [ 80%]\n"
+    )
+    assert clean_lines(raw) == [
+        "tests/test_a.py::test_fail FAILED [ 45%]",
+        "tests/test_a.py::test_err ERROR [ 65%]",
+        "ERROR: downloading 50%",
+    ]
+
+
+def test_condense_exit_zero_with_failure_signal_does_not_collapse_to_success() -> None:
+    text = _pytest_failure_output()
+    result = condense(text, "uv run pytest -q", exit_code=0, budget=1500)
+    assert result.truncated
+    assert not result.text.startswith("✓")
+    assert "E       assert 3 == 4" in result.text
+    assert "1 failed, 812 passed" in result.text
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process-group kill requires POSIX")
+def test_ws_run_keyboard_interrupt_kills_process_group(tmp_path, monkeypatch) -> None:
+    pid_file = tmp_path / "grandchild.pid"
+    script = f'"{sys.executable}" -c "import time; time.sleep(60)" & echo $! > "{pid_file}"; wait'
+    orig_wait = subprocess.Popen.wait
+    interrupted = False
+
+    def wait_with_interrupt(self, timeout=None):
+        nonlocal interrupted
+        if not interrupted:
+            interrupted = True
+            deadline = time.monotonic() + 2.0
+            while not pid_file.exists() or not pid_file.read_text(encoding="utf-8").strip():
+                assert time.monotonic() < deadline, "grandchild pid file was not written"
+                time.sleep(0.02)
+            raise KeyboardInterrupt
+        return orig_wait(self, timeout=timeout)
+
+    monkeypatch.setattr(subprocess.Popen, "wait", wait_with_interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        cli.run(["--", script])
+
+    grandchild_pid = int(pid_file.read_text(encoding="utf-8").strip())
+    deadline = time.monotonic() + 2.0
+    while not _is_process_gone(grandchild_pid):
+        assert time.monotonic() < deadline, f"grandchild {grandchild_pid} still alive"
+        time.sleep(0.02)
+
+
+def test_ws_run_popen_mock_keyboard_interrupt_terminates_and_reraises(monkeypatch) -> None:
+    events: list[str] = []
+
+    class FakePopen:
+        pid = 99999
+        returncode = -15
+
+        def __init__(self, *args, **kwargs):
+            self.calls = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def communicate(self, timeout=None):
+            self.calls += 1
+            if self.calls == 1:
+                raise KeyboardInterrupt
+            events.append("drain")
+            return ("", "")
+
+        def terminate(self):
+            events.append("terminate")
+
+        def kill(self):
+            events.append("kill")
+
+    monkeypatch.setattr(cli.os, "name", "nt")
+    monkeypatch.setattr(cli.subprocess, "Popen", FakePopen)
+    with pytest.raises(KeyboardInterrupt):
+        cli.run(["--", "echo", "hi"])
+    assert events == ["terminate", "drain"]

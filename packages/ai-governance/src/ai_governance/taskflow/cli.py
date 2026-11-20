@@ -279,9 +279,20 @@ def _in_flight_debate_rounds(store: TaskStore, task: Task) -> list[int]:
     return sorted(pending)
 
 
+def _archive_closed_task(store: TaskStore, task_id: str) -> None:
+    """Best-effort archive into the second brain on close; never blocks closing."""
+    try:
+        from ..brain.archive import ArchiveOptions, archive_task
+
+        archive_task(task_id, ArchiveOptions(task_store=store))
+    except Exception as exc:  # noqa: BLE001 - best-effort hook; close already succeeded
+        print(f"WARN: could not archive '{task_id}' to brain: {exc}", file=sys.stderr)
+
+
 def cmd_close(args: argparse.Namespace) -> int:
     store = _store()
     task = store.get(args.task_id)
+    was_closed = task.status == "closed"
     done_outside = bool(getattr(args, "done_outside", False))
     forced = bool(getattr(args, "force", False) or getattr(args, "abandon", False) or done_outside)
     if not forced and (pending := _in_flight_debate_rounds(store, task)):
@@ -292,7 +303,10 @@ def cmd_close(args: argparse.Namespace) -> int:
         )
     if done_outside and not getattr(args, "reason", ""):
         args.reason = "done outside flow"
-    return _set_status("closed")(args)
+    result = _set_status("closed")(args)
+    if not was_closed:
+        _archive_closed_task(store, task.id)
+    return result
 
 
 def _repo_path(raw: str) -> str:

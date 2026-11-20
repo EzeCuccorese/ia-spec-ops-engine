@@ -524,3 +524,36 @@ def test_denied_model_matching_normalizes_case_and_provider_prefix(
     assert cfg.model_error("openai/claude-opus-4") is None
     assert cfg.model_error("gpt-6.1-mini") is None
     assert cfg.model_error("") is None
+
+
+def test_policy_digest_tracks_canonical_policy_fields() -> None:
+    from dataclasses import replace
+
+    from ai_governance.taskflow.agents import Allowed
+
+    base = FlowConfig(
+        workflow="tri-agent",
+        roles={"planner": {"agent": "claude", "model": "m1"}, "debater": {"agent": "codex"}},
+        timeout_seconds=1800,
+        allowed=Allowed(frozenset({"codex", "claude"})),
+        efforts={"debater": "medium", "planner": "low"},
+        denied_models=frozenset({"model-b", "model-a"}),
+    )
+    reordered = FlowConfig(
+        workflow="tri-agent",
+        roles={"debater": {"agent": "codex"}, "planner": {"model": "m1", "agent": "claude"}},
+        timeout_seconds=999,
+        allowed=Allowed(frozenset({"claude", "codex"})),
+        efforts={"planner": "low", "debater": "medium"},
+        denied_models=frozenset({"model-a", "model-b"}),
+    )
+    assert len(base.policy_digest) == 12
+    assert base.policy_digest == reordered.policy_digest
+    for mutated in (
+        replace(base, workflow="manual"),
+        replace(base, allowed=Allowed(frozenset({"claude"}))),
+        replace(base, denied_models=frozenset({"model-a"})),
+        replace(base, roles={"planner": {"agent": "claude", "model": "m2"}}),
+        replace(base, efforts={"debater": "high"}),
+    ):
+        assert mutated.policy_digest != base.policy_digest

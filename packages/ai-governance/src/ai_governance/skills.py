@@ -1,9 +1,10 @@
 """Third-party skills: each one lives in one source directory and is copied into the agents.
 
-A skill is a directory holding ``SKILL.md`` plus optional scripts and files. Personal skills
+A skill is a directory holding ``SKILL.md`` plus optional scripts and files. User skills
 live in ``skills/<name>/`` at the repository root (versioned in git, or
 ``$AI_GOVERNANCE_PERSONAL_DIR/skills/<name>/`` when overridden); company pack skills live in
-``packages/corporate-rules/<pack>/skills/<name>/`` (gitignored, never committed to git).
+``~/.config/ai-governance/corporate-rules/<pack>/skills/<name>/`` or the configured private
+corporate directory.
 Agents receive managed directory copies tracked in the ownership ledger.
 """
 
@@ -20,7 +21,7 @@ from typing import TYPE_CHECKING
 
 from . import corporate
 from .output import emit_rows, emit_status, emit_text
-from .personal import personal_skills_dir
+from .paths import config_dir
 
 if TYPE_CHECKING:
     from .install.agents import AgentSpec
@@ -31,6 +32,22 @@ ORCA_SKILLS = frozenset({"orchestration", "orca-cli", "orca-computer-use", "comp
 IGNORED_ENTRIES = frozenset({"synced"}) | ORCA_SKILLS
 NAME_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 PERSONAL_LAYER = "personal"
+
+
+def personal_skills_dir(root: Path | None = None) -> Path:
+    """Resolve the personal skill source, retaining the legacy config override."""
+    if root is not None:
+        return root / "skills"
+    explicit = os.environ.get("AI_GOVERNANCE_PERSONAL_DIR")
+    if explicit:
+        return Path(explicit).expanduser() / "skills"
+    parents = Path(__file__).resolve().parents
+    if len(parents) <= 4:
+        return config_dir() / "personal" / "skills"
+    repository_skills = parents[4] / "skills"
+    if repository_skills.is_dir():
+        return repository_skills
+    return config_dir() / "personal" / "skills"
 
 
 class SkillError(Exception):

@@ -189,7 +189,28 @@ def test_antigravity_session_start_uses_inject_steps(monkeypatch, capsys, tmp_pa
     assert "T-1" in msg
 
 
+def test_stop_gate_handles_timeout_cleanly_without_traceback(
+    monkeypatch, capsys, tmp_path: Path
+) -> None:
+    seen_timeout: list[float] = []
+
+    def timed_out(*args, **kwargs):
+        seen_timeout.append(kwargs["timeout"])
+        raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs["timeout"])
+
+    monkeypatch.setenv("AI_GOVERNANCE_GATE_TIMEOUT_SECONDS", "12")
+    monkeypatch.setattr(hooks.shutil, "which", lambda name: "/bin/ws")
+    monkeypatch.setattr(hooks.subprocess, "run", timed_out)
+    _stdin(monkeypatch, {"cwd": str(tmp_path)})
+    assert hooks.main(["claude", "stop-gate"]) == 0
+    assert seen_timeout == [12.0]
+    err = capsys.readouterr().err
+    assert "timed out" in err and "Traceback" not in err
+
+
 def test_antigravity_pre_tool_use_denies_noisy_commands_never_edits(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(hooks.shutil, "which", lambda name: "/bin/ws")
+    monkeypatch.delenv("FRUGAL", raising=False)
     _stdin(
         monkeypatch,
         {"toolCall": {"name": "run_command", "args": {"CommandLine": "pytest -q"}}},
@@ -198,14 +219,48 @@ def test_antigravity_pre_tool_use_denies_noisy_commands_never_edits(monkeypatch,
     denied = json.loads(capsys.readouterr().out)
     assert denied["decision"] == "deny" and "ws run -- pytest -q" in denied["reason"]
 
+    _stdin(
+        monkeypatch,
+        {"toolCall": {"name": "run_command", "args": {"CommandLine": "cd sub && pytest -q"}}},
+    )
+    assert hooks.main(["antigravity", "pre-tool-use"]) == 0
+    compound = json.loads(capsys.readouterr().out)
+    assert (
+        compound["decision"] == "deny"
+        and "ws run -- sh -c 'cd sub && pytest -q'" in compound["reason"]
+    )
+
     for payload in (
         {"toolCall": {"name": "run_command", "args": {"CommandLine": "ws run -- pytest -q"}}},
         {"toolCall": {"name": "run_command", "args": {"CommandLine": "pytest --help"}}},
+        {"toolCall": {"name": "run_command", "args": {"CommandLine": "which pytest ruff"}}},
+        {
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": 'git commit -m "fix pytest failure"'},
+            }
+        },
         {"toolCall": {"name": "write_to_file", "args": {"TargetFile": "a.py"}}},
     ):
         _stdin(monkeypatch, payload)
         assert hooks.main(["antigravity", "pre-tool-use"]) == 0
         assert capsys.readouterr().out == ""
+
+
+def test_antigravity_pre_tool_use_allows_when_ws_missing_or_frugal_disabled(
+    monkeypatch, capsys
+) -> None:
+    payload = {"toolCall": {"name": "run_command", "args": {"CommandLine": "pytest -q"}}}
+    monkeypatch.setattr(hooks.shutil, "which", lambda name: None)
+    _stdin(monkeypatch, payload)
+    assert hooks.main(["antigravity", "pre-tool-use"]) == 0
+    assert capsys.readouterr().out == ""
+
+    monkeypatch.setattr(hooks.shutil, "which", lambda name: "/bin/ws")
+    monkeypatch.setenv("FRUGAL", "0")
+    _stdin(monkeypatch, payload)
+    assert hooks.main(["antigravity", "pre-tool-use"]) == 0
+    assert capsys.readouterr().out == ""
 
 
 def test_codex_post_tool_use_blocks_with_condensed_reason(monkeypatch, capsys) -> None:
@@ -215,3 +270,169 @@ def test_codex_post_tool_use_blocks_with_condensed_reason(monkeypatch, capsys) -
     _stdin(monkeypatch, {"tool_input": {"command": "pytest"}, "tool_output": "x" * 5000})
     assert hooks.main(["codex", "post-tool-use"]) == 0
     assert json.loads(capsys.readouterr().out) == {"decision": "block", "reason": "short summary"}
+
+
+def test_codex_post_tool_use_silent_when_nothing_condensed(monkeypatch, capsys) -> None:
+    from ai_governance.frugality import cli as frugal
+
+    monkeypatch.setattr(frugal, "condensed_output", lambda payload, cfg: None)
+    _stdin(monkeypatch, {"tool_input": {"command": "echo ok"}, "tool_output": "ok"})
+    assert hooks.main(["codex", "post-tool-use"]) == 0
+    assert capsys.readouterr().out == ""
+
+
+def test_antigravity_session_start_silent_outside_git_repo(monkeypatch, capsys, tmp_path) -> None:
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
+    _stdin(monkeypatch, {"workspacePaths": [str(tmp_path)]})
+    assert hooks.main(["antigravity", "session-start"]) == 0
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize(
+    ("command", "expect_deny"),
+    [
+        ("FOO=1 uv run pytest -q", True),
+        ("npx jest", True),
+        ("python3 -m pytest", True),
+        ("npm run test", True),
+        ("pnpm build", True),
+        ("cargo test", True),
+        ("npm install", False),
+        ("FOO=1", False),
+        ("pytest 'unclosed", False),
+        ("echo ok ;; ls &&", False),
+    ],
+    ids=[
+        "env-uv-pytest",
+        "npx-jest",
+        "python3-m-pytest",
+        "npm-run-test",
+        "pnpm-build",
+        "cargo-test",
+        "npm-install-allowed",
+        "env-only-allowed",
+        "unclosed-quote-allowed",
+        "empty-segments-allowed",
+    ],
+)
+def test_antigravity_pre_tool_use_wrappers_js_runners_and_edge_syntax(
+    monkeypatch, capsys, command: str, expect_deny: bool
+) -> None:
+    monkeypatch.setattr(hooks.shutil, "which", lambda name: "/bin/ws")
+    monkeypatch.delenv("FRUGAL", raising=False)
+    _stdin(monkeypatch, {"toolCall": {"name": "run_command", "args": {"CommandLine": command}}})
+    assert hooks.main(["antigravity", "pre-tool-use"]) == 0
+    out = capsys.readouterr().out
+    if expect_deny:
+        assert json.loads(out)["decision"] == "deny"
+    else:
+        assert out == ""
+
+
+def test_session_start_adds_compact_brain_line_within_budget(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    from ai_governance.brain.store import BrainStore, NoteDraft
+
+    monkeypatch.setenv("AI_GOVERNANCE_BRAIN_DIR", str(tmp_path / "brain"))
+    repo = _repo_with_task(monkeypatch, tmp_path)
+    store = BrainStore(tmp_path / "brain")
+    store.add(NoteDraft(body="Use Node 20", repos=(repo.name,)))
+
+    _stdin(monkeypatch, {"cwd": str(repo)})
+    assert hooks.main(["claude", "session-start"]) == 0
+    out = capsys.readouterr().out.strip()
+    assert f"BRAIN: 1 note for {repo.name}" in out
+    assert "ai-governance brain search" in out
+    assert len(out) <= hooks.SESSION_CONTEXT_CHARS
+
+    # Still fits within 400 chars even with a very long task summary and multiple notes.
+    store.add(NoteDraft(body="Second gotcha", repos=(repo.name,)))
+    TaskStore().mutate("T-1", lambda t: setattr(t, "summary", "S" * 380))
+    _stdin(monkeypatch, {"cwd": str(repo)})
+    assert hooks.main(["claude", "session-start"]) == 0
+    long_out = capsys.readouterr().out.strip()
+    assert f"BRAIN: 2 notes for {repo.name}" in long_out
+    assert len(long_out) <= hooks.SESSION_CONTEXT_CHARS
+
+
+def test_session_start_brain_hint_works_without_task_and_fails_open(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    from ai_governance.brain.store import BrainStore, NoteDraft
+
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("AI_GOVERNANCE_BRAIN_DIR", str(tmp_path / "brain"))
+    repo = tmp_path / "demo-repo"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    BrainStore(tmp_path / "brain").add(NoteDraft(body="Gotcha", repos=("demo-repo",)))
+
+    _stdin(monkeypatch, {"cwd": str(repo)})
+    assert hooks.main(["claude", "session-start"]) == 0
+    out = capsys.readouterr().out.strip()
+    assert hooks.NO_TASK_HINT in out
+    assert "BRAIN: 1 note for demo-repo" in out
+    assert len(out) <= hooks.SESSION_CONTEXT_CHARS
+
+    monkeypatch.setattr(
+        BrainStore, "count_for_repo", lambda self, r: (_ for _ in ()).throw(OSError("io"))
+    )
+    _stdin(monkeypatch, {"cwd": str(repo)})
+    assert hooks.main(["claude", "session-start"]) == 0
+    assert capsys.readouterr().out.strip() == hooks.NO_TASK_HINT
+
+
+def test_combine_session_message_respects_budget_extremes() -> None:
+    assert hooks._combine_session_message("", "BRAIN: 1 note", 40) == "BRAIN: 1 note"
+    assert hooks._combine_session_message("a" * 50, "BRAIN: 1 note", 25).endswith("\nBRAIN: 1 note")
+    assert len(hooks._combine_session_message("a" * 50, "BRAIN: 1 note", 25)) <= 25
+    oversized = hooks._combine_session_message("base", "BRAIN: " + "x" * 50, 20)
+    assert len(oversized) == 20 and oversized.endswith("…")
+
+
+def test_session_start_ignores_unicode_decode_error_from_brain(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    from ai_governance.brain.store import BrainStore
+
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
+    repo = tmp_path / "demo-repo"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    monkeypatch.setattr(
+        BrainStore,
+        "count_for_repo",
+        lambda self, r: (_ for _ in ()).throw(UnicodeDecodeError("utf-8", b"\xff", 0, 1, "bad")),
+    )
+    _stdin(monkeypatch, {"cwd": str(repo)})
+    assert hooks.main(["claude", "session-start"]) == 0
+    assert capsys.readouterr().out.strip() == hooks.NO_TASK_HINT
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    ["FOO=1 pytest -q", "pytest -q > out.log", "pytest $(echo tests)"],
+    ids=["env-prefix", "redirect", "subshell"],
+)
+def test_antigravity_pre_tool_use_wraps_shell_syntax_in_sh_c(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], cmd: str
+) -> None:
+    monkeypatch.setattr(hooks.shutil, "which", lambda name: "/usr/bin/ws" if name == "ws" else None)
+    _stdin(monkeypatch, {"toolCall": {"name": "run_command", "args": {"CommandLine": cmd}}})
+    assert hooks.main(["antigravity", "pre-tool-use"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["decision"] == "deny"
+    assert "ws run -- sh -c " in out["reason"]
+
+
+def test_claude_stop_gate_warns_on_non_json_stdout(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setattr(hooks.shutil, "which", lambda name: "/usr/bin/ws")
+    monkeypatch.setattr(
+        hooks.subprocess,
+        "run",
+        lambda *a, **kw: subprocess.CompletedProcess(a[0], 1, stdout="not json", stderr=""),
+    )
+    _stdin(monkeypatch, {"cwd": str(tmp_path)})
+    assert hooks.main(["claude", "stop-gate"]) == 0
+    assert "non-JSON output" in capsys.readouterr().err

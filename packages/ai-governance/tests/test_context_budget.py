@@ -51,6 +51,7 @@ def test_always_on_rules_are_security_and_general_tools() -> None:
         "18-surgical-changes",
         "19-pull-requests",
         "20-review-ready-code",
+        "21-antigravity-routing",
         "circleci",
         "deploy-approvals",
         "production-risk-window",
@@ -76,9 +77,19 @@ def test_fixed_session_cost_for_a_typical_install(monkeypatch, tmp_path: Path) -
     rendered_cap = GLOBAL_MAX + ENTRY_BLOCK_MAX + 12 * (ALWAYS_ON_RULE_MAX + 300)
     for agent in ("claude", "codex", "antigravity"):
         assert user[agent] <= rendered_cap
-    # The always-on rules (read by each agent once) plus the shared AGENTS.md block.
-    assert project["claude"] <= 12 * (ALWAYS_ON_RULE_MAX + 300)
-    assert project["project"] <= PROJECT_BLOCK_MAX + 12 * (ALWAYS_ON_RULE_MAX + 300)
+    # Project scope carries only 06-security-privacy (not the 11 user-scope always-on rules),
+    # and Claude symlinks into .agents/rules/ are not double-counted.
+    assert project.get("claude", 0) == 0
+    assert project["project"] <= PROJECT_BLOCK_MAX + (ALWAYS_ON_RULE_MAX + 300)
+
+
+def test_budget_respects_agent_frontmatter_semantics(tmp_path: Path) -> None:
+    from ai_governance.install.budget import _always_loaded
+
+    rule = tmp_path / ".claude" / "rules" / "custom.md"
+    glob_only = "---\ntrigger: glob\nglob: '*.py'\n---\n# Custom\n"
+    assert _always_loaded(rule, glob_only, "claude") is True
+    assert _always_loaded(rule, glob_only, "antigravity") is False
 
 
 def test_readme_agents_table_is_generated() -> None:
@@ -118,11 +129,9 @@ def test_user_content_outside_block_measured_and_trimming_changes_number(
     assert cost2["user_custom"] < cost1["user_custom"]
 
 
-def test_codex_fixed_cost_includes_always_personal_and_company_index(
+def test_codex_fixed_cost_includes_always_rules_and_company_index(
     monkeypatch, tmp_path: Path
 ) -> None:
-    from ai_governance import personal
-
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
 
@@ -136,20 +145,27 @@ def test_codex_fixed_cost_includes_always_personal_and_company_index(
     (rules_dir / "principles.md").write_text("# Principles\nLarge text " * 50)
     monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(corp_dir))
 
-    # Setup personal rules
-    p_dir = tmp_path / "personal"
-    personal.create_rule("voice", "# Voice\nBe concise.\n", root=p_dir)
-    monkeypatch.setenv("AI_GOVERNANCE_PERSONAL_DIR", str(p_dir))
-
     install_user(["codex"])
     cost = fixed_cost(installer.global_ledger())
 
     codex_home = tmp_path / ".codex" / "ai-governance"
     always_size = sum(len(p.read_bytes()) for p in (codex_home / "always").glob("*.md"))
-    personal_size = sum(len(p.read_bytes()) for p in (codex_home / "personal").glob("*.md"))
     company_index_size = len((codex_home / "company" / "index.md").read_bytes())
 
     # The individual company rule files (~large) must NOT be counted in fixed cost
     glossary_size = len((codex_home / "company" / "acme-glossary.md").read_bytes())
-    assert cost["codex"] < always_size + personal_size + company_index_size + glossary_size
-    assert cost["codex"] >= always_size + personal_size + company_index_size
+    assert cost["codex"] < always_size + company_index_size + glossary_size
+    assert cost["codex"] >= always_size + company_index_size
+
+
+def test_user_content_without_markers_counts_full_agents_md(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
+    install_user(["claude"])
+
+    agents_md = tmp_path / ".claude" / "AGENTS.md"
+    custom = "# Custom instructions without governance markers\nFollow project rules.\n"
+    agents_md.write_text(custom, encoding="utf-8")
+
+    cost = fixed_cost(installer.global_ledger())
+    assert cost["user_custom"] == len(custom.strip().encode("utf-8"))

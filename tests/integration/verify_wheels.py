@@ -6,6 +6,7 @@ Requires uv on PATH. Downloads only declared package dependencies.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -59,67 +60,76 @@ if "workspace_engine" in modules:
 """
 
 
-def verify(wheel_dir: Path) -> None:
+def _find_wheels(wheel_dir: Path) -> dict[str, Path]:
     wheels = {}
     for distribution in PACKAGES:
         matches = list(wheel_dir.glob(f"{distribution}-*.whl"))
         if len(matches) != 1:
             raise SystemExit(f"Expected one wheel for {distribution}, found {len(matches)}")
         wheels[distribution] = matches[0].resolve()
+    return wheels
 
+
+def _isolated_env(root: Path) -> dict[str, str]:
+    env = os.environ.copy()
+    for var in ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"):
+        env.pop(var, None)
+    # All runtime writes remain in this disposable environment.
+    env["HOME"] = str(root)
+    env["XDG_CONFIG_HOME"] = str(root / "config")
+    env["AI_GOVERNANCE_STATE_DIR"] = str(root / "state")
+    env["WORKSPACE_LOG_DIR"] = str(root / "logs")
+    env["GIT_CONFIG_GLOBAL"] = os.devnull
+    env["GIT_CONFIG_SYSTEM"] = os.devnull
+    return env
+
+
+def _run_checked(
+    cmd: list[str], cwd: Path, env: dict[str, str]
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(cmd, cwd=cwd, env=env, check=True, capture_output=True, text=True)
+
+
+def _verify_entrypoints(venv: Path, selected: list[str], cwd: Path, env: dict[str, str]) -> None:
+    for name in selected:
+        for entrypoint in PACKAGES[name][1]:
+            _run_checked([str(venv / "bin" / entrypoint), "--help"], cwd, env)
+
+
+def _verify_workspace_cli(ws_bin: Path, cwd: Path, env: dict[str, str]) -> None:
+    _run_checked([str(ws_bin), "--help"], cwd, env)
+    detected = _run_checked([str(ws_bin), "detect", "--json"], cwd, env)
+    payload = json.loads(detected.stdout)
+    assert "python" in payload["stacks"], payload
+    ran = _run_checked([str(ws_bin), "run", "--", "echo", "ok"], cwd, env)
+    assert "ok" in ran.stdout, ran.stdout
+    _run_checked([str(ws_bin), "design", "--help"], cwd, env)
+
+
+def _verify_selection(wheels: dict[str, Path], selected: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="wheel-check-") as directory:
+        root = Path(directory)
+        venv = root / "venv"
+        cwd = root / "project"
+        cwd.mkdir()
+        env = _isolated_env(root)
+        subprocess.run(["uv", "venv", "--python", sys.executable, str(venv)], check=True)
+        python = venv / "bin" / "python"
+        install_cmd = ["uv", "pip", "install", "--python", str(python)]
+        install_cmd.extend(str(wheels[name]) for name in selected)
+        subprocess.run(install_cmd, check=True)
+        _verify_entrypoints(venv, selected, cwd, env)
+        resource_cmd = [str(python), "-I", "-c", RESOURCE_CHECK]
+        resource_cmd.extend(PACKAGES[name][0] for name in selected)
+        _run_checked(resource_cmd, cwd, env)
+        if "workspace" in selected:
+            _verify_workspace_cli(venv / "bin" / "ws", cwd, env)
+
+
+def verify(wheel_dir: Path) -> None:
+    wheels = _find_wheels(wheel_dir)
     for selected in [*[[name] for name in PACKAGES], list(PACKAGES)]:
-        with tempfile.TemporaryDirectory(prefix="wheel-check-") as directory:
-            root = Path(directory)
-            venv = root / "venv"
-            cwd = root / "project"
-            cwd.mkdir()
-            env = os.environ.copy()
-            env.pop("PYTHONPATH", None)
-            env.pop("PYTHONHOME", None)
-            env.pop("VIRTUAL_ENV", None)
-            # All runtime writes remain in this disposable environment.
-            env["HOME"] = str(root)
-            env["XDG_CONFIG_HOME"] = str(root / "config")
-            env["AI_GOVERNANCE_STATE_DIR"] = str(root / "state")
-            env["GIT_CONFIG_GLOBAL"] = os.devnull
-            env["GIT_CONFIG_SYSTEM"] = os.devnull
-            subprocess.run(["uv", "venv", "--python", sys.executable, str(venv)], check=True)
-            python = venv / "bin" / "python"
-            subprocess.run(
-                [
-                    "uv",
-                    "pip",
-                    "install",
-                    "--python",
-                    str(python),
-                    *[str(wheels[name]) for name in selected],
-                ],
-                check=True,
-            )
-            for name in selected:
-                for entrypoint in PACKAGES[name][1]:
-                    subprocess.run(
-                        [str(venv / "bin" / entrypoint), "--help"],
-                        cwd=cwd,
-                        env=env,
-                        check=True,
-                        capture_output=True,
-                        text=True,
-                    )
-            subprocess.run(
-                [
-                    str(python),
-                    "-I",
-                    "-c",
-                    RESOURCE_CHECK,
-                    *[PACKAGES[name][0] for name in selected],
-                ],
-                cwd=cwd,
-                env=env,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
+        _verify_selection(wheels, selected)
         print(f"PASS: {', '.join(selected)}", flush=True)
 
 

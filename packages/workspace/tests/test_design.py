@@ -1644,3 +1644,217 @@ def test_cli_checks_disabled_skips_hygiene(
     out = capsys.readouterr().out
     assert code == 0
     assert "empty-catch" not in out
+
+
+# --- Ola 2 precision fixes: test args exemption, ratchet stability, layers, hygiene ---
+
+
+@pytest.mark.parametrize(
+    ("rel_path", "source", "expect_args_violation"),
+    [
+        ("test_sample.py", "def test_many(a, b, c, d, e, f):\n    return a\n", False),
+        ("sample_test.py", "def test_many(a, b, c, d, e, f):\n    return a\n", False),
+        ("tests/conftest.py", "def make_env(a, b, c, d, e, f):\n    return a\n", False),
+        ("pkg/tests/helpers.py", "def helper(a, b, c, d, e, f):\n    return a\n", False),
+        ("src/service.py", "def compute(a, b, c, d, e):\n    return a\n", True),
+        ("src/test_helper.ts", TS_VIOLATING, True),
+    ],
+    ids=[
+        "py-test-prefix-exempt",
+        "py-test-suffix-exempt",
+        "tests-dir-conftest-exempt",
+        "nested-tests-dir-exempt",
+        "prod-py-args-enforced",
+        "non-py-test-prefix-enforced",
+    ],
+)
+def test_args_metric_exempts_only_test_paths(
+    tmp_path: Path, rel_path: str, source: str, expect_args_violation: bool
+) -> None:
+    path = tmp_path / rel_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(source, encoding="utf-8")
+    violations = measure(tmp_path, [path], DesignConfig())
+    has_args = any(v.metric == "args" for v in violations)
+    assert has_args is expect_args_violation
+
+
+def test_test_files_still_enforce_complexity_length_and_nesting(tmp_path: Path) -> None:
+    path = tmp_path / "tests" / "test_limits.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        _complex_function("test_complex")
+        + "\n"
+        + _long_function("test_long", 45)
+        + "\n"
+        + _py_nested_ifs(5).replace("def deep", "def test_deep"),
+        encoding="utf-8",
+    )
+    metrics = {v.metric for v in measure(tmp_path, [path], DesignConfig())}
+    assert metrics == {"complexity", "length", "nesting"}
+
+
+@pytest.mark.parametrize(
+    "updated_header",
+    ["def legacy(a: int) -> int:", "def legacy(value):"],
+    ids=["type-hints-added", "param-renamed"],
+)
+def test_ratchet_matches_unique_legacy_function_across_signature_edits(
+    length_repo: Path, capsys: pytest.CaptureFixture[str], updated_header: str
+) -> None:
+    updated = _py_function("legacy", 50, tag=1).replace("def legacy(a):", updated_header, 1)
+    updated = updated.replace(
+        "return a", "return value" if "value" in updated_header else "return a"
+    )
+    (length_repo / "mod.py").write_text(updated, encoding="utf-8")
+    code, payload = _design_json(length_repo, capsys)
+    assert code == 0
+    (violation,) = _length_violations(payload)
+    assert (violation["origin"], violation["blocking"], violation["base_value"]) == (
+        "legacy",
+        False,
+        50,
+    )
+
+
+def test_ratchet_does_not_fallback_when_base_has_ambiguous_overloads(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    _git(root, "init", "-q", "-b", "main")
+    (root / "A.java").write_text(
+        _java_class(_java_method("int a", 50), _java_method("String a", 5))
+    )
+    _commit_all(root, "init")
+    _git(root, "checkout", "-q", "-b", "feature")
+    (root / "A.java").write_text(_java_class(_java_method("long a", 50)))
+    code, payload = _design_json(root, capsys)
+    assert code == 1
+    (violation,) = _length_violations(payload)
+    assert violation["origin"] == "new"
+
+
+def test_layers_multiline_block_comment_preserves_line_numbers_for_changed_lines(
+    tmp_path: Path,
+) -> None:
+    from workspace_engine.design.layers import violations_for_file
+
+    domain = tmp_path / "com/acme/domain"
+    domain.mkdir(parents=True)
+    path = domain / "Order.java"
+    path.write_text(
+        "/*\n"
+        " * copyright line 2\n"
+        " * copyright line 3\n"
+        " */\n"
+        "package com.acme.domain;\n"
+        "import com.acme.adapters.Db;\n"
+        "public class Order {}\n",
+        encoding="utf-8",
+    )
+    new_v = violations_for_file(
+        tmp_path, path, _LAYERS, None, changed={"com/acme/domain/Order.java": {6}}
+    )
+    legacy_v = violations_for_file(
+        tmp_path, path, _LAYERS, None, changed={"com/acme/domain/Order.java": {2}}
+    )
+    assert [(v.start_line, v.origin) for v in new_v] == [(6, "new")]
+    assert [(v.start_line, v.origin) for v in legacy_v] == [(6, "legacy")]
+
+
+@pytest.mark.parametrize(
+    ("filename", "source", "expected_line"),
+    [
+        (
+            "order.ts",
+            'const a = "/* not a comment";\n'
+            "import { Db } from '../adapters/db';\n"
+            'const b = "still not */";\n',
+            2,
+        ),
+        (
+            "order.ts",
+            "const url = \"https://example.com\"; import { Db } from '../adapters/db';\n",
+            1,
+        ),
+        (
+            "order.py",
+            'url = "https://example.com/#frag"\nimport app.adapters.db  # real comment\n',
+            2,
+        ),
+    ],
+    ids=["ts-block-comment-in-string", "ts-line-comment-in-string", "py-hash-in-string"],
+)
+def test_layers_strip_comments_preserves_comment_tokens_inside_strings(
+    tmp_path: Path, filename: str, source: str, expected_line: int
+) -> None:
+    domain = tmp_path / "app/domain"
+    (tmp_path / "app/adapters").mkdir(parents=True)
+    domain.mkdir(parents=True)
+    path = domain / filename
+    path.write_text(source, encoding="utf-8")
+    violations = layer_violations(tmp_path, [path], _LAYERS)
+    assert [v.start_line for v in violations] == [expected_line]
+
+
+def test_layers_relative_path_globs_without_leading_slash_match(tmp_path: Path) -> None:
+    config = LayersConfig(
+        order=("adapters", "domain"),
+        paths={"adapters": ("src/adapters/**",), "domain": ("src/domain/**",)},
+    )
+    domain = tmp_path / "src/domain"
+    other_domain = tmp_path / "other/src/domain"
+    domain.mkdir(parents=True)
+    other_domain.mkdir(parents=True)
+    (domain / "order.ts").write_text("import { Db } from '../adapters/db';\n", encoding="utf-8")
+    (other_domain / "order.ts").write_text(
+        "import { Db } from '../../../src/adapters/db';\n", encoding="utf-8"
+    )
+    assert len(layer_violations(tmp_path, [domain / "order.ts"], config)) == 1
+    assert layer_violations(tmp_path, [other_domain / "order.ts"], config) == []
+
+
+@pytest.mark.parametrize(
+    ("filename", "ext", "source", "expected_lines"),
+    [
+        ("a.ts", "ts", "// try { f(); } catch (e) {}\n", []),
+        ("a.java", "java", "/* try { f(); } catch (Exception e) {} */\n", []),
+        ("a.ts", "ts", 'const s = "catch (e) {}";\n', []),
+        (
+            "a.go",
+            "go",
+            'package m\nfunc f() {\n\t_ = "if err != nil {}"\n\t// if err != nil {}\n}\n',
+            [],
+        ),
+        ("a.ts", "ts", 'try {\n  f();\n} catch (e) {\n  log("}");\n}\n', []),
+        ("a.java", "java", "try {\n  f();\n} catch (Exception e) {\n  // }\n  log(e);\n}\n", []),
+        ("a.ts", "ts", "try {\n  f();\n} catch (e) {\n  /* } */\n}\n", [3]),
+    ],
+    ids=[
+        "ts-line-comment-catch",
+        "java-block-comment-catch",
+        "ts-string-literal-catch",
+        "go-string-and-comment-err",
+        "ts-brace-in-string",
+        "java-brace-in-comment",
+        "ts-empty-catch-with-commented-brace",
+    ],
+)
+def test_empty_catch_masks_strings_and_comments(
+    filename: str, ext: str, source: str, expected_lines: list[int]
+) -> None:
+    violations = empty_catch_violations(filename, ext, source)
+    assert [v.start_line for v in violations] == expected_lines
+
+
+def test_analyze_source_and_file_warn_on_syntax_error_and_non_utf8(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert analyze_source("broken.py", "py", "def bad(:\n") == []
+    assert "skipping broken.py" in capsys.readouterr().err
+
+    binary = tmp_path / "latin1.py"
+    binary.write_bytes(b"def f():\n    return '\xff'\n")
+    assert measure(tmp_path, [binary], DesignConfig()) == []
+    assert "skipping" in capsys.readouterr().err

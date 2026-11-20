@@ -24,6 +24,7 @@ class RuleDefinition:
     content: str
     sha256: str
     user_scope: bool = False
+    user_agents: tuple[str, ...] = ()
 
     @property
     def always_on(self) -> bool:
@@ -69,6 +70,7 @@ class RuleCatalog:
                 content=content,
                 sha256=hashlib.sha256(content.encode("utf-8")).hexdigest(),
                 user_scope=bool(item.get("user_scope", False)),
+                user_agents=tuple(item.get("user_agents", [])),
             )
             self._rules[rule.id] = rule
 
@@ -76,10 +78,18 @@ class RuleCatalog:
     def rules(self) -> list[RuleDefinition]:
         return list(self._rules.values())
 
-    def user_rules(self) -> list[RuleDefinition]:
-        """Language-level rules installed globally: they load per file in every repo,
-        so basic practices never depend on a project having opted in."""
-        return sorted((rule for rule in self.rules if rule.user_scope), key=lambda r: r.id)
+    def user_rules(self, agent: str | None = None) -> list[RuleDefinition]:
+        """Non-profiled user-scope rules for an agent, or the full inventory."""
+        return sorted(
+            (
+                rule
+                for rule in self.rules
+                if rule.user_scope
+                and rule.profile is None
+                and (agent is None or not rule.user_agents or agent in rule.user_agents)
+            ),
+            key=lambda r: r.id,
+        )
 
     def get(self, rule_id: str) -> RuleDefinition | None:
         return self._rules.get(rule_id)
@@ -101,14 +111,15 @@ class RuleCatalog:
         excluded: tuple[str, ...] = (),
     ) -> list[RuleDefinition]:
         """Rules a project needs: general + detected stacks + enabled profiles + extra,
-        minus excluded. A rule tied to a profile is only chosen when that profile is
-        enabled (unless forced in via ``extra``)."""
+        minus excluded. Always-on user-scope rules live in user scope (unless forced via
+        ``extra``) so sessions never load them twice."""
         chosen = [
             rule
             for rule in self.rules
             if (
                 (
-                    (rule.profile is None or rule.profile in profiles)
+                    not (rule.user_scope and rule.always_on)
+                    and (rule.profile is None or rule.profile in profiles)
                     and rule.applies_to(detected_stacks)
                 )
                 or rule.id in extra

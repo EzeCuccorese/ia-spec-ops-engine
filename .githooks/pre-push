@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
 # Run the in-repo (development) copy of the workspace quality gate.
 HOOK_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$HOOK_ROOT/packages/workspace/src/workspace_engine/resources/hooks/pre-push" "$@"
+PUSH_REFS="$(cat)" || exit 1
+while read -r _ local_oid _ remote_oid; do
+  [[ -n "$local_oid" && ! "$local_oid" =~ ^0+$ ]] || continue
+  revision="$local_oid"
+  if [[ ! "$remote_oid" =~ ^0+$ ]] && git cat-file -e "$remote_oid^{commit}" 2>/dev/null; then
+    revision="$remote_oid..$local_oid"
+  fi
+  python3 "$HOOK_ROOT/scripts/check_private_packs.py" "$revision" || exit 1
+done <<< "$PUSH_REFS"
+source "$HOOK_ROOT/packages/workspace/src/workspace_engine/resources/hooks/pre-push" "$@" <<< "$PUSH_REFS"

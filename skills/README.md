@@ -1,6 +1,6 @@
-# Personal skills
+# Third-party skills
 
-Personal third-party skills live here (`skills/<name>/SKILL.md`, plus optional scripts and
+Third-party skills live here (`skills/<name>/SKILL.md`, plus optional scripts and
 supporting files) and are **versioned in git**.
 
 Each skill lives in this single source directory and is synced into every installed agent as a
@@ -14,8 +14,8 @@ managed directory copy tracked in the ownership ledger (edit the skill here and 
 ## Boundaries (what stays out of this folder)
 
 - **Corporate skills never go in git.** Company-specific skills belong in
-  `packages/corporate-rules/<company>/skills/<name>/` (gitignored, alongside company rules
-  and scripts).
+  `$AI_GOVERNANCE_CORPORATE_DIR/<company>/skills/<name>/`, outside the repository alongside
+  company rules and scripts.
 - **Orca skills stay with Orca.** `orchestration`, `orca-cli`, `orca-computer-use` and
   `computer-use` are maintained by Orca outside this repository and are ignored by
   `ai-governance skills` (they cannot be added or migrated here).

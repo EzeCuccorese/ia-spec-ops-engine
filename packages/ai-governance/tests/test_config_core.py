@@ -142,3 +142,30 @@ def test_frugal_json_and_taskflow_toml_feed_the_same_layers(
     assert "exp-model" in load_config([repo]).denied_models
     _write(repo / ".ai-governance" / "config.toml", "[taskflow]\ntimeout_seconds = 200\n")
     assert settings.get("taskflow.timeout_seconds", repo) == 200
+
+
+@pytest.mark.parametrize(
+    ("raw", "like"),
+    [
+        (True, 10),
+        (False, 10),
+        (True, 1.5),
+        (False, 1.5),
+        (float("nan"), 1.5),
+        (float("inf"), 1.5),
+        (float("-inf"), 1.5),
+        ("nan", 1.5),
+        ("Infinity", 1.5),
+        ("-inf", 1.5),
+        ("1e309", 1.5),
+    ],
+)
+def test_coerce_rejects_booleans_for_numbers_and_non_finite_floats(
+    raw: object, like: object
+) -> None:
+    from ai_governance._config_core import coerce
+
+    with pytest.raises(ConfigError, match="demo.num"):
+        coerce(raw, like, "demo.num")
+    assert coerce(42, 10, "demo.num") == 42
+    assert coerce("12.5", 1.5, "demo.num") == 12.5

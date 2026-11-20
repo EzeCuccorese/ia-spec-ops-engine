@@ -8,11 +8,19 @@ workspace_engine.services.changes — Changed files and a cheap tree fingerprint
 from __future__ import annotations
 
 import hashlib
+import stat
+import sys
 from pathlib import Path
+from typing import Protocol
 
 from workspace_engine.common import run_command_safe
 
 SCHEMA_VERSION = 1
+_HASH_CHUNK_BYTES = 64 * 1024
+
+
+class _Hasher(Protocol):
+    def update(self, data: bytes, /) -> object: ...
 
 
 def _git(root: Path, *args: str) -> str:
@@ -21,13 +29,18 @@ def _git(root: Path, *args: str) -> str:
 
 
 def base_ref(root: Path) -> str | None:
-    """Merge-base with the default branch (origin/HEAD, main or master)."""
+    """Merge-base with the default branch (origin/HEAD, main, master, or @{u})."""
     candidates = [_git(root, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD").strip()]
-    candidates += ["origin/main", "origin/master", "main", "master"]
+    candidates += ["origin/main", "origin/master", "main", "master", "@{u}"]
     for candidate in filter(None, candidates):
         merge_base = _git(root, "merge-base", "HEAD", candidate).strip()
         if merge_base:
             return merge_base
+    print(
+        "⚠ ws: could not resolve base branch (tried origin/HEAD, main, master, @{u}); "
+        "committed changes will not be included.",
+        file=sys.stderr,
+    )
     return None
 
 
@@ -61,6 +74,22 @@ def changed_files(root: Path) -> list[str]:
     return sorted(files)
 
 
+def _hash_untracked_file(digest: _Hasher, path: Path, rel_path: str) -> None:
+    try:
+        st = path.stat()
+    except OSError:
+        return
+    if not stat.S_ISREG(st.st_mode):
+        return
+    try:
+        with path.open("rb") as handle:
+            digest.update(f"{rel_path}\0".encode("utf-8", "replace"))
+            while chunk := handle.read(_HASH_CHUNK_BYTES):
+                digest.update(chunk)
+    except OSError:
+        return
+
+
 def tree_fingerprint(root: Path) -> str:
     """Changes whenever HEAD or any tracked/untracked working-tree content changes."""
     head = _git(root, "rev-parse", "HEAD").strip()
@@ -71,7 +100,5 @@ def tree_fingerprint(root: Path) -> str:
         digest.update(part.encode("utf-8", "replace"))
     for xy, rel_path in _parse_porcelain_z(status):
         if xy == "??":
-            path = root / rel_path
-            if path.is_file():
-                digest.update(path.read_bytes())
+            _hash_untracked_file(digest, root / rel_path, rel_path)
     return digest.hexdigest()[:16]

@@ -191,8 +191,7 @@
           "**/*.pyi"
         ]
       },
-      "stacks": [],
-      "user_scope": true
+      "stacks": []
     },
     {
       "id": "11-self-documenting-code",
@@ -378,6 +377,20 @@
         ]
       },
       "stacks": [],
+      "user_scope": true
+    },
+    {
+      "id": "21-antigravity-routing",
+      "category": "1-core",
+      "file": "1-core/21-antigravity-routing.md",
+      "description": "Antigravity delegation with Hydrogen and Neon at effort levels matched to task complexity",
+      "triggers": {
+        "globs": [
+          "**/*"
+        ]
+      },
+      "stacks": [],
+      "user_agents": ["antigravity"],
       "user_scope": true
     },
     {
@@ -624,8 +637,7 @@
           "**/webapp.*"
         ]
       },
-      "stacks": [],
-      "user_scope": true
+      "stacks": []
     },
     {
       "id": "observability",

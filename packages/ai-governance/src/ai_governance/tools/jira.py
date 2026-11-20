@@ -31,6 +31,7 @@ import argparse
 import json
 import sys
 import textwrap
+import urllib.parse
 from datetime import datetime
 from typing import Any
 
@@ -38,6 +39,7 @@ from ai_governance.tools.atlassian_common import (
     AtlassianError,
     atlassian_timeout,
     auth_header,
+    check_external_payload,
     execute_request,
     get_base_url,
     read_input_text,
@@ -82,10 +84,12 @@ def get(path: str) -> Any:
 
 
 def post(path: str, payload: dict[str, Any]) -> Any:
+    check_external_payload(payload)
     return _request("POST", path, payload)
 
 
 def put(path: str, payload: dict[str, Any]) -> Any:
+    check_external_payload(payload)
     return _request("PUT", path, payload)
 
 
@@ -109,22 +113,32 @@ def _fmt_date(iso: str | None) -> str:
 # ── Commands ──────────────────────────────────────────────────────────────────
 
 
+def _quote_seg(segment: str) -> str:
+    return urllib.parse.quote(str(segment), safe="")
+
+
+def _dict(mapping: dict[str, Any], key: str) -> dict[str, Any]:
+    val = mapping.get(key)
+    return val if isinstance(val, dict) else {}
+
+
 def cmd_issue(key: str, as_json: bool = False) -> None:
     """Displays issue in clean Markdown or JSON."""
+    safe_key = _quote_seg(key)
     data = get(
-        f"/issue/{key}?fields=summary,status,assignee,reporter,priority,issuetype,description,created,updated,labels,comment"
+        f"/issue/{safe_key}?fields=summary,status,assignee,reporter,priority,issuetype,description,created,updated,labels,comment"
     )
     if as_json:
         print(json.dumps(data, indent=2))
         return
 
-    f = data.get("fields", {})
-    assignee = (f.get("assignee") or {}).get("displayName", "Unassigned")
-    reporter = (f.get("reporter") or {}).get("displayName", "—")
-    status = f.get("status", {}).get("name", "—")
-    priority = (f.get("priority") or {}).get("name", "—")
-    itype = f.get("issuetype", {}).get("name", "—")
-    labels = ", ".join(f.get("labels", [])) or "—"
+    f = _dict(data, "fields")
+    assignee = _dict(f, "assignee").get("displayName", "Unassigned")
+    reporter = _dict(f, "reporter").get("displayName", "—")
+    status = _dict(f, "status").get("name", "—")
+    priority = _dict(f, "priority").get("name", "—")
+    itype = _dict(f, "issuetype").get("name", "—")
+    labels = ", ".join(f.get("labels") or []) or "—"
     desc_raw = f.get("description")
     desc_md = _adf_to_md(desc_raw).strip() if desc_raw else "_No description_"
 
@@ -137,11 +151,11 @@ def cmd_issue(key: str, as_json: bool = False) -> None:
     )
     print(f"\n## Description\n\n{desc_md}")
 
-    comments = f.get("comment", {}).get("comments", [])
+    comments = _dict(f, "comment").get("comments") or []
     if comments:
         print(f"\n## Recent Comments ({len(comments)} total)\n")
         for c in comments[-3:]:
-            author = c.get("author", {}).get("displayName", "—")
+            author = _dict(c, "author").get("displayName", "—")
             date = _fmt_date(c.get("created", ""))
             body = _adf_to_md(c.get("body")).strip()
             print(f"**{author}** — {date}\n{body}\n")
@@ -172,10 +186,10 @@ def cmd_search(
     print("| Key | Type | Status | Assignee | Title |")
     print("|---|---|---|---|---|")
     for i in issues:
-        f = i.get("fields", {})
+        f = i.get("fields") or {}
         assignee = (f.get("assignee") or {}).get("displayName", "—")
-        status = f.get("status", {}).get("name", "—")
-        itype = f.get("issuetype", {}).get("name", "—")
+        status = (f.get("status") or {}).get("name", "—")
+        itype = (f.get("issuetype") or {}).get("name", "—")
         print(f"| {i['key']} | {itype} | {status} | {assignee} | {f.get('summary', '')} |")
 
     next_token = data.get("nextPageToken")
@@ -185,20 +199,21 @@ def cmd_search(
 
 def cmd_comments(key: str, as_json: bool = False) -> None:
     """Displays all comments on an issue."""
-    data = get(f"/issue/{key}/comment?orderBy=created")
+    safe_key = _quote_seg(key)
+    data = get(f"/issue/{safe_key}/comment?orderBy=created")
     if as_json:
         print(json.dumps(data, indent=2))
         return
 
-    comments = data.get("comments", [])
+    comments = data.get("comments") or []
     if not comments:
         print("_No comments._")
         return
 
-    summary = get(f"/issue/{key}?fields=summary").get("fields", {}).get("summary", "")
+    summary = (get(f"/issue/{safe_key}?fields=summary").get("fields") or {}).get("summary", "")
     print(f"# Comments on {key}: {summary}\n")
     for c in comments:
-        author = c.get("author", {}).get("displayName", "—")
+        author = (c.get("author") or {}).get("displayName", "—")
         date = _fmt_date(c.get("created", ""))
         body = _adf_to_md(c.get("body")).strip()
         print(f"---\n**{author}** — {date} — id: {c.get('id', '—')}\n\n{body}\n")
@@ -231,7 +246,7 @@ def cmd_create(
 def cmd_comment(key: str, text: str) -> None:
     """Adds a comment to an issue."""
     comment_text = read_input_text(text, allow_bare_path=False)
-    data = post(f"/issue/{key}/comment", {"body": md_to_adf(comment_text)})
+    data = post(f"/issue/{_quote_seg(key)}/comment", {"body": md_to_adf(comment_text)})
     print(f"✅ Comment added to {key}")
     print(f"   id: {data.get('id', '')}")
 
@@ -239,7 +254,10 @@ def cmd_comment(key: str, text: str) -> None:
 def cmd_comment_edit(key: str, comment_id: str, text: str) -> None:
     """Replaces the body of an existing comment."""
     comment_text = read_input_text(text, allow_bare_path=False)
-    put(f"/issue/{key}/comment/{comment_id}", {"body": md_to_adf(comment_text)})
+    put(
+        f"/issue/{_quote_seg(key)}/comment/{_quote_seg(comment_id)}",
+        {"body": md_to_adf(comment_text)},
+    )
     print(f"✅ Comment {comment_id} edited on {key}")
 
 
@@ -253,13 +271,14 @@ def cmd_edit(key: str, desc: str | None = None, title: str | None = None) -> Non
     if not fields:
         print("❌ Nothing to edit: pass --desc and/or --title.", file=sys.stderr)
         sys.exit(1)
-    put(f"/issue/{key}", {"fields": fields})
+    put(f"/issue/{_quote_seg(key)}", {"fields": fields})
     print(f"✅ Issue {key} updated ({', '.join(sorted(fields))})")
 
 
 def cmd_transition(key: str, state_name: str) -> None:
     """Moves an issue to target status with strict ambiguous match protection."""
-    data = get(f"/issue/{key}/transitions")
+    safe_key = _quote_seg(key)
+    data = get(f"/issue/{safe_key}/transitions")
     transitions = data.get("transitions", [])
 
     # 1. Exact case-insensitive match takes precedence
@@ -290,7 +309,7 @@ def cmd_transition(key: str, state_name: str) -> None:
         else:
             match = matches[0]
 
-    post(f"/issue/{key}/transitions", {"transition": {"id": match["id"]}})
+    post(f"/issue/{safe_key}/transitions", {"transition": {"id": match["id"]}})
     print(f"✅ {key} → {match['name']}")
 
 
@@ -300,7 +319,8 @@ def cmd_assign(key: str, who: str) -> None:
         me = get("/myself")
         account_id = me.get("accountId")
     else:
-        results = get(f"/user/search?query={who}")
+        query = urllib.parse.urlencode({"query": who})
+        results = get(f"/user/search?{query}")
         if not results:
             print(f"❌ User '{who}' not found.", file=sys.stderr)
             sys.exit(1)
@@ -328,16 +348,34 @@ def cmd_assign(key: str, who: str) -> None:
         else:
             account_id = results[0].get("accountId")
 
-    put(f"/issue/{key}/assignee", {"accountId": account_id})
+    put(f"/issue/{_quote_seg(key)}/assignee", {"accountId": account_id})
     print(f"✅ {key} assigned to {'you' if who == 'me' else who}")
+
+
+def _require_id(value: object, label: str) -> int:
+    if isinstance(value, bool):
+        print(f"❌ Invalid {label}: {value!r}", file=sys.stderr)
+        sys.exit(1)
+    if isinstance(value, str) and value.isascii() and value.isdigit():
+        num = int(value)
+    elif isinstance(value, int):
+        num = value
+    else:
+        print(f"❌ Invalid {label}: {value!r}", file=sys.stderr)
+        sys.exit(1)
+    if num <= 0:
+        print(f"❌ Invalid {label}: {value!r}", file=sys.stderr)
+        sys.exit(1)
+    return num
 
 
 def _all_sprints(board_id: int) -> list[dict[str, Any]]:
     """Fetches every sprint of a board (the Agile API pages at ~50)."""
+    safe_board = _quote_seg(str(_require_id(board_id, "board_id")))
     sprints: list[dict[str, Any]] = []
     start = 0
     while True:
-        page = agile_get(f"/board/{board_id}/sprint?startAt={start}&maxResults=50")
+        page = agile_get(f"/board/{safe_board}/sprint?startAt={start}&maxResults=50")
         values = page.get("values", [])
         sprints.extend(values)
         if page.get("isLast", True) or not values:
@@ -374,7 +412,8 @@ def _resolve_sprint(sprints: list[dict[str, Any]], board_id: Any, name: str) -> 
 def cmd_sprint(key: str, name: str) -> None:
     """Moves an issue to a sprint."""
     project = key.split("-")[0]
-    boards = agile_get(f"/board?projectKeyOrId={project}").get("values", [])
+    query = urllib.parse.urlencode({"projectKeyOrId": project})
+    boards = agile_get(f"/board?{query}").get("values", [])
     if not boards:
         print(f"❌ Project '{project}' has no boards.", file=sys.stderr)
         sys.exit(1)
@@ -383,10 +422,10 @@ def cmd_sprint(key: str, name: str) -> None:
     sprints = _all_sprints(board_id)
     match = _resolve_sprint(sprints, board_id, name)
 
-    sprint_id = match["id"]
+    sprint_id = _require_id(match.get("id"), "sprint_id")
     sprint_name = match["name"]
 
-    agile_post(f"/sprint/{sprint_id}/issue", {"issues": [key]})
+    agile_post(f"/sprint/{_quote_seg(str(sprint_id))}/issue", {"issues": [key]})
     print(f"✅ {key} moved to sprint **{sprint_name}** (id: {sprint_id})")
 
 

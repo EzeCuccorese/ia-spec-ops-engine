@@ -20,6 +20,7 @@ def gate_calls(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     monkeypatch.setattr(git_hooks.subprocess, "run", fake_run)
     monkeypatch.setattr(git_hooks, "_resolve_hook_to_run", lambda root: (root / "hook", None))
     monkeypatch.setattr(git_hooks, "_push_ref_line", lambda root: "refs\n")
+    monkeypatch.setattr(git_hooks, "_write_changed_files_list", lambda root: None)
     for name in ("QG_SKIP", "QG_TIMEOUT", "QG_COMMIT_STYLE"):
         monkeypatch.delenv(name, raising=False)
     return calls

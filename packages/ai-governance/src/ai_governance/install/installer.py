@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .. import __version__, corporate, personal, skills
+from .. import __version__, corporate, skills
 from ..frontmatter import check_frontmatter
 from ..paths import state_dir
 from ..rules.catalog import RuleCatalog, RuleDefinition
@@ -178,11 +178,6 @@ def _corporate_rules(spec: AgentSpec, packs: list[corporate.CorporatePack]) -> l
     ]
 
 
-def _personal_rules(spec: AgentSpec, rules: list[personal.PersonalRule]) -> list[Owned]:
-    """Every rule in the personal folder, rendered for one agent."""
-    return [Owned(spec.id, artifact) for artifact in spec.personal_artifacts(rules)]
-
-
 def _language_rules(spec: AgentSpec, rules: list[RuleDefinition]) -> list[Owned]:
     """Catalog rules marked ``user_scope``: basic practices per language in every repo."""
     return [Owned(spec.id, artifact) for artifact in spec.catalog_artifacts(rules)]
@@ -216,12 +211,6 @@ def _is_corporate_target(target: str) -> bool:
     return bool(target) and (
         corporate.CORPORATE_DIR in Path(target).parts
         or Path(target).parent.name in ("rules", "scripts")
-    )
-
-
-def _is_personal_target(target: str) -> bool:
-    return bool(target) and (
-        personal.PERSONAL_DIR in Path(target).parts or Path(target).parent.name == "rules"
     )
 
 
@@ -320,46 +309,18 @@ def _corporate_entries_to_keep(
     return kept
 
 
-def _is_personal_rule_name(name: str) -> bool:
-    prefix = "ai-governance-personal-"
-    suffix = ".md"
-    return (
-        name.startswith(prefix) and name.endswith(suffix) and len(name) > len(prefix) + len(suffix)
-    )
-
-
-def _is_personal_link(agent: str, path: Path, target: str = "") -> bool:
-    if not _is_personal_target(target):
-        return False
-    if agent == "codex":
-        return path.parent == codex_rules_dir() / "personal" and path.name.endswith(".md")
-    expected = _user_rules_dir(agent)
-    if expected is None or path.parent != expected:
-        return False
-    return _is_personal_rule_name(path.name)
-
-
-def _is_personal_entry(ledger: Ledger, entry: dict[str, Any]) -> bool:
-    if entry.get("kind") != "link":
-        return False
-    return _is_personal_link(
-        str(entry.get("agent", "")),
-        ledger.resolve(str(entry.get("path", ""))),
-        str(entry.get("target", "")),
-    )
-
-
-def _personal_entries_to_keep(ledger: Ledger, agents: set[str]) -> list[Owned]:
-    return _entries_to_keep(ledger, agents, _is_personal_link)
-
-
 def _corporate_desired(
     specs: list[AgentSpec],
     ledger: Ledger,
     report: Report,
     corporate_names: list[str] | None = None,
 ) -> list[Owned]:
-    root = corporate.corporate_root()
+    corporate_scope = {spec.id for spec in specs} | {SCRIPTS_OWNER}
+    try:
+        root = corporate.corporate_root()
+    except ValueError as exc:
+        report.warnings.append(str(exc))
+        return _corporate_entries_to_keep(ledger, corporate_scope, RuleCatalog())
     if root.exists():
         packs = corporate.packs(only=corporate_names)
         for pack in packs:
@@ -371,7 +332,6 @@ def _corporate_desired(
         desired = [artifact for spec in specs for artifact in _corporate_rules(spec, packs)]
         desired.extend(_corporate_scripts(packs, report))
         return desired
-    corporate_scope = {spec.id for spec in specs} | {SCRIPTS_OWNER}
     kept = _corporate_entries_to_keep(ledger, corporate_scope, RuleCatalog())
     if kept:
         report.warnings.append(
@@ -379,50 +339,6 @@ def _corporate_desired(
             "Set AI_GOVERNANCE_CORPORATE_DIR to point to your corporate rules directory."
         )
     return kept
-
-
-def _personal_desired(
-    specs: list[AgentSpec],
-    ledger: Ledger,
-    report: Report,
-    dry_run: bool = False,
-) -> list[Owned]:
-    root = personal.personal_root()
-    if personal.is_default_root() and not dry_run:
-        personal.ensure_personal_dir(root)
-    if root.exists():
-        rules = personal.rules(root)
-        for r in rules:
-            if not check_frontmatter(r.content).valid:
-                report.warnings.append(
-                    f"Personal rule '{r.name}' is missing YAML front matter with 'trigger: always_on' or 'trigger: glob'"
-                )
-        return [artifact for spec in specs for artifact in _personal_rules(spec, rules)]
-    scope = {spec.id for spec in specs}
-    kept = _personal_entries_to_keep(ledger, scope)
-    if kept:
-        report.warnings.append(
-            f"Personal directory {root} does not exist: keeping previously installed personal entries. "
-            "Set AI_GOVERNANCE_PERSONAL_DIR to point to your personal rules directory."
-        )
-    return kept
-
-
-def sync_personal_rules(root: Path | None = None, *, dry_run: bool = False) -> Report:
-    """Reconciles personal rule symlinks across all installed agents."""
-    ledger = global_ledger()
-    agents = sorted(installed_agents(ledger))
-    if not agents:
-        return Report()
-    specs = resolve_agents(agents)
-    target_root = root or personal.personal_root()
-    current_rules = personal.rules(target_root)
-    desired = [
-        Owned(spec.id, artifact)
-        for spec in specs
-        for artifact in spec.personal_artifacts(current_rules)
-    ]
-    return _reconcile_links(ledger, desired, _is_personal_entry, dry_run=dry_run)
 
 
 def _reconcile_links(
@@ -483,7 +399,7 @@ def _skill_desired(
     """Skill copies for the agents; a collision keeps the skills already installed."""
     try:
         sources = skills.collect(pack_names=pack_names)
-    except skills.SkillError as exc:
+    except (skills.SkillError, ValueError) as exc:
         report.warnings.append(str(exc))
         return _skill_entries_to_keep(ledger, {spec.id for spec in specs})
     return [Owned(spec.id, a) for spec in specs for a in spec.skill_copy_artifacts(sources)]
@@ -524,6 +440,36 @@ def sync_skill_links(*, dry_run: bool = False, force: bool = False) -> Report:
     return report
 
 
+def _personal_source_for_entry(
+    entry: dict[str, Any], desired_paths: set[str], scope: set[str]
+) -> Path | None:
+    if entry.get("kind") != "link" or entry.get("agent") not in scope:
+        return None
+    rel = str(entry.get("path", ""))
+    name = Path(rel).name
+    if rel in desired_paths or not name.endswith(".md"):
+        return None
+    if not (name.startswith("ai-governance-personal-") or name.startswith("personal-")):
+        return None
+    target = str(entry.get("target", ""))
+    src = Path(target) if target else None
+    return src if src is not None and src.is_file() else None
+
+
+def _removed_personal_sources(
+    entries: list[dict[str, Any]], ledger: Ledger, desired: list[Owned], scope: set[str]
+) -> list[Path]:
+    desired_paths = {ledger.key(owned.artifact.path) for owned in desired}
+    sources: list[Path] = []
+    seen: set[Path] = set()
+    for entry in entries:
+        src = _personal_source_for_entry(entry, desired_paths, scope)
+        if src is not None and src not in seen:
+            seen.add(src)
+            sources.append(src)
+    return sources
+
+
 def install_user(
     agents: list[str],
     *,
@@ -538,17 +484,24 @@ def install_user(
     """
     specs = resolve_agents(agents)
     ledger = global_ledger()
+    before_entries = list(ledger.entries)
     report = Report()
     desired = [Owned(spec.id, artifact) for spec in specs for artifact in spec.global_artifacts()]
     catalog = RuleCatalog()
-    language_rules = catalog.user_rules()
     for spec in specs:
-        desired.extend(_language_rules(spec, language_rules))
+        desired.extend(_language_rules(spec, catalog.user_rules(spec.id)))
     desired.extend(_corporate_desired(specs, ledger, report, corporate_names))
-    desired.extend(_personal_desired(specs, ledger, report, dry_run=dry_run))
     desired.extend(_skill_desired(specs, ledger, report, corporate_names))
     scope = {spec.id for spec in specs} | {SCRIPTS_OWNER, COMPLETIONS_OWNER, SCHEDULE_OWNER}
     sync(desired, ledger, agents_in_scope=scope, dry_run=dry_run, force=force, report=report)
+    if sources := _removed_personal_sources(before_entries, ledger, desired, scope):
+        dirs = sorted({str(p.parent) for p in sources})
+        files = ", ".join(str(p) for p in sources)
+        report.warnings.append(
+            f"Managed personal-rule links were removed on upgrade; your source Markdown remains at {', '.join(dirs)} ({files}). "
+            "Copy or adapt custom rules into each agent's supported instructions: "
+            "Claude (~/.claude/rules/ or ~/.claude/CLAUDE.md), Antigravity (~/.gemini/config/rules/), Codex ($CODEX_HOME/AGENTS.md or ~/.codex/AGENTS.md)."
+        )
     ledger.extra["package_version"] = __version__
     ledger.save(report, dry_run)
     return report
@@ -562,9 +515,13 @@ def uninstall_user(
     ledger = global_ledger()
     report = Report()
     keep_shared = bool(installed_agents(ledger) - scope)
-    root = corporate.corporate_root()
+    try:
+        root = corporate.corporate_root()
+    except ValueError as exc:
+        report.warnings.append(str(exc))
+        root = None
     if keep_shared:
-        if root.exists():
+        if root is not None and root.exists():
             desired = _corporate_scripts(corporate.packs(only=corporate_names), report)
         else:
             desired = _corporate_entries_to_keep(ledger, {SCRIPTS_OWNER})
@@ -579,6 +536,11 @@ def uninstall_user(
 # -- project scope -----------------------------------------------------------------
 
 
+def _strip_agents_imports(text: str) -> str:
+    kept = [line for line in text.splitlines() if line.strip() != "@AGENTS.md"]
+    return "\n".join(kept).strip()
+
+
 def _migrate_claude_memory(root: Path, report: Report, dry_run: bool) -> None:
     """Moves CLAUDE.md content into AGENTS.md (the only instructions file we support)."""
     agents_md = root / "AGENTS.md"
@@ -586,7 +548,7 @@ def _migrate_claude_memory(root: Path, report: Report, dry_run: bool) -> None:
         source = root / relative
         if not source.is_file():
             continue
-        text = source.read_text(encoding="utf-8").strip()
+        text = _strip_agents_imports(source.read_text(encoding="utf-8"))
         if text and not dry_run:
             existing = agents_md.read_text(encoding="utf-8") if agents_md.exists() else ""
             joined = f"{existing.rstrip()}\n\n{text}\n" if existing.strip() else f"{text}\n"
@@ -652,10 +614,42 @@ def _changed_config(config: ProjectConfig, *, agents: Change, profiles: Change) 
     return config
 
 
-def _stacks_or_warn(root: Path, report: Report) -> set[str]:
+def _most_specific_stack(rule: RuleDefinition, catalog: RuleCatalog) -> str:
+    """Stack tag from ``rule.stacks`` matching the fewest catalog rules."""
+    return min(
+        rule.stacks,
+        key=lambda stack: sum(1 for other in catalog.rules if stack in other.stacks),
+    )
+
+
+def _preserved_stacks(root: Path, config: ProjectConfig | None = None) -> set[str]:
+    """Stacks recorded in or implied by the project ledger when ``ws`` is missing."""
+    ledger = Ledger(root / PROJECT_DIR / "lock.json", base=root)
+    preserved = {str(s) for s in ledger.extra.get("stacks", []) if isinstance(s, str)}
+    extra = set(config.extra_rules) if config is not None else set()
+    catalog = RuleCatalog()
+    stack_rules = [
+        rule
+        for rule_id in sorted(_installed_rule_ids(ledger) - extra)
+        if (rule := catalog.get(rule_id)) is not None and rule.stacks
+    ]
+    for rule in sorted(stack_rules, key=lambda r: len(r.stacks)):
+        if not rule.applies_to(preserved):
+            preserved.add(_most_specific_stack(rule, catalog))
+    return preserved
+
+
+def _stacks_or_warn(root: Path, report: Report, config: ProjectConfig | None = None) -> set[str]:
     stacks = detect_stacks(root)
     if stacks is not None:
         return stacks
+    preserved = _preserved_stacks(root, config)
+    if preserved:
+        report.warnings.append(
+            "`ws` not found: stack detection skipped, keeping previously installed stack rules. "
+            "Install the workspace package and run `ai-governance update`."
+        )
+        return preserved
     report.warnings.append(
         "`ws` not found: stack detection skipped, only general rules selected. "
         "Install the workspace package and run `ai-governance update`."
@@ -667,7 +661,7 @@ def _prepare_project(
     root: Path, config: ProjectConfig, report: Report, *, dry_run: bool
 ) -> set[str]:
     """Detects the stacks and moves CLAUDE.md into AGENTS.md for Claude projects."""
-    stacks = _stacks_or_warn(root, report)
+    stacks = _stacks_or_warn(root, report, config)
     if "claude" in config.agents:
         _migrate_claude_memory(root, report, dry_run)
     return stacks

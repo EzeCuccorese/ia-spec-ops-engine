@@ -43,6 +43,12 @@ def test_cli_dispatch_taskflow() -> None:
         mock_session.assert_called_once_with(["list"])
 
 
+def test_cli_dispatch_brain() -> None:
+    with patch("ai_governance.brain.cli.main", return_value=0) as mock_brain:
+        assert main(["brain", "list"]) == 0
+        mock_brain.assert_called_once_with(["list"])
+
+
 def test_cli_dispatch_jira() -> None:
     with patch("ai_governance.tools.jira.main", return_value=0) as mock_jira:
         assert main(["jira", "help"]) == 0
@@ -72,20 +78,14 @@ def test_cli_help_lists_all_canonical_subcommands(capsys: pytest.CaptureFixture[
         "update",
         "doctor",
         "rules",
-        "personal",
         "taskflow",
+        "brain",
         "hook",
     ):
         assert subcommand in out
     listing = out.split("{", 1)[1].split("}", 1)[0].split(",")
     for removed in ("frugal", "harness", "progreso", "ritmo", "telemetry", "completion", "probe"):
         assert removed not in listing
-
-
-def test_cli_dispatch_personal() -> None:
-    with patch("ai_governance.personal.main", return_value=0) as mock_personal:
-        assert main(["personal", "list"]) == 0
-        mock_personal.assert_called_once_with(["list"])
 
 
 def test_rules_subcommand_help_delegates_to_rules_parser(
@@ -100,6 +100,15 @@ def test_rules_subcommand_help_delegates_to_rules_parser(
 def test_cli_unknown_subcommand_errors() -> None:
     with pytest.raises(SystemExit):
         main(["not-a-real-subcommand"])
+
+
+def test_cli_personal_rules_command_is_retired(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["personal", "list"])
+    assert exc_info.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
 
 
 def test_cli_dispatch_install_commands() -> None:

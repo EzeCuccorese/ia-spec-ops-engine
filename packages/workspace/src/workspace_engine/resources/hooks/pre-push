@@ -44,10 +44,14 @@ if ! command -v ws >/dev/null 2>&1; then
   done
 fi
 if command -v ws >/dev/null 2>&1; then
-  RAW_GATE_CONFIG="$(ws hooks gate-config --dir "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" 2>/dev/null)" || RAW_GATE_CONFIG=""
-  if [ -n "$RAW_GATE_CONFIG" ]; then
-    eval "$RAW_GATE_CONFIG" || true
-    PROTECTED_BRANCHES="${QG_PROTECTED:-$PROTECTED_BRANCHES}"
+  if RAW_GATE_CONFIG="$(ws hooks gate-config --dir "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" 2>/dev/null)"; then
+    if [ -n "$RAW_GATE_CONFIG" ]; then
+      eval "$RAW_GATE_CONFIG" || true
+      PROTECTED_BRANCHES="${QG_PROTECTED:-$PROTECTED_BRANCHES}"
+    fi
+  else
+    echo "⚠  ws hooks gate-config failed; using built-in/env defaults." >&2
+    RAW_GATE_CONFIG=""
   fi
 fi
 
@@ -75,6 +79,11 @@ fail() { echo "✘ $1: FAIL"; FAILED=1; FAILED_STEPS="${FAILED_STEPS}  - $1"$'\n
 pass() { echo "✔ $1: PASS"; }
 warn() { echo "⚠  $1"; }
 note() { echo "   $1"; }
+
+if ! [[ "$QG_TIMEOUT" =~ ^[1-9][0-9]*$ ]]; then
+  warn "Invalid QG_TIMEOUT='$QG_TIMEOUT' (expected positive integer); falling back to 900s."
+  QG_TIMEOUT=900
+fi
 
 # Prints the bin dir of the newest nvm-installed Node for a version spec ("20",
 # "v20.1.0"); a non-numeric spec ("lts/*", "node") takes the newest installed.
@@ -138,22 +147,23 @@ python_manager_envs() {
 }
 
 # How to run a Python tool from the project's own environment: .venv/venv, a uv
-# project, then a Poetry/Pipenv/PDM env. Prints nothing when there is none here.
+# project, then a Poetry/Pipenv/PDM env. Prints one argv element per line so
+# paths containing spaces stay intact; prints nothing when there is none here.
 python_project_tool() {
   local tool="$1" dir
   for dir in "$REPO_ROOT/.venv" "$REPO_ROOT/venv"; do
     if [ -x "$dir/bin/$tool" ]; then
-      echo "$dir/bin/$tool"
+      printf '%s\n' "$dir/bin/$tool"
       return 0
     fi
   done
   if [ -f "$REPO_ROOT/uv.lock" ] && command -v uv >/dev/null 2>&1; then
-    echo "uv run $tool"
+    printf '%s\n' uv run "$tool"
     return 0
   fi
   while IFS= read -r dir; do
     if [ -n "$dir" ] && [ -x "$dir/bin/$tool" ]; then
-      echo "$dir/bin/$tool"
+      printf '%s\n' "$dir/bin/$tool"
       return 0
     fi
   done < <(python_manager_envs)
@@ -219,7 +229,7 @@ js_pm() {
 # checkout has not installed (a new worktree has no node_modules).
 js_install_hint() {
   { [ -d "$REPO_ROOT/node_modules" ] || [ -f "$REPO_ROOT/.pnp.cjs" ]; } && return 0
-  node -e "const p=require('$REPO_ROOT/package.json'); process.exit(Object.keys({...p.dependencies, ...p.devDependencies}).length ? 0 : 1)" 2>/dev/null || return 0
+  node -e "const p=require(process.argv[1]); process.exit(Object.keys({...p.dependencies, ...p.devDependencies}).length ? 0 : 1)" "$REPO_ROOT/package.json" 2>/dev/null || return 0
   local pm
   pm="$(js_pm)"
   if [ "$pm" = "npm" ] && [ -f "$REPO_ROOT/package-lock.json" ]; then echo "npm ci"
@@ -260,19 +270,20 @@ php_install_hint() {
 }
 
 # The Flutter SDK tool (flutter|dart) the repo pins with FVM, else the global one.
+# Prints one argv element per line so paths containing spaces stay intact.
 flutter_tool() {
   local tool="$1"
   if [ -f "$REPO_ROOT/.fvmrc" ] || [ -f "$REPO_ROOT/.fvm/fvm_config.json" ]; then
     if [ -x "$REPO_ROOT/.fvm/flutter_sdk/bin/$tool" ]; then
-      echo "$REPO_ROOT/.fvm/flutter_sdk/bin/$tool"
+      printf '%s\n' "$REPO_ROOT/.fvm/flutter_sdk/bin/$tool"
       return 0
     fi
     if command -v fvm >/dev/null 2>&1; then
-      echo "fvm $tool"
+      printf '%s\n' fvm "$tool"
       return 0
     fi
   fi
-  command -v "$tool" >/dev/null 2>&1 && echo "$tool"
+  command -v "$tool" >/dev/null 2>&1 && printf '%s\n' "$tool"
   return 0
 }
 
@@ -432,7 +443,12 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   target_ref="$remote_ref"
   [ -n "$target_ref" ] || target_ref="$local_ref"
   branch_name="${target_ref#refs/heads/}"
-  if [[ "$branch_name" =~ $PROTECTED_BRANCHES ]]; then
+  [[ "$branch_name" =~ $PROTECTED_BRANCHES ]]
+  match_rc=$?
+  if [ "$match_rc" -eq 2 ]; then
+    echo "🚫 Invalid protected-branch regex: '$PROTECTED_BRANCHES' (failing closed)." >&2
+    exit 1
+  elif [ "$match_rc" -eq 0 ]; then
     if [ "$local_sha" = "$ZERO" ]; then
       echo "🚫 Deleting the protected branch '$branch_name' on the remote is blocked."
     else
@@ -475,13 +491,33 @@ if [ "$NOTHING_NEW" = "0" ]; then
   i=0
   while [ "$i" -lt "${#TIPS[@]}" ]; do
     # --diff-filter=ACMR excludes deletions: no point linting a file that no longer exists.
-    git diff --name-only --diff-filter=ACMR "${BASES[$i]}" "${TIPS[$i]}" 2>/dev/null >> "$DIFF_FILES_FILE"
+    while IFS= read -r -d '' f; do
+      [ -n "$f" ] && printf '%s\n' "$f" >> "$DIFF_FILES_FILE"
+    done < <(git -c core.quotepath=off diff --name-only -z --diff-filter=ACMR "${BASES[$i]}" "${TIPS[$i]}" 2>/dev/null)
     # shellcheck disable=SC2086
     git rev-list ${LOGOPTS[$i]} 2>/dev/null >> "$COMMITS_FILE"
     i=$((i + 1))
   done
-  sort -u "$DIFF_FILES_FILE" > "$TMPD/f2" && mv "$TMPD/f2" "$DIFF_FILES_FILE"
-  sort -u "$COMMITS_FILE" > "$TMPD/c2" && mv "$TMPD/c2" "$COMMITS_FILE"
+fi
+
+# `ws check --changed` passes working-tree + branch files via QG_FILES_FILE so uncommitted
+# edits are linted, design-checked and tested alongside committed changes.
+if [ -n "${QG_FILES_FILE:-}" ] && [ -f "$QG_FILES_FILE" ]; then
+  while IFS= read -r f; do
+    [ -n "$f" ] && [ -f "$f" ] && printf '%s\n' "$f" >> "$DIFF_FILES_FILE"
+  done < "$QG_FILES_FILE"
+fi
+
+sort -u "$DIFF_FILES_FILE" > "$TMPD/f2" && mv "$TMPD/f2" "$DIFF_FILES_FILE"
+sort -u "$COMMITS_FILE" > "$TMPD/c2" && mv "$TMPD/c2" "$COMMITS_FILE"
+
+HAS_COMMITS=0
+[ -s "$COMMITS_FILE" ] && HAS_COMMITS=1
+HAS_DIFF_FILES=0
+[ -s "$DIFF_FILES_FILE" ] && HAS_DIFF_FILES=1
+[ "$HAS_DIFF_FILES" = "1" ] && NOTHING_NEW=0
+
+if [ "$NOTHING_NEW" = "0" ]; then
   note "$(wc -l < "$COMMITS_FILE" | tr -d ' ') commit(s) and $(wc -l < "$DIFF_FILES_FILE" | tr -d ' ') file(s) in this push. Lint/test scope: $QG_SCOPE"
 fi
 
@@ -503,7 +539,7 @@ echo ""
 echo "🔒 [1/5] Checking for secrets in the commits being pushed..."
 if skipped gitleaks; then
   warn "Security and Secrets: skipped by $QG_SKIP_SOURCE"
-elif [ "$NOTHING_NEW" = "1" ]; then
+elif [ "$HAS_COMMITS" = "0" ]; then
   note "No new commits, skipping."
 elif ! command -v gitleaks >/dev/null 2>&1; then
   warn "gitleaks is not installed, skipping the scan (brew install gitleaks)."
@@ -545,7 +581,7 @@ echo ""
 echo "📝 [2/5] Checking commit policies..."
 if skipped commits; then
   warn "Git Policies: skipped by $QG_SKIP_SOURCE"
-elif [ "$NOTHING_NEW" = "1" ]; then
+elif [ "$HAS_COMMITS" = "0" ]; then
   note "No new commits, skipping."
 else
   COMMITS_OK=1
@@ -603,7 +639,7 @@ else
     JS_INSTALL_HINT="$(js_install_hint)"
     HAS_LINT_SCRIPT=0
     if command -v node >/dev/null 2>&1 && \
-       node -e "const p=require('$REPO_ROOT/package.json'); process.exit(p.scripts && p.scripts.lint ? 0 : 1)" 2>/dev/null; then
+       node -e "const p=require(process.argv[1]); process.exit(p.scripts && p.scripts.lint ? 0 : 1)" "$REPO_ROOT/package.json" 2>/dev/null; then
       HAS_LINT_SCRIPT=1
     fi
 
@@ -638,19 +674,22 @@ else
     # The project's own environment first: a global ruff may be another version.
     # ruff has no dependencies: without the project's env, run the version its
     # lockfile pins, and only then a global one.
-    RUFF_EXE="$(python_project_tool ruff)"
+    RUFF_CMD=()
+    while IFS= read -r arg; do
+      [ -n "$arg" ] && RUFF_CMD+=("$arg")
+    done < <(python_project_tool ruff)
     RUFF_LOCKED="$(ruff_locked_version)"
-    if [ -z "$RUFF_EXE" ]; then
+    if [ "${#RUFF_CMD[@]}" -eq 0 ]; then
       if [ -n "$RUFF_LOCKED" ] && command -v uv >/dev/null 2>&1; then
-        RUFF_EXE="uv tool run ruff@$RUFF_LOCKED"
+        RUFF_CMD=(uv tool run "ruff@$RUFF_LOCKED")
       elif command -v ruff >/dev/null 2>&1; then
-        RUFF_EXE="ruff"
+        RUFF_CMD=(ruff)
       elif command -v uv >/dev/null 2>&1; then
-        RUFF_EXE="uv run --with ruff ruff"
+        RUFF_CMD=(uv run --with ruff ruff)
       fi
     fi
 
-    if [ -n "$RUFF_EXE" ]; then
+    if [ "${#RUFF_CMD[@]}" -gt 0 ]; then
       PY_FILES=()
       if [ "$QG_SCOPE" = "changed" ] && [ "$NOTHING_NEW" = "0" ]; then
         while IFS= read -r f; do
@@ -662,43 +701,61 @@ else
         if [ "${#PY_FILES[@]}" -gt 0 ]; then
           LINT_RAN=1
           note "ruff on ${#PY_FILES[@]} file(s) from the push"
-          run_to "$QG_TIMEOUT" $RUFF_EXE check "${PY_FILES[@]}" || LINT_OK=0
+          run_to "$QG_TIMEOUT" "${RUFF_CMD[@]}" check "${PY_FILES[@]}" || LINT_OK=0
         else
           note "No Python files in the push, skipping ruff."
         fi
       else
         LINT_RAN=1
-        run_to "$QG_TIMEOUT" $RUFF_EXE check . || LINT_OK=0
+        run_to "$QG_TIMEOUT" "${RUFF_CMD[@]}" check . || LINT_OK=0
       fi
+    else
+      warn "Python project detected but ruff is not available; skipping Python lint."
     fi
   fi
 
   # --- Go ---
-  if [ -f "$REPO_ROOT/go.mod" ] && command -v go >/dev/null 2>&1; then
-    LINT_RAN=1
-    note "go vet on the repository"
-    run_to "$QG_TIMEOUT" go vet ./... || LINT_OK=0
+  if [ -f "$REPO_ROOT/go.mod" ]; then
+    if command -v go >/dev/null 2>&1; then
+      LINT_RAN=1
+      note "go vet on the repository"
+      run_to "$QG_TIMEOUT" go vet ./... || LINT_OK=0
+    else
+      warn "go.mod is present but 'go' is not installed; skipping Go lint."
+    fi
   fi
 
   # --- Rust ---
-  if [ -f "$REPO_ROOT/Cargo.toml" ] && command -v cargo >/dev/null 2>&1; then
-    LINT_RAN=1
-    note "cargo clippy"
-    run_to "$QG_TIMEOUT" cargo clippy -- -D warnings || LINT_OK=0
+  if [ -f "$REPO_ROOT/Cargo.toml" ]; then
+    if command -v cargo >/dev/null 2>&1; then
+      LINT_RAN=1
+      note "cargo clippy"
+      run_to "$QG_TIMEOUT" cargo clippy -- -D warnings || LINT_OK=0
+    else
+      warn "Cargo.toml is present but 'cargo' is not installed; skipping Rust lint."
+    fi
   fi
 
   # --- Flutter / Dart ---
   if [ -f "$REPO_ROOT/pubspec.yaml" ]; then
-    FLUTTER_EXE="$(flutter_tool flutter)"
-    DART_EXE="$(flutter_tool dart)"
-    if [ -n "$FLUTTER_EXE" ]; then
+    FLUTTER_CMD=()
+    while IFS= read -r arg; do
+      [ -n "$arg" ] && FLUTTER_CMD+=("$arg")
+    done < <(flutter_tool flutter)
+    DART_CMD=()
+    while IFS= read -r arg; do
+      [ -n "$arg" ] && DART_CMD+=("$arg")
+    done < <(flutter_tool dart)
+    if [ "${#FLUTTER_CMD[@]}" -gt 0 ]; then
       LINT_RAN=1
-      note "$FLUTTER_EXE analyze"
-      run_to "$QG_TIMEOUT" $FLUTTER_EXE analyze || LINT_OK=0
-    elif [ -n "$DART_EXE" ]; then
+      note "${FLUTTER_CMD[*]} analyze"
+      run_to "$QG_TIMEOUT" "${FLUTTER_CMD[@]}" analyze || LINT_OK=0
+    elif [ "${#DART_CMD[@]}" -gt 0 ]; then
       LINT_RAN=1
-      note "$DART_EXE analyze"
-      run_to "$QG_TIMEOUT" $DART_EXE analyze || LINT_OK=0
+      note "${DART_CMD[*]} analyze"
+      run_to "$QG_TIMEOUT" "${DART_CMD[@]}" analyze || LINT_OK=0
+    else
+      warn "pubspec.yaml is present but neither 'flutter' nor 'dart' is installed; skipping Dart lint."
     fi
   fi
 
@@ -732,7 +789,7 @@ else
   fi
 
   if [ "$LINT_RAN" = "0" ]; then
-    note "No applicable linters detected; skipping."
+    warn "No applicable linters ran; skipping."
     pass "Linters and Static Analysis"
   elif [ "$LINT_OK" = "1" ]; then
     pass "Linters and Static Analysis"
@@ -783,7 +840,7 @@ else
     JS_PM="$(js_pm)"
     JS_INSTALL_HINT="$(js_install_hint)"
     if command -v "$JS_PM" >/dev/null 2>&1 && \
-       node -e "const p=require('$REPO_ROOT/package.json'); process.exit(p.scripts && p.scripts.test ? 0 : 1)" 2>/dev/null; then
+       node -e "const p=require(process.argv[1]); process.exit(p.scripts && p.scripts.test ? 0 : 1)" "$REPO_ROOT/package.json" 2>/dev/null; then
       HAS_TEST_SCRIPT=1
     fi
   fi
@@ -793,7 +850,7 @@ else
       TESTS_OK=0
       env_missing "JS/TS" "$JS_INSTALL_HINT"
     else
-      TEST_SCRIPT="$(node -e "const p=require('$REPO_ROOT/package.json'); process.stdout.write(String(p.scripts.test||''))" 2>/dev/null)"
+      TEST_SCRIPT="$(node -e "const p=require(process.argv[1]); process.stdout.write(String(p.scripts.test||''))" "$REPO_ROOT/package.json" 2>/dev/null)"
 
       JS_FILES=()
       if [ "$SCOPED_TESTS" = "1" ]; then
@@ -819,7 +876,9 @@ else
 
       if [ "$IS_MONOREPO" = "1" ]; then
         if [ "$SCOPED_TESTS" = "0" ]; then
-          note "Full test scope requested on monorepo, but full suite is disabled in pre-push hook."
+          RAN_ANY=1
+          note "Running full monorepo test suite ('$JS_PM test')"
+          run_to "$QG_TIMEOUT" "$JS_PM" test || TESTS_OK=0
         elif ! command -v ws >/dev/null 2>&1; then
           warn "Monorepo test scoping: 'ws' CLI not found on PATH; skipping monorepo tests."
         else
@@ -883,19 +942,22 @@ else
   # The project's own environment first: a global pytest lacks the project's
   # dependencies. A project whose manager (Poetry, Pipenv, PDM) has no env in
   # this checkout is reported as such instead of running a global pytest.
-  PYTEST_EXE="$(python_project_tool pytest)"
+  PYTEST_CMD=()
+  while IFS= read -r arg; do
+    [ -n "$arg" ] && PYTEST_CMD+=("$arg")
+  done < <(python_project_tool pytest)
   PY_ENV_HINT=""
-  if [ -z "$PYTEST_EXE" ]; then
+  if [ "${#PYTEST_CMD[@]}" -eq 0 ]; then
     if [ -f "$REPO_ROOT/poetry.lock" ] || [ -f "$REPO_ROOT/Pipfile.lock" ] || [ -f "$REPO_ROOT/pdm.lock" ]; then
       PY_ENV_HINT="$(python_install_cmd)"
     elif command -v pytest >/dev/null 2>&1; then
-      PYTEST_EXE="pytest"
+      PYTEST_CMD=(pytest)
     elif command -v uv >/dev/null 2>&1; then
-      PYTEST_EXE="uv run pytest"
+      PYTEST_CMD=(uv run pytest)
     fi
   fi
 
-  if [ -n "$PYTEST_EXE" ] || [ -n "$PY_ENV_HINT" ]; then
+  if [ "${#PYTEST_CMD[@]}" -gt 0 ] || [ -n "$PY_ENV_HINT" ]; then
     PY_TEST_FILES=()
     PY_RUN=0
     if [ "$SCOPED_TESTS" = "1" ]; then
@@ -903,7 +965,7 @@ else
       : > "$PY_RAW_TESTS"
       while IFS= read -r f; do
         [ -n "$f" ] && [ -f "$f" ] && printf '%s\n' "$f" >> "$PY_RAW_TESTS"
-      done < <(changed_files '*test_*.py' '*_test.py' '*/tests/*.py')
+      done < <(changed_files '*test_*.py' '*_test.py' '*tests/*.py')
       while IFS= read -r f; do
         [ -n "$f" ] || continue
         stem="$(basename "$f" .py)"
@@ -930,43 +992,59 @@ else
       RAN_ANY=1
       if [ "$SCOPED_TESTS" = "1" ]; then
         note "pytest scoped to ${#PY_TEST_FILES[@]} test file(s) from the push"
-        run_to "$QG_TIMEOUT" $PYTEST_EXE -q "${PY_TEST_FILES[@]}"; pt_rc=$?
+        run_to "$QG_TIMEOUT" "${PYTEST_CMD[@]}" -q "${PY_TEST_FILES[@]}"; pt_rc=$?
       else
-        run_to "$QG_TIMEOUT" $PYTEST_EXE -q; pt_rc=$?
+        run_to "$QG_TIMEOUT" "${PYTEST_CMD[@]}" -q; pt_rc=$?
       fi
-      if [ "$pt_rc" != "0" ] && [ "$pt_rc" != "5" ]; then
+      if [ "$pt_rc" = "5" ]; then
+        warn "pytest collected no tests (exit 5)."
+      elif [ "$pt_rc" != "0" ]; then
         TESTS_OK=0
-        explain_missing_module "$PYTEST_EXE"
+        explain_missing_module "${PYTEST_CMD[*]}"
       fi
     fi
   fi
 
   # --- Go Tests ---
-  if [ -f "$REPO_ROOT/go.mod" ] && command -v go >/dev/null 2>&1; then
-    RAN_ANY=1
-    note "go test ./..."
-    run_to "$QG_TIMEOUT" go test ./... || TESTS_OK=0
+  if [ -f "$REPO_ROOT/go.mod" ]; then
+    if command -v go >/dev/null 2>&1; then
+      RAN_ANY=1
+      note "go test ./..."
+      run_to "$QG_TIMEOUT" go test ./... || TESTS_OK=0
+    else
+      warn "go.mod is present but 'go' is not installed; skipping tests."
+    fi
   fi
 
   # --- Rust Tests ---
-  if [ -f "$REPO_ROOT/Cargo.toml" ] && command -v cargo >/dev/null 2>&1; then
-    RAN_ANY=1
-    note "cargo test"
-    run_to "$QG_TIMEOUT" cargo test || TESTS_OK=0
+  if [ -f "$REPO_ROOT/Cargo.toml" ]; then
+    if command -v cargo >/dev/null 2>&1; then
+      RAN_ANY=1
+      note "cargo test"
+      run_to "$QG_TIMEOUT" cargo test || TESTS_OK=0
+    else
+      warn "Cargo.toml is present but 'cargo' is not installed; skipping tests."
+    fi
   fi
 
   # --- Flutter / Dart Tests ---
   if [ -f "$REPO_ROOT/pubspec.yaml" ]; then
-    FLUTTER_EXE="$(flutter_tool flutter)"
-    DART_EXE="$(flutter_tool dart)"
-    if [ -n "$FLUTTER_EXE" ]; then
+    FLUTTER_CMD=()
+    while IFS= read -r arg; do
+      [ -n "$arg" ] && FLUTTER_CMD+=("$arg")
+    done < <(flutter_tool flutter)
+    DART_CMD=()
+    while IFS= read -r arg; do
+      [ -n "$arg" ] && DART_CMD+=("$arg")
+    done < <(flutter_tool dart)
+    if [ "${#FLUTTER_CMD[@]}" -gt 0 ]; then
       RAN_ANY=1
-      note "$FLUTTER_EXE test"
-      run_to "$QG_TIMEOUT" $FLUTTER_EXE test || TESTS_OK=0
-    elif [ -n "$DART_EXE" ]; then
+      note "${FLUTTER_CMD[*]} test"
+      run_to "$QG_TIMEOUT" "${FLUTTER_CMD[@]}" test || TESTS_OK=0
+    elif [ "${#DART_CMD[@]}" -gt 0 ]; then
       RAN_ANY=1
-      note "$DART_EXE test"
-      run_to "$QG_TIMEOUT" $DART_EXE test || TESTS_OK=0
+      note "${DART_CMD[*]} test"
+      run_to "$QG_TIMEOUT" "${DART_CMD[@]}" test || TESTS_OK=0
     fi
   fi
 
@@ -1030,7 +1108,7 @@ else
   fi
 
   if [ "$RAN_ANY" = "0" ]; then
-    note "No test suites were run for this stack; skipping."
+    warn "No test suites were run for this stack; skipping."
     pass "Test Suites"
   elif [ "$TESTS_OK" = "1" ]; then
     pass "Test Suites"

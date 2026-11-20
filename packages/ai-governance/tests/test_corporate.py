@@ -33,7 +33,7 @@ def pack_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     rules.mkdir(parents=True)
     scripts.mkdir()
     (rules / "glossary.md").write_text("---\ntrigger: always_on\n---\n# Glossary\n")
-    (rules / "principles.md").write_text("# Principles\n")
+    (rules / "principles.md").write_text("---\ntrigger: always_on\n---\n# Principles\n")
     script = scripts / "acme-up"
     script.write_text("#!/bin/sh\necho ok\n")
     script.chmod(0o755)
@@ -47,7 +47,7 @@ def personal_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     rules = root / "rules"
     rules.mkdir(parents=True)
     (rules / "voice.md").write_text("---\ntrigger: always_on\n---\n# Voice\n")
-    (rules / "style.md").write_text("# Style\n")
+    (rules / "style.md").write_text("---\ntrigger: always_on\n---\n# Style\n")
     monkeypatch.setenv("AI_GOVERNANCE_PERSONAL_DIR", str(root))
     return root
 
@@ -202,7 +202,9 @@ def test_bin_dir_override(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _add_pack(pack_root: Path, name: str, script: str) -> None:
     (pack_root / name / "rules").mkdir(parents=True)
-    (pack_root / name / "rules" / "glossary.md").write_text("# Glossary\n")
+    (pack_root / name / "rules" / "glossary.md").write_text(
+        "---\ntrigger: always_on\n---\n# Glossary\n"
+    )
     (pack_root / name / "scripts").mkdir()
     (pack_root / name / "scripts" / script).write_text("#!/bin/sh\n")
 
@@ -221,10 +223,35 @@ def test_cli_installs_packs_with_a_plain_user_install(home: Path) -> None:
     assert _pack_rules(home)
 
 
-def test_corporate_root_defaults_to_the_packages_folder(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_corporate_root_defaults_to_external_config_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.delenv("AI_GOVERNANCE_CORPORATE_DIR")
+    monkeypatch.setenv("AI_GOVERNANCE_CONFIG_DIR", str(tmp_path / "config"))
     root = corporate.corporate_root()
-    assert (root.parent.name, root.name) == ("packages", "corporate-rules")
+    assert root == (tmp_path / "config" / "corporate-rules").resolve()
+
+
+def test_corporate_root_rejects_checkout_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+    checkout = Path(__file__).resolve().parents[3]
+    monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(checkout / "private-corporate"))
+    with pytest.raises(ValueError, match="outside Git worktrees"):
+        corporate.corporate_root()
+
+
+def test_pack_rejects_rule_symlinks_into_the_checkout(pack_root: Path) -> None:
+    rule = pack_root / "acme" / "rules" / "checkout-rule.md"
+    rule.symlink_to(
+        Path(__file__).resolve().parents[3] / "packages" / "corporate-rules" / "README.md"
+    )
+    (pack,) = corporate.packs()
+    with pytest.raises(ValueError, match="must not alias"):
+        pack.rules()
+
+
+def test_available_ignores_pack_symlinks(pack_root: Path, tmp_path: Path) -> None:
+    (pack_root / "globex").symlink_to(pack_root / "acme", target_is_directory=True)
+    assert corporate.available(pack_root) == ["acme"]
 
 
 def test_codex_installs_no_language_index_without_rules(home: Path) -> None:
@@ -402,12 +429,49 @@ def test_is_corporate_entry_edge_cases(home: Path, agent: str, path: str, target
     assert not _is_corporate_entry(ledger, entry, catalog=catalog)
 
 
-def test_corporate_rule_frontmatter_validation(home: Path) -> None:
+def test_corporate_rule_frontmatter_validation(home: Path, pack_root: Path) -> None:
+    (pack_root / "acme" / "rules" / "principles.md").write_text("# Principles\n")
     (pack,) = corporate.packs()
     with pytest.warns(UserWarning, match="principles.md.*missing YAML front matter"):
         rules = pack.rules()
     assert {r.name for r in rules} == {"glossary", "principles"}
 
-    report = install_user(["claude"])
+    with pytest.warns(UserWarning, match="principles.md.*missing YAML front matter"):
+        report = install_user(["claude"])
     assert any("Corporate rule 'principles' in pack 'acme'" in w for w in report.warnings)
     assert not any("Corporate rule 'glossary'" in w for w in report.warnings)
+
+
+def test_home_dotfiles_repo_allows_untracked_corporate_dir_and_blocks_tracked(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import subprocess
+
+    monkeypatch.delenv("AI_GOVERNANCE_CORPORATE_DIR")
+    monkeypatch.setenv("AI_GOVERNANCE_CONFIG_DIR", str(home / ".config" / "ai-governance"))
+    subprocess.run(["git", "init", "-q", str(home)], check=True)
+    corp = home / ".config" / "ai-governance" / "corporate-rules"
+    (corp / "acme" / "rules").mkdir(parents=True)
+    rule = corp / "acme" / "rules" / "r.md"
+    rule.write_text("---\ntrigger: always_on\n---\n# R\n")
+
+    assert corporate.corporate_root() == corp.resolve()
+
+    subprocess.run(["git", "-C", str(home), "add", "-f", str(rule)], check=True)
+    with pytest.raises(ValueError, match="outside Git worktrees"):
+        corporate.corporate_root()
+
+
+def test_invalid_corporate_root_reports_doctor_fail_and_install_warning(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkout = Path(__file__).resolve().parents[3]
+    monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(checkout / "private-corporate"))
+
+    rows = [r for r in doctor.check(None) if r[0] == "user:corporate"]
+    assert rows and rows[0][1] == doctor.FAIL and "outside Git worktrees" in rows[0][2]
+
+    report = install_user(["claude"])
+    assert any("outside Git worktrees" in w for w in report.warnings)
+    un_report = uninstall_user(["claude"])
+    assert any("outside Git worktrees" in w for w in un_report.warnings)

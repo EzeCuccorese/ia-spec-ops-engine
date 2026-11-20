@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from ..confidentiality import reject_engine_references
 from .models import JsonDict, Task
 
 SECRET = re.compile(
@@ -101,4 +102,6 @@ def ticket_draft(task: Task) -> str:
     for heading, items in (("Pending", pending), ("Deployed", deployed)):
         if items:
             lines += ["", f"**{heading}**", *items]
-    return scrub("\n".join(lines)) + "\n"
+    draft = scrub("\n".join(lines)) + "\n"
+    reject_engine_references(draft)
+    return draft

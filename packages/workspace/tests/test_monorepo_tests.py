@@ -305,3 +305,114 @@ def test_format_monorepo_plan_not_monorepo() -> None:
 
     plan = MonorepoTestPlan(is_monorepo=False)
     assert format_monorepo_plan(plan) == "monorepo\t0"
+
+
+def _make_pkg(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "package.json").write_text("{}", encoding="utf-8")
+
+
+def test_find_workspace_packages_prunes_ignored_directories_without_descending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    (tmp_path / "package.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "packages").mkdir()
+    (tmp_path / "packages" / "README.md").write_text("docs", encoding="utf-8")
+    _make_pkg(tmp_path / "packages" / "pkg-a")
+    _make_pkg(tmp_path / "packages" / "nested" / "pkg-b")
+    _make_pkg(tmp_path / "libs" / "shared")
+    for ignored in (
+        tmp_path / "node_modules" / "dep",
+        tmp_path / ".git" / "hooks" / "pkg",
+        tmp_path / "__pycache__" / "out",
+        tmp_path / ".venv" / "lib" / "pkg",
+        tmp_path / "packages" / "pkg-a" / "node_modules" / "inner",
+        tmp_path / "packages" / "pkg-a" / "__pycache__" / "bundle",
+    ):
+        _make_pkg(ignored)
+
+    visited: list[str] = []
+    real_walk = os.walk
+
+    def spy_walk(top: Any, *args: Any, **kwargs: Any):
+        for current, dirs, files in real_walk(top, *args, **kwargs):
+            visited.append(Path(current).relative_to(tmp_path).as_posix())
+            yield current, dirs, files
+
+    monkeypatch.setattr(os, "walk", spy_walk)
+    found = find_workspace_packages(
+        tmp_path,
+        [
+            "*",
+            "**",
+            "packages/*",
+            "packages/**",
+            "libs/shared",
+            "node_modules/*",
+            "../outside",
+            "./",
+        ],
+    )
+    assert found == {"packages/pkg-a", "packages/nested/pkg-b", "libs/shared"}
+    for pruned in ("node_modules", ".git", "__pycache__", ".venv"):
+        assert not any(pruned in Path(p).parts for p in visited)
+
+
+def test_find_workspace_packages_keeps_ordinary_package_dir_names(tmp_path: Path) -> None:
+    (tmp_path / "package.json").write_text("{}", encoding="utf-8")
+    _make_pkg(tmp_path / "packages" / "build")
+    _make_pkg(tmp_path / "packages" / "dist")
+    _make_pkg(tmp_path / "packages" / "app")
+
+    assert find_workspace_packages(tmp_path, ["packages/*"]) == {
+        "packages/build",
+        "packages/dist",
+        "packages/app",
+    }
+    assert find_workspace_packages(tmp_path, ["packages/build"]) == {"packages/build"}
+
+
+def test_find_workspace_packages_supports_recursive_and_negative_globs_and_oserror(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    _make_pkg(tmp_path / "packages" / "pkg-a")
+    _make_pkg(tmp_path / "packages" / "pkg-a" / "fixtures" / "mock-pkg")
+    _make_pkg(tmp_path / "sub" / "packages" / "pkg-b")
+
+    found = find_workspace_packages(
+        tmp_path, ["**/packages/**", "packages/**/**", "!packages/**/fixtures/**"]
+    )
+    assert found == {"packages/pkg-a", "sub/packages/pkg-b"}
+
+    def fail_scandir(_path: Any):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(os, "scandir", fail_scandir)
+    assert find_workspace_packages(tmp_path, ["packages/*"]) == set()
+
+
+@pytest.mark.parametrize(
+    ("rel_path", "pattern", "expected"),
+    [
+        ("packages/foo", "packages/*", True),
+        ("packages/foo/bar", "packages/*", False),
+        ("other/packages/foo", "packages/*", False),
+        ("packages/foo/bar", "packages/**", True),
+        ("packages/foo", "**/packages/*", True),
+        ("a/b/packages/foo", "**/packages/*", True),
+    ],
+    ids=[
+        "single-star-match",
+        "single-star-no-deep-match",
+        "anchored-at-root",
+        "trailing-double-star",
+        "leading-double-star-zero-segments",
+        "leading-double-star-multi-segments",
+    ],
+)
+def test_matches_glob_anchored_and_double_star(rel_path: str, pattern: str, expected: bool) -> None:
+    assert matches_glob(rel_path, pattern) is expected

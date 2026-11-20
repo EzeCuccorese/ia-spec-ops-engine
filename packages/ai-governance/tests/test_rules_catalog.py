@@ -6,7 +6,7 @@ from ai_governance.rules.catalog import SCHEMA_VERSION, RuleCatalog
 
 def test_catalog_loads_all_rules_with_metadata() -> None:
     catalog = RuleCatalog()
-    assert len(catalog.rules) == 41
+    assert len(catalog.rules) == 42
     for rule in catalog.rules:
         assert rule.description and rule.globs and rule.sha256
         assert rule.content.startswith("# ")
@@ -149,7 +149,10 @@ def test_user_rules_cover_every_language_and_tool_rules() -> None:
     user_ids = {rule.id for rule in catalog.user_rules()}
     stacks = {rule.id for rule in catalog.rules if rule.category == "2-stacks"}
     assert stacks <= user_ids
-    assert "api-design" in user_ids
+    # Profile-gated opt-in rules must never leak into user scope
+    assert "api-design" not in user_ids
+    assert "10-refactoring-strangler" not in user_ids
+    assert all(rule.profile is None for rule in catalog.user_rules())
     tool_rules = {
         "circleci",
         "deploy-approvals",
@@ -162,12 +165,23 @@ def test_user_rules_cover_every_language_and_tool_rules() -> None:
         "18-surgical-changes",
         "19-pull-requests",
         "20-review-ready-code",
+        "21-antigravity-routing",
     }
     assert tool_rules <= user_ids
     assert {rule.id for rule in catalog.user_rules() if rule.always_on} == tool_rules
     # language-level rules remain path-scoped
     language_rules = [r for r in catalog.user_rules() if r.id not in tool_rules]
     assert not any(rule.always_on for rule in language_rules)
+
+
+def test_select_excludes_always_on_user_rules_unless_forced() -> None:
+    catalog = RuleCatalog()
+    user_always = {rule.id for rule in catalog.user_rules() if rule.always_on}
+    project_ids = {rule.id for rule in catalog.select({"python"})}
+    assert not (user_always & project_ids)
+    assert "06-security-privacy" in project_ids
+    forced_ids = {rule.id for rule in catalog.select(set(), extra=("13-atlassian",))}
+    assert "13-atlassian" in forced_ids
 
 
 def test_git_branch_and_circleci_rule_content_semantics() -> None:
@@ -272,14 +286,28 @@ def test_atlassian_taskflow_and_confidentiality_rule_content_semantics() -> None
     assert conf.user_scope is True
     assert conf.always_on is True
     conf_content = conf.content
-    assert (
-        "never mentioned in tickets, PRs, commits, reviews, Confluence or chat tools"
-        in conf_content
+    assert "never mention engine tools" in conf_content.lower()
+    assert all(
+        channel in conf_content
+        for channel in ("tickets", "PRs", "commits", "reviews", "Confluence", "chats")
     )
-    assert "Quality gate and `QG_SKIP` count as engine tooling" in conf_content
+    assert "`QG_SKIP`" in conf_content and "never name the engine" in conf_content
 
 
 def test_every_language_rule_states_how_to_validate_input() -> None:
     for rule in RuleCatalog().rules:
         if rule.category == "2-stacks":
             assert "valid" in rule.content.lower(), rule.id
+
+
+def test_review_lessons_in_core_and_python_rules() -> None:
+    catalog = RuleCatalog()
+    review = catalog.get("20-review-ready-code")
+    assert review is not None
+    assert "ISO codes" in review.content and "locale" in review.content
+    assert "conditional write" in review.content and "409" in review.content
+    assert "GET then POST" in review.content
+
+    py_rule = catalog.get("python-async")
+    assert py_rule is not None
+    assert "S7503" in py_rule.content and "unless it awaits" in py_rule.content

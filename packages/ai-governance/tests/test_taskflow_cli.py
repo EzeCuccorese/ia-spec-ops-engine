@@ -117,6 +117,23 @@ def test_close_done_outside_flow(run: Run, state: TaskStore) -> None:
     assert "merged manually" in state.read_log("TASK-1")
 
 
+def test_close_archives_only_when_status_changes(
+    run: Run, state: TaskStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ai_governance.taskflow import cli as taskflow_cli
+
+    archived: list[str] = []
+    monkeypatch.setattr(
+        taskflow_cli, "_archive_closed_task", lambda _store, tid: archived.append(tid)
+    )
+
+    assert run("close", "TASK-1", "--reason", "done") == 0
+    assert archived == ["TASK-1"]
+
+    assert run("close", "TASK-1", "--reason", "still done") == 0
+    assert archived == ["TASK-1"]
+
+
 def test_unbind_and_reports(
     run: Run, repo: Path, orca_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -96,6 +96,14 @@ def test_codex_and_antigravity_use_marker_blocks(home: Path) -> None:
     assert "tools:\n  - view_file\n  - grep_search\n  - find_by_name\n  - list_dir\n" in scout
     rule = (home / ".gemini" / "config" / "rules" / "ai-governance.md").read_text()
     assert rule.startswith("---\ntrigger: always_on\n---\n")
+    routing = "ai-governance-21-antigravity-routing.md"
+    models = (home / ".gemini" / "config" / "rules" / routing).read_text()
+    assert (
+        "swarm" in models and "gemini-4-hydrogen-low" in models and "gemini-4-neon-high" in models
+    )
+    assert not (home / ".codex" / "ai-governance" / "always" / routing).exists()
+    assert (home / ".gemini" / "config" / "skills" / "code-simplifier" / "SKILL.md").is_file()
+    assert (home / ".gemini" / "config" / "skills" / "slack-formatting" / "SKILL.md").is_file()
     assert not (home / ".gemini" / "GEMINI.md").exists()
     uninstall_user(["codex"])
     assert (home / ".codex" / "AGENTS.md").read_text() == "# My rules\n"
@@ -332,7 +340,7 @@ def test_claude_user_scope_entry_files_preserve_content(home: Path) -> None:
     assert agents_text.startswith(existing_agents.rstrip())
     assert "<!-- ai-governance:start -->" in agents_text
     assert "<!-- ai-governance:end -->" in agents_text
-    assert "Personal preferences:" in agents_text
+    assert "Personal preferences:" not in agents_text
     assert "Company rules:" in agents_text
     assert "Engine catalog:" in agents_text
 
@@ -721,17 +729,148 @@ def test_engine_write_preserves_existing_file_permissions(tmp_path: Path) -> Non
         assert stat.S_IMODE(target.stat().st_mode) == expected_mode
 
 
-def test_user_install_creates_personal_rules_dir_and_readme_when_missing(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_install_removes_only_ledger_owned_legacy_personal_rule_links(
+    home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config_dir = tmp_path / ".config" / "ai-governance"
-    monkeypatch.setenv("AI_GOVERNANCE_CONFIG_DIR", str(config_dir))
-    monkeypatch.delenv("AI_GOVERNANCE_PERSONAL_DIR", raising=False)
-    expected_rules = config_dir / "personal" / "rules"
-    assert not expected_rules.exists()
+    monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(home / "missing-corporate-rules"))
+    install_user(["claude", "codex"])
+    source = home / ".config" / "ai-governance" / "personal" / "rules" / "voice.md"
+    source.parent.mkdir(parents=True)
+    source.write_text("# My voice\nBe concise.\n", encoding="utf-8")
+    claude_link = home / ".claude" / "rules" / "ai-governance-personal-voice.md"
+    codex_folder = home / ".codex" / "ai-governance" / "personal"
+    codex_link = codex_folder / "voice.md"
+    claude_link.symlink_to(source)
+    codex_link.parent.mkdir(parents=True, exist_ok=True)
+    codex_link.symlink_to(source)
+    user_file = codex_folder / "user-note.md"
+    user_file.write_text("Keep this file.\n", encoding="utf-8")
+
+    ledger = installer.global_ledger()
+    ledger.entries.extend(
+        [
+            {"agent": "claude", "kind": "link", "path": str(claude_link), "target": str(source)},
+            {"agent": "codex", "kind": "link", "path": str(codex_link), "target": str(source)},
+        ]
+    )
+    ledger.save(installer.Report(), dry_run=False)
+
+    install_user(["claude", "codex"], dry_run=True)
+    assert claude_link.is_symlink() and codex_link.is_symlink()
+    assert source.is_file()
+
+    install_user(["claude", "codex"])
+
+    assert not claude_link.is_symlink()
+    assert not codex_link.is_symlink()
+    assert source.read_text(encoding="utf-8") == "# My voice\nBe concise.\n"
+    assert user_file.read_text(encoding="utf-8") == "Keep this file.\n"
+    assert not any(
+        "personal-voice.md" in entry["path"] for entry in installer.global_ledger().entries
+    )
+
+
+def test_doctor_warns_when_project_installed_without_user_scope(project: Path) -> None:
+    sync_project(project, add_agents=["claude"])
+    rows = check(project)
+    assert any(label == "project:user-scope" and status == WARN for label, status, _ in rows)
 
     install_user(["claude"])
-    assert expected_rules.is_dir()
-    readme = expected_rules / "README.md"
-    assert readme.is_file()
-    assert "Personal Rules" in readme.read_text(encoding="utf-8")
+    rows_after = check(project)
+    assert not any(label == "project:user-scope" for label, _, _ in rows_after)
+
+
+def test_doctor_antigravity_frontmatter_checks_and_missing_rules_dir(home: Path) -> None:
+    from ai_governance.install.doctor import _antigravity_frontmatter_row
+
+    assert _antigravity_frontmatter_row() is None
+
+    install_user(["antigravity"])
+    rules_dir = home / ".gemini" / "config" / "rules"
+    (rules_dir / "valid.md").write_text("---\ntrigger: always_on\n---\n# Valid\n", encoding="utf-8")
+    assert _antigravity_frontmatter_row() is None
+    assert not any(
+        label == "user:antigravity" and status == FAIL and "trigger front matter" in detail
+        for label, status, detail in check(None)
+    )
+
+    (rules_dir / "broken.md").write_text("# Missing frontmatter\n", encoding="utf-8")
+    row = _antigravity_frontmatter_row()
+    assert row is not None and row[1] == FAIL and "broken.md" in row[2]
+
+
+def test_doctor_reports_orca_warning_when_cli_problem(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import ai_governance.taskflow.orca as orca_mod
+
+    monkeypatch.setattr(orca_mod, "orca_problem", lambda: "orca CLI missing")
+    rows = check(None)
+    assert ("taskflow:orca", WARN, "orca CLI missing") in rows
+
+
+def test_missing_ws_preserves_previously_installed_stack_rules_on_update(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(installer, "detect_stacks", lambda root: {"java", "docker", "sql"})
+    sync_project(project, add_agents=["claude"])
+    rules_dir = project / ".agents" / "rules"
+    assert (rules_dir / "ai-governance-java-spring.md").is_file()
+    assert (rules_dir / "ai-governance-docker-containers.md").is_file()
+    assert (rules_dir / "ai-governance-sql-database-modeling.md").is_file()
+
+    monkeypatch.setattr(installer, "detect_stacks", lambda root: None)
+    report = sync_project(project)
+    assert any(
+        "`ws` not found" in w and "keeping previously installed" in w for w in report.warnings
+    )
+    assert (rules_dir / "ai-governance-java-spring.md").is_file()
+    assert (rules_dir / "ai-governance-docker-containers.md").is_file()
+    lock_path = project / installer.PROJECT_DIR / "lock.json"
+    assert json.loads(lock_path.read_text(encoding="utf-8"))["stacks"] == ["docker", "java", "sql"]
+
+    # Legacy ledger without extra["stacks"] still preserves installed stack rules minimally
+    data = json.loads(lock_path.read_text(encoding="utf-8"))
+    data.pop("stacks", None)
+    lock_path.write_text(json.dumps(data), encoding="utf-8")
+    sync_project(project)
+    assert (rules_dir / "ai-governance-java-spring.md").is_file()
+    assert (rules_dir / "ai-governance-sql-database-modeling.md").is_file()
+    assert not (rules_dir / "ai-governance-database-migrations.md").exists()
+
+
+def test_claude_memory_migration_skips_bare_agents_imports(project: Path) -> None:
+    (project / "CLAUDE.md").write_text("@AGENTS.md\n  @AGENTS.md  \n", encoding="utf-8")
+    sync_project(project, add_agents=["claude"])
+    assert not (project / "CLAUDE.md").exists()
+    agents_text = (project / "AGENTS.md").read_text(encoding="utf-8")
+    assert "@AGENTS.md" not in agents_text
+
+    (project / ".claude").mkdir(exist_ok=True)
+    (project / ".claude" / "CLAUDE.md").write_text(
+        "@AGENTS.md\n\nUse tabs.\n  @AGENTS.md\nDocument @AGENTS.md usage.\n",
+        encoding="utf-8",
+    )
+    sync_project(project)
+    agents_lines = (project / "AGENTS.md").read_text(encoding="utf-8").splitlines()
+    assert "Use tabs." in agents_lines
+    assert "Document @AGENTS.md usage." in agents_lines
+    assert not any(line.strip() == "@AGENTS.md" for line in agents_lines)
+
+
+def test_claude_subagents_quote_yaml_descriptions(home: Path) -> None:
+    from ai_governance.install import content
+
+    install_user(["claude"])
+    expected = {
+        "scout.md": content.CLAUDE_SCOUT_DESCRIPTION,
+        "researcher.md": content.RESEARCHER_DESCRIPTION,
+        "runner.md": content.RUNNER_DESCRIPTION,
+    }
+    for filename, description in expected.items():
+        text = (home / ".claude" / "agents" / filename).read_text(encoding="utf-8")
+        frontmatter = text.split("---\n", 2)[1]
+        desc_line = next(ln for ln in frontmatter.splitlines() if ln.startswith("description: "))
+        raw_scalar = desc_line.removeprefix("description: ")
+        assert raw_scalar.startswith('"') and raw_scalar.endswith('"')
+        assert json.loads(raw_scalar) == description

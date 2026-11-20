@@ -3,7 +3,7 @@
 ## Invariants
 - **One Outcome per PR**: Deliver one user or customer outcome per PR; split two outcomes into two PRs. Branch from the main branch, and never stack PRs without user approval.
 - **Plain Language**: Write in the repository's language using short sentences, and never mention internal tooling. An automated bot summary never replaces this description.
-- **Review Readiness**: Never request a review while automated bot review threads remain open or merge conflicts exist.
+- **Review Readiness**: After pushing, verify checks and automated review for the latest commit; never request a review while automated bot review threads remain open or merge conflicts exist.
 
 ## Required Structure (in order)
 1. **Outcome**: 2–3 lines explaining what the user or customer gains.

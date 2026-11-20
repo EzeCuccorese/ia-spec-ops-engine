@@ -9,6 +9,7 @@ weaken user restrictions or define executable check commands.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import tomllib
 from collections.abc import Iterable
@@ -112,7 +113,15 @@ class FlowConfig:
 
     @property
     def policy_digest(self) -> str:
-        return hashlib.sha256(b"{}").hexdigest()[:12]
+        payload = {
+            "workflow": self.workflow,
+            "allowed_agents": sorted(self.allowed.agents),
+            "denied_models": sorted(self.denied_models),
+            "roles": self.roles,
+            "efforts": self.efforts,
+        }
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:12]
 
     def validate(self) -> list[str]:
         errors: list[str] = []

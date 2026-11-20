@@ -9,9 +9,8 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from .. import personal
 from ..frontmatter import check_frontmatter
-from .agents import HOOK_COMMAND_PREFIX, resolve_agents
+from .agents import HOOK_COMMAND_PREFIX
 from .engine import END, START, Ledger, sha256, tree_digest
 from .installer import (
     PROJECT_DIR,
@@ -108,22 +107,6 @@ def _claude_entry_block_rows() -> list[Row]:
     return rows
 
 
-def _agent_missing_links(agent_id: str, rules: list) -> Row | None:
-    spec = resolve_agents([agent_id])[0]
-    missing = [
-        artifact.path.name
-        for artifact in spec.personal_artifacts(rules)
-        if not artifact.path.is_symlink()
-    ]
-    if missing:
-        return (
-            "user:personal",
-            FAIL,
-            f"missing personal rule link(s) for {agent_id}: {', '.join(missing)}",
-        )
-    return None
-
-
 def _antigravity_frontmatter_row() -> Row | None:
     gemini_rules_dir = Path.home() / ".gemini" / "config" / "rules"
     if not gemini_rules_dir.is_dir():
@@ -144,36 +127,14 @@ def _antigravity_frontmatter_row() -> Row | None:
     return None
 
 
-def _personal_rows(agents: list[str]) -> list[Row]:
-    if not agents:
-        return []
-    root = personal.personal_root()
-    rules_dir = root / "rules"
-    if not rules_dir.is_dir():
-        return [("user:personal", FAIL, f"personal rules directory missing: {rules_dir}")]
-    rules = personal.rules(root)
-    if not rules:
-        return [("user:personal", FAIL, f"personal rules directory is empty: {rules_dir}")]
-
-    rows: list[Row] = [("user:personal", OK, f"{len(rules)} personal rule(s) configured")]
-    for agent_id in agents:
-        row = _agent_missing_links(agent_id, rules)
-        if row:
-            rows.append(row)
-
-    if "antigravity" in agents:
-        row = _antigravity_frontmatter_row()
-        if row:
-            rows.append(row)
-
-    return rows
-
-
 def _corporate_rows(user: Ledger, agents: list[str]) -> list[Row]:
     from .. import corporate
     from .installer import _corporate_entries_to_keep
 
-    root = corporate.corporate_root()
+    try:
+        root = corporate.corporate_root()
+    except ValueError as exc:
+        return [("user:corporate", FAIL, str(exc))]
     has_corporate = bool(os.environ.get("AI_GOVERNANCE_CORPORATE_DIR")) or bool(
         _corporate_entries_to_keep(user, set(agents) | {"scripts"})
     )
@@ -191,7 +152,10 @@ def _user_rows() -> list[Row]:
         rows.extend(_claude_entry_block_rows())
     if "antigravity" in agents:
         rows.extend(_legacy_gemini_block())
-    rows.extend(_personal_rows(agents))
+    if "antigravity" in agents:
+        row = _antigravity_frontmatter_row()
+        if row:
+            rows.append(row)
     rows.extend(_corporate_rows(user, agents))
     return rows
 
@@ -224,6 +188,14 @@ def _antigravity_rows(root: Path) -> list[Row]:
 def _project_rows(root: Path) -> list[Row]:
     config = ProjectConfig.load(root)
     rows: list[Row] = [("project:agents", OK, ", ".join(config.agents))]
+    if not installed_agents(global_ledger()):
+        rows.append(
+            (
+                "project:user-scope",
+                WARN,
+                "user scope not installed; run `ai-governance install --scope user --agent ...` for transversal rules",
+            )
+        )
     rows.extend(_ledger_rows(Ledger(root / PROJECT_DIR / "lock.json", base=root), "project"))
     if "claude" in config.agents:
         rows.extend(_claude_rows(root))

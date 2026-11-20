@@ -15,6 +15,7 @@ import textwrap
 from pathlib import Path
 
 from .metrics import Violation
+from .testquality_parse import _mask
 
 TICKET_RE = re.compile(r"[A-Z][A-Z0-9]+-\d+|#\d+|https?://\S+")
 TODO_RE = re.compile(r"(?<![\"'`\w-])(TODO|FIXME|XXX)(?!-ticket\b)(?![\"'`\w])", re.IGNORECASE)
@@ -116,11 +117,6 @@ def _origin(changed: dict[str, set[int] | None] | None, path: str, line: int) ->
 # --- empty-catch -------------------------------------------------------------------
 
 
-def _strip_c_comments(text: str) -> str:
-    without_block = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
-    return re.sub(r"//.*$", "", without_block, flags=re.M)
-
-
 def _matching_brace(source: str, open_index: int) -> int | None:
     depth = 0
     for i in range(open_index, len(source)):
@@ -133,44 +129,35 @@ def _matching_brace(source: str, open_index: int) -> int | None:
     return None
 
 
+def _empty_body(source: str, open_re: re.Pattern[str]) -> list[int]:
+    masked, _ = _mask(source)
+    lines = []
+    for match in open_re.finditer(masked):
+        open_brace = match.end() - 1
+        close = _matching_brace(masked, open_brace)
+        if close is None:
+            continue
+        if not masked[open_brace + 1 : close].strip():
+            lines.append(masked.count("\n", 0, match.start()) + 1)
+    return lines
+
+
 def _empty_catch_c_style(
     relative: str, source: str, changed: dict[str, set[int] | None] | None
 ) -> list[Violation]:
-    violations = []
-    for match in _CATCH_OPEN.finditer(source):
-        open_brace = match.end() - 1
-        close = _matching_brace(source, open_brace)
-        if close is None:
-            continue
-        body = source[open_brace + 1 : close]
-        if not _strip_c_comments(body).strip():
-            line = source.count("\n", 0, match.start()) + 1
-            violations.append(
-                Violation(
-                    relative,
-                    "catch",
-                    line,
-                    line,
-                    "empty-catch",
-                    1,
-                    0,
-                    _origin(changed, relative, line),
-                )
-            )
-    return violations
-
-
-def _empty_body(source: str, open_re: re.Pattern[str]) -> list[int]:
-    lines = []
-    for match in open_re.finditer(source):
-        open_brace = match.end() - 1
-        close = _matching_brace(source, open_brace)
-        if close is None:
-            continue
-        body = source[open_brace + 1 : close]
-        if not _strip_c_comments(body).strip():
-            lines.append(source.count("\n", 0, match.start()) + 1)
-    return lines
+    return [
+        Violation(
+            relative,
+            "catch",
+            line,
+            line,
+            "empty-catch",
+            1,
+            0,
+            _origin(changed, relative, line),
+        )
+        for line in _empty_body(source, _CATCH_OPEN)
+    ]
 
 
 def _empty_go_err(

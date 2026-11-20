@@ -1119,6 +1119,33 @@ def test_monorepo_without_ws_on_path_warns_and_skips_full_suite(tmp_path: Path) 
     assert proc.returncode == 0
 
 
+@requires_node
+def test_monorepo_scope_all_runs_root_test_script_instead_of_silent_pass(tmp_path: Path) -> None:
+    project_dir = tmp_path / "repo"
+    bin_dir = tmp_path / "bin"
+    _setup_monorepo_project(project_dir, bin_dir)
+
+    proc = _run_generated_hook(
+        project_dir,
+        output="verbose",
+        skip="gitleaks,commits,lint,design",
+        env_overrides={**_prepended_path(bin_dir), "QG_SCOPE": "all"},
+    )
+    combined = proc.stdout + proc.stderr
+    assert "YARN_EXECUTED: test" in combined
+    assert proc.returncode == 1
+
+
+def test_hooks_status_detects_outdated_script(tmp_path: Path) -> None:
+    project_dir = tmp_path / "repo"
+    _init_test_git_repo(project_dir)
+    _commit_fixture(project_dir)
+    assert install_git_hooks(target_dir=project_dir)["success"] is True
+    assert get_hooks_status(target_dir=project_dir)["local"]["is_outdated"] is False
+    local_hook_path(project_dir).write_text("#!/bin/sh\n# stale\n", encoding="utf-8")
+    assert get_hooks_status(target_dir=project_dir)["local"]["is_outdated"] is True
+
+
 def _setup_monorepo_stdin_repo(tmp_path: Path) -> tuple[Path, Path, Path]:
     project_dir = tmp_path / "repo"
     bin_dir = tmp_path / "bin"
@@ -1292,3 +1319,209 @@ def test_pre_push_skips_tests_when_deleting_remote_branch(tmp_path: Path) -> Non
     assert proc.returncode == 0
     assert "No new commits, skipping." in proc.stdout + proc.stderr
     assert not log_file.exists()
+
+
+def test_is_script_outdated_returns_false_on_oserror(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from workspace_engine.services.git_hooks import _is_script_outdated
+
+    hook_file = tmp_path / "pre-push"
+    hook_file.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    def fail_read(*args, **kwargs):
+        raise OSError("unreadable")
+
+    monkeypatch.setattr(Path, "read_text", fail_read)
+    assert _is_script_outdated(hook_file) is False
+
+
+def test_pre_push_passes_package_json_via_argv_without_inline_interpolation() -> None:
+    script = generate_canonical_pre_push_script()
+    assert "require('$REPO_ROOT/package.json')" not in script
+    assert "require(process.argv[1])" in script
+
+
+@requires_node
+def test_pre_push_handles_spaces_and_quotes_in_repo_path_for_js_and_python(
+    tmp_path: Path,
+) -> None:
+    project_dir = tmp_path / "my 'quoted' repo"
+    project_dir.mkdir()
+    _init_test_git_repo(project_dir)
+    _commit_fixture(project_dir)
+
+    (project_dir / "package.json").write_text(
+        '{"scripts": {"lint": "eslint .", "test": "vitest"}, "devDependencies": {"vitest": "1"}}',
+        encoding="utf-8",
+    )
+    (project_dir / "node_modules").mkdir()
+    (project_dir / "pyproject.toml").write_text('[project]\nname = "demo"\n', encoding="utf-8")
+    (project_dir / "test_ok.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+
+    log_file = tmp_path / "invoked.log"
+    _write_exe(project_dir / ".venv" / "bin" / "ruff", f'echo "RUFF:$*" >> "{log_file}"')
+    _write_exe(project_dir / ".venv" / "bin" / "pytest", f'echo "PYTEST:$*" >> "{log_file}"')
+    bin_dir = tmp_path / "bin"
+    _write_exe(bin_dir / "npm", f'echo "NPM:$*" >> "{log_file}"')
+
+    proc = _run_generated_hook(
+        project_dir,
+        skip="gitleaks,commits,design",
+        env_overrides=_prepended_path(bin_dir),
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    invoked = log_file.read_text(encoding="utf-8").splitlines()
+    assert "RUFF:check ." in invoked
+    assert "PYTEST:-q" in invoked
+    assert "NPM:run lint" in invoked
+    assert "NPM:test" in invoked
+
+
+def test_pre_push_handles_flutter_fvm_binary_in_spaced_repo_path(tmp_path: Path) -> None:
+    project_dir = tmp_path / "my flutter repo"
+    project_dir.mkdir()
+    _init_test_git_repo(project_dir)
+    _commit_fixture(project_dir)
+
+    (project_dir / "pubspec.yaml").write_text("name: fixture\n", encoding="utf-8")
+    (project_dir / ".fvmrc").write_text('{"flutter": "3.0.0"}', encoding="utf-8")
+    log_file = tmp_path / "flutter.log"
+    _write_exe(
+        project_dir / ".fvm" / "flutter_sdk" / "bin" / "flutter",
+        f'echo "FLUTTER:$*" >> "{log_file}"',
+    )
+
+    proc = _run_generated_hook(project_dir, skip="gitleaks,commits,design")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert log_file.read_text(encoding="utf-8").splitlines() == [
+        "FLUTTER:analyze",
+        "FLUTTER:test",
+    ]
+
+
+def test_pre_push_fails_closed_on_invalid_protected_regex(tmp_path: Path) -> None:
+    _init_test_git_repo(tmp_path)
+    _commit_fixture(tmp_path)
+    proc = _run_generated_hook(
+        tmp_path,
+        skip="gitleaks,commits,lint,design,tests",
+        env_overrides={"QG_PROTECTED": "[unclosed"},
+    )
+    assert proc.returncode == 1
+    assert "Invalid protected-branch regex" in proc.stderr
+
+
+def test_pre_push_warns_on_invalid_timeout_and_gate_config_failure(tmp_path: Path) -> None:
+    _init_test_git_repo(tmp_path)
+    _commit_fixture(tmp_path)
+    (tmp_path / ".workspace").mkdir()
+    (tmp_path / ".workspace" / "config.toml").write_text("bad = [toml", encoding="utf-8")
+    bin_dir = tmp_path / "bin"
+    _write_exe(bin_dir / "ws", "exit 2")
+    proc = _run_generated_hook(
+        tmp_path,
+        skip="gitleaks,commits,lint,design,tests",
+        env_overrides={"QG_TIMEOUT": "abc", **_prepended_path(bin_dir)},
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "ws hooks gate-config failed" in proc.stderr
+    assert "Invalid QG_TIMEOUT='abc'" in proc.stdout
+
+
+def _setup_non_ascii_py_repo(tmp_path: Path) -> tuple[str, str, Path]:
+    _init_test_git_repo(tmp_path)
+    _commit_fixture(tmp_path)
+    base_sha = subprocess.run(
+        ["git", "-C", str(tmp_path), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "fixture"\n', encoding="utf-8")
+    (tmp_path / "café.py").write_text("def greet():\n    return 'hi'\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "conftest.py").write_text("", encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "add", "pyproject.toml", "café.py", "tests/conftest.py"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "commit", "-q", "-m", "feat: add cafe and tests conftest"],
+        check=True,
+        capture_output=True,
+    )
+    head_sha = subprocess.run(
+        ["git", "-C", str(tmp_path), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    log_file = tmp_path / "tools.log"
+    venv_bin = tmp_path / ".venv" / "bin"
+    _write_exe(venv_bin / "ruff", f'echo "RUFF:$*" >> "{log_file}"')
+    _write_exe(venv_bin / "pytest", f'echo "PYTEST:$*" >> "{log_file}"; exit 5')
+    return base_sha, head_sha, log_file
+
+
+def test_pre_push_keeps_non_ascii_paths_and_matches_top_level_tests(tmp_path: Path) -> None:
+    base_sha, head_sha, log_file = _setup_non_ascii_py_repo(tmp_path)
+    hook = tmp_path / "quality-gate-pre-push"
+    hook.write_text(generate_canonical_pre_push_script(), encoding="utf-8")
+    hook.chmod(hook.stat().st_mode | stat.S_IXUSR)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("QG_")}
+    env.update(
+        {
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_SYSTEM": "/dev/null",
+            "QG_OUTPUT": "errors",
+            "QG_SCOPE": "changed",
+            "QG_SKIP": "gitleaks,commits,design",
+        }
+    )
+    proc = subprocess.run(
+        [str(hook), "origin"],
+        cwd=tmp_path,
+        input=f"refs/heads/feature {head_sha} refs/heads/feature {base_sha}\n",
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    logged = log_file.read_text(encoding="utf-8")
+    assert "café.py" in logged
+    assert "tests/conftest.py" in logged
+    assert "pytest collected no tests (exit 5)" in proc.stdout
+
+
+def test_pre_push_warns_when_detected_stack_tool_is_missing(tmp_path: Path) -> None:
+    _init_test_git_repo(tmp_path)
+    _commit_fixture(tmp_path)
+    (tmp_path / "Cargo.toml").write_text('[package]\nname = "demo"\n', encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "Cargo.toml"], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "commit", "-q", "-m", "chore: add Cargo.toml"],
+        check=True,
+        capture_output=True,
+    )
+    bin_dir = tmp_path / "bin"
+    _write_exe(bin_dir / "ws", "exit 0")
+    # Build an isolated PATH with standard shell tools so preinstalled /usr/bin/cargo on CI
+    # does not satisfy `command -v cargo`.
+    shell_tools = (
+        "awk basename bash cat chmod cp cut date dirname env find git grep head kill "
+        "mkdir mktemp mv printf ps rm sed sh sleep sort tail tee tr uname uniq wc xargs"
+    )
+    for tool in shell_tools.split():
+        resolved = shutil.which(tool)
+        if resolved and not (bin_dir / tool).exists():
+            (bin_dir / tool).symlink_to(resolved)
+
+    proc = _run_generated_hook(
+        tmp_path,
+        skip="gitleaks,commits,design",
+        env_overrides={"PATH": str(bin_dir), "HOME": str(tmp_path)},
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "Cargo.toml is present but 'cargo' is not installed" in proc.stdout

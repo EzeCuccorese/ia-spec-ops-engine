@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -97,14 +98,25 @@ def _validate_hour(hour: object, key: str = "cutoff hour") -> int:
     return hour
 
 
-def production_window_cutoffs(root: Path | None = None) -> tuple[int, int]:
-    """Cutoff hours for Monday-Thursday and Friday from configuration."""
+def _cutoffs_for(root: Path | None) -> tuple[int, int]:
     values = effective(root)
     cutoff = values["risk_window.cutoff_hour"].value
     friday_cutoff = values["risk_window.friday_cutoff_hour"].value
     return _validate_hour(cutoff, "risk_window.cutoff_hour"), _validate_hour(
         friday_cutoff, "risk_window.friday_cutoff_hour"
     )
+
+
+def production_window_cutoffs(
+    root: Path | None = None, repos: Sequence[Path | str] = ()
+) -> tuple[int, int]:
+    """Strictest Monday-Thursday and Friday cutoff hours across ``root``/cwd and bound ``repos``."""
+    cutoff, friday_cutoff = _cutoffs_for(root)
+    for repo in repos:
+        repo_cutoff, repo_friday = _cutoffs_for(Path(repo))
+        cutoff = min(cutoff, repo_cutoff)
+        friday_cutoff = min(friday_cutoff, repo_friday)
+    return cutoff, friday_cutoff
 
 
 def outside_production_window(
@@ -152,6 +164,7 @@ class ApprovalContext:
     stamp_key: str
     moment: datetime
     previous: list[JsonDict] | None = None
+    repos: Sequence[Path | str] = ()
 
 
 def current_moment() -> datetime:
@@ -163,7 +176,7 @@ def build_approval(request: ApprovalRequest, context: ApprovalContext) -> JsonDi
     """Validate a chat approval and return the record to store, or raise ``ApprovalError``."""
     risky = _check_request(request)
     if request.action in PRODUCTION_ACTIONS:
-        cutoff, friday_cutoff = production_window_cutoffs()
+        cutoff, friday_cutoff = production_window_cutoffs(repos=context.repos)
         if outside_production_window(context.moment, cutoff, friday_cutoff):
             raise ApprovalError(
                 f"Outside the production window (never after {cutoff:02d}:00, nor Friday after {friday_cutoff:02d}:00): "

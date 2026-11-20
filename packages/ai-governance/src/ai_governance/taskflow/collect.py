@@ -56,6 +56,7 @@ class _Settlement:
     record: JsonDict
     text: str
     extra: JsonDict | None = None
+    control: JsonDict | None = None
 
 
 @dataclass(frozen=True)
@@ -418,22 +419,68 @@ def _base_record(found: JsonDict) -> JsonDict:
     }
 
 
+def _check_drift(task: Task, control: JsonDict) -> None:
+    if changed := drift(task, control):
+        raise DispatchError(
+            "taskflow control files changed since dispatch (" + ", ".join(changed[:6]) + "): "
+            "the round was not settled; inspect the store before going on"
+        )
+
+
+def _read_optional_text(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
+def _restore_text(path: Path, previous: str | None) -> None:
+    if previous is None:
+        path.unlink(missing_ok=True)
+    elif previous == "":
+        path.write_text("", encoding="utf-8")
+    else:
+        atomic_write_text(path, previous)
+
+
+def _rollback_round_file(store: TaskStore, ref: RoundRef, path: Path, previous: str | None) -> None:
+    try:
+        with store._lock(ref.task_id) as directory:
+            if _find(store._read(directory), ref.number) is None:
+                _restore_text(path, previous)
+    except (OSError, ValueError):
+        return
+
+
 def _write_settled(store: TaskStore, task_id: str, settlement: _Settlement) -> None:
     """Append the record (and ``extra`` evidence) in one mutate, after re-checking under the lock."""
     record, text, extra = settlement.record, settlement.text, settlement.extra
     number, session = int(record["n"]), str(record.get("session", ""))
+    round_file = Path(record["file"])
+    wrote = False
+    previous: str | None = None
 
     def settle(task: Task) -> None:
+        nonlocal wrote, previous
         if (found := _find(task, number)) is not None:
             raise _Lost(found)
         if session:
             _unused(task, number, session)
-        atomic_write_text(Path(record["file"]), text)
+        if settlement.control is not None:
+            _check_drift(task, settlement.control)
+        previous = _read_optional_text(round_file)
+        atomic_write_text(round_file, text)
+        wrote = True
         task.rounds.append(record)
         if extra is not None:
             task.evidence.append(extra)
 
-    store.mutate(task_id, settle)
+    try:
+        store.mutate(task_id, settle)
+    except BaseException:
+        if wrote:
+            _rollback_round_file(store, RoundRef(task_id, number), round_file, previous)
+        raise
 
 
 def _settled_record(
@@ -469,15 +516,15 @@ def collect_round(
     check_receipt(found, dispatch_id, number)
     failed = row.state != orca.SUCCEEDED
     answer, transport = ("", "none") if failed else _read_answer(found, answer_file)
-    if changed := drift(task, found["control"]):
-        raise DispatchError(
-            "taskflow control files changed since dispatch (" + ", ".join(changed[:6]) + "): "
-            "the round was not settled; inspect the store before going on"
-        )
+    _check_drift(task, found["control"])
     ev = _CollectEvidence(dispatch_id, verified, transport, launch_verified(found, dispatch_id))
     record = _settled_record(found, row, answer, ev)
     try:
-        _write_settled(store, task_id, _Settlement(record, _render(record, found, answer)))
+        _write_settled(
+            store,
+            task_id,
+            _Settlement(record, _render(record, found, answer), control=found["control"]),
+        )
     except _Lost as lost:
         return _already(lost.record, dispatch_id)
     return Settled(record, False)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 import importlib.util
 import sys
 from pathlib import Path
@@ -69,3 +70,34 @@ def test_network_failure_falls_back(
     assert notes.main(["--commits", str(commits), "--out", str(out)]) == 0
     assert not out.exists()
     assert "AI notes unavailable" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        pytest.param(http.client.IncompleteRead(b"partial"), id="http-incomplete-read"),
+        pytest.param(OSError("connection reset"), id="os-connection-reset"),
+        pytest.param(
+            UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+            id="unicode-decode-error",
+        ),
+    ],
+)
+def test_transport_and_decode_failures_fall_back_cleanly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    exc: Exception,
+) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+
+    def fail_draft(*_args: object, **_kwargs: object) -> str:
+        raise exc
+
+    monkeypatch.setattr(notes, "draft", fail_draft)
+    commits = tmp_path / "commits.txt"
+    commits.write_text("feat: a\x00", encoding="utf-8")
+    out = tmp_path / "notes.md"
+    assert notes.main(["--commits", str(commits), "--out", str(out)]) == 0
+    assert not out.exists()
+    assert type(exc).__name__ in capsys.readouterr().out

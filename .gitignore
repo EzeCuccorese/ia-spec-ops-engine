@@ -9,7 +9,6 @@ worktrees/
 __pycache__/
 *.pyc
 memory/
-docs/plans/
 .lavish/
 .claude/worktrees/
 .venv/
@@ -34,8 +33,9 @@ scratch/*
 CLAUDE.md
 GEMINI.md
 
-# Company packs stay local: only the README is versioned
-packages/corporate-rules/*/
+# Only the private-pack documentation belongs in Git.
+packages/corporate-rules/*
+!packages/corporate-rules/README.md
 
 # GitHub App private keys and other credentials
 *.pem
