@@ -181,8 +181,42 @@ change. Run relevant checks after simplifying and inspect the final diff for beh
 """
 
 
+SLACK_FORMATTING_SKILL = """\
+---
+name: slack-formatting
+description: Format and deliver Slack messages that render correctly. Use before writing any Slack message, draft or thread reply.
+---
+# Slack Formatting
+
+## Delivery
+- Default: create a draft with the Slack connector draft tool (`thread_ts` for a thread reply)
+  so the user reviews and sends it. Drafts accept about 12,000 characters.
+- Send directly only when the user asks and the text is under 5,000 characters; longer sends
+  fail with `msg_too_long`.
+- Before creating a draft or sending, show the exact text and the target channel or thread
+  and wait for the user's OK.
+- Each channel or thread holds one draft. A new draft silently replaces the previous one and
+  the connector cannot edit or delete drafts, so warn before replacing one.
+
+## Draft syntax (standard Markdown)
+- `**bold**`, `_italic_`, `[text](url)` links, `:emoji:` codes.
+- Real lists with `- `; nest with two spaces of indentation.
+- Never fake bullets with `•` or `◦` plus spaces: Slack trims the spaces and loses nesting.
+- Never use `*bold*` or `<url|text>` in a draft: that is API `mrkdwn`.
+
+## Raw API messages
+- `mrkdwn` uses `*bold*`, `_italic_` and `<url|text>`, and has no lists.
+- For real lists use `rich_text_list` blocks (`indent` for nesting) or the `markdown` block
+  (up to 12,000 characters).
+
+## Content
+- Never mention internal tooling. Link sources instead of copying them.
+"""
+
+
 SKILLS = {
     "code-simplifier": CODE_SIMPLIFIER_SKILL,
+    "slack-formatting": SLACK_FORMATTING_SKILL,
     "taskflow": TASKFLOW_SKILL,
     "test-audit": TEST_AUDIT_SKILL,
 }

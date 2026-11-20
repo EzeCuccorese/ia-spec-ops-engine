@@ -103,6 +103,7 @@ def test_codex_and_antigravity_use_marker_blocks(home: Path) -> None:
     )
     assert not (home / ".codex" / "ai-governance" / "always" / routing).exists()
     assert (home / ".gemini" / "config" / "skills" / "code-simplifier" / "SKILL.md").is_file()
+    assert (home / ".gemini" / "config" / "skills" / "slack-formatting" / "SKILL.md").is_file()
     assert not (home / ".gemini" / "GEMINI.md").exists()
     uninstall_user(["codex"])
     assert (home / ".codex" / "AGENTS.md").read_text() == "# My rules\n"

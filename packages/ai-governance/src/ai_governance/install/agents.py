@@ -457,7 +457,7 @@ AGENTS: dict[str, AgentSpec] = {
         project_rules=".claude/rules/ai-governance-<id>.md -> symlink to .agents/rules",
         project_rules_mechanism="native `paths:` frontmatter (loaded per file)",
         scout="~/.claude/agents/scout.md (haiku, no web) + researcher.md (sonnet, web research) + runner.md (haiku, Bash, no edits), effort medium",
-        skills="~/.claude/skills/{taskflow,test-audit,code-simplifier}/SKILL.md",
+        skills="~/.claude/skills/{taskflow,test-audit,code-simplifier,slack-formatting}/SKILL.md",
     ),
     "codex": CodexSpec(
         id="codex",
@@ -467,7 +467,7 @@ AGENTS: dict[str, AgentSpec] = {
         project_rules=".agents/rules/ai-governance-<id>.md (shared)",
         project_rules_mechanism="injected on edit by a PreToolUse hook (planned)",
         scout="$CODEX_HOME/agents/scout.toml (gpt-6-luna, effort medium, read-only) + config.toml default subagent model gpt-6-luna",  # default of agents.codex_scout_model,
-        skills="~/.agents/skills/{taskflow,test-audit,code-simplifier}/SKILL.md",
+        skills="~/.agents/skills/{taskflow,test-audit,code-simplifier,slack-formatting}/SKILL.md",
     ),
     "antigravity": AntigravitySpec(
         id="antigravity",
@@ -477,7 +477,7 @@ AGENTS: dict[str, AgentSpec] = {
         project_rules=".agents/rules/ai-governance-<id>.md (single source)",
         project_rules_mechanism="`trigger: glob` activation (loaded per file; 20k-token rules budget)",
         scout="~/.gemini/config/agents/scout.md (model flash, read-only tools, no commands)",
-        skills="~/.gemini/config/skills/{taskflow,test-audit,code-simplifier}/SKILL.md",
+        skills="~/.gemini/config/skills/{taskflow,test-audit,code-simplifier,slack-formatting}/SKILL.md",
     ),
 }
 
