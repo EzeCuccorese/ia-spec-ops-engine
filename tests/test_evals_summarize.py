@@ -59,6 +59,8 @@ def _test_row(condition: str, **overrides: str) -> dict[str, str]:
 
 
 def test_per_condition_stats_filters_broken_and_incomplete_runs() -> None:
+    without_cost = _row("rules+gate", hidden_tests_passed="1")
+    del without_cost["cost_usd"]
     rows = [
         _row(
             "rules+gate", violations_total="1", added_lines="200", cost_usd="0.40", num_turns="20"
@@ -67,15 +69,16 @@ def test_per_condition_stats_filters_broken_and_incomplete_runs() -> None:
         _row("rules+gate", hidden_tests_passed="0", hidden_tests_total="0", cost_usd="0"),
         _row("rules+gate", cost_usd="0", hidden_tests_passed="2"),
         _row("rules+gate", cost_usd="", hidden_tests_passed="1"),
+        without_cost,
         _row("rules+gate", cost_usd="nan"),
         _row("rules+gate", cost_usd="-0.10"),
         _row("rules+gate", error="timeout"),
     ]
     stats = summarize.per_condition_stats(rows)
-    assert stats["rules+gate"]["n_runs"] == 3
-    assert stats["rules+gate"]["hidden_pass_rate"] == pytest.approx(7 / 12)
+    assert stats["rules+gate"]["n_runs"] == 4
+    assert stats["rules+gate"]["hidden_pass_rate"] == pytest.approx(8 / 16)
     assert stats["rules+gate"]["mean_cost_usd"] == pytest.approx(0.20)
-    assert stats["rules+gate"]["mean_turns"] == pytest.approx(40 / 3)
+    assert stats["rules+gate"]["mean_turns"] == pytest.approx(50 / 4)
     assert stats["rules+gate"]["violations_per_100_lines"] == pytest.approx(0.5)
 
 
