@@ -1521,7 +1521,7 @@ def test_pre_push_warns_when_detected_stack_tool_is_missing(tmp_path: Path) -> N
     proc = _run_generated_hook(
         tmp_path,
         skip="gitleaks,commits,design",
-        env_overrides={"PATH": str(bin_dir)},
+        env_overrides={"PATH": str(bin_dir), "HOME": str(tmp_path)},
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "Cargo.toml is present but 'cargo' is not installed" in proc.stdout
