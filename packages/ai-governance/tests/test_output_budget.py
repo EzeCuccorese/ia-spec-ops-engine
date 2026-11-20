@@ -36,7 +36,7 @@ class TestTaskflowListBudget:
         session_main(["list"])
         out = capsys.readouterr().out
 
-        assert len(out) <= 1600
+        assert len(out) <= 1500
         assert "\x1b" not in out
 
 
@@ -52,7 +52,7 @@ class TestTaskflowViewBudget:
         session_main(["show", "T-1"])
         out = capsys.readouterr().out
 
-        assert len(out) <= 1600
+        assert len(out) <= 1500
         assert "\x1b" not in out
 
     def test_taskflow_view_json_budget_4000_chars(
