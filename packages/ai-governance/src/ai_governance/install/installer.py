@@ -315,7 +315,12 @@ def _corporate_desired(
     report: Report,
     corporate_names: list[str] | None = None,
 ) -> list[Owned]:
-    root = corporate.corporate_root()
+    corporate_scope = {spec.id for spec in specs} | {SCRIPTS_OWNER}
+    try:
+        root = corporate.corporate_root()
+    except ValueError as exc:
+        report.warnings.append(str(exc))
+        return _corporate_entries_to_keep(ledger, corporate_scope, RuleCatalog())
     if root.exists():
         packs = corporate.packs(only=corporate_names)
         for pack in packs:
@@ -327,7 +332,6 @@ def _corporate_desired(
         desired = [artifact for spec in specs for artifact in _corporate_rules(spec, packs)]
         desired.extend(_corporate_scripts(packs, report))
         return desired
-    corporate_scope = {spec.id for spec in specs} | {SCRIPTS_OWNER}
     kept = _corporate_entries_to_keep(ledger, corporate_scope, RuleCatalog())
     if kept:
         report.warnings.append(
@@ -395,7 +399,7 @@ def _skill_desired(
     """Skill copies for the agents; a collision keeps the skills already installed."""
     try:
         sources = skills.collect(pack_names=pack_names)
-    except skills.SkillError as exc:
+    except (skills.SkillError, ValueError) as exc:
         report.warnings.append(str(exc))
         return _skill_entries_to_keep(ledger, {spec.id for spec in specs})
     return [Owned(spec.id, a) for spec in specs for a in spec.skill_copy_artifacts(sources)]
@@ -436,6 +440,36 @@ def sync_skill_links(*, dry_run: bool = False, force: bool = False) -> Report:
     return report
 
 
+def _personal_source_for_entry(
+    entry: dict[str, Any], desired_paths: set[str], scope: set[str]
+) -> Path | None:
+    if entry.get("kind") != "link" or entry.get("agent") not in scope:
+        return None
+    rel = str(entry.get("path", ""))
+    name = Path(rel).name
+    if rel in desired_paths or not name.endswith(".md"):
+        return None
+    if not (name.startswith("ai-governance-personal-") or name.startswith("personal-")):
+        return None
+    target = str(entry.get("target", ""))
+    src = Path(target) if target else None
+    return src if src is not None and src.is_file() else None
+
+
+def _removed_personal_sources(
+    entries: list[dict[str, Any]], ledger: Ledger, desired: list[Owned], scope: set[str]
+) -> list[Path]:
+    desired_paths = {ledger.key(owned.artifact.path) for owned in desired}
+    sources: list[Path] = []
+    seen: set[Path] = set()
+    for entry in entries:
+        src = _personal_source_for_entry(entry, desired_paths, scope)
+        if src is not None and src not in seen:
+            seen.add(src)
+            sources.append(src)
+    return sources
+
+
 def install_user(
     agents: list[str],
     *,
@@ -450,6 +484,7 @@ def install_user(
     """
     specs = resolve_agents(agents)
     ledger = global_ledger()
+    before_entries = list(ledger.entries)
     report = Report()
     desired = [Owned(spec.id, artifact) for spec in specs for artifact in spec.global_artifacts()]
     catalog = RuleCatalog()
@@ -459,6 +494,14 @@ def install_user(
     desired.extend(_skill_desired(specs, ledger, report, corporate_names))
     scope = {spec.id for spec in specs} | {SCRIPTS_OWNER, COMPLETIONS_OWNER, SCHEDULE_OWNER}
     sync(desired, ledger, agents_in_scope=scope, dry_run=dry_run, force=force, report=report)
+    if sources := _removed_personal_sources(before_entries, ledger, desired, scope):
+        dirs = sorted({str(p.parent) for p in sources})
+        files = ", ".join(str(p) for p in sources)
+        report.warnings.append(
+            f"Managed personal-rule links were removed on upgrade; your source Markdown remains at {', '.join(dirs)} ({files}). "
+            "Copy or adapt custom rules into each agent's supported instructions: "
+            "Claude (~/.claude/rules/ or ~/.claude/AGENTS.md), Antigravity (~/.gemini/config/rules/), Codex (~/.codex/AGENTS.md)."
+        )
     ledger.extra["package_version"] = __version__
     ledger.save(report, dry_run)
     return report
@@ -472,9 +515,13 @@ def uninstall_user(
     ledger = global_ledger()
     report = Report()
     keep_shared = bool(installed_agents(ledger) - scope)
-    root = corporate.corporate_root()
+    try:
+        root = corporate.corporate_root()
+    except ValueError as exc:
+        report.warnings.append(str(exc))
+        root = None
     if keep_shared:
-        if root.exists():
+        if root is not None and root.exists():
             desired = _corporate_scripts(corporate.packs(only=corporate_names), report)
         else:
             desired = _corporate_entries_to_keep(ledger, {SCRIPTS_OWNER})

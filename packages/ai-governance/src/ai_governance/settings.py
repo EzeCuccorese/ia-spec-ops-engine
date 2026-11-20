@@ -6,6 +6,7 @@ Layers (lowest to highest): default < ``~/.config/ai-governance/config.toml`` <
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import TypedDict, Unpack
 
@@ -218,6 +219,17 @@ def _validate_settings(values: dict[str, Value]) -> None:
         if raw not in ("never", "explicit"):
             raise ConfigError(
                 f"Invalid value for deploy_approvals.production: {raw!r} (must be 'never' or 'explicit')"
+            )
+    if "hooks.gate_timeout_seconds" in values:
+        raw = values["hooks.gate_timeout_seconds"].value
+        if (
+            isinstance(raw, bool)
+            or not isinstance(raw, (int, float))
+            or not math.isfinite(raw)
+            or raw <= 0
+        ):
+            raise ConfigError(
+                f"Invalid value for hooks.gate_timeout_seconds: {raw!r} (must be a finite number > 0)"
             )
 
 

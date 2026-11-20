@@ -131,7 +131,10 @@ def _corporate_rows(user: Ledger, agents: list[str]) -> list[Row]:
     from .. import corporate
     from .installer import _corporate_entries_to_keep
 
-    root = corporate.corporate_root()
+    try:
+        root = corporate.corporate_root()
+    except ValueError as exc:
+        return [("user:corporate", FAIL, str(exc))]
     has_corporate = bool(os.environ.get("AI_GOVERNANCE_CORPORATE_DIR")) or bool(
         _corporate_entries_to_keep(user, set(agents) | {"scripts"})
     )

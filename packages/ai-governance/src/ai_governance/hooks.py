@@ -82,7 +82,7 @@ def _brain_hint(cwd: Path) -> str:
         if not repo:
             return ""
         count = BrainStore().count_for_repo(repo)
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return ""
     if count <= 0:
         return ""
@@ -213,8 +213,12 @@ def _claude_stop_gate() -> int:
     try:
         result = json.loads(proc.stdout)
     except ValueError:
+        print(
+            f"Quality gate returned non-JSON output (exit {proc.returncode}); allowing stop.",
+            file=sys.stderr,
+        )
         return 0
-    if result.get("status") != "failed":
+    if not isinstance(result, dict) or result.get("status") != "failed":
         return 0
     log = f"\nFull log: ws log {result['log_id']}" if result.get("log_id") else ""
     label = " ".join(a for a in command if a not in ("--cache", "--json"))
@@ -303,6 +307,17 @@ def _is_noisy_segment(tokens: list[str]) -> bool:
     return len(parts) > 1 and parts[1] in _NOISY_SUBCOMMANDS.get(exe, frozenset())
 
 
+_SHELL_META_CHARS = frozenset("><$`(){}*?[]~&")
+
+
+def _needs_shell(command: str, segments: list[list[str]]) -> bool:
+    if len(segments) != 1:
+        return True
+    if segments[0] and _ENV_ASSIGN.match(segments[0][0]):
+        return True
+    return any(ch in _SHELL_META_CHARS for ch in command)
+
+
 def _antigravity_pre_tool_use() -> int:
     """Antigravity cannot rewrite output: deny raw noisy commands and ask for `ws run`."""
     from .frugality.cli import HELP_FLAG, SKIP_CONDENSE
@@ -321,7 +336,9 @@ def _antigravity_pre_tool_use() -> int:
     if not any(_is_noisy_segment(seg) for seg in segments):
         return 0
     suggestion = (
-        f"ws run -- {command}" if len(segments) == 1 else f"ws run -- sh -c {shlex.quote(command)}"
+        f"ws run -- sh -c {shlex.quote(command)}"
+        if _needs_shell(command, segments)
+        else f"ws run -- {command}"
     )
     reason = f"Re-run it as `{suggestion}` to get a condensed summary (full log kept)."
     print(json.dumps({"decision": "deny", "reason": reason}))

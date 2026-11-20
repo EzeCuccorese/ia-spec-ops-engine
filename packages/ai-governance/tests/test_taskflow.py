@@ -515,7 +515,8 @@ def test_ticket_draft_does_not_write_private_tool_references(
     assert not output.exists()
     messages = capsys.readouterr()
     assert "restricted internal references" in messages.out + messages.err
-    assert "ws check" not in messages.out + messages.err
+    assert "ws check" in messages.out + messages.err
+    assert "Verified with" not in messages.out + messages.err
 
 
 def test_store_append_log_locks_without_deadlock_and_reserve_round_handles_any_digits(

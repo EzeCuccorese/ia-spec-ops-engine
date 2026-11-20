@@ -19,6 +19,17 @@ def _no_real_home(
     reads, so a test that sets its own still wins over this guard.
     """
     monkeypatch.setenv("HOME", str(tmp_path_factory.mktemp("home-guard")))
+    for var in (
+        "CODEX_HOME",
+        "AI_GOVERNANCE_BIN_DIR",
+        "AI_GOVERNANCE_CONFIG_DIR",
+        "AI_GOVERNANCE_STATE_DIR",
+        "AI_GOVERNANCE_AGENT",
+        "XDG_CONFIG_HOME",
+        "XDG_STATE_HOME",
+        "XDG_DATA_HOME",
+    ):
+        monkeypatch.delenv(var, raising=False)
 
 
 def test_the_home_guard_is_in_place() -> None:
@@ -26,6 +37,7 @@ def test_the_home_guard_is_in_place() -> None:
     import pwd
 
     assert Path.home() != Path(pwd.getpwuid(os.getuid()).pw_dir)
+    assert os.environ.get("CODEX_HOME") is None
 
 
 @pytest.fixture(autouse=True)

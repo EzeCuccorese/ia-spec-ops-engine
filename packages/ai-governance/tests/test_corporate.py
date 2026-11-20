@@ -440,3 +440,38 @@ def test_corporate_rule_frontmatter_validation(home: Path, pack_root: Path) -> N
         report = install_user(["claude"])
     assert any("Corporate rule 'principles' in pack 'acme'" in w for w in report.warnings)
     assert not any("Corporate rule 'glossary'" in w for w in report.warnings)
+
+
+def test_home_dotfiles_repo_allows_untracked_corporate_dir_and_blocks_tracked(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import subprocess
+
+    monkeypatch.delenv("AI_GOVERNANCE_CORPORATE_DIR")
+    monkeypatch.setenv("AI_GOVERNANCE_CONFIG_DIR", str(home / ".config" / "ai-governance"))
+    subprocess.run(["git", "init", "-q", str(home)], check=True)
+    corp = home / ".config" / "ai-governance" / "corporate-rules"
+    (corp / "acme" / "rules").mkdir(parents=True)
+    rule = corp / "acme" / "rules" / "r.md"
+    rule.write_text("---\ntrigger: always_on\n---\n# R\n")
+
+    assert corporate.corporate_root() == corp.resolve()
+
+    subprocess.run(["git", "-C", str(home), "add", "-f", str(rule)], check=True)
+    with pytest.raises(ValueError, match="outside Git worktrees"):
+        corporate.corporate_root()
+
+
+def test_invalid_corporate_root_reports_doctor_fail_and_install_warning(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkout = Path(__file__).resolve().parents[3]
+    monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(checkout / "private-corporate"))
+
+    rows = [r for r in doctor.check(None) if r[0] == "user:corporate"]
+    assert rows and rows[0][1] == doctor.FAIL and "outside Git worktrees" in rows[0][2]
+
+    report = install_user(["claude"])
+    assert any("outside Git worktrees" in w for w in report.warnings)
+    un_report = uninstall_user(["claude"])
+    assert any("outside Git worktrees" in w for w in un_report.warnings)

@@ -1236,3 +1236,78 @@ def test_atlassian_cli_requires_content_or_file(
         runner(argv)
     assert exc.value.code == 2
     assert expected_err in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "bad_page",
+    [
+        {"title": "T", "space": {"key": "S"}, "version": {"number": 2}},
+        {
+            "title": "T",
+            "space": {"key": "S"},
+            "version": {"number": 2},
+            "body": {"storage": {"value": None}},
+        },
+        {"title": "T", "space": {"key": "S"}, "body": {"storage": {"value": "<p>ok</p>"}}},
+        {
+            "title": "T",
+            "space": {"key": "S"},
+            "version": {"number": True},
+            "body": {"storage": {"value": "<p>ok</p>"}},
+        },
+    ],
+    ids=["missing-body", "none-value", "missing-version", "bool-version"],
+)
+def test_confluence_append_rejects_missing_body_or_version(
+    capsys: pytest.CaptureFixture[str], bad_page: dict
+) -> None:
+    with (
+        patch.object(confluence, "get", return_value=bad_page),
+        patch.object(confluence, "put") as put_mock,
+        pytest.raises(SystemExit) as exc,
+    ):
+        confluence.cmd_append("123", "extra text")
+    assert exc.value.code == 1
+    put_mock.assert_not_called()
+    assert "unavailable" in capsys.readouterr().err
+
+
+def test_confluence_append_accepts_empty_string_body() -> None:
+    page = {
+        "title": "T",
+        "space": {"key": "S"},
+        "version": {"number": 1},
+        "body": {"storage": {"value": ""}},
+    }
+    with (
+        patch.object(confluence, "get", return_value=page),
+        patch.object(confluence, "put") as put_mock,
+    ):
+        confluence.cmd_append("123", "hello")
+    put_mock.assert_called_once()
+    assert put_mock.call_args[0][1]["version"]["number"] == 2
+
+
+def test_confidentiality_normalizes_unicode_and_allows_domain_phrases() -> None:
+    for disguised in (
+        "Uses \uff41\uff49-governance.",
+        "Uses ai\u200b-governance.",
+        "Uses ai\u2011governance.",
+        "Uses ai\u2014governance.",
+    ):
+        with pytest.raises(ConfidentialityError, match="ai-governance"):
+            reject_engine_references(disguised)
+    reject_engine_references("Sonar quality gate failed on the PR.")
+    reject_engine_references("The internal hook passed cleanly.")
+
+
+@pytest.mark.parametrize(
+    "bad_id", ["../1", "0", -1, True, None], ids=["traversal", "zero", "neg", "bool", "none"]
+)
+def test_jira_sprint_rejects_invalid_board_and_sprint_ids(bad_id: object) -> None:
+    with (
+        patch.object(jira, "agile_get", return_value={"values": [{"id": bad_id}]}),
+        pytest.raises(SystemExit) as exc,
+    ):
+        jira.cmd_sprint("PROJ-1", "active")
+    assert exc.value.code == 1

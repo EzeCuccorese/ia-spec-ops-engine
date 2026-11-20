@@ -210,9 +210,12 @@ description: Format and deliver Slack messages that render correctly. Use before
   (up to 12,000 characters).
 
 ## Reports to the user
-- Scheduled or long reports go to the user's private report channel when a local or company
-  rule names one: a short title as the parent message, details as thread replies.
-- Sending there is pre-authorized; any other channel still needs the user's OK.
+- A local or company rule naming a private report channel only identifies the destination,
+  not permission to post.
+- Scheduled delivery to that channel requires explicit user opt-in when setting up the
+  schedule (format: a short title as the parent message, details as thread replies).
+- For all other sends or drafts (including ad-hoc reports), show a preview and wait for
+  the user's OK.
 
 ## Content
 - Never mention internal tooling. Link sources instead of copying them.

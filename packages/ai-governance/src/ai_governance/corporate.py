@@ -7,6 +7,7 @@ Packs live outside the source checkout under the user config directory, or where
 from __future__ import annotations
 
 import os
+import subprocess
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -25,12 +26,39 @@ def corporate_root() -> Path:
     return _validate_private_root(root)
 
 
+def _is_git_tracked(repo: Path, target: Path) -> bool:
+    try:
+        rel = target.relative_to(repo)
+    except ValueError:
+        return False
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo), "ls-files", "--", str(rel)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return False
+    return proc.returncode == 0 and bool(proc.stdout.strip())
+
+
 def _validate_private_root(root: Path) -> Path:
     declared = Path(os.path.abspath(root))
     resolved = root.resolve()
+    home = Path.home().resolve()
     candidates = {declared, *declared.parents, resolved, *resolved.parents}
-    if any((parent / ".git").exists() for parent in candidates):
-        raise ValueError("Corporate packs must be stored outside Git worktrees.")
+    for parent in candidates:
+        if not (parent / ".git").exists():
+            continue
+        parent_resolved = parent.resolve()
+        if (
+            parent_resolved != home
+            or resolved == home
+            or _is_git_tracked(home, resolved)
+            or _is_git_tracked(home, declared)
+        ):
+            raise ValueError("Corporate packs must be stored outside Git worktrees.")
     return resolved
 
 

@@ -187,3 +187,38 @@ def test_antigravity_rules_stay_within_its_rules_budget(project: Path, monkeypat
     sync_project(project, add_agents=["antigravity"])
     total = sum(len(p.read_bytes()) for p in (project / ".agents/rules").glob("*.md"))
     assert total // 4 < 20_000  # Antigravity 2.17: dedicated 20k-token rules budget
+
+
+def test_slack_skill_requires_explicit_opt_in_for_scheduled_reports() -> None:
+    from ai_governance.install.content import SLACK_FORMATTING_SKILL
+
+    assert "pre-authorized" not in SLACK_FORMATTING_SKILL
+    assert "only identifies the destination" in SLACK_FORMATTING_SKILL
+    assert "explicit user opt-in" in SLACK_FORMATTING_SKILL
+
+
+def test_upgrade_emits_diagnostic_when_personal_rule_links_removed(
+    project: Path, tmp_path: Path
+) -> None:
+    home = project.parent / "home"
+    personal_src = tmp_path / "personal" / "rules" / "voice.md"
+    personal_src.parent.mkdir(parents=True)
+    personal_src.write_text("# Voice\n")
+
+    link = home / ".claude" / "rules" / "ai-governance-personal-voice.md"
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(personal_src)
+
+    ledger = installer.global_ledger()
+    ledger.entries.append(
+        {"agent": "claude", "kind": "link", "path": ledger.key(link), "target": str(personal_src)}
+    )
+    ledger.save(installer.Report(), False)
+
+    report = install_user(["claude"])
+    assert not link.exists()
+    assert personal_src.is_file()
+    assert any(
+        "personal-rule links were removed" in w and str(personal_src) in w and "AGENTS.md" in w
+        for w in report.warnings
+    )

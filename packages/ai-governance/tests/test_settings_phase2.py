@@ -260,3 +260,25 @@ def test_config_show_fails_with_clear_message_on_invalid_deploy_approvals(
         "Invalid value for deploy_approvals.production: 'invalid_mode' (must be 'never' or 'explicit')"
         in err
     )
+
+
+@pytest.mark.parametrize("bad", [0, -5, True, float("nan"), float("inf"), "abc"])
+def test_gate_timeout_seconds_rejects_invalid_values(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, bad: object
+) -> None:
+    user_dir = tmp_path / "cfg"
+    user_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("AI_GOVERNANCE_CONFIG_DIR", str(user_dir))
+    if isinstance(bad, str):
+        toml_val = f'"{bad}"'
+    elif isinstance(bad, bool):
+        toml_val = "true" if bad else "false"
+    elif isinstance(bad, float) and bad != bad:
+        toml_val = "nan"
+    elif bad == float("inf"):
+        toml_val = "inf"
+    else:
+        toml_val = str(bad)
+    (user_dir / "config.toml").write_text(f"[hooks]\ngate_timeout_seconds = {toml_val}\n")
+    with pytest.raises(ConfigError, match="hooks.gate_timeout_seconds"):
+        effective()

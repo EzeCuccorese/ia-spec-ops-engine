@@ -352,12 +352,30 @@ def cmd_assign(key: str, who: str) -> None:
     print(f"✅ {key} assigned to {'you' if who == 'me' else who}")
 
 
+def _require_id(value: object, label: str) -> int:
+    if isinstance(value, bool):
+        print(f"❌ Invalid {label}: {value!r}", file=sys.stderr)
+        sys.exit(1)
+    if isinstance(value, str) and value.isascii() and value.isdigit():
+        num = int(value)
+    elif isinstance(value, int):
+        num = value
+    else:
+        print(f"❌ Invalid {label}: {value!r}", file=sys.stderr)
+        sys.exit(1)
+    if num <= 0:
+        print(f"❌ Invalid {label}: {value!r}", file=sys.stderr)
+        sys.exit(1)
+    return num
+
+
 def _all_sprints(board_id: int) -> list[dict[str, Any]]:
     """Fetches every sprint of a board (the Agile API pages at ~50)."""
+    safe_board = _quote_seg(str(_require_id(board_id, "board_id")))
     sprints: list[dict[str, Any]] = []
     start = 0
     while True:
-        page = agile_get(f"/board/{board_id}/sprint?startAt={start}&maxResults=50")
+        page = agile_get(f"/board/{safe_board}/sprint?startAt={start}&maxResults=50")
         values = page.get("values", [])
         sprints.extend(values)
         if page.get("isLast", True) or not values:
@@ -404,10 +422,10 @@ def cmd_sprint(key: str, name: str) -> None:
     sprints = _all_sprints(board_id)
     match = _resolve_sprint(sprints, board_id, name)
 
-    sprint_id = match["id"]
+    sprint_id = _require_id(match.get("id"), "sprint_id")
     sprint_name = match["name"]
 
-    agile_post(f"/sprint/{sprint_id}/issue", {"issues": [key]})
+    agile_post(f"/sprint/{_quote_seg(str(sprint_id))}/issue", {"issues": [key]})
     print(f"✅ {key} moved to sprint **{sprint_name}** (id: {sprint_id})")
 
 

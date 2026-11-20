@@ -388,3 +388,51 @@ def test_combine_session_message_respects_budget_extremes() -> None:
     assert len(hooks._combine_session_message("a" * 50, "BRAIN: 1 note", 25)) <= 25
     oversized = hooks._combine_session_message("base", "BRAIN: " + "x" * 50, 20)
     assert len(oversized) == 20 and oversized.endswith("…")
+
+
+def test_session_start_ignores_unicode_decode_error_from_brain(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    from ai_governance.brain.store import BrainStore
+
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
+    repo = tmp_path / "demo-repo"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    monkeypatch.setattr(
+        BrainStore,
+        "count_for_repo",
+        lambda self, r: (_ for _ in ()).throw(UnicodeDecodeError("utf-8", b"\xff", 0, 1, "bad")),
+    )
+    _stdin(monkeypatch, {"cwd": str(repo)})
+    assert hooks.main(["claude", "session-start"]) == 0
+    assert capsys.readouterr().out.strip() == hooks.NO_TASK_HINT
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    ["FOO=1 pytest -q", "pytest -q > out.log", "pytest $(echo tests)"],
+    ids=["env-prefix", "redirect", "subshell"],
+)
+def test_antigravity_pre_tool_use_wraps_shell_syntax_in_sh_c(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], cmd: str
+) -> None:
+    monkeypatch.setattr(hooks.shutil, "which", lambda name: "/usr/bin/ws" if name == "ws" else None)
+    _stdin(monkeypatch, {"toolCall": {"name": "run_command", "args": {"CommandLine": cmd}}})
+    assert hooks.main(["antigravity", "pre-tool-use"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["decision"] == "deny"
+    assert "ws run -- sh -c " in out["reason"]
+
+
+def test_claude_stop_gate_warns_on_non_json_stdout(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setattr(hooks.shutil, "which", lambda name: "/usr/bin/ws")
+    monkeypatch.setattr(
+        hooks.subprocess,
+        "run",
+        lambda *a, **kw: subprocess.CompletedProcess(a[0], 1, stdout="not json", stderr=""),
+    )
+    _stdin(monkeypatch, {"cwd": str(tmp_path)})
+    assert hooks.main(["claude", "stop-gate"]) == 0
+    assert "non-JSON output" in capsys.readouterr().err

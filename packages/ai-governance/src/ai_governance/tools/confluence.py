@@ -292,13 +292,34 @@ def cmd_update(page_id: str, body_md: str, expected_version: int | None = None) 
     print(f"✅ Page updated: **{title}** (v{ver + 1})")
 
 
+def _extract_append_state(current: dict[str, Any], page_id: str) -> tuple[int, str]:
+    version_obj = current.get("version")
+    ver = version_obj.get("number") if isinstance(version_obj, dict) else None
+    if not isinstance(ver, int) or isinstance(ver, bool):
+        print(
+            f"❌ Cannot append to page {page_id}: version.number is unavailable.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    body_obj = current.get("body")
+    storage_obj = body_obj.get("storage") if isinstance(body_obj, dict) else None
+    old_body = storage_obj.get("value") if isinstance(storage_obj, dict) else None
+    if not isinstance(old_body, str):
+        print(
+            f"❌ Cannot append to page {page_id}: existing body.storage.value is unavailable.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return ver, old_body
+
+
 def cmd_append(page_id: str, text: str, expected_version: int | None = None) -> None:
     """Appends content to the end of a page with version conflict checking."""
     safe_id = _quote_seg(page_id)
     current = get(f"/content/{safe_id}?expand=body.storage,version,space")
     title = current.get("title", "")
     space = (current.get("space") or {}).get("key", "")
-    ver = (current.get("version") or {}).get("number", 1)
+    ver, old_body = _extract_append_state(current, page_id)
 
     if expected_version is not None and int(expected_version) != ver:
         print(
@@ -307,7 +328,6 @@ def cmd_append(page_id: str, text: str, expected_version: int | None = None) -> 
         )
         sys.exit(1)
 
-    old_body = ((current.get("body") or {}).get("storage") or {}).get("value", "")
     append_text = read_input_text(text, allow_bare_path=False)
     new_content = _shift_task_ids(md_to_storage(append_text), old_body)
     combined = old_body + new_content
