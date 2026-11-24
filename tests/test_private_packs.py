@@ -72,3 +72,28 @@ def test_private_pack_is_rejected_in_wheel_and_sdist_without_printing_contents(
     assert f"pkg.whl: {PRIVATE_PATH}" in result.stderr
     assert f"pkg.tar.gz: pkg-1/{PRIVATE_PATH}" in result.stderr
     assert "Synthetic private" not in result.stderr
+
+
+def test_local_in_repo_config_dirs_are_rejected_in_git_and_archives(tmp_path: Path) -> None:
+    _repo(tmp_path)
+    gov_file = tmp_path / "config" / "ai-governance" / "personal" / "rules" / "local.md"
+    ws_file = tmp_path / "config" / "workspace" / "config.toml"
+    gov_file.parent.mkdir(parents=True)
+    ws_file.parent.mkdir(parents=True)
+    gov_file.write_text("# Private local rule\n", encoding="utf-8")
+    ws_file.write_text("[design]\nmode = 'block'\n", encoding="utf-8")
+    _git(tmp_path, "add", "-f", "config/ai-governance/personal/rules/local.md")
+    _git(tmp_path, "add", "-f", "config/workspace/config.toml")
+
+    staged = _check(tmp_path)
+    assert staged.returncode == 1
+    assert "config/ai-governance/personal/rules/local.md" in staged.stderr
+    assert "config/workspace/config.toml" in staged.stderr
+
+    artifacts = tmp_path / "dist"
+    artifacts.mkdir()
+    with ZipFile(artifacts / "pkg.whl", "w") as wheel:
+        wheel.writestr("config/workspace/config.toml", "[design]\n")
+    result = _check(tmp_path, "--dist", str(artifacts))
+    assert result.returncode == 1
+    assert "pkg.whl: config/workspace/config.toml" in result.stderr

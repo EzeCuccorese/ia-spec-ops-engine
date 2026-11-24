@@ -607,7 +607,7 @@ def test_reinstall_refreshes_the_global_scripts(monkeypatch):
         home_path = Path(mock_home)
         monkeypatch.setattr(Path, "home", lambda: home_path)
         monkeypatch.setenv("HOME", str(mock_home))
-        monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(home_path / ".config"))
         monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(home_path / ".gitconfig"))
         install_git_hooks(is_global=True)
         hook_file = home_path / ".config" / "workspace" / "hooks" / "pre-push"
@@ -1266,6 +1266,7 @@ def test_pre_push_defaults_to_changed_scope_and_maps_python_source_to_test(tmp_p
     }
     env.update(
         HOME=str(fake_home),
+        XDG_CONFIG_HOME=str(fake_home / ".config"),
         GIT_CONFIG_GLOBAL="/dev/null",
         GIT_CONFIG_SYSTEM="/dev/null",
         QG_SKIP="gitleaks,commits,lint,design",
@@ -1297,6 +1298,7 @@ def test_pre_push_skips_tests_when_deleting_remote_branch(tmp_path: Path) -> Non
     }
     env.update(
         HOME=str(fake_home),
+        XDG_CONFIG_HOME=str(fake_home / ".config"),
         GIT_CONFIG_GLOBAL="/dev/null",
         GIT_CONFIG_SYSTEM="/dev/null",
         QG_SKIP="gitleaks,commits,lint,design",

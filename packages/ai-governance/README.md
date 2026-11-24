@@ -52,7 +52,7 @@ has no per-file global rules: they are copied to `$CODEX_HOME/ai-governance/`, i
 |---|---|---|---|
 | Global instructions | ~/.claude/rules/ai-governance.md + language rules (`paths:`) | $CODEX_HOME/AGENTS.md (marker block) + rule indexes in $CODEX_HOME/ai-governance/ | ~/.gemini/config/rules/ai-governance.md (`trigger: always_on`) + language rules (`trigger: glob`) |
 | Global hooks | ~/.claude/settings.json (Pre/PostToolUse Bash, SessionStart/End) | $CODEX_HOME/hooks.json SessionStart, PostToolUse condensing | ~/.gemini/config/hooks.json SessionStart, PreToolUse: raw noisy commands -> `ws run` |
-| Scout subagent | ~/.claude/agents/scout.md (haiku, no web) + researcher.md (sonnet, web research) + runner.md (haiku, Bash, no edits), effort medium | $CODEX_HOME/agents/scout.toml (gpt-6-luna, effort medium, read-only) + config.toml default subagent model gpt-6-luna | ~/.gemini/config/agents/scout.md (model flash, read-only tools, no commands) |
+| Scout subagent | ~/.claude/agents/scout.md (haiku, no web) + researcher.md (sonnet, web research) + runner.md (haiku, Bash, no edits), effort medium | $CODEX_HOME/agents/scout.toml (gpt-6-luna, effort medium, read-only) + config.toml default subagent model gpt-6-luna | ~/.gemini/config/agents/scout.md (flash, no web) + researcher.md (pro, web research) + runner.md (flash, run_command, no edits) |
 | Skills | ~/.claude/skills/{taskflow,test-audit,code-simplifier,slack-formatting}/SKILL.md | ~/.agents/skills/{taskflow,test-audit,code-simplifier,slack-formatting}/SKILL.md | ~/.gemini/config/skills/{taskflow,test-audit,code-simplifier,slack-formatting}/SKILL.md |
 | Project rules | .claude/rules/ai-governance-<id>.md -> symlink to .agents/rules | .agents/rules/ai-governance-<id>.md (shared) | .agents/rules/ai-governance-<id>.md (single source) |
 | Rule loading | native `paths:` frontmatter (loaded per file) | injected on edit by a PreToolUse hook (planned) | `trigger: glob` activation (loaded per file; 20k-token rules budget) |
@@ -83,8 +83,9 @@ Claude Code user hooks (all through `ai-governance hook claude <event>`, fail-op
 
 ### Corporate packs
 
-Company-specific, always-on rules, scripts and skills live outside the checkout, by default in
-`~/.config/ai-governance/corporate-rules/<company>/` (see
+Company-specific, always-on rules, scripts and skills live outside Git, by default in
+`~/.config/ai-governance/corporate-rules/<company>/` (or git-ignored under
+`config/ai-governance/corporate-rules/<company>/` for an editable checkout; see
 [the corporate pack guide](../corporate-rules/README.md)), or wherever
 `AI_GOVERNANCE_CORPORATE_DIR` points.
 Every pack present is installed by the regular `install --scope user --agent ...`, with no extra
@@ -278,7 +279,7 @@ Copy any custom rules you want to keep into each agent's supported instructions 
 ## Configuration and environment
 
 State: `~/.local/state/ai-governance/` (ledger `installed.json`, `taskflow/`, `frugal/`).
-Config: `~/.config/ai-governance/`.
+Config: `~/.config/ai-governance/` (or `<checkout>/config/ai-governance/` when installed editable and present, git-ignored).
 
 ### Configuration layers
 

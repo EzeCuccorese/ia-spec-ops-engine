@@ -462,6 +462,28 @@ def test_home_dotfiles_repo_allows_untracked_corporate_dir_and_blocks_tracked(
         corporate.corporate_root()
 
 
+def test_gitignored_corporate_dir_inside_repo_allowed_unless_tracked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import subprocess
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    (repo / ".gitignore").write_text("config/*\n!config/.env.example\n", encoding="utf-8")
+    corp = repo / "config" / "ai-governance" / "corporate-rules"
+    (corp / "acme" / "rules").mkdir(parents=True)
+    rule = corp / "acme" / "rules" / "r.md"
+    rule.write_text("---\ntrigger: always_on\n---\n# R\n", encoding="utf-8")
+
+    monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(corp))
+    assert corporate.corporate_root() == corp.resolve()
+
+    subprocess.run(["git", "-C", str(repo), "add", "-f", str(rule)], check=True)
+    with pytest.raises(ValueError, match="outside Git worktrees"):
+        corporate.corporate_root()
+
+
 def test_invalid_corporate_root_reports_doctor_fail_and_install_warning(
     home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -43,6 +43,40 @@ def _is_git_tracked(repo: Path, target: Path) -> bool:
     return proc.returncode == 0 and bool(proc.stdout.strip())
 
 
+def _is_git_ignored(repo: Path, target: Path) -> bool:
+    try:
+        rel = target.relative_to(repo)
+    except ValueError:
+        return False
+    if not rel.parts:
+        return False
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo), "check-ignore", "-q", "--no-index", "--", str(rel)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return False
+    return proc.returncode == 0
+
+
+def _in_repo(repo: Path, target: Path) -> bool:
+    return target == repo or repo in target.parents
+
+
+def _allowed_in_repo(repo: Path, declared: Path, resolved: Path, home: Path) -> bool:
+    if resolved == repo or declared == repo:
+        return False
+    if _is_git_tracked(repo, resolved) or _is_git_tracked(repo, declared):
+        return False
+    if repo == home:
+        return True
+    targets = [p for p in (declared, resolved) if _in_repo(repo, p)]
+    return bool(targets) and all(_is_git_ignored(repo, p) for p in targets)
+
+
 def _validate_private_root(root: Path) -> Path:
     declared = Path(os.path.abspath(root))
     resolved = root.resolve()
@@ -51,14 +85,10 @@ def _validate_private_root(root: Path) -> Path:
     for parent in candidates:
         if not (parent / ".git").exists():
             continue
-        parent_resolved = parent.resolve()
-        if (
-            parent_resolved != home
-            or resolved == home
-            or _is_git_tracked(home, resolved)
-            or _is_git_tracked(home, declared)
-        ):
-            raise ValueError("Corporate packs must be stored outside Git worktrees.")
+        if not _allowed_in_repo(parent.resolve(), declared, resolved, home):
+            raise ValueError(
+                "Corporate packs must be stored outside Git worktrees or in a git-ignored, untracked directory."
+            )
     return resolved
 
 

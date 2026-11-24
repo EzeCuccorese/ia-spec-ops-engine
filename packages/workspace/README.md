@@ -251,7 +251,7 @@ from marker files. ai-governance uses it to install only the rules a project nee
 ### Configuration layers
 
 Settings resolve across three configuration layers (lowest to highest priority):
-1. **user global**: `~/.config/workspace/config.toml` (XDG)
+1. **user global**: `~/.config/workspace/config.toml` (XDG; or git-ignored `<checkout>/config/workspace/config.toml` when installed editable and present)
 2. **in-repo**: `<repo>/.workspace/config.toml`
 3. **personal per-repo (outside working tree)**: `~/.config/workspace/repos/<repo-name>.toml` (stable across git worktrees of the same repo, derived from the main checkout directory name)
 

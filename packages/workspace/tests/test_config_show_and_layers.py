@@ -67,3 +67,17 @@ def test_global_hook_path_follows_the_shared_xdg_rules(
     assert git_hooks.global_hook_path().parent.parent == xdg / "workspace"
     monkeypatch.setenv("WORKSPACE_CONFIG_DIR", str(tmp_path / "ws"))
     assert git_hooks.global_hook_path().parent.parent == tmp_path / "ws"
+
+
+def test_global_hook_path_uses_checkout_config_when_env_unset(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from workspace_engine import _config_core
+
+    checkout_ws = tmp_path / "checkout" / "config" / "workspace"
+    checkout_ws.mkdir(parents=True)
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.delenv("WORKSPACE_CONFIG_DIR", raising=False)
+    monkeypatch.setattr(_config_core, "_checkout_config_dir", lambda app: checkout_ws)
+
+    assert git_hooks.global_hook_path().parent.parent == checkout_ws

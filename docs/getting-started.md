@@ -73,10 +73,12 @@ locations; run `ai-governance agents` for the matrix. Codex also gets
 directly with `--scope user`.
 
 **Company packs (optional)**: every folder under
-`~/.config/ai-governance/corporate-rules/<company>/` (or the external directory selected by
-`AI_GOVERNANCE_CORPORATE_DIR`) is installed by this same command. Its `rules/*.md` become
-always-on rules, its `scripts/*` are linked into `~/.local/bin`, and its `skills/<name>/` become
-managed directory copies. The installer rejects a corporate directory inside the repository.
+`~/.config/ai-governance/corporate-rules/<company>/` (or git-ignored under
+`config/ai-governance/corporate-rules/<company>/` when installed editable, or the directory
+selected by `AI_GOVERNANCE_CORPORATE_DIR`) is installed by this same command. Its `rules/*.md`
+become always-on rules, its `scripts/*` are linked into `~/.local/bin`, and its `skills/<name>/`
+become managed directory copies. The installer rejects tracked or unignored locations inside a
+repository.
 Pass every agent you use in one install, because only the named agents get pack rules refreshed.
 See [packages/corporate-rules/README.md](../packages/corporate-rules/README.md).
 

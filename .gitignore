@@ -1,9 +1,11 @@
-config/.env
+# Local user configuration in config/ (never commit private/corporate data)
+config/*
+!config/.env.example
+!config/.env.secrets.example
 .claude/settings.local.json
 docs/superpowers/
 .superpowers/
 .DS_Store
-config/.env.secrets
 .worktrees/
 worktrees/
 __pycache__/

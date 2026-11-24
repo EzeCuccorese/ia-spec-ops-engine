@@ -126,6 +126,30 @@ def test_claude_runner_runs_commands_without_edit_tools(home: Path) -> None:
     assert "tools: Bash, Read, Grep, Glob\n" in runner and "omitClaudeMd: true\n" in runner
 
 
+def test_antigravity_installs_researcher_and_runner(home: Path) -> None:
+    from ai_governance.install import content
+
+    install_user(["antigravity"])
+    agents = home / ".gemini" / "config" / "agents"
+    researcher = (agents / "researcher.md").read_text(encoding="utf-8")
+    runner = (agents / "runner.md").read_text(encoding="utf-8")
+    assert "name: researcher\n" in researcher and "model: pro\n" in researcher
+    assert "  - search_web\n" in researcher and "commandExecutionPolicy: off\n" in researcher
+    assert "name: runner\n" in runner and "model: flash\n" in runner
+    assert "  - run_command\n" in runner and "commandExecutionPolicy: auto\n" in runner
+    for filename, description in (
+        ("scout.md", content.CLAUDE_SCOUT_DESCRIPTION),
+        ("researcher.md", content.RESEARCHER_DESCRIPTION),
+        ("runner.md", content.RUNNER_DESCRIPTION),
+    ):
+        text = (agents / filename).read_text(encoding="utf-8")
+        frontmatter = text.split("---\n", 2)[1]
+        desc_line = next(ln for ln in frontmatter.splitlines() if ln.startswith("description: "))
+        raw_scalar = desc_line.removeprefix("description: ")
+        assert raw_scalar.startswith('"') and raw_scalar.endswith('"')
+        assert json.loads(raw_scalar) == description
+
+
 def test_every_agent_gets_the_bundled_skills(home: Path) -> None:
     install_user(["claude", "codex", "antigravity"])
     for skills_dir in (
@@ -473,9 +497,13 @@ def test_antigravity_hooks_path_is_shown_in_full() -> None:
     assert AGENTS["antigravity"].global_hooks.startswith("~/.gemini/config/hooks.json ")
 
 
-def test_antigravity_installs_session_start_and_doctor_has_no_gap(home: Path) -> None:
+def test_antigravity_installs_session_start_and_doctor_has_no_gap(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ai_governance.install import agents as agents_mod
     from ai_governance.install.agents import HooksArtifact
 
+    monkeypatch.setattr(agents_mod.shutil, "which", lambda name: "/opt/bin/ai-governance")
     install_user(["antigravity", "codex"])
     spec = AGENTS["antigravity"]
     hook_commands = [
@@ -484,11 +512,22 @@ def test_antigravity_installs_session_start_and_doctor_has_no_gap(home: Path) ->
         if isinstance(artifact, HooksArtifact)
         for e in artifact.entries
     ]
-    assert "ai-governance hook antigravity session-start" in hook_commands
-    assert "ai-governance hook antigravity pre-tool-use" in hook_commands
+    assert "/opt/bin/ai-governance hook antigravity session-start" in hook_commands
+    assert "/opt/bin/ai-governance hook antigravity pre-tool-use" in hook_commands
     assert not any("writer-lease" in cmd for cmd in hook_commands)
     assert (home / ".gemini" / "config" / "hooks.json").is_file()
     assert (home / ".codex" / "hooks.json").is_file()
+
+    # Fallback to bare command when binary is not on PATH
+    monkeypatch.setattr(agents_mod.shutil, "which", lambda name: None)
+    fallback_commands = [
+        e.command
+        for artifact in spec.global_artifacts()
+        if isinstance(artifact, HooksArtifact)
+        for e in artifact.entries
+    ]
+    assert "ai-governance hook antigravity session-start" in fallback_commands
+    assert "ai-governance hook antigravity pre-tool-use" in fallback_commands
 
     rows = check(None)
     assert not any(

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -387,6 +389,14 @@ class CodexSpec(AgentSpec):
         ]
 
 
+def _antigravity_hook_prefix() -> str:
+    """Resolve an absolute binary path for Antigravity hooks (its shell omits ``~/.local/bin``)."""
+    binary = shutil.which("ai-governance")
+    if binary:
+        return f"{shlex.quote(binary)} hook"
+    return HOOK_COMMAND_PREFIX
+
+
 class AntigravitySpec(AgentSpec):
     def skills_dir(self) -> Path | None:
         return Path.home() / ".gemini" / "config" / "skills"
@@ -402,6 +412,7 @@ class AntigravitySpec(AgentSpec):
 
     def global_artifacts(self) -> list[Artifact]:
         home = Path.home() / ".gemini"
+        hook_prefix = _antigravity_hook_prefix()
         return [
             FileArtifact(
                 home / "config" / "rules" / "ai-governance.md",
@@ -411,22 +422,38 @@ class AntigravitySpec(AgentSpec):
                 home / "config" / "agents" / "scout.md",
                 "---\n"
                 "name: scout\n"
-                f"description: {content.SCOUT_DESCRIPTION}\n"
+                f"description: {json.dumps(content.CLAUDE_SCOUT_DESCRIPTION)}\n"
                 + content.ANTIGRAVITY_SCOUT_SETTINGS
                 + "---\n"
                 + content.SCOUT_INSTRUCTIONS,
+            ),
+            FileArtifact(
+                home / "config" / "agents" / "researcher.md",
+                "---\n"
+                "name: researcher\n"
+                f"description: {json.dumps(content.RESEARCHER_DESCRIPTION)}\n"
+                + content.ANTIGRAVITY_RESEARCHER_SETTINGS
+                + "---\n"
+                + content.RESEARCHER_INSTRUCTIONS,
+            ),
+            FileArtifact(
+                home / "config" / "agents" / "runner.md",
+                "---\n"
+                "name: runner\n"
+                f"description: {json.dumps(content.RUNNER_DESCRIPTION)}\n"
+                + content.ANTIGRAVITY_RUNNER_SETTINGS
+                + "---\n"
+                + content.RUNNER_INSTRUCTIONS,
             ),
             *skill_artifacts(home / "config" / "skills"),
             HooksArtifact(
                 home / "config" / "hooks.json",
                 (
-                    HookEntry(
-                        "SessionStart", None, f"{HOOK_COMMAND_PREFIX} antigravity session-start"
-                    ),
+                    HookEntry("SessionStart", None, f"{hook_prefix} antigravity session-start"),
                     HookEntry(
                         "PreToolUse",
                         "run_command",
-                        f"{HOOK_COMMAND_PREFIX} antigravity pre-tool-use",
+                        f"{hook_prefix} antigravity pre-tool-use",
                     ),
                 ),
                 group=MARKER,
@@ -476,7 +503,7 @@ AGENTS: dict[str, AgentSpec] = {
         global_hooks="~/.gemini/config/hooks.json SessionStart, PreToolUse: raw noisy commands -> `ws run`",
         project_rules=".agents/rules/ai-governance-<id>.md (single source)",
         project_rules_mechanism="`trigger: glob` activation (loaded per file; 20k-token rules budget)",
-        scout="~/.gemini/config/agents/scout.md (model flash, read-only tools, no commands)",
+        scout="~/.gemini/config/agents/scout.md (flash, no web) + researcher.md (pro, web research) + runner.md (flash, run_command, no edits)",
         skills="~/.gemini/config/skills/{taskflow,test-audit,code-simplifier,slack-formatting}/SKILL.md",
     ),
 }
