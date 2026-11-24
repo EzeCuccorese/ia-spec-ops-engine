@@ -98,11 +98,7 @@ ANTIGRAVITY_SCOUT_SETTINGS = (
 )
 
 ANTIGRAVITY_RESEARCHER_SETTINGS = (
-    "model: pro\n"
-    "tools:\n"
-    "  - view_file\n"
-    "  - search_web\n"
-    "commandExecutionPolicy: off\n"
+    "model: pro\ntools:\n  - view_file\n  - search_web\ncommandExecutionPolicy: off\n"
 )
 
 ANTIGRAVITY_RUNNER_SETTINGS = (

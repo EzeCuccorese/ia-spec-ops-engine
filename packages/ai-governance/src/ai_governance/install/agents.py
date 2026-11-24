@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ..corporate import CorporateRule
+from ..corporate import CorporateRule, bin_dir
 from ..frontmatter import _FRONTMATTER_RE
 from ..rules.catalog import RuleDefinition
 from ..settings import get as setting
@@ -392,6 +392,10 @@ class CodexSpec(AgentSpec):
 def _antigravity_hook_prefix() -> str:
     """Resolve an absolute binary path for Antigravity hooks (its shell omits ``~/.local/bin``)."""
     binary = shutil.which("ai-governance")
+    if not binary:
+        candidate = bin_dir() / "ai-governance"
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            binary = str(candidate)
     if binary:
         return f"{shlex.quote(binary)} hook"
     return HOOK_COMMAND_PREFIX

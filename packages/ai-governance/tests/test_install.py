@@ -518,8 +518,23 @@ def test_antigravity_installs_session_start_and_doctor_has_no_gap(
     assert (home / ".gemini" / "config" / "hooks.json").is_file()
     assert (home / ".codex" / "hooks.json").is_file()
 
-    # Fallback to bare command when binary is not on PATH
+    # Fallback to ~/.local/bin/ai-governance when binary is omitted from PATH
     monkeypatch.setattr(agents_mod.shutil, "which", lambda name: None)
+    local_bin = home / ".local" / "bin" / "ai-governance"
+    local_bin.parent.mkdir(parents=True, exist_ok=True)
+    local_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    local_bin.chmod(0o755)
+    bin_dir_commands = [
+        e.command
+        for artifact in spec.global_artifacts()
+        if isinstance(artifact, HooksArtifact)
+        for e in artifact.entries
+    ]
+    assert f"{local_bin} hook antigravity session-start" in bin_dir_commands
+    assert f"{local_bin} hook antigravity pre-tool-use" in bin_dir_commands
+
+    # Fallback to bare command when binary is neither on PATH nor in bin_dir
+    local_bin.unlink()
     fallback_commands = [
         e.command
         for artifact in spec.global_artifacts()

@@ -81,3 +81,25 @@ def test_global_hook_path_uses_checkout_config_when_env_unset(
     monkeypatch.setattr(_config_core, "_checkout_config_dir", lambda app: checkout_ws)
 
     assert git_hooks.global_hook_path().parent.parent == checkout_ws
+
+
+def test_checkout_config_dir_detects_editable_repo_layout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from workspace_engine import _config_core
+
+    monkeypatch.setattr(_config_core, "__file__", "/pkg/_config_core.py")
+    assert _config_core._checkout_config_dir("workspace") is None
+
+    checkout = tmp_path / "repo"
+    fake_file = checkout / "packages" / "workspace" / "src" / "workspace_engine" / "_config_core.py"
+    fake_file.parent.mkdir(parents=True)
+    monkeypatch.setattr(_config_core, "__file__", str(fake_file))
+    assert _config_core._checkout_config_dir("workspace") is None
+
+    (checkout / "pyproject.toml").write_text("[project]\nname = 'repo'\n", encoding="utf-8")
+    assert _config_core._checkout_config_dir("workspace") is None
+
+    cfg = checkout / "config" / "workspace"
+    cfg.mkdir(parents=True)
+    assert _config_core._checkout_config_dir("workspace") == cfg

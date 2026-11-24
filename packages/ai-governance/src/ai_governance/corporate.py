@@ -78,7 +78,12 @@ def _allowed_in_repo(repo: Path, declared: Path, resolved: Path, home: Path) -> 
 
 
 def _validate_private_root(root: Path) -> Path:
-    declared = Path(os.path.abspath(root))
+    declared_abs = Path(os.path.abspath(root))
+    declared = (
+        declared_abs.parent.resolve() / declared_abs.name
+        if declared_abs.name
+        else declared_abs.resolve()
+    )
     resolved = root.resolve()
     home = Path.home().resolve()
     candidates = {declared, *declared.parents, resolved, *resolved.parents}
