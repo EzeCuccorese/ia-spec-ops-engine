@@ -11,12 +11,15 @@ license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "fastapi>=0.115.0",
     "marklas>=0.8.6,<1.0",
     "rich>=13.0.0",
+    "uvicorn>=0.32.0",
 ]
 
 [project.optional-dependencies]
 dev = [
+    "httpx>=0.27.0",
     "pytest>=8.0",
     "pytest-cov",
     "ruff>=0.9",
@@ -27,6 +30,7 @@ ai-governance = "ai_governance.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ai_governance"]
+artifacts = ["src/ai_governance/ui/static/**"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]

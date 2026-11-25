@@ -22,6 +22,7 @@ COMMANDS: dict[str, str] = {
     "confluence": "Confluence pages in Markdown",
     "config": "Show the effective configuration and where each value came from",
     "hook": "Agent hook entry point (used by installed hooks)",
+    "ui": "Local visual dashboard for taskflow and second brain (start, stop, status, open)",
 }
 INSTALL_COMMANDS = (
     "install",
@@ -41,6 +42,7 @@ _SUBCOMMAND_MODULES: dict[str, str] = {
     "confluence": "ai_governance.tools.confluence",
     "config": "ai_governance.config_cli",
     "hook": "ai_governance.hooks",
+    "ui": "ai_governance.ui.cli",
 }
 
 

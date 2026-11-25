@@ -220,6 +220,7 @@ hint to re-enable it.
 | `ai-governance skills <subcommand>` | Keep each third-party skill in one source directory and copy it into Claude, Codex and Antigravity (see above) |
 | `ai-governance taskflow <subcommand>` | Task notebook and multi-provider design debates across agents (see below) |
 | `ai-governance brain <subcommand>` | Cross-agent second brain notes (`add`, `list`, `show`, `edit`, `search`, `archive`, `import`; see below) |
+| `ai-governance ui <start\|stop\|status\|open>` | Local visual dashboard for Taskflow and Second Brain (`127.0.0.1:7474`; see below) |
 | `ai-governance jira ...` / `confluence ...` | Atlassian as compact Markdown (`jira` / `confluence` without arguments print their usage) |
 | `ai-governance hook <agent> <event>` | Entry point used by the installed hooks |
 
@@ -269,6 +270,24 @@ secret guard that rejects secret-like content on write.
 | `search <query>` | Search brain notes, taskflow tasks, and rules |
 | `archive <task-id>` | Write an idempotent archive note from a taskflow task |
 | `import` | Curated, deduplicated import from Claude or Codex memory |
+
+### Visual dashboard
+
+`ai-governance ui` serves a local FastAPI + React dashboard for browsing and managing Taskflow
+tasks, multi-provider debates, and the Second Brain neural-network knowledge graph:
+
+```bash
+ai-governance ui start [--background] [--host 127.0.0.1] [--port 7474]
+ai-governance ui status [--json]
+ai-governance ui open [--orca]       # open in system browser or Orca embedded browser
+ai-governance ui stop
+```
+
+The server binds strictly to loopback (`127.0.0.1`, `localhost`, or `::1`), validates `Host` and
+`Origin` headers, and protects all mutating routes with a per-session `X-UI-Token` injected into
+the served HTML. Background daemon state (`server.pid`, `server.json`, `server.log`) lives under
+`~/.local/state/ai-governance/ui/`. Launching debate workers from the UI only runs sealed
+`worker-start` commands verified against Taskflow's SHA-256 dispatch seals.
 
 ### Upgrading from retired personal rules
 
