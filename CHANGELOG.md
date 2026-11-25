@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.2.0 - 2026-11-25
+
+### Features
+- Support checkout-local config and Antigravity subagents.
+
+### Fixes
+- Move and fix config.
+- Harden symlink checks, hook binary lookup, and config tests.
+
 ## 4.1.0 - 2026-11-20
 
 ### Features
