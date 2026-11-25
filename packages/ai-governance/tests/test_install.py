@@ -161,7 +161,7 @@ def test_codex_installs_scout_researcher_and_runner(home: Path) -> None:
     install_user(["codex"])
     agents_dir = home / ".codex" / "agents"
     expected = {
-        "scout": ("gpt-6-luna", content.CLAUDE_SCOUT_DESCRIPTION, content.SCOUT_INSTRUCTIONS),
+        "scout": ("gpt-6-luna", content.SCOUT_DESCRIPTION, content.SCOUT_INSTRUCTIONS),
         "researcher": (
             "gpt-6.2-sol",
             content.RESEARCHER_DESCRIPTION,

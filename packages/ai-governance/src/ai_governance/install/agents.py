@@ -310,7 +310,7 @@ def _codex_subagents(agents_dir: Path) -> list[Artifact]:
         FileArtifact(
             agents_dir / "scout.toml",
             'name = "scout"\n'
-            f"description = {json.dumps(content.CLAUDE_SCOUT_DESCRIPTION)}\n"
+            f"description = {json.dumps(content.SCOUT_DESCRIPTION)}\n"
             f'model = "{scout_model()}"\n'
             'model_reasoning_effort = "medium"\n'
             'sandbox_mode = "read-only"\n'
