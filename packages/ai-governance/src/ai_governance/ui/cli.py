@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 import uvicorn
@@ -54,9 +55,10 @@ def _cmd_start(args: argparse.Namespace) -> int:
 
 def _cmd_serve(args: argparse.Namespace) -> int:
     host = validate_loopback_host(args.host)
+    token = args.token or os.environ.get("AI_GOVERNANCE_UI_TOKEN", "")
     sec = (
-        SessionSecurity(host=host, port=args.port, token=args.token)
-        if args.token
+        SessionSecurity(host=host, port=args.port, token=token)
+        if token
         else SessionSecurity.generate(host, args.port)
     )
     uvicorn.run(create_app(sec), host=host, port=args.port, log_level="info")

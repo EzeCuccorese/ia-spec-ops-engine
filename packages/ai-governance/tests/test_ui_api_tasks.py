@@ -214,3 +214,4 @@ def test_taskflow_debate_launch_collect_cross_and_errors(
     )
     assert client.post("/api/tasks/ERR-1/debates/cross", headers=hdr).status_code == 502
     assert routes_tasks._map_error(RuntimeError("x")).status_code == 500
+    assert routes_tasks._map_error(routes_tasks.SecretContentError("secret")).status_code == 422

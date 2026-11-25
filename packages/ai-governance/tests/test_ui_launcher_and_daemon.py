@@ -242,14 +242,15 @@ def test_daemon_start_and_stop_lifecycle(tmp_path: Path, monkeypatch: pytest.Mon
 def test_daemon_spawn_server_uses_module_entrypoint(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    spawned: list[list[str]] = []
+    spawned: list[tuple[list[str], dict[str, str]]] = []
     monkeypatch.setattr(
         daemon.subprocess,
         "Popen",
-        lambda cmd, **_k: spawned.append(cmd) or object(),
+        lambda cmd, **kw: spawned.append((cmd, kw.get("env", {}))) or object(),
     )
     daemon._spawn_server("127.0.0.1", 7474, "tok", tmp_path / "server.log")
-    assert spawned and "serve" in spawned[0]
+    assert spawned and "serve" in spawned[0][0] and "--token" not in spawned[0][0]
+    assert spawned[0][1].get("AI_GOVERNANCE_UI_TOKEN") == "tok"
 
 
 def test_ui_cli_start_serve_status_stop_and_open_running(

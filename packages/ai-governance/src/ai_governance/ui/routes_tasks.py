@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ..brain.archive import ArchiveOptions, archive_task
-from ..brain.store import BrainStore
+from ..brain.store import BrainStore, SecretContentError
 from ..taskflow import orca
 from ..taskflow.collect import RoundRef, abort_round, collect_round
 from ..taskflow.config import load_config
@@ -93,6 +93,10 @@ class RoundAbortBody(BaseModel):
 
 
 def _map_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, SecretContentError):
+        return HTTPException(
+            status_code=422, detail={"message": str(exc), "code": "secret_rejected"}
+        )
     if isinstance(exc, FileNotFoundError):
         return HTTPException(status_code=404, detail=str(exc))
     if isinstance(exc, FileExistsError):

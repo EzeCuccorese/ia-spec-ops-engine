@@ -64,28 +64,33 @@ def _extract_dispatch_id(stdout: str) -> str:
     return ""
 
 
+def _run_worker_start(argv: list[str]) -> str:
+    try:
+        proc = subprocess.run(argv, capture_output=True, text=True, timeout=30, check=False)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise orca.OrcaError(f"Failed to start Orca worker: {exc}") from exc
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or f"exit {proc.returncode}").strip()
+        raise orca.OrcaError(f"Orca worker-start failed: {detail}")
+    return proc.stdout
+
+
 def launch_reserved_round(store: TaskStore, task_id: str, round_n: int) -> dict[str, Any]:
     """Execute the sealed ``worker-start`` argv of a reserved round and persist its launch receipt."""
     found = verify_dispatch(store, task_id, round_n)
     task = store.get(task_id)
     if any(int(item.get("n", 0)) == round_n for item in task.rounds):
         raise DispatchError(f"Round {round_n:03d} is already settled")
-    argv = _validate_reserved_argv(found)
-    try:
-        proc = subprocess.run(argv, capture_output=True, text=True, timeout=30, check=False)
-    except OSError as exc:
-        raise orca.OrcaError(f"Failed to start Orca worker: {exc}") from exc
-    if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout or f"exit {proc.returncode}").strip()
-        raise orca.OrcaError(f"Orca worker-start failed: {detail}")
-    launch_path = Path(str(found.get("launch", "")))
-    if launch_path:
-        atomic_write_text(launch_path, proc.stdout)
+    stdout = _run_worker_start(_validate_reserved_argv(found))
+    launch_raw = str(found.get("launch") or "").strip()
+    launch_path = Path(launch_raw) if launch_raw else None
+    if launch_path is not None:
+        atomic_write_text(launch_path, stdout)
     return {
         "task_id": task_id,
         "round": round_n,
-        "dispatch_id": _extract_dispatch_id(proc.stdout),
+        "dispatch_id": _extract_dispatch_id(stdout),
         "agent": str(found.get("agent", "")),
         "model": str(found.get("model", "")),
-        "launch_file": str(launch_path),
+        "launch_file": str(launch_path or ""),
     }

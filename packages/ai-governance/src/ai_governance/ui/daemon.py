@@ -115,15 +115,15 @@ def _spawn_server(host: str, port: int, token: str, log_path: Path) -> subproces
         host,
         "--port",
         str(port),
-        "--token",
-        token,
     ]
+    env = {**os.environ, "AI_GOVERNANCE_UI_TOKEN": token}
     with open(log_path, "a", encoding="utf-8") as log_handle:
         return subprocess.Popen(
             cmd,
             stdout=log_handle,
             stderr=log_handle,
             stdin=subprocess.DEVNULL,
+            env=env,
             start_new_session=True,
         )
 
