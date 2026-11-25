@@ -33,6 +33,11 @@ def scout_model() -> str:
     return str(setting("agents.codex_scout_model"))
 
 
+def researcher_model() -> str:
+    """Model of the Codex researcher subagent (``agents.codex_researcher_model``)."""
+    return str(setting("agents.codex_researcher_model"))
+
+
 @dataclass(frozen=True)
 class FileArtifact:
     """A whole file owned by ai-governance."""
@@ -300,6 +305,38 @@ def _rule_summary(text: str) -> str:
     return ""
 
 
+def _codex_subagents(agents_dir: Path) -> list[Artifact]:
+    return [
+        FileArtifact(
+            agents_dir / "scout.toml",
+            'name = "scout"\n'
+            f"description = {json.dumps(content.SCOUT_DESCRIPTION)}\n"
+            f'model = "{scout_model()}"\n'
+            'model_reasoning_effort = "medium"\n'
+            'sandbox_mode = "read-only"\n'
+            f'developer_instructions = """\n{content.SCOUT_INSTRUCTIONS}"""\n',
+        ),
+        FileArtifact(
+            agents_dir / "researcher.toml",
+            'name = "researcher"\n'
+            f"description = {json.dumps(content.RESEARCHER_DESCRIPTION)}\n"
+            f'model = "{researcher_model()}"\n'
+            'model_reasoning_effort = "medium"\n'
+            'sandbox_mode = "read-only"\n'
+            f'developer_instructions = """\n{content.RESEARCHER_INSTRUCTIONS}"""\n',
+        ),
+        FileArtifact(
+            agents_dir / "runner.toml",
+            'name = "runner"\n'
+            f"description = {json.dumps(content.RUNNER_DESCRIPTION)}\n"
+            f'model = "{scout_model()}"\n'
+            'model_reasoning_effort = "medium"\n'
+            'sandbox_mode = "read-only"\n'
+            f'developer_instructions = """\n{content.RUNNER_INSTRUCTIONS}"""\n',
+        ),
+    ]
+
+
 class CodexSpec(AgentSpec):
     def skills_dir(self) -> Path | None:
         # Documented path; ~/.codex/skills also loads today but is undocumented: never written.
@@ -317,15 +354,7 @@ class CodexSpec(AgentSpec):
                 rules_dir / "always" / "ai-governance.md",
                 content.GLOBAL_INSTRUCTIONS,
             ),
-            FileArtifact(
-                home / "agents" / "scout.toml",
-                'name = "scout"\n'
-                f"description = {json.dumps(content.SCOUT_DESCRIPTION)}\n"
-                f'model = "{scout_model()}"\n'
-                'model_reasoning_effort = "medium"\n'
-                'sandbox_mode = "read-only"\n'
-                f'developer_instructions = """\n{content.SCOUT_INSTRUCTIONS}"""\n',
-            ),
+            *_codex_subagents(home / "agents"),
             BlockArtifact(
                 home / "config.toml",
                 f'agents.default_subagent_model = "{scout_model()}"\n'
@@ -497,7 +526,7 @@ AGENTS: dict[str, AgentSpec] = {
         global_hooks="$CODEX_HOME/hooks.json SessionStart, PostToolUse condensing",
         project_rules=".agents/rules/ai-governance-<id>.md (shared)",
         project_rules_mechanism="injected on edit by a PreToolUse hook (planned)",
-        scout="$CODEX_HOME/agents/scout.toml (gpt-6-luna, effort medium, read-only) + config.toml default subagent model gpt-6-luna",  # default of agents.codex_scout_model,
+        scout="$CODEX_HOME/agents/scout.toml (gpt-6-luna, no web) + researcher.toml (gpt-6.2-sol, web research) + runner.toml (gpt-6-luna, read-only), effort medium + config.toml default subagent model gpt-6-luna",  # default of agents.codex_scout_model,
         skills="~/.agents/skills/{taskflow,test-audit,code-simplifier,slack-formatting}/SKILL.md",
     ),
     "antigravity": AntigravitySpec(

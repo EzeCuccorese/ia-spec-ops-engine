@@ -41,3 +41,8 @@ packages/corporate-rules/*
 
 # GitHub App private keys and other credentials
 *.pem
+
+# Visual dashboard frontend dependencies and compiled static bundle
+packages/ai-governance/ui/node_modules/
+packages/ai-governance/ui/dist/
+packages/ai-governance/src/ai_governance/ui/static/

@@ -1199,7 +1199,7 @@ def test_role_effort_without_model_is_refused_and_works_with_model(
 def test_denied_models_refused_at_dispatch_explicit_and_default(
     world: OrcaWorld, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("AI_GOVERNANCE_DENIED_MODELS", "gpt-6.1-sol,blocked-claude")
+    monkeypatch.setenv("AI_GOVERNANCE_DENIED_MODELS", "gpt-6.2-sol,blocked-claude")
     with pytest.raises(DispatchError, match="taskflow.denied_models"):
         _dispatch(world, "claude", model="blocked-claude")
     with pytest.raises(DispatchError, match="taskflow.denied_models"):

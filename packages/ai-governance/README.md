@@ -52,25 +52,25 @@ has no per-file global rules: they are copied to `$CODEX_HOME/ai-governance/`, i
 |---|---|---|---|
 | Global instructions | ~/.claude/rules/ai-governance.md + language rules (`paths:`) | $CODEX_HOME/AGENTS.md (marker block) + rule indexes in $CODEX_HOME/ai-governance/ | ~/.gemini/config/rules/ai-governance.md (`trigger: always_on`) + language rules (`trigger: glob`) |
 | Global hooks | ~/.claude/settings.json (Pre/PostToolUse Bash, SessionStart/End) | $CODEX_HOME/hooks.json SessionStart, PostToolUse condensing | ~/.gemini/config/hooks.json SessionStart, PreToolUse: raw noisy commands -> `ws run` |
-| Scout subagent | ~/.claude/agents/scout.md (haiku, no web) + researcher.md (sonnet, web research) + runner.md (haiku, Bash, no edits), effort medium | $CODEX_HOME/agents/scout.toml (gpt-6-luna, effort medium, read-only) + config.toml default subagent model gpt-6-luna | ~/.gemini/config/agents/scout.md (flash, no web) + researcher.md (pro, web research) + runner.md (flash, run_command, no edits) |
+| Scout subagent | ~/.claude/agents/scout.md (haiku, no web) + researcher.md (sonnet, web research) + runner.md (haiku, Bash, no edits), effort medium | $CODEX_HOME/agents/scout.toml (gpt-6-luna, no web) + researcher.toml (gpt-6.2-sol, web research) + runner.toml (gpt-6-luna, read-only), effort medium + config.toml default subagent model gpt-6-luna | ~/.gemini/config/agents/scout.md (flash, no web) + researcher.md (pro, web research) + runner.md (flash, run_command, no edits) |
 | Skills | ~/.claude/skills/{taskflow,test-audit,code-simplifier,slack-formatting}/SKILL.md | ~/.agents/skills/{taskflow,test-audit,code-simplifier,slack-formatting}/SKILL.md | ~/.gemini/config/skills/{taskflow,test-audit,code-simplifier,slack-formatting}/SKILL.md |
 | Project rules | .claude/rules/ai-governance-<id>.md -> symlink to .agents/rules | .agents/rules/ai-governance-<id>.md (shared) | .agents/rules/ai-governance-<id>.md (single source) |
 | Rule loading | native `paths:` frontmatter (loaded per file) | injected on edit by a PreToolUse hook (planned) | `trigger: glob` activation (loaded per file; 20k-token rules budget) |
 <!-- agents-table:end -->
 
-The read-only `scout` subagent is cross-agent: each agent gets it with a cheap model of its
-own provider (Claude `haiku`, Codex `gpt-6-luna`, Antigravity `flash`). Claude splits it in two:
-`scout` (`haiku`, no web tools) reads code, and `researcher` (`sonnet`, `WebSearch`/`WebFetch`)
-does web research, where comparing and checking sources needs a stronger model. Claude also
-gets `runner` (`haiku`, `Bash`/`Read`/`Grep`/`Glob`, no edit tools): it runs noisy commands
-(tests, builds, installs, CI logs) and returns only a verdict, the failing names and the first
-error lines, so the raw output never reaches the main context. For Codex, a marked block
-at the top of `$CODEX_HOME/config.toml` also sets `agents.default_subagent_model = "gpt-6-luna"`
-and `agents.default_subagent_reasoning_effort = "medium"`; if the file already defines an
-`[agents]` table or those keys, the block is left out with a warning. The Claude scout and
-researcher set `omitClaudeMd: true` (it runs without CLAUDE.md/AGENTS.md instructions, saving
-tokens); the Antigravity scout is limited to `view_file`, `grep_search`, `find_by_name`,
-`list_dir` with `commandExecutionPolicy: off`.
+The read-only `scout`, `researcher`, and `runner` subagents are installed across all three agents with
+each provider's corresponding model tier: `scout` reads code (`haiku` / `gpt-6-luna` / `flash`),
+`researcher` handles web research where comparing and checking sources needs a stronger model
+(`sonnet` / `gpt-6.2-sol` / `pro`), and `runner` runs noisy commands (tests, builds, installs, CI
+logs) and returns only a verdict, failing names, and first error lines (`haiku` / `gpt-6-luna` /
+`flash`). For Codex, a marked block at the top of `$CODEX_HOME/config.toml` also sets
+`agents.default_subagent_model = "gpt-6-luna"` and `agents.default_subagent_reasoning_effort = "medium"`;
+if the file already defines an `[agents]` table or those keys, the block is left out with a warning.
+The Claude subagents set `omitClaudeMd: true` (it runs without CLAUDE.md/AGENTS.md instructions, saving
+tokens); the Antigravity subagents set `subagent: true` and `mainAgent: false` and restrict tools
+(`view_file`, `grep_search`, `find_by_name`, `list_dir` with `commandExecutionPolicy: off` for
+`scout`; `view_file`, `search_web` for `researcher`; `run_command` added with
+`commandExecutionPolicy: auto` for `runner`).
 
 Claude Code user hooks (all through `ai-governance hook claude <event>`, fail-open):
 
@@ -220,6 +220,7 @@ hint to re-enable it.
 | `ai-governance skills <subcommand>` | Keep each third-party skill in one source directory and copy it into Claude, Codex and Antigravity (see above) |
 | `ai-governance taskflow <subcommand>` | Task notebook and multi-provider design debates across agents (see below) |
 | `ai-governance brain <subcommand>` | Cross-agent second brain notes (`add`, `list`, `show`, `edit`, `search`, `archive`, `import`; see below) |
+| `ai-governance ui <start\|stop\|status\|open>` | Local visual dashboard for Taskflow and Second Brain (`127.0.0.1:7474`; see below) |
 | `ai-governance jira ...` / `confluence ...` | Atlassian as compact Markdown (`jira` / `confluence` without arguments print their usage) |
 | `ai-governance hook <agent> <event>` | Entry point used by the installed hooks |
 
@@ -270,6 +271,24 @@ secret guard that rejects secret-like content on write.
 | `archive <task-id>` | Write an idempotent archive note from a taskflow task |
 | `import` | Curated, deduplicated import from Claude or Codex memory |
 
+### Visual dashboard
+
+`ai-governance ui` serves a local FastAPI + React dashboard for browsing and managing Taskflow
+tasks, multi-provider debates, and the Second Brain neural-network knowledge graph:
+
+```bash
+ai-governance ui start [--background] [--host 127.0.0.1] [--port 7474]
+ai-governance ui status [--json]
+ai-governance ui open [--orca]       # open in system browser or Orca embedded browser
+ai-governance ui stop
+```
+
+The server binds strictly to loopback (`127.0.0.1`, `localhost`, or `::1`), validates `Host` and
+`Origin` headers, and protects all mutating routes with a per-session `X-UI-Token` injected into
+the served HTML. Background daemon state (`server.pid`, `server.json`, `server.log`) lives under
+`~/.local/state/ai-governance/ui/`. Launching debate workers from the UI only runs sealed
+`worker-start` commands verified against Taskflow's SHA-256 dispatch seals.
+
 ### Upgrading from retired personal rules
 
 If you previously used personal rules, your retained personal source directory is left untouched.
@@ -304,21 +323,22 @@ Files are TOML (`[frugality]` / `threshold_chars = 4000`). Older JSON files keep
 | `taskflow.allowed_agents` | `AI_GOVERNANCE_ALLOWED_AGENTS` | `antigravity, codex, claude` | Agents taskflow may use, comma separated (user level; a repo's `.ai-governance/config.toml` `[taskflow] allowed_agents` can only narrow it) |
 | `taskflow.denied_models` | `AI_GOVERNANCE_DENIED_MODELS` | `[]` | Models taskflow must never launch, comma separated (a repo file can only add to it) |
 | `taskflow.planner_agent` | `AI_GOVERNANCE_PLANNER_AGENT` | `antigravity` | Agent of the planner role (user level only: a repo cannot change it) |
-| `taskflow.planner_model` | `AI_GOVERNANCE_PLANNER_MODEL` | `gemini-4-argon-high` | Model of the planner role (user level only: a repo cannot change it) |
+| `taskflow.planner_model` | `AI_GOVERNANCE_PLANNER_MODEL` | `gemini-4-neon-high` | Model of the planner role (user level only: a repo cannot change it) |
 | `taskflow.planner_effort` | `AI_GOVERNANCE_PLANNER_EFFORT` | `""` | Effort of the planner role (user level only: a repo cannot change it) |
 | `taskflow.validator_agent` | `AI_GOVERNANCE_VALIDATOR_AGENT` | `codex` | Agent of the validator role (user level only: a repo cannot change it) |
-| `taskflow.validator_model` | `AI_GOVERNANCE_VALIDATOR_MODEL` | `gpt-6.1-sol` | Model of the validator role (user level only: a repo cannot change it) |
+| `taskflow.validator_model` | `AI_GOVERNANCE_VALIDATOR_MODEL` | `gpt-6.2-sol` | Model of the validator role (user level only: a repo cannot change it) |
 | `taskflow.validator_effort` | `AI_GOVERNANCE_VALIDATOR_EFFORT` | `""` | Effort of the validator role (user level only: a repo cannot change it) |
 | `taskflow.builder_agent` | `AI_GOVERNANCE_BUILDER_AGENT` | `claude` | Agent of the builder role (user level only: a repo cannot change it) |
 | `taskflow.builder_model` | `AI_GOVERNANCE_BUILDER_MODEL` | `""` | Model of the builder role (user level only: a repo cannot change it) |
 | `taskflow.builder_effort` | `AI_GOVERNANCE_BUILDER_EFFORT` | `""` | Effort of the builder role (user level only: a repo cannot change it) |
 | `taskflow.judge_agent` | `AI_GOVERNANCE_JUDGE_AGENT` | `codex` | Agent of the judge role (user level only: a repo cannot change it) |
-| `taskflow.judge_model` | `AI_GOVERNANCE_JUDGE_MODEL` | `gpt-6.1-sol` | Model of the judge role (user level only: a repo cannot change it) |
+| `taskflow.judge_model` | `AI_GOVERNANCE_JUDGE_MODEL` | `gpt-6.2-sol` | Model of the judge role (user level only: a repo cannot change it) |
 | `taskflow.judge_effort` | `AI_GOVERNANCE_JUDGE_EFFORT` | `""` | Effort of the judge role (user level only: a repo cannot change it) |
 | `taskflow.debater_agent` | `AI_GOVERNANCE_DEBATER_AGENT` | `codex` | Agent of the debater role (user level only: a repo cannot change it) |
-| `taskflow.debater_model` | `AI_GOVERNANCE_DEBATER_MODEL` | `gpt-6.1-sol` | Model of the debater role (user level only: a repo cannot change it) |
+| `taskflow.debater_model` | `AI_GOVERNANCE_DEBATER_MODEL` | `gpt-6.2-sol` | Model of the debater role (user level only: a repo cannot change it) |
 | `taskflow.debater_effort` | `AI_GOVERNANCE_DEBATER_EFFORT` | `""` | Effort of the debater role (user level only: a repo cannot change it) |
 | `agents.codex_scout_model` | `AI_GOVERNANCE_CODEX_SCOUT_MODEL` | `gpt-6-luna` | Model of the Codex scout subagent written at install |
+| `agents.codex_researcher_model` | `AI_GOVERNANCE_CODEX_RESEARCHER_MODEL` | `gpt-6.2-sol` | Model of the Codex researcher subagent written at install |
 | `risk_window.cutoff_hour` | `AI_GOVERNANCE_RISK_WINDOW_CUTOFF_HOUR` | `16` | Cutoff hour (0-23) of the production risk window, Monday to Thursday |
 | `risk_window.friday_cutoff_hour` | `AI_GOVERNANCE_RISK_WINDOW_FRIDAY_CUTOFF_HOUR` | `13` | Cutoff hour (0-23) of the production risk window on Friday |
 | `deploy_approvals.production` | `AI_GOVERNANCE_DEPLOY_APPROVALS_PRODUCTION` | `never` | Production deploy approval policy (`never` or `explicit`) |

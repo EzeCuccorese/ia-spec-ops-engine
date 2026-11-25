@@ -131,8 +131,11 @@ def test_antigravity_installs_researcher_and_runner(home: Path) -> None:
 
     install_user(["antigravity"])
     agents = home / ".gemini" / "config" / "agents"
+    scout = (agents / "scout.md").read_text(encoding="utf-8")
     researcher = (agents / "researcher.md").read_text(encoding="utf-8")
     runner = (agents / "runner.md").read_text(encoding="utf-8")
+    for text in (scout, researcher, runner):
+        assert "subagent: true\n" in text and "mainAgent: false\n" in text
     assert "name: researcher\n" in researcher and "model: pro\n" in researcher
     assert "  - search_web\n" in researcher and "commandExecutionPolicy: off\n" in researcher
     assert "name: runner\n" in runner and "model: flash\n" in runner
@@ -148,6 +151,32 @@ def test_antigravity_installs_researcher_and_runner(home: Path) -> None:
         raw_scalar = desc_line.removeprefix("description: ")
         assert raw_scalar.startswith('"') and raw_scalar.endswith('"')
         assert json.loads(raw_scalar) == description
+
+
+def test_codex_installs_scout_researcher_and_runner(home: Path) -> None:
+    import tomllib
+
+    from ai_governance.install import content
+
+    install_user(["codex"])
+    agents_dir = home / ".codex" / "agents"
+    expected = {
+        "scout": ("gpt-6-luna", content.SCOUT_DESCRIPTION, content.SCOUT_INSTRUCTIONS),
+        "researcher": (
+            "gpt-6.2-sol",
+            content.RESEARCHER_DESCRIPTION,
+            content.RESEARCHER_INSTRUCTIONS,
+        ),
+        "runner": ("gpt-6-luna", content.RUNNER_DESCRIPTION, content.RUNNER_INSTRUCTIONS),
+    }
+    for name, (model, description, instructions) in expected.items():
+        data = tomllib.loads((agents_dir / f"{name}.toml").read_text(encoding="utf-8"))
+        assert data["name"] == name
+        assert data["model"] == model
+        assert data["model_reasoning_effort"] == "medium"
+        assert data["sandbox_mode"] == "read-only"
+        assert data["description"] == description
+        assert data["developer_instructions"].strip() == instructions.strip()
 
 
 def test_every_agent_gets_the_bundled_skills(home: Path) -> None:
