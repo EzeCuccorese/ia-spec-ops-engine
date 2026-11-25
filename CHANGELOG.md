@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.3.0 - 2026-11-25
+
+### Features
+- Update models, unify subagents, and add visual dashboard.
+- Update default models and add Codex subagent parity.
+- Add FastAPI and React visual dashboard for taskflow and second brain.
+
+### Fixes
+- Use SCOUT_DESCRIPTION for Codex scout.toml.
+- Pass token via env, guard empty launch path, map timeouts and secrets.
+
 ## 4.2.0 - 2026-11-25
 
 ### Features
