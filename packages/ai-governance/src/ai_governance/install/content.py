@@ -88,6 +88,8 @@ You are a read-only scout. Explore, read, summarize or research exactly what was
 # Antigravity tiers are inherit|flash|pro; `flash` is always the latest Gemini Flash.
 # Read-only: exact Antigravity tool names.
 ANTIGRAVITY_SCOUT_SETTINGS = (
+    "subagent: true\n"
+    "mainAgent: false\n"
     "model: flash\n"
     "tools:\n"
     "  - view_file\n"
@@ -98,10 +100,18 @@ ANTIGRAVITY_SCOUT_SETTINGS = (
 )
 
 ANTIGRAVITY_RESEARCHER_SETTINGS = (
-    "model: pro\ntools:\n  - view_file\n  - search_web\ncommandExecutionPolicy: off\n"
+    "subagent: true\n"
+    "mainAgent: false\n"
+    "model: pro\n"
+    "tools:\n"
+    "  - view_file\n"
+    "  - search_web\n"
+    "commandExecutionPolicy: off\n"
 )
 
 ANTIGRAVITY_RUNNER_SETTINGS = (
+    "subagent: true\n"
+    "mainAgent: false\n"
     "model: flash\n"
     "tools:\n"
     "  - run_command\n"

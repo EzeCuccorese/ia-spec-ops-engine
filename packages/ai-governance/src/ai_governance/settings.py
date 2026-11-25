@@ -92,11 +92,11 @@ SETTINGS: tuple[Setting, ...] = (
             f"{field.capitalize()} of the {role} role (user level only: a repo cannot change it)",
         )
         for role, agent, model in (
-            ("planner", "antigravity", "gemini-4-argon-high"),
-            ("validator", "codex", "gpt-6.1-sol"),
+            ("planner", "antigravity", "gemini-4-neon-high"),
+            ("validator", "codex", "gpt-6.2-sol"),
             ("builder", "claude", ""),
-            ("judge", "codex", "gpt-6.1-sol"),
-            ("debater", "codex", "gpt-6.1-sol"),
+            ("judge", "codex", "gpt-6.2-sol"),
+            ("debater", "codex", "gpt-6.2-sol"),
         )
         for field, default in (("agent", agent), ("model", model), ("effort", ""))
     ),
@@ -105,6 +105,12 @@ SETTINGS: tuple[Setting, ...] = (
         "gpt-6-luna",
         "AI_GOVERNANCE_CODEX_SCOUT_MODEL",
         "Model of the Codex scout subagent written at install",
+    ),
+    Setting(
+        "agents.codex_researcher_model",
+        "gpt-6.2-sol",
+        "AI_GOVERNANCE_CODEX_RESEARCHER_MODEL",
+        "Model of the Codex researcher subagent written at install",
     ),
     Setting(
         "corporate.packs",

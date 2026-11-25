@@ -807,7 +807,7 @@ def test_denied_models_refuse_open_via_env_explicit_and_default(
     monkeypatch.setenv("AI_GOVERNANCE_DENIED_MODELS", "blocked-claude")
     _assert_denied_open(world, topic, ("--model", "claude=blocked-claude"))
     _assert_denied_open(world, topic)  # implicit empty claude model also refused
-    monkeypatch.setenv("AI_GOVERNANCE_DENIED_MODELS", "gpt-6.1-sol")
+    monkeypatch.setenv("AI_GOVERNANCE_DENIED_MODELS", "gpt-6.2-sol")
     _assert_denied_open(world, topic, ("--model", "claude=claude-sonnet-4"))
 
 
@@ -820,7 +820,7 @@ def test_denied_models_refuse_open_via_user_and_repo_config(
     repo_cfg = world.repo / ".ai-governance" / "config.toml"
     claude_model = ("--model", "claude=claude-sonnet-4")
 
-    _write_toml(user_cfg, '[taskflow]\ndenied_models = ["gpt-6.1-sol"]\n')
+    _write_toml(user_cfg, '[taskflow]\ndenied_models = ["gpt-6.2-sol"]\n')
     _assert_denied_open(world, topic, claude_model)
 
     _write_toml(repo_cfg, '[taskflow]\ndenied_models = ["other-model"]\n')
@@ -956,7 +956,7 @@ def test_debate_cross_midflight_denial_duplicate_and_save_rollback(
     assert _settle(world, 1, "D1", _AnswerSpec("claude", "T1.\nPOSITION: A.\n")).code == 0
     assert _settle(world, 2, "D2", _AnswerSpec("codex", "T2.\nPOSITION: B.\n")).code == 0
 
-    monkeypatch.setenv("AI_GOVERNANCE_DENIED_MODELS", "gpt-6.1-sol")
+    monkeypatch.setenv("AI_GOVERNANCE_DENIED_MODELS", "gpt-6.2-sol")
     assert world.run("debate", TASK, "cross").code == 1
     monkeypatch.delenv("AI_GOVERNANCE_DENIED_MODELS")
     monkeypatch.setenv("AI_GOVERNANCE_ALLOWED_AGENTS", "claude")

@@ -35,7 +35,7 @@ PREFERENCE: dict[str, tuple[str, ...]] = {
     "debater": ("codex", "claude", "antigravity"),
 }
 # Default model of each built-in agent (mirrors the ``taskflow.<role>_model`` defaults).
-DEFAULT_MODELS = {"antigravity": "gemini-4-argon-high", "codex": "gpt-6.1-sol", "claude": ""}
+DEFAULT_MODELS = {"antigravity": "gemini-4-neon-high", "codex": "gpt-6.2-sol", "claude": ""}
 
 
 class AllowedAgentsError(ValueError):
@@ -43,7 +43,7 @@ class AllowedAgentsError(ValueError):
 
 
 def provider(agent: str) -> str:
-    """Provider of an agent id: lower-cased text before ``/`` (``codex/gpt-6.1-sol`` -> ``codex``),
+    """Provider of an agent id: lower-cased text before ``/`` (``codex/gpt-6.2-sol`` -> ``codex``),
     with ``agy`` meaning ``antigravity``. An unknown id is its own provider (a heuristic: the
     provider a worker really ran as is what a later collect step compares)."""
     name = str(agent).strip().lower().split("/", 1)[0]
