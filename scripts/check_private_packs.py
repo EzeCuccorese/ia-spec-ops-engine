@@ -9,8 +9,25 @@ from collections.abc import Iterable
 from pathlib import Path, PurePosixPath
 from zipfile import ZipFile
 
-PACK_PATHS = (":(glob)**/corporate-rules", ":(glob)**/corporate-rules/**")
+PACK_PATHS = (
+    ":(glob)**/corporate-rules",
+    ":(glob)**/corporate-rules/**",
+    ":(glob)config/ai-governance",
+    ":(glob)config/ai-governance/**",
+    ":(glob)config/workspace",
+    ":(glob)config/workspace/**",
+)
 PACK_README = "packages/corporate-rules/README.md"
+
+
+def _is_private_archive_path(path: str) -> bool:
+    parts = PurePosixPath(path).parts
+    if "corporate-rules" in parts:
+        return True
+    return any(
+        part == "config" and parts[index + 1] in ("ai-governance", "workspace")
+        for index, part in enumerate(parts[:-1])
+    )
 
 
 def _git_paths(*args: str) -> set[str]:
@@ -55,7 +72,7 @@ def main() -> None:
             paths.update(
                 f"{archive.name}: {path}"
                 for path in _archive_paths(archive)
-                if "corporate-rules" in PurePosixPath(path).parts
+                if _is_private_archive_path(path)
             )
     if paths:
         raise SystemExit(

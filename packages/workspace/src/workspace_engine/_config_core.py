@@ -53,14 +53,32 @@ def _prefix(app: str) -> str:
     return app.upper().replace("-", "_")
 
 
+def _checkout_config_dir(app: str) -> Path | None:
+    """Return ``<checkout>/config/<app>`` when running editable from the engine repo."""
+    parents = Path(__file__).resolve().parents
+    if len(parents) <= 4:
+        return None
+    root = parents[4]
+    if not ((root / "pyproject.toml").is_file() and (root / "packages").is_dir()):
+        return None
+    candidate = root / "config" / app
+    return candidate if candidate.is_dir() else None
+
+
 def xdg_dir(kind: str, app: str) -> Path:
-    """``$<APP>_<KIND>_DIR``, else ``$XDG_<KIND>_HOME/<app>``, else ``~/<xdg default>/<app>``."""
+    """``$<APP>_<KIND>_DIR``, else ``$XDG_<KIND>_HOME/<app>``, else checkout ``config/<app>``, else ``~/<xdg default>/<app>``."""
     explicit = os.environ.get(f"{_prefix(app)}_{kind.upper()}_DIR")
     if explicit:
         return Path(explicit).expanduser()
     variable, fallback = _XDG[kind]
-    base = os.environ.get(variable) or str(Path.home().joinpath(*fallback))
-    return Path(base).expanduser() / app
+    env_base = os.environ.get(variable)
+    if env_base:
+        return Path(env_base).expanduser() / app
+    if kind == "config":
+        local = _checkout_config_dir(app)
+        if local is not None:
+            return local
+    return Path.home().joinpath(*fallback) / app
 
 
 def is_agent_mode(app: str) -> bool:

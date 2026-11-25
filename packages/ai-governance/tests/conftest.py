@@ -18,14 +18,15 @@ def _no_real_home(
     symlinks pointing into the pytest temp directory. ``HOME`` is what ``Path.home()``
     reads, so a test that sets its own still wins over this guard.
     """
-    monkeypatch.setenv("HOME", str(tmp_path_factory.mktemp("home-guard")))
+    home_guard = tmp_path_factory.mktemp("home-guard")
+    monkeypatch.setenv("HOME", str(home_guard))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(home_guard / ".config"))
     for var in (
         "CODEX_HOME",
         "AI_GOVERNANCE_BIN_DIR",
         "AI_GOVERNANCE_CONFIG_DIR",
         "AI_GOVERNANCE_STATE_DIR",
         "AI_GOVERNANCE_AGENT",
-        "XDG_CONFIG_HOME",
         "XDG_STATE_HOME",
         "XDG_DATA_HOME",
     ):

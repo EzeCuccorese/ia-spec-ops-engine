@@ -1,10 +1,11 @@
 # Corporate rules
 
-Company-specific, always-on rules, scripts and skills. Store each company folder outside the
-repository, by default under `~/.config/ai-governance/corporate-rules/`. Set
-`AI_GOVERNANCE_CORPORATE_DIR` to another private external directory when needed. The installer
-rejects locations inside a repository. Every company folder in the selected directory is
-installed by the regular user install, with no flag to pass.
+Company-specific, always-on rules, scripts and skills. Store each company folder outside Git
+(by default under `~/.config/ai-governance/corporate-rules/`), or in a git-ignored, untracked
+directory such as `config/ai-governance/corporate-rules/` when running an editable checkout. Set
+`AI_GOVERNANCE_CORPORATE_DIR` to another private directory when needed. The installer rejects
+tracked or unignored locations inside a repository. Every company folder in the selected directory
+is installed by the regular user install, with no flag to pass.
 
 ```bash
 ai-governance install --scope user --agent claude --agent antigravity

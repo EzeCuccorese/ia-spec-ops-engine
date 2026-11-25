@@ -62,7 +62,7 @@ You are a read-only web researcher. Research exactly what was asked.
 - Stay under ~400 words unless asked for more.
 """
 
-# Claude only: runs noisy commands so their output stays out of the main context.
+# Runs noisy commands so their output stays out of the main context.
 RUNNER_DESCRIPTION = (
     "Runs noisy commands (tests, builds, installs, CI logs) and reports a short verdict. "
     "Use it instead of running them in the main session when the raw output is not needed."
@@ -95,6 +95,21 @@ ANTIGRAVITY_SCOUT_SETTINGS = (
     "  - find_by_name\n"
     "  - list_dir\n"
     "commandExecutionPolicy: off\n"
+)
+
+ANTIGRAVITY_RESEARCHER_SETTINGS = (
+    "model: pro\ntools:\n  - view_file\n  - search_web\ncommandExecutionPolicy: off\n"
+)
+
+ANTIGRAVITY_RUNNER_SETTINGS = (
+    "model: flash\n"
+    "tools:\n"
+    "  - run_command\n"
+    "  - view_file\n"
+    "  - grep_search\n"
+    "  - find_by_name\n"
+    "  - list_dir\n"
+    "commandExecutionPolicy: auto\n"
 )
 
 TASKFLOW_SKILL = """\

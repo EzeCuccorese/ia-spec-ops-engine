@@ -80,6 +80,56 @@ def test_xdg_dir_precedence(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     assert xdg_dir("state", "demo-app") == tmp_path / "explicit"
 
 
+def test_xdg_dir_uses_checkout_config_when_present_and_env_unset(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from ai_governance import _config_core
+
+    checkout_cfg = tmp_path / "checkout" / "config" / "demo-app"
+    checkout_cfg.mkdir(parents=True)
+    monkeypatch.delenv("DEMO_APP_CONFIG_DIR", raising=False)
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.setattr(_config_core, "_checkout_config_dir", lambda app: checkout_cfg)
+
+    assert xdg_dir("config", "demo-app") == checkout_cfg
+    assert xdg_dir("state", "demo-app") == Path.home() / ".local" / "state" / "demo-app"
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    assert xdg_dir("config", "demo-app") == tmp_path / "xdg" / "demo-app"
+
+    monkeypatch.setenv("DEMO_APP_CONFIG_DIR", str(tmp_path / "explicit"))
+    assert xdg_dir("config", "demo-app") == tmp_path / "explicit"
+
+    monkeypatch.delenv("DEMO_APP_CONFIG_DIR", raising=False)
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.setattr(_config_core, "_checkout_config_dir", lambda app: None)
+    assert xdg_dir("config", "demo-app") == Path.home() / ".config" / "demo-app"
+
+
+def test_checkout_config_dir_detects_editable_repo_layout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from ai_governance import _config_core
+
+    monkeypatch.setattr(_config_core, "__file__", "/pkg/_config_core.py")
+    assert _config_core._checkout_config_dir("demo-app") is None
+
+    checkout = tmp_path / "repo"
+    fake_file = (
+        checkout / "packages" / "ai-governance" / "src" / "ai_governance" / "_config_core.py"
+    )
+    fake_file.parent.mkdir(parents=True)
+    monkeypatch.setattr(_config_core, "__file__", str(fake_file))
+    assert _config_core._checkout_config_dir("demo-app") is None
+
+    (checkout / "pyproject.toml").write_text("[project]\nname = 'repo'\n", encoding="utf-8")
+    assert _config_core._checkout_config_dir("demo-app") is None
+
+    cfg = checkout / "config" / "demo-app"
+    cfg.mkdir(parents=True)
+    assert _config_core._checkout_config_dir("demo-app") == cfg
+
+
 def test_agent_mode_forced_and_detected(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("CLAUDECODE", raising=False)
     assert not is_agent_mode("ai-governance")

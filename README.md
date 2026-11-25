@@ -16,8 +16,9 @@ installable Python packages (Python 3.11+):
 versioned `--json` contracts and degrades gracefully when it is absent.
 
 Engineering rules live in the versioned engine catalog. Company-specific rule packs, scripts,
-and skills live outside the checkout in `~/.config/ai-governance/corporate-rules/<company>/`
-(or `AI_GOVERNANCE_CORPORATE_DIR`) and are never committed to git. Third-party skills in
+and skills live in `~/.config/ai-governance/corporate-rules/<company>/` (or git-ignored under
+`config/ai-governance/corporate-rules/<company>/` when installed editable, or
+`AI_GOVERNANCE_CORPORATE_DIR`) and are never committed to git. Third-party skills in
 [`skills/`](skills) are versioned in git. Each package README is the reference for its CLI.
 
 ## Install
