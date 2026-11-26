@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 
 from ..frontmatter import _FRONTMATTER_RE
@@ -9,6 +10,11 @@ from .engine import END, START, Ledger
 from .installer import COMPLETIONS_OWNER, SCHEDULE_OWNER, SCRIPTS_OWNER
 
 BYTES_PER_TOKEN = 4
+# Fixed-context warning thresholds: leaves headroom under Antigravity's 20k-token rules
+# cap (accounting for non-English tokenization and workspace AGENTS.md / user_global).
+ALWAYS_ON_WARN_BYTES = 40_000
+SKILL_CATALOG_WARN_BYTES = 16_000
+SKILL_COUNT_WARN = 35
 
 
 def _always_loaded(path: Path, text: str, agent: str = "") -> bool:
@@ -87,3 +93,87 @@ def fixed_cost(ledger: Ledger) -> dict[str, int]:
             totals["user_custom"] = totals.get("user_custom", 0) + user_bytes
         totals[entry["agent"]] = totals.get(entry["agent"], 0) + agent_bytes
     return totals
+
+
+def _skill_frontmatter_bytes(skill_dir: Path) -> int:
+    skill_md = skill_dir / "SKILL.md"
+    if not skill_md.is_file():
+        return 0
+    text = skill_md.read_text(encoding="utf-8", errors="replace")
+    match = _FRONTMATTER_RE.match(text)
+    return len(match.group(1).encode("utf-8")) if match else 0
+
+
+def skill_catalog_cost(ledger: Ledger) -> dict[str, tuple[int, int]]:
+    """Returns ``{agent: (skill_count, frontmatter_bytes)}`` for managed skills in ``ledger``."""
+    counts: dict[str, int] = {}
+    sizes: dict[str, int] = {}
+    for entry in ledger.entries:
+        if entry.get("kind") != "dir":
+            continue
+        agent = str(entry.get("agent", ""))
+        if agent in _IGNORED_OWNERS:
+            continue
+        path = ledger.resolve(str(entry["path"]))
+        if not path.is_dir() or not (path / "SKILL.md").is_file():
+            continue
+        counts[agent] = counts.get(agent, 0) + 1
+        sizes[agent] = sizes.get(agent, 0) + _skill_frontmatter_bytes(path)
+    return {agent: (counts[agent], sizes[agent]) for agent in counts}
+
+
+def _always_on_warnings(
+    ledger: Ledger, selected: set[str] | None, limit: int
+) -> list[tuple[str, str]]:
+    warnings: list[tuple[str, str]] = []
+    limit_tokens = limit // BYTES_PER_TOKEN
+    for agent, size in sorted(fixed_cost(ledger).items()):
+        if agent == "user_custom" or (selected is not None and agent not in selected):
+            continue
+        if size > limit:
+            tokens = size // BYTES_PER_TOKEN
+            warnings.append(
+                (
+                    agent,
+                    f"always-on rules for {agent} total {size} bytes (~{tokens} tokens), "
+                    f"above the {limit}-byte (~{limit_tokens}-token) safe budget; "
+                    "move reference/domain rules into skills/ and run `ai-governance budget`",
+                )
+            )
+    return warnings
+
+
+def _skill_catalog_warnings(
+    ledger: Ledger, selected: set[str] | None, count_limit: int, bytes_limit: int
+) -> list[tuple[str, str]]:
+    warnings: list[tuple[str, str]] = []
+    for agent, (count, fm_bytes) in sorted(skill_catalog_cost(ledger).items()):
+        if selected is not None and agent not in selected:
+            continue
+        if count > count_limit or fm_bytes > bytes_limit:
+            warnings.append(
+                (
+                    agent,
+                    f"installed skills catalog for {agent} has {count} skills "
+                    f"({fm_bytes} bytes of frontmatter metadata; thresholds: "
+                    f"{count_limit} skills / {bytes_limit} bytes); "
+                    "prune or consolidate overlapping skills",
+                )
+            )
+    return warnings
+
+
+def budget_warnings(
+    ledger: Ledger,
+    *,
+    agents: Iterable[str] | None = None,
+    always_on_limit: int = ALWAYS_ON_WARN_BYTES,
+    skill_catalog_limit: int = SKILL_CATALOG_WARN_BYTES,
+    skill_count_limit: int = SKILL_COUNT_WARN,
+) -> list[tuple[str, str]]:
+    """Returns ``(agent, warning)`` pairs when fixed always-on rules or skill metadata grow too large."""
+    selected = set(agents) if agents is not None else None
+    return [
+        *_always_on_warnings(ledger, selected, always_on_limit),
+        *_skill_catalog_warnings(ledger, selected, skill_count_limit, skill_catalog_limit),
+    ]

@@ -170,3 +170,64 @@ def test_user_content_without_markers_counts_full_agents_md(monkeypatch, tmp_pat
 
     cost = fixed_cost(installer.global_ledger())
     assert cost["user_custom"] == len(custom.strip().encode("utf-8"))
+
+
+def test_budget_warnings_fire_on_oversized_always_on_and_doctor(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from ai_governance.install import doctor
+    from ai_governance.install.budget import budget_warnings
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
+
+    corp_dir = tmp_path / "corporate-rules"
+    rules_dir = corp_dir / "acme" / "rules"
+    rules_dir.mkdir(parents=True)
+    (rules_dir / "huge-manual.md").write_text(
+        "---\ntrigger: always_on\n---\n# Huge Manual\n" + ("reference line\n" * 3500),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(corp_dir))
+
+    report = install_user(["antigravity", "claude"])
+    assert any("always-on rules for antigravity total" in w for w in report.warnings)
+    assert any("always-on rules for claude total" in w for w in report.warnings)
+
+    warns = budget_warnings(installer.global_ledger(), agents=["antigravity"])
+    assert len(warns) == 1
+    assert warns[0][0] == "antigravity"
+
+    doc_rows = doctor.check(None)
+    assert any(
+        label == "user:antigravity:budget" and status == doctor.WARN
+        for label, status, _ in doc_rows
+    )
+
+
+def test_budget_warnings_fire_on_skill_catalog_metadata_limit(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from ai_governance.install.budget import budget_warnings
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
+
+    corp_dir = tmp_path / "corporate-rules"
+    skill_dir = corp_dir / "acme" / "skills" / "verbose-skill"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: verbose-skill\ndescription: " + ("x" * 200) + "\n---\n# Body\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(corp_dir))
+
+    install_user(["antigravity"])
+    warns = budget_warnings(
+        installer.global_ledger(),
+        agents=["antigravity"],
+        always_on_limit=100_000,
+        skill_catalog_limit=100,
+    )
+    assert any(agent == "antigravity" and "installed skills catalog" in msg for agent, msg in warns)
+
