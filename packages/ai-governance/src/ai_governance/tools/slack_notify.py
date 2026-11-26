@@ -14,10 +14,20 @@ import re
 import subprocess
 import sys
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 SLACK_POST_URL = "https://slack.com/api/chat.postMessage"
+
+
+@dataclass(frozen=True)
+class SlackMessage:
+    """Target channel, Markdown body, and optional thread timestamp."""
+
+    channel: str
+    markdown: str
+    thread_ts: str | None = None
 
 
 def fallback_text(markdown: str, limit: int = 3000) -> str:
@@ -30,14 +40,18 @@ def fallback_text(markdown: str, limit: int = 3000) -> str:
 def resolve_token(token_env: str, keychain_service: str | None) -> str:
     token = os.environ.get(token_env, "").strip()
     if not token and keychain_service:
-        proc = subprocess.run(
-            ["security", "find-generic-password", "-s", keychain_service, "-w"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if proc.returncode == 0:
-            token = proc.stdout.strip()
+        try:
+            proc = subprocess.run(
+                ["security", "find-generic-password", "-s", keychain_service, "-w"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            if proc.returncode == 0:
+                token = proc.stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            token = ""
     if not token.startswith("xoxb-"):
         raise RuntimeError(
             f"Missing Slack bot token (xoxb-...) in ${token_env}"
@@ -58,18 +72,17 @@ def parse_allowlist(raw_values: list[str]) -> set[str]:
 
 def post_markdown(
     token: str,
-    channel: str,
-    markdown: str,
-    thread_ts: str | None = None,
+    message: SlackMessage,
+    *,
     timeout: int = 15,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
-        "channel": channel,
-        "text": fallback_text(markdown),
-        "blocks": [{"type": "markdown", "text": markdown}],
+        "channel": message.channel,
+        "text": fallback_text(message.markdown),
+        "blocks": [{"type": "markdown", "text": message.markdown}],
     }
-    if thread_ts:
-        payload["thread_ts"] = thread_ts
+    if message.thread_ts:
+        payload["thread_ts"] = message.thread_ts
 
     req = urllib.request.Request(
         SLACK_POST_URL,
@@ -146,7 +159,10 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         token = resolve_token(args.token_env, args.keychain_service)
-        result = post_markdown(token, args.channel, markdown, thread_ts=args.thread_ts)
+        result = post_markdown(
+            token,
+            SlackMessage(channel=args.channel, markdown=markdown, thread_ts=args.thread_ts),
+        )
     except Exception as exc:
         print(f"slack-notify error: {exc}", file=sys.stderr)
         return 1
@@ -159,5 +175,5 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    print(result["ts"])
+    print(result.get("ts", ""))
     return 0

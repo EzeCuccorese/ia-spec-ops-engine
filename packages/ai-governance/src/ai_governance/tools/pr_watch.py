@@ -126,6 +126,7 @@ def _gh_env(gh_user: str | None) -> dict[str, str]:
             ["gh", "auth", "token", "--user", gh_user],
             env=env,
             text=True,
+            timeout=30,
         ).strip()
         if not token:
             raise RuntimeError(f"No GitHub token available for user {gh_user}")
@@ -137,7 +138,7 @@ def _resolve_author(author: str | None, env: dict[str, str]) -> str:
     if author:
         return author
     return subprocess.check_output(
-        ["gh", "api", "user", "--jq", ".login"], env=env, text=True
+        ["gh", "api", "user", "--jq", ".login"], env=env, text=True, timeout=30
     ).strip()
 
 
@@ -149,9 +150,14 @@ def _fetch_open_prs(author: str, org: str | None, env: dict[str, str]) -> list[d
         ["gh", "api", "graphql", "-f", f"query={GRAPHQL_QUERY}", "-f", f"q={query}"],
         env=env,
         text=True,
+        timeout=30,
     )
     data = json.loads(raw)
-    nodes = data.get("data", {}).get("search", {}).get("nodes", [])
+    if not isinstance(data, dict) or data.get("errors") or not isinstance(data.get("data"), dict):
+        raise RuntimeError(
+            f"GitHub GraphQL query failed: {data.get('errors') if isinstance(data, dict) else data}"
+        )
+    nodes = data["data"].get("search", {}).get("nodes", [])
     return [n for n in nodes if isinstance(n, dict) and n.get("number")]
 
 
@@ -312,16 +318,12 @@ def _collect_interactions(pr: dict[str, Any], author: str) -> dict[str, dict[str
 
 
 def _is_ready_to_merge(
-    is_draft: bool,
-    review_decision: str,
-    mergeable: str,
-    ci_state: str,
-    failing_checks: list[dict[str, str]],
+    pr: dict[str, Any], ci_state: str, failing_checks: list[dict[str, str]]
 ) -> bool:
     return (
-        not is_draft
-        and review_decision == "APPROVED"
-        and mergeable == "MERGEABLE"
+        not bool(pr.get("isDraft", False))
+        and (pr.get("reviewDecision") or "NONE") == "APPROVED"
+        and (pr.get("mergeable") or "UNKNOWN") == "MERGEABLE"
         and ci_state in {"SUCCESS", "NONE"}
         and not failing_checks
     )
@@ -350,9 +352,7 @@ def summarize_pr(pr: dict[str, Any], author: str) -> dict[str, Any]:
         "head_sha": head_sha,
         "ci_state": ci_state,
         "failing_checks": failing_checks,
-        "ready_to_merge": _is_ready_to_merge(
-            is_draft, review_decision, mergeable, ci_state, failing_checks
-        ),
+        "ready_to_merge": _is_ready_to_merge(pr, ci_state, failing_checks),
         "interactions": interactions,
     }
 
@@ -377,9 +377,7 @@ def _state_transition_events(
         )
     if pr["mergeable"] == "CONFLICTING" and (old is None or old.get("mergeable") != "CONFLICTING"):
         events.append(
-            _base_event(
-                "merge_conflict", key, pr, "PR has merge conflicts with its base branch."
-            )
+            _base_event("merge_conflict", key, pr, "PR has merge conflicts with its base branch.")
         )
     return events
 
@@ -479,13 +477,25 @@ def format_instant_alert(events: list[dict[str, Any]], footer: str | None = None
     return "\n".join(lines) + "\n"
 
 
+def _atomic_write_text(path: Path, text: str) -> None:
+    with tempfile.NamedTemporaryFile("w", dir=path.parent, delete=False, encoding="utf-8") as tmp:
+        tmp.write(text)
+        tmp_path = tmp.name
+    try:
+        os.replace(tmp_path, path)
+    except Exception:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_path)
+        raise
+
+
 def _run_notify(notify_cmd: str, markdown: str) -> None:
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as tmp:
         tmp.write(markdown)
         tmp_path = tmp.name
     try:
         cmd = shlex.split(notify_cmd) + [tmp_path]
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, timeout=30)
     finally:
         with contextlib.suppress(OSError):
             os.unlink(tmp_path)
@@ -536,23 +546,26 @@ def _run_status(current: dict[str, dict[str, Any]], author: str, org: str | None
     return 0
 
 
-def _run_check(
-    args: argparse.Namespace, current: dict[str, dict[str, Any]], author: str
-) -> int:
+def _run_check(args: argparse.Namespace, current: dict[str, dict[str, Any]], author: str) -> int:
     args.state_dir.mkdir(parents=True, exist_ok=True)
     state_file = args.state_dir / "state.json"
     pending_file = args.state_dir / "pending-events.json"
 
     first_run = not state_file.exists() or args.init
-    previous = {} if first_run else json.loads(state_file.read_text(encoding="utf-8"))
-    state_file.write_text(json.dumps(serialize_state(current), indent=2), encoding="utf-8")
-
     if first_run:
+        _atomic_write_text(state_file, json.dumps(serialize_state(current), indent=2))
         print(f"pr-watch baseline initialized ({len(current)} open PRs).")
         return 1
 
+    try:
+        previous = json.loads(state_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        print(f"pr-watch error: corrupt state file {state_file}: {exc}", file=sys.stderr)
+        return 2
+
     events = diff_events(current, previous)
     if not events:
+        _atomic_write_text(state_file, json.dumps(serialize_state(current), indent=2))
         return 1
 
     payload = {
@@ -560,7 +573,8 @@ def _run_check(
         "author": author,
         "events": events,
     }
-    pending_file.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    _atomic_write_text(pending_file, json.dumps(payload, indent=2, ensure_ascii=False))
+    _atomic_write_text(state_file, json.dumps(serialize_state(current), indent=2))
 
     if args.notify_cmd:
         try:

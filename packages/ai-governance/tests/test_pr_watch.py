@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
+import pytest
 from ai_governance.tools import pr_watch
 
 
@@ -152,3 +154,140 @@ def test_format_instant_alert_respects_optional_footer() -> None:
     )
     assert md.startswith("**[PRs - Instant alert]**\n")
     assert "_Summary coming shortly._" in md
+
+
+def test_gh_helpers_and_graphql_error_validation(monkeypatch) -> None:
+    monkeypatch.setattr(pr_watch.subprocess, "check_output", lambda *_a, **_k: "tok-1\n")
+    assert pr_watch._gh_env("alice")["GH_TOKEN"] == "tok-1"
+    assert pr_watch._resolve_author(None, {}) == "tok-1"
+
+    monkeypatch.setattr(pr_watch.subprocess, "check_output", lambda *_a, **_k: "  ")
+    with pytest.raises(RuntimeError, match="No GitHub token"):
+        pr_watch._gh_env("alice")
+
+    monkeypatch.setattr(
+        pr_watch.subprocess,
+        "check_output",
+        lambda *_a, **_k: json.dumps({"errors": [{"message": "rate limit"}]}),
+    )
+    with pytest.raises(RuntimeError, match="GraphQL query failed"):
+        pr_watch._fetch_open_prs("alice", "acme", {})
+
+    monkeypatch.setattr(
+        pr_watch.subprocess,
+        "check_output",
+        lambda *_a, **_k: json.dumps({"data": {"search": {"nodes": [{"number": 7}]}}}),
+    )
+    assert pr_watch._fetch_open_prs("alice", "acme", {}) == [{"number": 7}]
+
+
+def test_reviews_inline_comments_and_status(capsys) -> None:
+    pr = _sample_pr(
+        is_draft=True,
+        mergeable="CONFLICTING",
+        contexts=[{"__typename": "StatusContext", "context": "lint", "state": "FAILURE"}],
+    )
+    pr["reviews"] = {
+        "nodes": [
+            {"id": "r1", "state": "COMMENTED", "body": "  ", "author": {"login": "bob"}},
+            {"id": "r2", "state": "DISMISSED", "body": "old", "author": {"login": "bob"}},
+            {"id": "r3", "state": "APPROVED", "body": "", "author": {"login": "bob"}},
+        ]
+    }
+    pr["reviewThreads"] = {
+        "nodes": [
+            {
+                "comments": {
+                    "nodes": [
+                        {"id": "i1", "body": "nit", "path": "a.py", "author": {"login": "bob"}}
+                    ]
+                }
+            }
+        ]
+    }
+    summary = pr_watch.summarize_pr(pr, author="alice")
+    assert set(summary["interactions"]) == {"r3", "i1"}
+    assert "DRAFT" in pr_watch._format_status_flags(summary)
+    assert pr_watch._run_status({"acme/repo#42": summary}, "alice", None) == 0
+    assert "CI_FAIL(1)" in capsys.readouterr().out
+
+
+def test_format_comment_alert_and_notify(monkeypatch) -> None:
+    md = pr_watch.format_instant_alert(
+        [
+            {
+                "type": "new_comment",
+                "pr": "acme/repo#42",
+                "title": "T",
+                "url": "https://x",
+                "items": [{"author": "bob", "kind": "review:approved", "snippet": "LGTM"}],
+            }
+        ]
+    )
+    assert "`@bob` (approved): LGTM" in md
+
+    seen_files: list[bool] = []
+    monkeypatch.setattr(
+        pr_watch.subprocess,
+        "run",
+        lambda cmd, **_k: (
+            seen_files.append(Path(cmd[-1]).is_file()) or subprocess.CompletedProcess(cmd, 0)
+        ),
+    )
+    pr_watch._run_notify("echo", md)
+    assert seen_files == [True]
+
+
+def test_corrupt_state_and_notify_failure_warning(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(pr_watch, "_gh_env", lambda _u: {})
+    monkeypatch.setattr(pr_watch, "_resolve_author", lambda _a, _e: "alice")
+    monkeypatch.setattr(
+        pr_watch,
+        "_fetch_open_prs",
+        lambda _a, _o, _e: (_ for _ in ()).throw(RuntimeError("offline")),
+    )
+    assert pr_watch.main(["status"]) == 2
+
+    (tmp_path / "state.json").write_text("{corrupt", encoding="utf-8")
+    monkeypatch.setattr(pr_watch, "_fetch_open_prs", lambda _a, _o, _e: [_sample_pr()])
+    assert pr_watch.main(["check", "--state-dir", str(tmp_path)]) == 2
+
+    (tmp_path / "state.json").unlink()
+    assert pr_watch.main(["check", "--state-dir", str(tmp_path)]) == 1
+    monkeypatch.setattr(
+        pr_watch,
+        "_fetch_open_prs",
+        lambda _a, _o, _e: [
+            _sample_pr(review_decision="APPROVED", mergeable="MERGEABLE", ci_state="SUCCESS")
+        ],
+    )
+    monkeypatch.setattr(
+        pr_watch, "_run_notify", lambda *_a: (_ for _ in ()).throw(RuntimeError("fail"))
+    )
+    assert pr_watch.main(["check", "--state-dir", str(tmp_path), "--notify-cmd", "true"]) == 0
+
+
+def test_pr_watch_edge_cases_and_atomic_write_error(monkeypatch, tmp_path: Path) -> None:
+    assert pr_watch._resolve_author("alice", {}) == "alice"
+    assert pr_watch._gh_env(None)["PATH"].startswith("/opt/homebrew/bin:")
+
+    pr = _sample_pr(
+        review_decision="APPROVED",
+        mergeable="MERGEABLE",
+        ci_state="SUCCESS",
+        comments=["not-a-dict"],
+        contexts=[
+            "not-a-dict",
+            {"__typename": "Other"},
+            {"__typename": "StatusContext", "state": "SUCCESS"},
+        ],
+    )
+    summary = pr_watch.summarize_pr(pr, author="alice")
+    flags = pr_watch._format_status_flags(summary)
+    assert "READY_TO_MERGE" in flags and "CI:SUCCESS" in flags
+
+    monkeypatch.setattr(
+        pr_watch.os, "replace", lambda *_a: (_ for _ in ()).throw(OSError("disk full"))
+    )
+    with pytest.raises(OSError, match="disk full"):
+        pr_watch._atomic_write_text(tmp_path / "fail.json", "{}")

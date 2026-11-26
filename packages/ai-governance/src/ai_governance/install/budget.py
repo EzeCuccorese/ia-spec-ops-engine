@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 
 from ..frontmatter import _FRONTMATTER_RE
@@ -163,17 +164,25 @@ def _skill_catalog_warnings(
     return warnings
 
 
+@dataclass(frozen=True)
+class BudgetThresholds:
+    """Warning thresholds for fixed always-on rules and installed skill metadata."""
+
+    always_on_limit: int = ALWAYS_ON_WARN_BYTES
+    skill_catalog_limit: int = SKILL_CATALOG_WARN_BYTES
+    skill_count_limit: int = SKILL_COUNT_WARN
+
+
 def budget_warnings(
     ledger: Ledger,
     *,
     agents: Iterable[str] | None = None,
-    always_on_limit: int = ALWAYS_ON_WARN_BYTES,
-    skill_catalog_limit: int = SKILL_CATALOG_WARN_BYTES,
-    skill_count_limit: int = SKILL_COUNT_WARN,
+    thresholds: BudgetThresholds | None = None,
 ) -> list[tuple[str, str]]:
     """Returns ``(agent, warning)`` pairs when fixed always-on rules or skill metadata grow too large."""
     selected = set(agents) if agents is not None else None
+    cfg = thresholds or BudgetThresholds()
     return [
-        *_always_on_warnings(ledger, selected, always_on_limit),
-        *_skill_catalog_warnings(ledger, selected, skill_count_limit, skill_catalog_limit),
+        *_always_on_warnings(ledger, selected, cfg.always_on_limit),
+        *_skill_catalog_warnings(ledger, selected, cfg.skill_count_limit, cfg.skill_catalog_limit),
     ]

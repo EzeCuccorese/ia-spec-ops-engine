@@ -205,10 +205,8 @@ def test_budget_warnings_fire_on_oversized_always_on_and_doctor(
     )
 
 
-def test_budget_warnings_fire_on_skill_catalog_metadata_limit(
-    monkeypatch, tmp_path: Path
-) -> None:
-    from ai_governance.install.budget import budget_warnings
+def test_budget_warnings_fire_on_skill_catalog_metadata_limit(monkeypatch, tmp_path: Path) -> None:
+    from ai_governance.install.budget import BudgetThresholds, budget_warnings
 
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     monkeypatch.setenv("AI_GOVERNANCE_STATE_DIR", str(tmp_path / "state"))
@@ -222,12 +220,22 @@ def test_budget_warnings_fire_on_skill_catalog_metadata_limit(
     )
     monkeypatch.setenv("AI_GOVERNANCE_CORPORATE_DIR", str(corp_dir))
 
+    dry_report = install_user(["antigravity"], dry_run=True)
+    assert dry_report.warnings == []
+
     install_user(["antigravity"])
     warns = budget_warnings(
         installer.global_ledger(),
         agents=["antigravity"],
-        always_on_limit=100_000,
-        skill_catalog_limit=100,
+        thresholds=BudgetThresholds(always_on_limit=100_000, skill_catalog_limit=100),
     )
     assert any(agent == "antigravity" and "installed skills catalog" in msg for agent, msg in warns)
 
+    count_warns = budget_warnings(
+        installer.global_ledger(),
+        agents=["antigravity"],
+        thresholds=BudgetThresholds(
+            always_on_limit=100_000, skill_catalog_limit=100_000, skill_count_limit=0
+        ),
+    )
+    assert any("has" in msg and "skills" in msg for _, msg in count_warns)
