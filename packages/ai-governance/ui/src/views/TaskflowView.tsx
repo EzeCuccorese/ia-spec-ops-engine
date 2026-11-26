@@ -1,8 +1,38 @@
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { LayoutGrid, List, Plus } from "lucide-react";
 import { ApiError, api } from "../api";
 import { TaskDetailDrawer } from "../components/TaskDetailDrawer";
-import type { TaskDetail, TaskSummary } from "../types";
+import type { TaskDetail, TaskStatus, TaskSummary } from "../types";
+
+export type TaskBucket = "active" | "blocked" | "paused" | "closed";
+
+const BUCKETS: { key: TaskBucket; label: string }[] = [
+  { key: "active", label: "Active" },
+  { key: "blocked", label: "Blocked" },
+  { key: "paused", label: "Paused" },
+  { key: "closed", label: "Closed" },
+];
+
+const FILTERS = ["all", "blocked", "debate", "active", "paused", "closed"] as const;
+const STATUS_OPTIONS: TaskStatus[] = ["active", "paused", "closed"];
+
+export function taskBucket(t: TaskSummary): TaskBucket {
+  if (t.status === "closed") return "closed";
+  if (Object.keys(t.blocked || {}).length > 0) return "blocked";
+  if (t.status === "paused") return "paused";
+  return "active";
+}
+
+function matchesFilter(t: TaskSummary, filter: string, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (q) {
+    const hay = `${t.id} ${t.title} ${t.summary}`.toLowerCase();
+    if (!hay.includes(q)) return false;
+  }
+  if (filter === "all") return true;
+  if (filter === "debate") return t.has_debate;
+  return taskBucket(t) === filter;
+}
 
 interface TaskflowViewProps {
   tasks: TaskSummary[];
@@ -44,42 +74,160 @@ function NewTaskForm({ onCreated, onCancel }: { onCreated: (id: string) => void;
   );
 }
 
+function TaskCard({
+  task,
+  selected,
+  onSelect,
+  onStatusChange,
+}: {
+  task: TaskSummary;
+  selected: boolean;
+  onSelect: (id: string) => void;
+  onStatusChange: (id: string, status: TaskStatus) => void;
+}) {
+  const bucket = taskBucket(task);
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      className={`item-card ${selected ? "selected" : ""}`}
+      onClick={() => onSelect(task.id)}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onSelect(task.id); }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem" }}>
+        <span style={{ color: "var(--cyan)", fontWeight: 600 }}>{task.id}</span>
+        <span className={`pill pill-${bucket === "blocked" ? "amber" : task.status}`}>{bucket}</span>
+      </div>
+      <div style={{ fontWeight: 600, marginTop: 4 }}>{task.title}</div>
+      <div style={{ display: "flex", gap: 8, marginTop: 6, fontSize: "0.75rem", color: "var(--text-muted)", flexWrap: "wrap" }}>
+        <span>{task.done_steps}/{task.total_steps} steps</span>
+        {task.has_debate && <span className="pill pill-violet">debate</span>}
+        {task.pending_rounds > 0 && <span className="pill pill-amber">{task.pending_rounds} pending</span>}
+      </div>
+      <div style={{ display: "flex", gap: 4, marginTop: 8 }}>
+        {STATUS_OPTIONS.map((st) => (
+          <button
+            key={st}
+            type="button"
+            className={`btn ${task.status === st ? "btn-primary" : ""}`}
+            style={{ padding: "0.15rem 0.45rem", fontSize: "0.7rem", textTransform: "capitalize" }}
+            onClick={(e) => { e.stopPropagation(); onStatusChange(task.id, st); }}
+          >
+            {st}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BoardView({
+  tasks,
+  selectedId,
+  onSelect,
+  onStatusChange,
+}: {
+  tasks: TaskSummary[];
+  selectedId?: string;
+  onSelect: (id: string) => void;
+  onStatusChange: (id: string, status: TaskStatus) => void;
+}) {
+  return (
+    <div className="kanban-grid">
+      {BUCKETS.map(({ key, label }) => {
+        const colTasks = tasks.filter((t) => taskBucket(t) === key);
+        return (
+          <div key={key} className="list-stack" style={{ gap: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8rem", fontWeight: 600 }}>
+              <span>{label}</span>
+              <span className="pill">{colTasks.length}</span>
+            </div>
+            {colTasks.map((t) => (
+              <TaskCard key={t.id} task={t} selected={selectedId === t.id} onSelect={onSelect} onStatusChange={onStatusChange} />
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function TaskToolbar({
+  viewMode,
+  filter,
+  query,
+  onViewMode,
+  onFilter,
+  onQuery,
+  onToggleNew,
+}: {
+  viewMode: "board" | "list";
+  filter: string;
+  query: string;
+  onViewMode: (m: "board" | "list") => void;
+  onFilter: (f: string) => void;
+  onQuery: (q: string) => void;
+  onToggleNew: () => void;
+}) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+        {FILTERS.map((st) => (
+          <button key={st} type="button" className={`btn ${filter === st ? "btn-primary" : ""}`} onClick={() => onFilter(st)}>{st}</button>
+        ))}
+        <input className="input" style={{ width: 200 }} placeholder="Search id, title, summary..." value={query} onChange={(e) => onQuery(e.target.value)} />
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        <button type="button" className={`btn ${viewMode === "board" ? "btn-primary" : ""}`} onClick={() => onViewMode("board")}>
+          <LayoutGrid size={14} /> Board
+        </button>
+        <button type="button" className={`btn ${viewMode === "list" ? "btn-primary" : ""}`} onClick={() => onViewMode("list")}>
+          <List size={14} /> List
+        </button>
+        <button type="button" className="btn btn-primary" onClick={onToggleNew}><Plus size={14} /> New Task</button>
+      </div>
+    </div>
+  );
+}
+
 export function TaskflowView({ tasks, selectedTask, onSelectTask, onRefresh, onArchived }: TaskflowViewProps) {
+  const [viewMode, setViewMode] = useState<"board" | "list">("board");
   const [filter, setFilter] = useState("all");
+  const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
-  const visible = filter === "all" ? tasks : tasks.filter((t) => t.status === filter);
+
+  const visible = tasks.filter((t) => matchesFilter(t, filter, query));
+
+  async function handleStatusChange(id: string, status: TaskStatus) {
+    await api.patchTask(id, { status });
+    onRefresh();
+  }
 
   return (
     <div className="list-stack" style={{ gap: "0.85rem" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-        <div style={{ display: "flex", gap: 6 }}>
-          {["all", "active", "paused", "closed"].map((st) => (
-            <button key={st} type="button" className={`btn ${filter === st ? "btn-primary" : ""}`} onClick={() => setFilter(st)}>{st}</button>
-          ))}
-        </div>
-        <button type="button" className="btn btn-primary" onClick={() => setCreating((v) => !v)}><Plus size={14} /> New Task</button>
-      </div>
+      <TaskToolbar
+        viewMode={viewMode}
+        filter={filter}
+        query={query}
+        onViewMode={setViewMode}
+        onFilter={setFilter}
+        onQuery={setQuery}
+        onToggleNew={() => setCreating((v) => !v)}
+      />
       {creating && <NewTaskForm onCreated={(newId) => { setCreating(false); onRefresh(); onSelectTask(newId); }} onCancel={() => setCreating(false)} />}
       <div className="split-layout">
-        <div className="list-stack">
-          {visible.map((t) => (
-            <button key={t.id} type="button" className={`item-card ${selectedTask?.id === t.id ? "selected" : ""}`} onClick={() => onSelectTask(t.id)}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem" }}>
-                <span style={{ color: "var(--cyan)", fontWeight: 600 }}>{t.id}</span>
-                <span className={`pill pill-${t.status}`}>{t.status}</span>
-              </div>
-              <div style={{ fontWeight: 600, marginTop: 4 }}>{t.title}</div>
-              <div style={{ display: "flex", gap: 8, marginTop: 6, fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                <span>{t.done_steps}/{t.total_steps} steps</span>
-                {t.has_debate && <span className="pill pill-violet">debate</span>}
-                {t.pending_rounds > 0 && <span className="pill pill-amber">{t.pending_rounds} pending</span>}
-              </div>
-            </button>
-          ))}
-        </div>
+        {viewMode === "board" ? (
+          <BoardView tasks={visible} selectedId={selectedTask?.id} onSelect={onSelectTask} onStatusChange={(id, st) => void handleStatusChange(id, st)} />
+        ) : (
+          <div className="list-stack">
+            {visible.map((t) => (
+              <TaskCard key={t.id} task={t} selected={selectedTask?.id === t.id} onSelect={onSelectTask} onStatusChange={(id, st) => void handleStatusChange(id, st)} />
+            ))}
+          </div>
+        )}
         <div>
           {selectedTask ? (
-            <TaskDetailDrawer task={selectedTask} onRefresh={() => { onRefresh(); onSelectTask(selectedTask.id); }} onArchived={onArchived} />
+            <TaskDetailDrawer key={selectedTask.id} task={selectedTask} onRefresh={() => { onRefresh(); onSelectTask(selectedTask.id); }} onArchived={onArchived} onSelectTask={onSelectTask} />
           ) : (
             <div className="card" style={{ color: "var(--text-muted)", fontSize: "0.86rem" }}>Select a task to inspect its notebook, steps, decisions, and debates.</div>
           )}

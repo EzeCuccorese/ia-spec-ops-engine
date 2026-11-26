@@ -87,9 +87,26 @@ export interface GraphNode {
   repos?: string[];
   updated?: string;
   stale?: boolean;
+  orphan?: boolean;
   degree: number;
   x?: number;
   y?: number;
+}
+
+export interface NoteBacklink {
+  ref: string;
+  title: string;
+  kind: string;
+}
+
+export interface BrainFilters {
+  scope: string;
+  kind: string;
+  repo: string;
+  tag: string;
+  staleOnly: boolean;
+  orphansOnly: boolean;
+  hubs: boolean;
 }
 
 export interface GraphLink {
@@ -108,6 +125,7 @@ export interface BrainGraph {
     tags: number;
     repos: number;
     links: number;
+    orphans?: number;
   };
 }
 

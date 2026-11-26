@@ -213,3 +213,36 @@ def test_brain_graph_ref_links_and_unseeded_task(
     refs = {(e["source"], e["target"]) for e in graph["links"] if e["kind"] == "reference"}
     assert ("note:personal/gamma-note", "note:personal/beta-note") in refs
     assert ("note:personal/gamma-note", "note:personal/alpha-note") in refs
+
+
+def test_brain_notes_tag_filter_graph_filters_and_orphans(
+    brain_client: tuple[TestClient, dict[str, str], BrainStore, TaskStore],
+) -> None:
+    client, _, br_store, tf_store = brain_client
+    _seed_graph_notes(br_store, tf_store)
+    br_store.add(
+        NoteDraft(
+            title="Orphan Note",
+            body="No references or archive links.",
+            kind="gotcha",
+            tags=("solo",),
+            repos=("repo-b",),
+            slug="orphan-note",
+        )
+    )
+
+    by_tag = client.get("/api/brain/notes?tag=solo").json()["notes"]
+    assert [n["slug"] for n in by_tag] == ["orphan-note"]
+
+    filtered_graph = client.get("/api/brain/graph?repo=repo-b&tag=solo").json()
+    note_nodes = [n for n in filtered_graph["nodes"] if n["type"] == "note"]
+    assert [n["slug"] for n in note_nodes] == ["orphan-note"]
+    assert note_nodes[0]["orphan"] is True
+    assert filtered_graph["stats"]["orphans"] == 1
+
+    full_graph = client.get("/api/brain/graph").json()
+    by_slug = {n["slug"]: n for n in full_graph["nodes"] if n["type"] == "note"}
+    assert by_slug["alpha-note"]["orphan"] is False
+    assert by_slug["beta-note"]["orphan"] is False
+    assert by_slug["orphan-note"]["orphan"] is True
+    assert full_graph["stats"]["orphans"] == 1
