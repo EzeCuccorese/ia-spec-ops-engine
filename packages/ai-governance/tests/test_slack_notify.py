@@ -139,5 +139,6 @@ def test_post_markdown_decodes_http_error_json(monkeypatch) -> None:
     monkeypatch.setattr(
         slack_notify.urllib.request, "urlopen", lambda *_a, **_k: (_ for _ in ()).throw(bad_err)
     )
-    with pytest.raises(urllib.error.HTTPError):
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
         slack_notify.post_markdown("xoxb-1", slack_notify.SlackMessage("C1", "hi"))
+    assert exc_info.value.code == 502
