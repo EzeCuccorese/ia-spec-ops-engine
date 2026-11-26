@@ -71,6 +71,15 @@ def parse_allowlist(raw_values: list[str]) -> set[str]:
     return allowed
 
 
+def _decode_http_error(err: urllib.error.HTTPError) -> dict[str, Any] | None:
+    try:
+        with err:
+            parsed = json.loads(err.read().decode("utf-8"))
+    except (OSError, ValueError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
 def post_markdown(
     token: str,
     message: SlackMessage,
@@ -96,12 +105,14 @@ def post_markdown(
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+            parsed = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as err:
-        try:
-            return json.loads(err.read().decode("utf-8"))
-        except (OSError, ValueError):
-            raise err from None
+        if (err_payload := _decode_http_error(err)) is not None:
+            return err_payload
+        raise
+    if not isinstance(parsed, dict):
+        raise RuntimeError(f"Unexpected Slack API response: {type(parsed).__name__}")
+    return parsed
 
 
 def _read_message(file_path: str | None, inline_text: str | None) -> str:

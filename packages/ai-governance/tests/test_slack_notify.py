@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import email.message
 import io
 import json
 import subprocess
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -114,9 +116,6 @@ def test_post_markdown_and_main_failure_branches(monkeypatch, tmp_path: Path) ->
 
 
 def test_post_markdown_decodes_http_error_json(monkeypatch) -> None:
-    import email.message
-    import urllib.error
-
     err = urllib.error.HTTPError(
         slack_notify.SLACK_POST_URL,
         400,
@@ -129,3 +128,16 @@ def test_post_markdown_decodes_http_error_json(monkeypatch) -> None:
     )
     res = slack_notify.post_markdown("xoxb-1", slack_notify.SlackMessage("C1", "hi"))
     assert res["error"] == "invalid_blocks"
+
+    bad_err = urllib.error.HTTPError(
+        slack_notify.SLACK_POST_URL,
+        502,
+        "Bad Gateway",
+        email.message.Message(),
+        io.BytesIO(b"not-json"),
+    )
+    monkeypatch.setattr(
+        slack_notify.urllib.request, "urlopen", lambda *_a, **_k: (_ for _ in ()).throw(bad_err)
+    )
+    with pytest.raises(urllib.error.HTTPError):
+        slack_notify.post_markdown("xoxb-1", slack_notify.SlackMessage("C1", "hi"))
