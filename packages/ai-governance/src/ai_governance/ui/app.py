@@ -6,12 +6,13 @@ from collections.abc import Callable
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import __version__
 from ..brain.store import BrainStore
 from ..taskflow.store import TaskStore
+from .events import stream_store_events
 from .launcher import list_live_workers
 from .routes_brain import build_brain_router
 from .routes_tasks import build_tasks_router
@@ -52,6 +53,19 @@ def create_app(
     @app.get("/api/orca/workers")
     def orca_workers() -> dict[str, object]:
         return list_live_workers()
+
+    @app.get("/api/events")
+    def store_events(max_events: int | None = None) -> StreamingResponse:
+        clamped = max(1, min(max_events, 100)) if max_events is not None else None
+        return StreamingResponse(
+            stream_store_events(
+                task_store_factory().root,
+                brain_store_factory().root,
+                max_events=clamped,
+            ),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     app.include_router(build_tasks_router(task_store_factory, brain_store_factory))
     app.include_router(build_brain_router(brain_store_factory, task_store_factory))

@@ -92,6 +92,7 @@ def build_brain_router(
         scope: str | None = None,
         kind: str | None = None,
         repo: str | None = None,
+        tag: str | None = None,
         stale_days: int | None = None,
     ) -> dict[str, Any]:
         store = brain_factory()
@@ -102,6 +103,8 @@ def build_brain_router(
             notes, all_notes = store.list(flt), store.list()
         except Exception as exc:
             raise _map_brain_error(exc) from exc
+        if tag:
+            notes = [n for n in notes if tag in n.tags]
         repos, tags = _note_facets(all_notes)
         return {
             "notes": [_serialize_note(n) for n in notes],
@@ -209,13 +212,21 @@ def build_brain_router(
     def get_graph(
         scope: str | None = None,
         kind: str | None = None,
+        repo: str | None = None,
+        tag: str | None = None,
         hubs: bool = True,
     ) -> dict[str, Any]:
         try:
             return build_brain_graph(
                 brain_factory(),
                 task_factory(),
-                GraphQuery(scope=scope or None, kind=kind or None, include_hubs=hubs),
+                GraphQuery(
+                    scope=scope or None,
+                    kind=kind or None,
+                    repo=repo or None,
+                    tag=tag or None,
+                    include_hubs=hubs,
+                ),
             )
         except Exception as exc:
             raise _map_brain_error(exc) from exc

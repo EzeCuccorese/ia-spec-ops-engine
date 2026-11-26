@@ -13,6 +13,7 @@ export interface TaskSummary {
   done_steps: number;
   total_steps: number;
   repos: { path?: string; branch?: string; pr?: string }[];
+  links?: { title: string; url: string }[];
   has_debate: boolean;
   pending_rounds: number;
   created_at: string;
@@ -87,9 +88,26 @@ export interface GraphNode {
   repos?: string[];
   updated?: string;
   stale?: boolean;
+  orphan?: boolean;
   degree: number;
   x?: number;
   y?: number;
+}
+
+export interface NoteBacklink {
+  ref: string;
+  title: string;
+  kind: string;
+}
+
+export interface BrainFilters {
+  scope: string;
+  kind: string;
+  repo: string;
+  tag: string;
+  staleOnly: boolean;
+  orphansOnly: boolean;
+  hubs: boolean;
 }
 
 export interface GraphLink {
@@ -108,6 +126,7 @@ export interface BrainGraph {
     tags: number;
     repos: number;
     links: number;
+    orphans?: number;
   };
 }
 
@@ -140,4 +159,14 @@ export interface HealthResponse {
   version: string;
   host: string;
   port: number;
+}
+
+export interface JiraIssuePreview {
+  key: string;
+  title: string;
+  status: string;
+  issue_type: string;
+  priority: string;
+  parent: string;
+  url: string;
 }

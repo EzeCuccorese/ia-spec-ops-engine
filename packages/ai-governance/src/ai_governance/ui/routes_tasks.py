@@ -27,6 +27,8 @@ from ..taskflow.dispatch import DispatchError
 from ..taskflow.models import STATUSES, WORKFLOWS, Task, now_iso
 from ..taskflow.store import LOG_FILE, TaskStore, atomic_write_text, validate_task_id
 from ..taskflow.synthesis import close_debate
+from ..tools.atlassian_common import AtlassianError
+from .jira_lookup import fetch_jira_issue
 from .launcher import _extract_dispatch_id, launch_reserved_round
 
 
@@ -36,6 +38,7 @@ class CreateTaskBody(BaseModel):
     summary: str = ""
     workflow: str = "tri-agent"
     parent: str = ""
+    jira_url: str = ""
 
 
 class PatchTaskBody(BaseModel):
@@ -153,6 +156,7 @@ def _task_summary_dict(store: TaskStore, task: Task) -> dict[str, Any]:
         "done_steps": done,
         "total_steps": len(task.steps),
         "repos": list(task.repos),
+        "links": list(task.links),
         "has_debate": load_debate(store, task.id) is not None,
         "pending_rounds": len(_pending_dispatches(store, task)),
         "created_at": task.created_at,
@@ -198,12 +202,31 @@ def _apply_task_patch(task: Task, body: PatchTaskBody) -> None:
         task.blocked = dict(body.blocked)
 
 
+def _map_atlassian_error(exc: AtlassianError) -> HTTPException:
+    msg = str(exc)
+    lower = msg.lower()
+    if "not set" in lower or "atlassian_" in lower:
+        return HTTPException(status_code=503, detail=msg)
+    if "404" in lower or "not found" in lower or "does not exist" in lower:
+        return HTTPException(status_code=404, detail=msg)
+    return HTTPException(status_code=502, detail=msg)
+
+
 def _register_task_crud_routes(router: APIRouter, store_factory: Callable[[], TaskStore]) -> None:
     @router.get("")
     def list_tasks(include_closed: bool = True) -> dict[str, Any]:
         store = store_factory()
         tasks = [_task_summary_dict(store, t) for t in store.list(include_closed=include_closed)]
         return {"tasks": tasks}
+
+    @router.get("/jira-lookup")
+    def jira_lookup(q: str = "") -> dict[str, str]:
+        try:
+            return fetch_jira_issue(q)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except AtlassianError as exc:
+            raise _map_atlassian_error(exc) from exc
 
     @router.post("", status_code=201)
     def create_task(body: CreateTaskBody) -> dict[str, Any]:
@@ -212,12 +235,18 @@ def _register_task_crud_routes(router: APIRouter, store_factory: Callable[[], Ta
             task_id = validate_task_id(body.id.strip())
             if body.workflow not in WORKFLOWS:
                 raise ValueError(f"Invalid workflow {body.workflow!r}; expected {WORKFLOWS}")
+            links = (
+                [{"title": f"Jira {task_id}", "url": body.jira_url.strip()}]
+                if body.jira_url.strip()
+                else []
+            )
             task = Task(
                 id=task_id,
                 title=body.title.strip(),
                 summary=body.summary.strip(),
                 workflow=body.workflow,
                 parent=body.parent.strip(),
+                links=links,
             )
             created = store.create(task)
             return {"task": _task_detail_dict(store, created)}

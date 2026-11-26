@@ -19,6 +19,8 @@ _REF_RE = re.compile(r"\b([A-Za-z0-9][A-Za-z0-9_-]*/[a-z0-9][a-z0-9_-]*)\b")
 class GraphQuery:
     scope: str | None = None
     kind: str | None = None
+    repo: str | None = None
+    tag: str | None = None
     include_hubs: bool = True
 
 
@@ -130,11 +132,18 @@ def _add_task_archive_link(acc: _GraphAcc, note: BrainNote, tasks_by_id: dict[st
 
 def _apply_degrees(acc: _GraphAcc) -> None:
     counts: dict[str, int] = defaultdict(int)
+    linked_notes: set[str] = set()
     for link in acc.links:
-        counts[str(link["source"])] += 1
-        counts[str(link["target"])] += 1
+        src, tgt = str(link["source"]), str(link["target"])
+        counts[src] += 1
+        counts[tgt] += 1
+        if link["kind"] in ("reference", "archive"):
+            linked_notes.add(src)
+            linked_notes.add(tgt)
     for node_id, node in acc.nodes.items():
         node["degree"] = counts.get(node_id, 0)
+        if node.get("type") == "note":
+            node["orphan"] = node_id not in linked_notes
 
 
 def _populate_edges(
@@ -165,7 +174,16 @@ def _graph_stats(node_list: list[dict[str, Any]], links: list[dict[str, Any]]) -
         "tags": counts["tag"],
         "repos": counts["repo"],
         "links": len(links),
+        "orphans": sum(1 for n in node_list if n.get("orphan")),
     }
+
+
+def _filter_notes(notes: list[BrainNote], opts: GraphQuery) -> list[BrainNote]:
+    if opts.repo:
+        notes = [n for n in notes if opts.repo in n.repos]
+    if opts.tag:
+        notes = [n for n in notes if opts.tag in n.tags]
+    return notes
 
 
 def build_brain_graph(
@@ -175,7 +193,7 @@ def build_brain_graph(
 ) -> dict[str, Any]:
     """Build nodes, weighted edges, and summary stats for the neural-network graph."""
     opts = query or GraphQuery()
-    notes = brain_store.list(NoteFilter(scope=opts.scope, kind=opts.kind))
+    notes = _filter_notes(brain_store.list(NoteFilter(scope=opts.scope, kind=opts.kind)), opts)
     acc = _GraphAcc()
     for note in notes:
         acc.register(note)

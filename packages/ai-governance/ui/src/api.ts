@@ -2,6 +2,7 @@ import type {
   BrainGraph,
   BrainNote,
   HealthResponse,
+  JiraIssuePreview,
   SearchHit,
   TaskDetail,
   TaskSummary,
@@ -62,10 +63,15 @@ export const api = {
 
   listTasks: (includeClosed = true) =>
     request<{ tasks: TaskSummary[] }>(`/api/tasks?include_closed=${includeClosed}`),
+  lookupJira: (q: string) =>
+    request<JiraIssuePreview>(`/api/tasks/jira-lookup?q=${encodeURIComponent(q)}`),
   getTask: (id: string) => request<{ task: TaskDetail }>(`/api/tasks/${encodeURIComponent(id)}`),
-  createTask: (body: { id: string; title: string; summary?: string; workflow?: string; parent?: string }) =>
+  createTask: (body: { id: string; title: string; summary?: string; workflow?: string; parent?: string; jira_url?: string }) =>
     request<{ task: TaskDetail }>("/api/tasks", { method: "POST", body: JSON.stringify(body) }),
-  patchTask: (id: string, body: { title?: string; summary?: string; status?: string; phase?: string }) =>
+  patchTask: (
+    id: string,
+    body: { title?: string; summary?: string; status?: string; phase?: string; blocked?: Record<string, unknown> }
+  ) =>
     request<{ task: TaskDetail }>(`/api/tasks/${encodeURIComponent(id)}`, {
       method: "PATCH",
       body: JSON.stringify(body),
@@ -132,11 +138,13 @@ export const api = {
       { method: "POST", body: JSON.stringify({ reason, dispatch_id: dispatch_id || null }) }
     ),
 
-  listNotes: (params: { scope?: string; kind?: string; repo?: string } = {}) => {
+  listNotes: (params: { scope?: string; kind?: string; repo?: string; tag?: string; stale_days?: number } = {}) => {
     const qs = new URLSearchParams();
     if (params.scope) qs.set("scope", params.scope);
     if (params.kind) qs.set("kind", params.kind);
     if (params.repo) qs.set("repo", params.repo);
+    if (params.tag) qs.set("tag", params.tag);
+    if (params.stale_days !== undefined) qs.set("stale_days", String(params.stale_days));
     return request<{
       notes: BrainNote[];
       scopes: string[];
@@ -169,11 +177,28 @@ export const api = {
     ),
   searchAll: (q: string) =>
     request<{ hits: SearchHit[] }>(`/api/brain/search?q=${encodeURIComponent(q)}`),
-  getGraph: (params: { scope?: string; kind?: string; hubs?: boolean } = {}) => {
+  getGraph: (params: { scope?: string; kind?: string; repo?: string; tag?: string; hubs?: boolean } = {}) => {
     const qs = new URLSearchParams();
     if (params.scope) qs.set("scope", params.scope);
     if (params.kind) qs.set("kind", params.kind);
+    if (params.repo) qs.set("repo", params.repo);
+    if (params.tag) qs.set("tag", params.tag);
     qs.set("hubs", String(params.hubs ?? true));
     return request<BrainGraph>(`/api/brain/graph?${qs.toString()}`);
+  },
+  subscribeEvents: (onChanged: (changed: string[]) => void, onStatus?: (live: boolean) => void): (() => void) => {
+    if (typeof EventSource === "undefined") return () => undefined;
+    const es = new EventSource("/api/events");
+    es.addEventListener("snapshot", () => onStatus?.(true));
+    es.addEventListener("changed", (ev) => {
+      try {
+        const data = JSON.parse((ev as MessageEvent<string>).data) as { changed?: string[] };
+        if (Array.isArray(data.changed)) onChanged(data.changed);
+      } catch {
+        onChanged(["taskflow", "brain"]);
+      }
+    });
+    es.onerror = () => onStatus?.(false);
+    return () => es.close();
   },
 };
