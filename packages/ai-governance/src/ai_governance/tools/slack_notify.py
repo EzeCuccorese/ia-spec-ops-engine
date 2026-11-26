@@ -13,6 +13,7 @@ import os
 import re
 import subprocess
 import sys
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -93,8 +94,14 @@ def post_markdown(
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as err:
+        try:
+            return json.loads(err.read().decode("utf-8"))
+        except (OSError, ValueError):
+            raise err from None
 
 
 def _read_message(file_path: str | None, inline_text: str | None) -> str:

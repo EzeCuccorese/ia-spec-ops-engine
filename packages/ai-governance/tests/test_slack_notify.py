@@ -111,3 +111,21 @@ def test_post_markdown_and_main_failure_branches(monkeypatch, tmp_path: Path) ->
         slack_notify, "post_markdown", lambda *_a, **_k: {"ok": False, "error": "bad"}
     )
     assert slack_notify.main(["--channel", "C1", "--allow", "C1", "--text", "hi"]) == 1
+
+
+def test_post_markdown_decodes_http_error_json(monkeypatch) -> None:
+    import email.message
+    import urllib.error
+
+    err = urllib.error.HTTPError(
+        slack_notify.SLACK_POST_URL,
+        400,
+        "Bad Request",
+        email.message.Message(),
+        io.BytesIO(b'{"ok": false, "error": "invalid_blocks"}'),
+    )
+    monkeypatch.setattr(
+        slack_notify.urllib.request, "urlopen", lambda *_a, **_k: (_ for _ in ()).throw(err)
+    )
+    res = slack_notify.post_markdown("xoxb-1", slack_notify.SlackMessage("C1", "hi"))
+    assert res["error"] == "invalid_blocks"

@@ -291,3 +291,23 @@ def test_pr_watch_edge_cases_and_atomic_write_error(monkeypatch, tmp_path: Path)
     )
     with pytest.raises(OSError, match="disk full"):
         pr_watch._atomic_write_text(tmp_path / "fail.json", "{}")
+
+
+def test_pr_watch_handles_null_graphql_shapes(monkeypatch) -> None:
+    monkeypatch.setattr(
+        pr_watch.subprocess,
+        "check_output",
+        lambda *_a, **_k: json.dumps({"data": {"search": None}}),
+    )
+    assert pr_watch._fetch_open_prs("alice", None, {}) == []
+    null_pr = {
+        "number": 9,
+        "title": "Nulls",
+        "url": "https://x/9",
+        "repository": None,
+        "commits": {"nodes": [{"commit": None}]},
+    }
+    assert pr_watch.summarize_pr(null_pr, "alice")["repo"] == ""
+    ctx = {"__typename": "CheckRun", "name": None, "conclusion": "FAILURE"}
+    failed = pr_watch._failing_check_from_context(ctx, "https://x")
+    assert failed is not None and failed["name"] == "check"

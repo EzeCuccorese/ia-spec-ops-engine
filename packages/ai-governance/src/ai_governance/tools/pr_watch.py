@@ -142,6 +142,16 @@ def _resolve_author(author: str | None, env: dict[str, str]) -> str:
     ).strip()
 
 
+def _parse_graphql_prs(raw: str) -> list[dict[str, Any]]:
+    data = json.loads(raw)
+    if not isinstance(data, dict) or data.get("errors") or not isinstance(data.get("data"), dict):
+        err_detail = data.get("errors") if isinstance(data, dict) else data
+        raise RuntimeError(f"GitHub GraphQL query failed: {err_detail}")
+    search = data["data"].get("search")
+    nodes = search.get("nodes") if isinstance(search, dict) else None
+    return [n for n in (nodes or []) if isinstance(n, dict) and n.get("number")]
+
+
 def _fetch_open_prs(author: str, org: str | None, env: dict[str, str]) -> list[dict[str, Any]]:
     query = f"is:pr is:open author:{author}"
     if org:
@@ -152,13 +162,7 @@ def _fetch_open_prs(author: str, org: str | None, env: dict[str, str]) -> list[d
         text=True,
         timeout=30,
     )
-    data = json.loads(raw)
-    if not isinstance(data, dict) or data.get("errors") or not isinstance(data.get("data"), dict):
-        raise RuntimeError(
-            f"GitHub GraphQL query failed: {data.get('errors') if isinstance(data, dict) else data}"
-        )
-    nodes = data["data"].get("search", {}).get("nodes", [])
-    return [n for n in nodes if isinstance(n, dict) and n.get("number")]
+    return _parse_graphql_prs(raw)
 
 
 @dataclass(frozen=True)
@@ -174,29 +178,31 @@ class _Interaction:
 
 def _extract_head_commit(pr: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     commit_nodes = (pr.get("commits") or {}).get("nodes") or []
-    commit = commit_nodes[0]["commit"] if commit_nodes else {}
-    return commit.get("oid", ""), commit.get("statusCheckRollup") or {}
+    first_node = commit_nodes[0] if commit_nodes and isinstance(commit_nodes[0], dict) else {}
+    raw_commit = first_node.get("commit")
+    commit = raw_commit if isinstance(raw_commit, dict) else {}
+    return commit.get("oid") or "", commit.get("statusCheckRollup") or {}
+
+
+_CONTEXT_FIELDS: dict[str, tuple[str, str, str, str]] = {
+    "CheckRun": ("name", "conclusion", "detailsUrl", "check"),
+    "StatusContext": ("context", "state", "targetUrl", "status"),
+}
 
 
 def _failing_check_from_context(ctx: dict[str, Any], fallback_url: str) -> dict[str, str] | None:
-    typename = ctx.get("__typename")
-    if typename == "CheckRun":
-        conc = (ctx.get("conclusion") or "").upper()
-        if conc in FAIL_CONCLUSIONS:
-            return {
-                "name": ctx.get("name", "check"),
-                "result": conc,
-                "url": ctx.get("detailsUrl") or fallback_url,
-            }
-    elif typename == "StatusContext":
-        st = (ctx.get("state") or "").upper()
-        if st in FAIL_CONCLUSIONS:
-            return {
-                "name": ctx.get("context", "status"),
-                "result": st,
-                "url": ctx.get("targetUrl") or fallback_url,
-            }
-    return None
+    spec = _CONTEXT_FIELDS.get(str(ctx.get("__typename") or ""))
+    if spec is None:
+        return None
+    name_key, state_key, url_key, default_name = spec
+    state = (ctx.get(state_key) or "").upper()
+    if state not in FAIL_CONCLUSIONS:
+        return None
+    return {
+        "name": ctx.get(name_key) or default_name,
+        "result": state,
+        "url": ctx.get(url_key) or fallback_url,
+    }
 
 
 def _extract_failing_checks(rollup: dict[str, Any], fallback_url: str) -> list[dict[str, str]]:
@@ -331,7 +337,7 @@ def _is_ready_to_merge(
 
 def summarize_pr(pr: dict[str, Any], author: str) -> dict[str, Any]:
     """Normalize a GitHub GraphQL PullRequest node into a compact state record."""
-    repo = pr["repository"]["nameWithOwner"]
+    repo = (pr.get("repository") or {}).get("nameWithOwner") or ""
     head_sha, rollup = _extract_head_commit(pr)
     ci_state = rollup.get("state") or "NONE"
     failing_checks = _extract_failing_checks(rollup, pr["url"])
