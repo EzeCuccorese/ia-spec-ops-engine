@@ -221,6 +221,8 @@ hint to re-enable it.
 | `ai-governance taskflow <subcommand>` | Task notebook and multi-provider design debates across agents (see below) |
 | `ai-governance brain <subcommand>` | Cross-agent second brain notes (`add`, `list`, `show`, `edit`, `search`, `archive`, `import`; see below) |
 | `ai-governance ui <start\|stop\|status\|open>` | Local visual dashboard for Taskflow and Second Brain (`127.0.0.1:7474`; see below) |
+| `ai-governance pr-watch <status\|check>` | Read-only GitHub PR watcher (`ready_to_merge`, comments, CI failures, conflicts) |
+| `ai-governance slack-notify --channel ...` | Allowlist-guarded Slack Markdown notifier using a local Bot Token |
 | `ai-governance jira ...` / `confluence ...` | Atlassian as compact Markdown (`jira` / `confluence` without arguments print their usage) |
 | `ai-governance hook <agent> <event>` | Entry point used by the installed hooks |
 

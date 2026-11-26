@@ -214,6 +214,7 @@ description: Format and deliver Slack messages that render correctly. Use before
 # Slack Formatting
 
 ## Delivery
+- New channel threads: short bold bracketed parent (`**[Topic - Title]**`); put details in thread replies.
 - Default: create a draft with the Slack connector draft tool (`thread_ts` for a thread reply)
   so the user reviews and sends it. Drafts accept about 12,000 characters.
 - Send directly only when the user asks and the text is under 5,000 characters; longer sends
@@ -233,6 +234,12 @@ description: Format and deliver Slack messages that render correctly. Use before
 - `mrkdwn` uses `*bold*`, `_italic_` and `<url|text>`, and has no lists.
 - For real lists use `rich_text_list` blocks (`indent` for nesting) or the `markdown` block
   (up to 12,000 characters).
+- With `conversations_add_message`:
+  - Prefer `blocks='[{"type":"markdown","text":"..."}]'` (plus plain fallback in `text`) for
+    structured messages so Slack renders Markdown natively.
+  - With `content_type="text/markdown"` (no `blocks`): put a blank line (`\n\n`) after any
+    standalone `**Heading**` (single `\n` collapses into `*Heading:*NextWord`), keep a space after
+    closing `**` in inline labels (`- **Label:** text`), and avoid backticks inside `**bold**`.
 
 ## Reports to the user
 - A local or company rule naming a private report channel only identifies the destination,
@@ -244,6 +251,7 @@ description: Format and deliver Slack messages that render correctly. Use before
 
 ## Content
 - Never mention internal tooling. Link sources instead of copying them.
+- Never offer meetings or calls unless explicitly asked; default to async follow-up.
 """
 
 

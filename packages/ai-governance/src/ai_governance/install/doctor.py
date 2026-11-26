@@ -11,6 +11,7 @@ from typing import Any
 
 from ..frontmatter import check_frontmatter
 from .agents import HOOK_COMMAND_PREFIX
+from .budget import budget_warnings
 from .engine import END, START, Ledger, sha256, tree_digest
 from .installer import (
     PROJECT_DIR,
@@ -157,6 +158,8 @@ def _user_rows() -> list[Row]:
         if row:
             rows.append(row)
     rows.extend(_corporate_rows(user, agents))
+    for agent, warning in budget_warnings(user, agents=agents):
+        rows.append((f"user:{agent}:budget", WARN, warning))
     return rows
 
 

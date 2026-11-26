@@ -52,3 +52,12 @@ Layout of `<company>/`:
 
 Packs never hold credentials: tokens, passwords and personal data stay in the environment or
 the OS keychain.
+
+Context budget & language hygiene: write every corporate rule and skill in **English**—including
+filenames, skill folder names, and frontmatter `name:` slugs—for lower token cost and consistent
+cross-agent adherence (user-facing chat replies still follow the user's language). Keep
+`rules/*.md` for short, always-on invariants (security, approvals, communication, surgical diffs).
+Put reference manuals, glossaries, runbooks, and repo- or tool-specific guides into
+`skills/<name>/SKILL.md` so they load on demand across Claude Code, Antigravity, and Codex.
+`ai-governance install`, `skills sync`, and `doctor` warn if always-on rules exceed 40 KB (~10k
+tokens) per agent or if the installed skill catalog metadata grows past the safe threshold.

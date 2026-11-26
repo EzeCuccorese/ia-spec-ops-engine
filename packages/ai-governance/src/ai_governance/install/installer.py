@@ -411,6 +411,17 @@ def skill_agents() -> list[AgentSpec]:
     return [spec for spec in specs if spec.skills_dir() is not None]
 
 
+def _append_budget_warnings(
+    report: Report, ledger: Ledger, specs: list[AgentSpec], *, dry_run: bool
+) -> None:
+    if dry_run:
+        return
+    from .budget import budget_warnings
+
+    for _, warning in budget_warnings(ledger, agents=[spec.id for spec in specs]):
+        report.warnings.append(warning)
+
+
 def sync_skill_links(*, dry_run: bool = False, force: bool = False) -> Report:
     """Reconciles managed skill copies across the installed agents.
 
@@ -437,6 +448,7 @@ def sync_skill_links(*, dry_run: bool = False, force: bool = False) -> Report:
     for owned in desired:
         _apply_dir(owned, ledger, report, flags)
     ledger.save(report, dry_run)
+    _append_budget_warnings(report, ledger, specs, dry_run=dry_run)
     return report
 
 
@@ -504,6 +516,7 @@ def install_user(
         )
     ledger.extra["package_version"] = __version__
     ledger.save(report, dry_run)
+    _append_budget_warnings(report, ledger, specs, dry_run=dry_run)
     return report
 
 
