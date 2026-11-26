@@ -174,6 +174,50 @@ function ActivityLogSection({ logLines }: { logLines: string[] }) {
   );
 }
 
+function findJiraUrl(links: TaskDetail["links"]): string {
+  const hit = links.find(
+    (l) => l.url.includes("/browse/") || l.title.toLowerCase().startsWith("jira")
+  );
+  return hit?.url ?? "";
+}
+
+function DrawerHeader(props: {
+  task: TaskDetail;
+  titleDraft: string;
+  onTitleDraft: (v: string) => void;
+  onMutate: (fn: () => Promise<unknown>) => void;
+  onArchived?: (ref: string) => void;
+}) {
+  const { task, titleDraft, onTitleDraft, onMutate, onArchived } = props;
+  const jiraUrl = findJiraUrl(task.links);
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+      <div style={{ flex: 1, minWidth: 200 }}>
+        <div style={{ fontSize: "0.75rem", color: "var(--cyan)", fontWeight: 600 }}>{task.id}</div>
+        <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+          <input className="input" aria-label="Title" value={titleDraft} onChange={(e) => onTitleDraft(e.target.value)} />
+          <button type="button" className="btn" onClick={() => onMutate(() => api.patchTask(task.id, { title: titleDraft }))}>Save</button>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+        {jiraUrl && (
+          <a href={jiraUrl} target="_blank" rel="noreferrer" className="btn btn-primary" style={{ textDecoration: "none" }}>
+            <ExternalLink size={14} /> Open in Jira
+          </a>
+        )}
+        <select className="select" style={{ width: "auto" }} value={task.status} onChange={(e) => onMutate(() => api.patchTask(task.id, { status: e.target.value }))}>
+          <option value="active">active</option>
+          <option value="paused">paused</option>
+          <option value="closed">closed</option>
+        </select>
+        <button type="button" className="btn" onClick={() => onMutate(async () => { const res = await api.archiveTask(task.id); onArchived?.(res.ref); })}>
+          <Archive size={14} /> Archive to Brain
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function TaskDetailDrawer({ task, onRefresh, onArchived, onSelectTask }: TaskDetailDrawerProps) {
   const [titleDraft, setTitleDraft] = useState(task.title);
   const [phaseDraft, setPhaseDraft] = useState(task.phase);
@@ -198,25 +242,7 @@ export function TaskDetailDrawer({ task, onRefresh, onArchived, onSelectTask }: 
 
   return (
     <div className="card list-stack">
-      <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-        <div style={{ flex: 1, minWidth: 200 }}>
-          <div style={{ fontSize: "0.75rem", color: "var(--cyan)", fontWeight: 600 }}>{task.id}</div>
-          <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
-            <input className="input" aria-label="Title" value={titleDraft} onChange={(e) => setTitleDraft(e.target.value)} />
-            <button type="button" className="btn" onClick={() => void mutate(() => api.patchTask(task.id, { title: titleDraft }))}>Save</button>
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <select className="select" style={{ width: "auto" }} value={task.status} onChange={(e) => void mutate(() => api.patchTask(task.id, { status: e.target.value }))}>
-            <option value="active">active</option>
-            <option value="paused">paused</option>
-            <option value="closed">closed</option>
-          </select>
-          <button type="button" className="btn" onClick={() => void mutate(async () => { const res = await api.archiveTask(task.id); onArchived?.(res.ref); })}>
-            <Archive size={14} /> Archive to Brain
-          </button>
-        </div>
-      </div>
+      <DrawerHeader task={task} titleDraft={titleDraft} onTitleDraft={setTitleDraft} onMutate={(fn) => void mutate(fn)} onArchived={onArchived} />
       {error && <div className="alert-error">{error}</div>}
       <BlockedSection task={task} onMutate={(fn) => void mutate(fn)} />
       <div className="form-grid-2">

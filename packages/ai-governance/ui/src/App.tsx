@@ -49,7 +49,7 @@ function TopNavBar({
 }) {
   const tabs: [Tab, string, typeof LayoutDashboard][] = [
     ["overview", "Overview", LayoutDashboard],
-    ["taskflow", "Taskflow", ListTodo],
+    ["taskflow", "Sessions", ListTodo],
     ["brain", "Second Brain", BrainCircuit],
     ["workers", "Orca Workers", Cpu],
   ];

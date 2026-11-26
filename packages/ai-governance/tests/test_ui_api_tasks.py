@@ -215,3 +215,79 @@ def test_taskflow_debate_launch_collect_cross_and_errors(
     assert client.post("/api/tasks/ERR-1/debates/cross", headers=hdr).status_code == 502
     assert routes_tasks._map_error(RuntimeError("x")).status_code == 500
     assert routes_tasks._map_error(routes_tasks.SecretContentError("secret")).status_code == 422
+
+
+def test_extract_jira_key_variants() -> None:
+    from ai_governance.ui import jira_lookup
+
+    assert jira_lookup.extract_jira_key("proj-123") == "PROJ-123"
+    assert jira_lookup.extract_jira_key("https://co.atlassian.net/browse/PROJ-45") == "PROJ-45"
+    assert (
+        jira_lookup.extract_jira_key(
+            "https://co.atlassian.net/jira/software/boards/1?selectedIssue=ABC-9"
+        )
+        == "ABC-9"
+    )
+    with pytest.raises(ValueError, match="Provide a Jira"):
+        jira_lookup.extract_jira_key("   ")
+
+
+def test_jira_lookup_and_create_with_jira_url(
+    ui_client: tuple[TestClient, dict[str, str], TaskStore, BrainStore],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ai_governance.ui import jira_lookup
+
+    client, hdr, _, _ = ui_client
+    assert client.get("/api/tasks/jira-lookup?q=bad").status_code == 400
+    assert client.get("/api/tasks/jira-lookup?q=https://example.com/nope").status_code == 400
+
+    monkeypatch.setattr(jira_lookup.jira, "_get_base_url", lambda: "https://co.atlassian.net")
+    monkeypatch.setattr(
+        jira_lookup.jira,
+        "get",
+        lambda _p: {
+            "fields": {
+                "summary": "Fix auth flow",
+                "status": {"name": "In Progress"},
+                "issuetype": {"name": "Task"},
+                "priority": {"name": "High"},
+                "parent": {"key": "PROJ-1"},
+            }
+        },
+    )
+    res = client.get("/api/tasks/jira-lookup?q=PROJ-123")
+    assert (
+        res.status_code == 200 and res.json()["url"] == "https://co.atlassian.net/browse/PROJ-123"
+    )
+
+    created = client.post(
+        "/api/tasks",
+        json={
+            "id": "PROJ-123",
+            "title": "Fix auth flow",
+            "jira_url": "https://co.atlassian.net/browse/PROJ-123",
+        },
+        headers=hdr,
+    )
+    assert created.status_code == 201
+    assert created.json()["task"]["links"][0]["url"] == "https://co.atlassian.net/browse/PROJ-123"
+
+
+def test_jira_lookup_error_status_mapping(
+    ui_client: tuple[TestClient, dict[str, str], TaskStore, BrainStore],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ai_governance.tools.atlassian_common import AtlassianError
+    from ai_governance.ui import jira_lookup
+
+    client, _, _, _ = ui_client
+    for msg, expected in (
+        ("ATLASSIAN_URL not set", 503),
+        ("Issue does not exist (404)", 404),
+        ("Gateway timeout", 502),
+    ):
+        monkeypatch.setattr(
+            jira_lookup.jira, "get", lambda _p, m=msg: (_ for _ in ()).throw(AtlassianError(m))
+        )
+        assert client.get("/api/tasks/jira-lookup?q=PROJ-123").status_code == expected

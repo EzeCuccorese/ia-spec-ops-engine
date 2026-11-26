@@ -2,6 +2,7 @@ import type {
   BrainGraph,
   BrainNote,
   HealthResponse,
+  JiraIssuePreview,
   SearchHit,
   TaskDetail,
   TaskSummary,
@@ -62,8 +63,10 @@ export const api = {
 
   listTasks: (includeClosed = true) =>
     request<{ tasks: TaskSummary[] }>(`/api/tasks?include_closed=${includeClosed}`),
+  lookupJira: (q: string) =>
+    request<JiraIssuePreview>(`/api/tasks/jira-lookup?q=${encodeURIComponent(q)}`),
   getTask: (id: string) => request<{ task: TaskDetail }>(`/api/tasks/${encodeURIComponent(id)}`),
-  createTask: (body: { id: string; title: string; summary?: string; workflow?: string; parent?: string }) =>
+  createTask: (body: { id: string; title: string; summary?: string; workflow?: string; parent?: string; jira_url?: string }) =>
     request<{ task: TaskDetail }>("/api/tasks", { method: "POST", body: JSON.stringify(body) }),
   patchTask: (
     id: string,
