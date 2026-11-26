@@ -48,59 +48,46 @@ def _sample_pr(
     }
 
 
-def test_detects_ready_to_merge_conflict_ci_failure_and_external_comments() -> None:
-    prev_summary = pr_watch.summarize_pr(
-        _sample_pr(
-            comments=[
-                {
-                    "id": "c-old",
-                    "url": "https://github.com/acme/repo/pull/42#c-old",
-                    "createdAt": "2026-11-24T10:00:00Z",
-                    "body": "Old comment",
-                    "author": {"login": "bob"},
-                }
-            ]
-        ),
-        author="alice",
-    )
+def _comment(item_id: str, author: str, body: str, created_at: str) -> dict:
+    return {
+        "id": item_id,
+        "url": f"https://github.com/acme/repo/pull/42#{item_id}",
+        "createdAt": created_at,
+        "body": body,
+        "author": {"login": author},
+    }
+
+
+def test_detects_ready_to_merge_and_external_comments() -> None:
+    old_comment = _comment("c-old", "bob", "Old comment", "2026-11-24T10:00:00Z")
+    prev_summary = pr_watch.summarize_pr(_sample_pr(comments=[old_comment]), author="alice")
     previous = pr_watch.serialize_state({"acme/repo#42": prev_summary})
 
-    # Transition: approved + mergeable + CI green + new comment from bob (own comment from alice ignored)
+    # Transition: approved + mergeable + CI green + new comment from bob (own comment ignored)
     curr_summary = pr_watch.summarize_pr(
         _sample_pr(
             review_decision="APPROVED",
             mergeable="MERGEABLE",
             ci_state="SUCCESS",
             comments=[
-                {
-                    "id": "c-old",
-                    "url": "https://github.com/acme/repo/pull/42#c-old",
-                    "createdAt": "2026-11-24T10:00:00Z",
-                    "body": "Old comment",
-                    "author": {"login": "bob"},
-                },
-                {
-                    "id": "c-own",
-                    "url": "https://github.com/acme/repo/pull/42#c-own",
-                    "createdAt": "2026-11-25T10:00:00Z",
-                    "body": "Self reply",
-                    "author": {"login": "alice"},
-                },
-                {
-                    "id": "c-new",
-                    "url": "https://github.com/acme/repo/pull/42#c-new",
-                    "createdAt": "2026-11-25T10:05:00Z",
-                    "body": "Looks great!",
-                    "author": {"login": "bob"},
-                },
+                old_comment,
+                _comment("c-own", "alice", "Self reply", "2026-11-25T10:00:00Z"),
+                _comment("c-new", "bob", "Looks great!", "2026-11-25T10:05:00Z"),
             ],
         ),
         author="alice",
     )
     events = pr_watch.diff_events({"acme/repo#42": curr_summary}, previous)
-    types = [ev["type"] for ev in events]
-    assert types == ["ready_to_merge", "new_comment"]
+    assert [ev["type"] for ev in events] == ["ready_to_merge", "new_comment"]
     assert [it["id"] for it in events[1]["items"]] == ["c-new"]
+
+
+def test_detects_conflict_ci_failure_and_deduplicates_alerts() -> None:
+    green_summary = pr_watch.summarize_pr(
+        _sample_pr(review_decision="APPROVED", mergeable="MERGEABLE", ci_state="SUCCESS"),
+        author="alice",
+    )
+    state_after_green = pr_watch.serialize_state({"acme/repo#42": green_summary})
 
     # Transition: conflict + CI failure on same SHA -> fires once, not twice
     broken_summary = pr_watch.summarize_pr(
@@ -119,7 +106,6 @@ def test_detects_ready_to_merge_conflict_ci_failure_and_external_comments() -> N
         ),
         author="alice",
     )
-    state_after_green = pr_watch.serialize_state({"acme/repo#42": curr_summary})
     broken_events = pr_watch.diff_events({"acme/repo#42": broken_summary}, state_after_green)
     assert [ev["type"] for ev in broken_events] == ["merge_conflict", "ci_failed"]
     assert broken_events[1]["checks"][0]["name"] == "pytest"

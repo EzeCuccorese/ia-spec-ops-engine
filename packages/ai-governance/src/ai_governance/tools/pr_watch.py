@@ -22,6 +22,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -154,138 +155,266 @@ def _fetch_open_prs(author: str, org: str | None, env: dict[str, str]) -> list[d
     return [n for n in nodes if isinstance(n, dict) and n.get("number")]
 
 
-def summarize_pr(pr: dict[str, Any], author: str) -> dict[str, Any]:
-    """Normalize a GitHub GraphQL PullRequest node into a compact state record."""
-    repo = pr["repository"]["nameWithOwner"]
-    key = f"{repo}#{pr['number']}"
+@dataclass(frozen=True)
+class _Interaction:
+    item_id: str | None
+    who: str | None
+    kind: str
+    body: str
+    url: str
+    when: str
+    path: str = ""
+
+
+def _extract_head_commit(pr: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     commit_nodes = (pr.get("commits") or {}).get("nodes") or []
     commit = commit_nodes[0]["commit"] if commit_nodes else {}
-    head_sha = commit.get("oid", "")
-    rollup = commit.get("statusCheckRollup") or {}
-    ci_state = rollup.get("state") or "NONE"
+    return commit.get("oid", ""), commit.get("statusCheckRollup") or {}
 
-    failing_checks: list[dict[str, str]] = []
+
+def _failing_check_from_context(ctx: dict[str, Any], fallback_url: str) -> dict[str, str] | None:
+    typename = ctx.get("__typename")
+    if typename == "CheckRun":
+        conc = (ctx.get("conclusion") or "").upper()
+        if conc in FAIL_CONCLUSIONS:
+            return {
+                "name": ctx.get("name", "check"),
+                "result": conc,
+                "url": ctx.get("detailsUrl") or fallback_url,
+            }
+    elif typename == "StatusContext":
+        st = (ctx.get("state") or "").upper()
+        if st in FAIL_CONCLUSIONS:
+            return {
+                "name": ctx.get("context", "status"),
+                "result": st,
+                "url": ctx.get("targetUrl") or fallback_url,
+            }
+    return None
+
+
+def _extract_failing_checks(rollup: dict[str, Any], fallback_url: str) -> list[dict[str, str]]:
+    failing: list[dict[str, str]] = []
     for ctx in (rollup.get("contexts") or {}).get("nodes") or []:
         if not isinstance(ctx, dict):
             continue
-        typename = ctx.get("__typename")
-        if typename == "CheckRun":
-            conc = (ctx.get("conclusion") or "").upper()
-            if conc in FAIL_CONCLUSIONS:
-                failing_checks.append(
-                    {
-                        "name": ctx.get("name", "check"),
-                        "result": conc,
-                        "url": ctx.get("detailsUrl") or pr["url"],
-                    }
-                )
-        elif typename == "StatusContext":
-            st = (ctx.get("state") or "").upper()
-            if st in FAIL_CONCLUSIONS:
-                failing_checks.append(
-                    {
-                        "name": ctx.get("context", "status"),
-                        "result": st,
-                        "url": ctx.get("targetUrl") or pr["url"],
-                    }
-                )
+        item = _failing_check_from_context(ctx, fallback_url)
+        if item is not None:
+            failing.append(item)
+    failing.sort(key=lambda c: c["name"])
+    return failing
 
-    failing_checks.sort(key=lambda c: c["name"])
 
-    interactions: dict[str, dict[str, str]] = {}
+def _record_interaction(
+    interactions: dict[str, dict[str, str]],
+    author: str,
+    fallback_url: str,
+    item: _Interaction,
+) -> None:
+    if not item.item_id or not item.who or item.who.lower() == author.lower():
+        return
+    snippet = " ".join((item.body or "").split())[:220]
+    interactions[item.item_id] = {
+        "id": item.item_id,
+        "author": item.who,
+        "kind": item.kind,
+        "snippet": snippet,
+        "url": item.url or fallback_url,
+        "at": item.when or "",
+        "path": item.path,
+    }
 
-    def _add(
-        item_id: str | None,
-        who: str | None,
-        kind: str,
-        body: str,
-        url: str,
-        when: str,
-        path: str = "",
-    ) -> None:
-        if not item_id or not who or who.lower() == author.lower():
-            return
-        snippet = " ".join((body or "").split())[:220]
-        interactions[item_id] = {
-            "id": item_id,
-            "author": who,
-            "kind": kind,
-            "snippet": snippet,
-            "url": url or pr["url"],
-            "at": when or "",
-            "path": path,
-        }
 
+def _collect_issue_comments(
+    pr: dict[str, Any], interactions: dict[str, dict[str, str]], author: str
+) -> None:
     for comment in (pr.get("comments") or {}).get("nodes") or []:
         if not isinstance(comment, dict):
             continue
-        _add(
-            comment.get("id"),
-            (comment.get("author") or {}).get("login"),
-            "comment",
-            comment.get("body") or "",
-            comment.get("url") or pr["url"],
-            comment.get("createdAt") or "",
+        _record_interaction(
+            interactions,
+            author,
+            pr["url"],
+            _Interaction(
+                item_id=comment.get("id"),
+                who=(comment.get("author") or {}).get("login"),
+                kind="comment",
+                body=comment.get("body") or "",
+                url=comment.get("url") or pr["url"],
+                when=comment.get("createdAt") or "",
+            ),
         )
 
-    for review in (pr.get("reviews") or {}).get("nodes") or []:
-        if not isinstance(review, dict):
-            continue
-        state = (review.get("state") or "").upper()
-        body = (review.get("body") or "").strip()
-        if state == "COMMENTED" and not body:
-            continue
-        if state in {"APPROVED", "CHANGES_REQUESTED", "COMMENTED"}:
-            _add(
-                review.get("id"),
-                (review.get("author") or {}).get("login"),
-                f"review:{state.lower()}",
-                body or state.replace("_", " ").lower(),
-                review.get("url") or pr["url"],
-                review.get("submittedAt") or "",
+
+def _dict_nodes(container: dict[str, Any], key: str) -> list[dict[str, Any]]:
+    nodes = (container.get(key) or {}).get("nodes") or []
+    return [n for n in nodes if isinstance(n, dict)]
+
+
+def _author_login(node: dict[str, Any]) -> str | None:
+    return (node.get("author") or {}).get("login")
+
+
+def _review_to_interaction(review: dict[str, Any], fallback_url: str) -> _Interaction | None:
+    state = (review.get("state") or "").upper()
+    body = (review.get("body") or "").strip()
+    if state == "COMMENTED" and not body:
+        return None
+    if state not in {"APPROVED", "CHANGES_REQUESTED", "COMMENTED"}:
+        return None
+    return _Interaction(
+        item_id=review.get("id"),
+        who=_author_login(review),
+        kind=f"review:{state.lower()}",
+        body=body or state.replace("_", " ").lower(),
+        url=review.get("url") or fallback_url,
+        when=review.get("submittedAt") or "",
+    )
+
+
+def _collect_reviews(
+    pr: dict[str, Any], interactions: dict[str, dict[str, str]], author: str
+) -> None:
+    for review in _dict_nodes(pr, "reviews"):
+        item = _review_to_interaction(review, pr["url"])
+        if item is not None:
+            _record_interaction(interactions, author, pr["url"], item)
+
+
+def _inline_to_interaction(rc: dict[str, Any], fallback_url: str) -> _Interaction:
+    return _Interaction(
+        item_id=rc.get("id"),
+        who=_author_login(rc),
+        kind="inline_comment",
+        body=rc.get("body") or "",
+        url=rc.get("url") or fallback_url,
+        when=rc.get("createdAt") or "",
+        path=rc.get("path") or "",
+    )
+
+
+def _collect_inline_comments(
+    pr: dict[str, Any], interactions: dict[str, dict[str, str]], author: str
+) -> None:
+    for thread in _dict_nodes(pr, "reviewThreads"):
+        for rc in _dict_nodes(thread, "comments"):
+            _record_interaction(
+                interactions, author, pr["url"], _inline_to_interaction(rc, pr["url"])
             )
 
-    for thread in (pr.get("reviewThreads") or {}).get("nodes") or []:
-        if not isinstance(thread, dict):
-            continue
-        for rc in (thread.get("comments") or {}).get("nodes") or []:
-            if not isinstance(rc, dict):
-                continue
-            _add(
-                rc.get("id"),
-                (rc.get("author") or {}).get("login"),
-                "inline_comment",
-                rc.get("body") or "",
-                rc.get("url") or pr["url"],
-                rc.get("createdAt") or "",
-                path=rc.get("path") or "",
-            )
 
-    mergeable = pr.get("mergeable") or "UNKNOWN"
-    review_decision = pr.get("reviewDecision") or "NONE"
-    ready_to_merge = (
-        not pr.get("isDraft", False)
+def _collect_interactions(pr: dict[str, Any], author: str) -> dict[str, dict[str, str]]:
+    interactions: dict[str, dict[str, str]] = {}
+    _collect_issue_comments(pr, interactions, author)
+    _collect_reviews(pr, interactions, author)
+    _collect_inline_comments(pr, interactions, author)
+    return interactions
+
+
+def _is_ready_to_merge(
+    is_draft: bool,
+    review_decision: str,
+    mergeable: str,
+    ci_state: str,
+    failing_checks: list[dict[str, str]],
+) -> bool:
+    return (
+        not is_draft
         and review_decision == "APPROVED"
         and mergeable == "MERGEABLE"
         and ci_state in {"SUCCESS", "NONE"}
         and not failing_checks
     )
 
+
+def summarize_pr(pr: dict[str, Any], author: str) -> dict[str, Any]:
+    """Normalize a GitHub GraphQL PullRequest node into a compact state record."""
+    repo = pr["repository"]["nameWithOwner"]
+    head_sha, rollup = _extract_head_commit(pr)
+    ci_state = rollup.get("state") or "NONE"
+    failing_checks = _extract_failing_checks(rollup, pr["url"])
+    interactions = _collect_interactions(pr, author)
+    is_draft = bool(pr.get("isDraft", False))
+    mergeable = pr.get("mergeable") or "UNKNOWN"
+    review_decision = pr.get("reviewDecision") or "NONE"
+
     return {
-        "key": key,
+        "key": f"{repo}#{pr['number']}",
         "repo": repo,
         "number": pr["number"],
         "title": pr["title"],
         "url": pr["url"],
-        "is_draft": bool(pr.get("isDraft", False)),
+        "is_draft": is_draft,
         "mergeable": mergeable,
         "review_decision": review_decision,
         "head_sha": head_sha,
         "ci_state": ci_state,
         "failing_checks": failing_checks,
-        "ready_to_merge": ready_to_merge,
+        "ready_to_merge": _is_ready_to_merge(
+            is_draft, review_decision, mergeable, ci_state, failing_checks
+        ),
         "interactions": interactions,
     }
+
+
+def _base_event(event_type: str, key: str, pr: dict[str, Any], detail: str) -> dict[str, Any]:
+    return {
+        "type": event_type,
+        "pr": key,
+        "title": pr["title"],
+        "url": pr["url"],
+        "detail": detail,
+    }
+
+
+def _state_transition_events(
+    key: str, pr: dict[str, Any], old: dict[str, Any] | None
+) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    if pr["ready_to_merge"] and (old is None or not old.get("ready_to_merge")):
+        events.append(
+            _base_event("ready_to_merge", key, pr, "Approved, mergeable, and CI passing.")
+        )
+    if pr["mergeable"] == "CONFLICTING" and (old is None or old.get("mergeable") != "CONFLICTING"):
+        events.append(
+            _base_event(
+                "merge_conflict", key, pr, "PR has merge conflicts with its base branch."
+            )
+        )
+    return events
+
+
+def _ci_failure_event(
+    key: str, pr: dict[str, Any], old: dict[str, Any] | None
+) -> dict[str, Any] | None:
+    old_sha = (old or {}).get("head_sha")
+    old_failed = (
+        set((old or {}).get("failing_check_names", [])) if old_sha == pr["head_sha"] else set()
+    )
+    new_failed = [c for c in pr["failing_checks"] if c["name"] not in old_failed]
+    if not new_failed:
+        return None
+    event = _base_event(
+        "ci_failed",
+        key,
+        pr,
+        "Failing checks: " + ", ".join(c["name"] for c in new_failed),
+    )
+    event["checks"] = new_failed
+    return event
+
+
+def _new_comment_event(
+    key: str, pr: dict[str, Any], old: dict[str, Any] | None
+) -> dict[str, Any] | None:
+    seen_ids = set((old or {}).get("seen_interaction_ids", []))
+    new_items = [item for iid, item in pr["interactions"].items() if iid not in seen_ids]
+    if not new_items:
+        return None
+    new_items.sort(key=lambda x: x.get("at", ""))
+    event = _base_event("new_comment", key, pr, f"{len(new_items)} new comment(s)/review(s)")
+    event["items"] = new_items
+    return event
 
 
 def diff_events(
@@ -297,65 +426,13 @@ def diff_events(
 
     for key, pr in sorted(current.items()):
         old = prev_prs.get(key)
-        is_new_pr = old is None
-
-        if pr["ready_to_merge"] and (is_new_pr or not old.get("ready_to_merge")):
-            events.append(
-                {
-                    "type": "ready_to_merge",
-                    "pr": key,
-                    "title": pr["title"],
-                    "url": pr["url"],
-                    "detail": "Approved, mergeable, and CI passing.",
-                }
-            )
-
-        if pr["mergeable"] == "CONFLICTING" and (
-            is_new_pr or old.get("mergeable") != "CONFLICTING"
-        ):
-            events.append(
-                {
-                    "type": "merge_conflict",
-                    "pr": key,
-                    "title": pr["title"],
-                    "url": pr["url"],
-                    "detail": "PR has merge conflicts with its base branch.",
-                }
-            )
-
-        old_sha = (old or {}).get("head_sha")
-        old_failed = (
-            set((old or {}).get("failing_check_names", []))
-            if old_sha == pr["head_sha"]
-            else set()
-        )
-        new_failed = [c for c in pr["failing_checks"] if c["name"] not in old_failed]
-        if new_failed:
-            events.append(
-                {
-                    "type": "ci_failed",
-                    "pr": key,
-                    "title": pr["title"],
-                    "url": pr["url"],
-                    "checks": new_failed,
-                    "detail": "Failing checks: " + ", ".join(c["name"] for c in new_failed),
-                }
-            )
-
-        seen_ids = set((old or {}).get("seen_interaction_ids", []))
-        new_items = [item for iid, item in pr["interactions"].items() if iid not in seen_ids]
-        if new_items:
-            new_items.sort(key=lambda x: x.get("at", ""))
-            events.append(
-                {
-                    "type": "new_comment",
-                    "pr": key,
-                    "title": pr["title"],
-                    "url": pr["url"],
-                    "items": new_items,
-                    "detail": f"{len(new_items)} new comment(s)/review(s)",
-                }
-            )
+        events.extend(_state_transition_events(key, pr, old))
+        ci_event = _ci_failure_event(key, pr, old)
+        if ci_event is not None:
+            events.append(ci_event)
+        comment_event = _new_comment_event(key, pr, old)
+        if comment_event is not None:
+            events.append(comment_event)
 
     return events
 
@@ -435,53 +512,46 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = _build_parser()
-    args = parser.parse_args(argv)
+def _format_status_flags(pr: dict[str, Any]) -> list[str]:
+    flags: list[str] = []
+    if pr["is_draft"]:
+        flags.append("DRAFT")
+    if pr["ready_to_merge"]:
+        flags.append("READY_TO_MERGE")
+    if pr["mergeable"] == "CONFLICTING":
+        flags.append("CONFLICT")
+    if pr["failing_checks"]:
+        flags.append(f"CI_FAIL({len(pr['failing_checks'])})")
+    else:
+        flags.append(f"CI:{pr['ci_state']}")
+    flags.append(f"REV:{pr['review_decision']}")
+    return flags
 
-    try:
-        env = _gh_env(args.gh_user or None)
-        author = _resolve_author(args.author, env)
-        raw_prs = _fetch_open_prs(author, args.org or None, env)
-    except Exception as exc:
-        print(f"pr-watch error: {exc}", file=sys.stderr)
-        return 2
 
-    current = {s["key"]: s for s in (summarize_pr(pr, author) for pr in raw_prs)}
+def _run_status(current: dict[str, dict[str, Any]], author: str, org: str | None) -> int:
+    print(f"Open PRs for {author} (org={org or 'any'}): {len(current)}")
+    for key, pr in sorted(current.items()):
+        flags = _format_status_flags(pr)
+        print(f"  - {key} [{', '.join(flags)}] {pr['title']}")
+    return 0
 
-    if args.action == "status":
-        print(f"Open PRs for {author} (org={args.org or 'any'}): {len(current)}")
-        for key, pr in sorted(current.items()):
-            flags: list[str] = []
-            if pr["is_draft"]:
-                flags.append("DRAFT")
-            if pr["ready_to_merge"]:
-                flags.append("READY_TO_MERGE")
-            if pr["mergeable"] == "CONFLICTING":
-                flags.append("CONFLICT")
-            if pr["failing_checks"]:
-                flags.append(f"CI_FAIL({len(pr['failing_checks'])})")
-            else:
-                flags.append(f"CI:{pr['ci_state']}")
-            flags.append(f"REV:{pr['review_decision']}")
-            print(f"  - {key} [{', '.join(flags)}] {pr['title']}")
-        return 0
 
+def _run_check(
+    args: argparse.Namespace, current: dict[str, dict[str, Any]], author: str
+) -> int:
     args.state_dir.mkdir(parents=True, exist_ok=True)
     state_file = args.state_dir / "state.json"
     pending_file = args.state_dir / "pending-events.json"
 
     first_run = not state_file.exists() or args.init
     previous = {} if first_run else json.loads(state_file.read_text(encoding="utf-8"))
+    state_file.write_text(json.dumps(serialize_state(current), indent=2), encoding="utf-8")
 
     if first_run:
-        state_file.write_text(json.dumps(serialize_state(current), indent=2), encoding="utf-8")
         print(f"pr-watch baseline initialized ({len(current)} open PRs).")
         return 1
 
     events = diff_events(current, previous)
-    state_file.write_text(json.dumps(serialize_state(current), indent=2), encoding="utf-8")
-
     if not events:
         return 1
 
@@ -500,3 +570,20 @@ def main(argv: list[str] | None = None) -> int:
 
     print(json.dumps(payload, ensure_ascii=False))
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_parser().parse_args(argv)
+
+    try:
+        env = _gh_env(args.gh_user or None)
+        author = _resolve_author(args.author, env)
+        raw_prs = _fetch_open_prs(author, args.org or None, env)
+    except Exception as exc:
+        print(f"pr-watch error: {exc}", file=sys.stderr)
+        return 2
+
+    current = {s["key"]: s for s in (summarize_pr(pr, author) for pr in raw_prs)}
+    if args.action == "status":
+        return _run_status(current, author, args.org or None)
+    return _run_check(args, current, author)
