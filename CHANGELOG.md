@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.4.0 - 2026-11-26
+
+### Features
+- Add context budget warnings, pr-watch, and slack-notify (#100).
+
+### Fixes
+- Rule to english and cap.
+- Desing.
+- Harden pr-watch and slack-notify error handling, timeouts, and test coverage.
+- Guard null GraphQL fields and decode Slack HTTPError JSON.
+- Close HTTPError stream and validate Slack JSON dict payload.
+- Assert HTTPError status code 502 on non-JSON error.
+
 ## 4.3.0 - 2026-11-25
 
 ### Features
