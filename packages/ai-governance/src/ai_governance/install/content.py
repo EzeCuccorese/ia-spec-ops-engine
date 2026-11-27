@@ -164,18 +164,20 @@ description: Take a ticket to a draft PR that is tested, reviewed by another pro
 ---
 # Ticket to PR
 
-Outcome: a DRAFT pull request with tests, evidence and justification, reviewed by an agent of another provider, stopped for the owner's decision. Without the owner's OK never undraft, request review, answer review threads or write to the ticket.
+Outcome: a DRAFT pull request with tests, evidence and justification, reviewed by another provider, stopped for the owner's decision. Without the owner's explicit OK for that action, never undraft, request review, publish a review, answer or resolve threads, or write to the ticket. The PR and every push need the approvals the rules require.
 
-1. **Notebook.** `ai-governance taskflow show <ID>` to resume, else `taskflow new <ID> --title "..."`. Work in a worktree created for this ticket and `bind` it. Record facts and decisions as you go.
-2. **Triage.** Read the ticket and the code. If the root cause or the design is contested, run `taskflow debate` first; a clear fix skips it.
-3. **Build.** The smallest change that resolves the ticket, tests that fail without it, and evidence. Run `ws check --changed`.
-4. **Draft PR.** Ask approval as the pull request rules require. The body follows the repository's structure and says nothing about agents or tooling.
-5. **Review.** `taskflow review <ID> open --pr <url> --agent <agent of another provider>`, collect; `review <ID> judge`, collect; `review <ID> close`.
-6. **Checks.** `ai-governance pr-ready <url> --head <sha> --json` until `settled` is true; wait between reads, no faster than checks change. Threads the judge triaged as `nitpick` go in `--ignore-threads` (their `node_id` in the capture's `threads.json`).
-7. **Fix.** Only findings the judge confirmed and failed checks, batched in one push. After a push repeat 5 and 6. At most 2 fix pushes.
-8. **Stop.** Bring the owner: what was done, the review summary, what was fixed, what remains (findings needing their decision, threads to answer, `pr-ready` blockers). Verdict and summary go to the owner, never into the PR.
+`tf` means `ai-governance taskflow`.
 
-If it does not converge in 2 pushes, leave the draft and report why.
+1. **Notebook.** `tf show <ID>`; if the task does not exist, `tf new <ID> --title "..."`. Work in a worktree made for this ticket: `tf bind <ID> --repo <worktree> --integration-branch <base>`. Record facts, decisions and each push (`tf fact`).
+2. **Triage.** Read the ticket and the code. Only if root cause or design is contested, run a design debate first (`tf --help`).
+3. **Build.** The smallest change, tests that fail without it, evidence. `ws check --changed` must pass before every push.
+4. **Draft PR.** The body follows the repository's structure; nothing about agents or tooling.
+5. **Review.** `tf review <ID> open --pr <url> --agent <A>`, A of another provider than yours. Run each printed Orca line, end your turn, then `tf round <ID> collect --round N --dispatch-id D`. `tf review <ID> judge` (also with no findings), collect, `tf review <ID> close`. A stuck or invalid round: `tf round <ID> abort`, `close --partial`, report the review as incomplete.
+6. **Checks.** `ai-governance pr-ready <url> --head <sha> --json` (exit 0 or 1 prints JSON; 2 is a read error). While the only blockers are `check_pending:*`, read again no faster than checks change, up to 30 minutes per head; otherwise stop and report. Threads the judge marked `nitpick`: pass their `node_id` (the capture's `threads.json`) in `--ignore-threads`.
+7. **Fix.** Only findings the judge confirmed, threads it marked `fix` and checks your change broke, in one push; first confirm the PR is still a draft at the reviewed head. Then repeat 5 and 6. At most 2 fix pushes in total; report other blockers instead of fixing them.
+8. **Stop.** Bring the owner: what was done, the review summary, what was fixed, what remains. Verdict and summary go to the owner, never into the PR.
+
+Not converged after 2 fix pushes: leave the draft and say why.
 """
 
 TEST_AUDIT_SKILL = """\
