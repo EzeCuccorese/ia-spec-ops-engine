@@ -143,6 +143,42 @@ SETTINGS: tuple[Setting, ...] = (
         "AI_GOVERNANCE_DEPLOY_APPROVALS_PRODUCTION",
         "Production deploy approval policy ('never' or 'explicit')",
     ),
+    Setting(
+        "slack.channel",
+        "",
+        "AI_GOVERNANCE_SLACK_CHANNEL",
+        "Default Slack channel ID of slack-notify",
+    ),
+    Setting(
+        "slack.dm",
+        "",
+        "AI_GOVERNANCE_SLACK_DM",
+        "Slack DM channel/user ID used by slack-notify --channel dm",
+    ),
+    Setting(
+        "slack.allow",
+        [],
+        "AI_GOVERNANCE_SLACK_ALLOW",
+        "Allowed Slack channel/user IDs of slack-notify",
+    ),
+    Setting(
+        "slack.token_env",
+        "SLACK_BOT_TOKEN",
+        "AI_GOVERNANCE_SLACK_TOKEN_ENV",
+        "Env var holding the Slack token",
+    ),
+    Setting(
+        "slack.keychain_service",
+        "",
+        "AI_GOVERNANCE_SLACK_KEYCHAIN_SERVICE",
+        "macOS Keychain service fallback for the token",
+    ),
+    Setting(
+        "slack.bot_name",
+        "",
+        "AI_GOVERNANCE_SLACK_BOT_NAME",
+        "Display name of the Slack bot (informational only)",
+    ),
 )
 
 # Role and judge settings decide who runs with full permissions: only the user's own
@@ -158,6 +194,7 @@ USER_ONLY_PREFIXES = (
     "agents.",
     "hooks.",  # hooks.gate_command picks the program the automatic stop hook runs
     "corporate.",  # which company packs get installed
+    "slack.",  # where notifications go and which token is used
 )
 
 

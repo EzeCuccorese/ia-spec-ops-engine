@@ -352,6 +352,12 @@ Files are TOML (`[frugality]` / `threshold_chars = 4000`). Older JSON files keep
 | `risk_window.cutoff_hour` | `AI_GOVERNANCE_RISK_WINDOW_CUTOFF_HOUR` | `16` | Cutoff hour (0-23) of the production risk window, Monday to Thursday |
 | `risk_window.friday_cutoff_hour` | `AI_GOVERNANCE_RISK_WINDOW_FRIDAY_CUTOFF_HOUR` | `13` | Cutoff hour (0-23) of the production risk window on Friday |
 | `deploy_approvals.production` | `AI_GOVERNANCE_DEPLOY_APPROVALS_PRODUCTION` | `never` | Production deploy approval policy (`never` or `explicit`) |
+| `slack.channel` | `AI_GOVERNANCE_SLACK_CHANNEL` | `""` | Default target of `slack-notify` (user config only) |
+| `slack.dm` | `AI_GOVERNANCE_SLACK_DM` | `""` | Target used by `slack-notify --channel dm` |
+| `slack.allow` | `AI_GOVERNANCE_SLACK_ALLOW` | `[]` | Allowed Slack channel/user IDs of `slack-notify` |
+| `slack.token_env` | `AI_GOVERNANCE_SLACK_TOKEN_ENV` | `SLACK_BOT_TOKEN` | Env var holding the Slack token |
+| `slack.keychain_service` | `AI_GOVERNANCE_SLACK_KEYCHAIN_SERVICE` | `""` | macOS Keychain service fallback for the token |
+| `slack.bot_name` | `AI_GOVERNANCE_SLACK_BOT_NAME` | `""` | Bot display name (informational only) |
 | `corporate.packs` | `AI_GOVERNANCE_CORPORATE` | `[]` (all) | Company packs to install, comma separated (empty: every pack present) |
 | `atlassian.timeout_seconds` | `ATLASSIAN_TIMEOUT` | `30.0` | HTTP timeout of Jira and Confluence calls |
 
