@@ -222,7 +222,7 @@ hint to re-enable it.
 | `ai-governance brain <subcommand>` | Cross-agent second brain notes (`add`, `list`, `show`, `edit`, `search`, `archive`, `import`; see below) |
 | `ai-governance ui <start\|stop\|status\|open>` | Local visual dashboard for Taskflow and Second Brain (`127.0.0.1:7474`; see below) |
 | `ai-governance pr-watch <status\|check>` | Read-only GitHub PR watcher (`ready_to_merge`, comments, CI failures, conflicts) |
-| `ai-governance slack-notify --channel ...` | Allowlist-guarded Slack Markdown notifier using a local Bot Token |
+| `ai-governance slack-notify [--channel ...]` / `slack-notify replies ...` | Allowlist-guarded Slack Markdown notifier and thread reader using a local bot or user token (see below) |
 | `ai-governance jira ...` / `confluence ...` | Atlassian as compact Markdown (`jira` / `confluence` without arguments print their usage) |
 | `ai-governance hook <agent> <event>` | Entry point used by the installed hooks |
 
@@ -304,6 +304,37 @@ Noise filters for `new_comment` alerts:
 
 - `--ignore-authors login1,login2` (repeatable) skips comments from those logins.
 - `--ignore-draft-bots` skips comments from bot accounts (`[bot]` suffix or GitHub `Bot` type) while the PR is a draft.
+
+### Slack notifier
+
+`ai-governance slack-notify` posts Markdown (`--file`, `--text`) or uploads a file (`--attach`,
+through Slack's external upload API) to an allowlisted target. It accepts bot (`xoxb-`) and
+user (`xoxp-`) tokens from the env var named by `--token-env` (default `SLACK_BOT_TOKEN`) or a
+macOS Keychain service. A failed upload step reports the Slack error code, never the token.
+Defaults come from the user-level `[slack]` table (a repository config cannot change them):
+
+```toml
+[slack]
+channel = "C0123ABCD"          # used when --channel is omitted or is "default"
+dm = "D0123ABCD"               # used by --channel dm
+allow = ["C0123ABCD", "D0123ABCD"]
+token_env = "SLACK_BOT_TOKEN"
+keychain_service = "my-slack-token"
+bot_name = "My Bot"            # display only
+```
+
+Flags override config (`--allow` replaces `allow`; `$SLACK_NOTIFY_ALLOW` adds to it). With no
+allowlist, or a target outside it, the command fails closed.
+`ai-governance slack-notify replies --channel C0123ABCD --thread-ts 1700000000.000100` prints the
+thread as JSON lines (`user`, `ts`, `text`, `bot`) under the same allowlist and token rules.
+
+`ai-governance slack-notify inbox --channel C0123ABCD|default [--state FILE] [--from U0123ABCD] [--lookback-hours 24]`
+polls a channel locally (`conversations.history` plus `conversations.replies` for threads with
+new activity) and prints new human messages as JSON lines (`channel`, `thread_ts`, `ts`, `user`,
+`text`, `is_bot`); bot messages are skipped. The last seen ts is stored atomically, after a
+successful read, in `FILE` (default `~/.local/state/ai-governance/slack-inbox/<channel>.json`);
+the first run reads `--lookback-hours`. Exit code `0` means new messages, `1` none, `2` an error,
+so it works as a cheap precheck. All calls go directly to `https://slack.com/api/`.
 
 ## Configuration and environment
 
