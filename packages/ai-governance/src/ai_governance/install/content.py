@@ -157,6 +157,27 @@ One reviewer per PR, then a judge of another provider. Publish nothing without t
 Run `ai-governance taskflow --help` for full subcommand flags. Record only what a future session needs.
 """
 
+TICKET_TO_PR_SKILL = """\
+---
+name: ticket-to-pr
+description: Take a ticket to a draft PR that is tested, reviewed by another provider and ready for the owner's decision. Use to resolve a ticket end to end.
+---
+# Ticket to PR
+
+Outcome: a DRAFT pull request with tests, evidence and justification, reviewed by an agent of another provider, stopped for the owner's decision. Without the owner's OK never undraft, request review, answer review threads or write to the ticket.
+
+1. **Notebook.** `ai-governance taskflow show <ID>` to resume, else `taskflow new <ID> --title "..."`. Work in a worktree created for this ticket and `bind` it. Record facts and decisions as you go.
+2. **Triage.** Read the ticket and the code. If the root cause or the design is contested, run `taskflow debate` first; a clear fix skips it.
+3. **Build.** The smallest change that resolves the ticket, tests that fail without it, and evidence. Run `ws check --changed`.
+4. **Draft PR.** Ask approval as the pull request rules require. The body follows the repository's structure and says nothing about agents or tooling.
+5. **Review.** `taskflow review <ID> open --pr <url> --agent <agent of another provider>`, collect; `review <ID> judge`, collect; `review <ID> close`.
+6. **Checks.** `ai-governance pr-ready <url> --head <sha> --json` until `settled` is true; wait between reads, no faster than checks change. Threads the judge triaged as `nitpick` go in `--ignore-threads` (their `node_id` in the capture's `threads.json`).
+7. **Fix.** Only findings the judge confirmed and failed checks, batched in one push. After a push repeat 5 and 6. At most 2 fix pushes.
+8. **Stop.** Bring the owner: what was done, the review summary, what was fixed, what remains (findings needing their decision, threads to answer, `pr-ready` blockers). Verdict and summary go to the owner, never into the PR.
+
+If it does not converge in 2 pushes, leave the draft and report why.
+"""
+
 TEST_AUDIT_SKILL = """\
 ---
 name: test-audit
@@ -262,6 +283,7 @@ SKILLS = {
     "slack-formatting": SLACK_FORMATTING_SKILL,
     "taskflow": TASKFLOW_SKILL,
     "test-audit": TEST_AUDIT_SKILL,
+    "ticket-to-pr": TICKET_TO_PR_SKILL,
 }
 
 
