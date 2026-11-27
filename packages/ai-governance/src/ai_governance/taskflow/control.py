@@ -54,6 +54,9 @@ VOLATILE_STAMP_KEYS = frozenset({"at"})  # when the stamp was computed
 VOLATILE_REPO_KEYS = frozenset({"integration_sha", "remote_status"})  # network-only, not hashed
 
 
+STAMP_ITEM = "task.code_stamp"
+
+
 def stamp_projection(stamp: JsonDict) -> JsonDict:
     """The code stamp the gates read (key, repos, policy, obligations, reductions), without
     the fields a harmless refresh changes: when it was computed and the network-only SHA."""
@@ -103,7 +106,7 @@ def drift(task: Task, base: JsonDict) -> list[str]:
     now = baseline(task)
     changed: list[str] = []
     if _stamp_changed(now, base):
-        changed.append("task.code_stamp")
+        changed.append(STAMP_ITEM)
     for number, value in dict(base.get("rounds", {})).items():
         if now["rounds"].get(number) != value:
             changed.append(f"round record {number}")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from collections.abc import Callable
@@ -241,18 +242,30 @@ def _set_status(status: str) -> Callable[[argparse.Namespace], int]:
     return command
 
 
-def _unsettled_dispatch_rounds(runs_dir: Path, settled: set[int]) -> set[int]:
+def _is_pending_reservation(path: Path, task_id: str) -> bool:
+    """A dispatch file that cannot be read, or that names this task with a round number
+    other than its directory's, blocks (uncertainty blocks); only another task is foreign."""
+    try:
+        found = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return True
+    if not isinstance(found, dict):
+        return True
+    return found.get("task") == task_id
+
+
+def _unsettled_dispatch_rounds(store: TaskStore, task_id: str, settled: set[int]) -> set[int]:
+    runs_dir = store.task_dir(task_id) / "runs"
     if not runs_dir.is_dir():
         return set()
     pending: set[int] = set()
-    for path in sorted(runs_dir.glob("*/dispatch.json")):
-        try:
-            found = json.loads(path.read_text(encoding="utf-8"))
-            number = int(found["n"])
-        except (OSError, ValueError, KeyError, TypeError):
+    for directory in sorted(runs_dir.iterdir()):
+        name = directory.name
+        if not (len(name) >= 3 and name.isdigit()) or int(name) in settled:
             continue
-        if found.get("role") == "debater" and number not in settled:
-            pending.add(number)
+        path = directory / "dispatch.json"
+        if os.path.lexists(path) and _is_pending_reservation(path, task_id):
+            pending.add(int(name))
     return pending
 
 
@@ -272,9 +285,9 @@ def _unsettled_seat_rounds(store: TaskStore, task_id: str, settled: set[int]) ->
     return pending
 
 
-def _in_flight_debate_rounds(store: TaskStore, task: Task) -> list[int]:
+def _in_flight_rounds(store: TaskStore, task: Task) -> list[int]:
     settled = {int(r.get("n", 0)) for r in task.rounds}
-    pending = _unsettled_dispatch_rounds(store.task_dir(task.id) / "runs", settled)
+    pending = _unsettled_dispatch_rounds(store, task.id, settled)
     pending |= _unsettled_seat_rounds(store, task.id, settled)
     return sorted(pending)
 
@@ -289,21 +302,37 @@ def _archive_closed_task(store: TaskStore, task_id: str) -> None:
         print(f"WARN: could not archive '{task_id}' to brain: {exc}", file=sys.stderr)
 
 
+def _close_guarded(store: TaskStore) -> Callable[[Task], None]:
+    """The pending-round check and the status change run in one mutate, under the task lock,
+    so a round dispatched in between cannot slip through."""
+
+    def change(task: Task) -> None:
+        if pending := _in_flight_rounds(store, task):
+            joined = ", ".join(f"{n:03d}" for n in pending)
+            raise ValueError(
+                f"Cannot close '{task.id}': unsettled round(s) {joined} "
+                "(collect/abort them, or pass --force / --abandon)"
+            )
+        task.status = "closed"
+
+    return change
+
+
 def cmd_close(args: argparse.Namespace) -> int:
     store = _store()
     task = store.get(args.task_id)
     was_closed = task.status == "closed"
     done_outside = bool(getattr(args, "done_outside", False))
     forced = bool(getattr(args, "force", False) or getattr(args, "abandon", False) or done_outside)
-    if not forced and (pending := _in_flight_debate_rounds(store, task)):
-        joined = ", ".join(f"{n:03d}" for n in pending)
-        raise ValueError(
-            f"Cannot close '{task.id}': unsettled debate round(s) {joined} "
-            "(collect/abort them, or pass --force / --abandon)"
-        )
     if done_outside and not getattr(args, "reason", ""):
         args.reason = "done outside flow"
-    result = _set_status("closed")(args)
+    if forced:
+        result = _set_status("closed")(args)
+    else:
+        reason = f": {args.reason}" if getattr(args, "reason", "") else ""
+        store.mutate(task.id, _close_guarded(store), log=f"Status closed{reason}")
+        emit_status("ok", f"'{task.id}' is closed")
+        result = 0
     if not was_closed:
         _archive_closed_task(store, task.id)
     return result
@@ -397,7 +426,7 @@ def _approvals_summary(task: Task) -> str:
 
 def _debate_summary(store: TaskStore, task: Task) -> str:
     state = load_debate(store, task.id)
-    pending = _in_flight_debate_rounds(store, task)
+    pending = _in_flight_rounds(store, task)
     if state is None:
         if pending:
             return "unsettled rounds: " + ", ".join(f"{n:03d}" for n in pending)

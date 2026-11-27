@@ -324,6 +324,8 @@ class _Publisher:
         self.made: JsonDict = {}
 
     def __call__(self, locked: Task, number: int, round_file: Path) -> None:
+        if not locked.is_open():
+            raise DispatchError(f"task '{locked.id}' is closed: no round can be dispatched")
         directory = round_file.parent.parent
         refuse_pending(locked, directory, self.request)
         record, text = self._record(locked, number, round_file)
@@ -367,6 +369,7 @@ class _Publisher:
             "denied_models": sorted(config.denied_models),
             "command": orca.worker_start_argv(start),
             "repos": self.ctx.repos,
+            "source": request.source,
             "control": baseline(locked),
             **_round_paths(files, round_file),
         }
@@ -415,8 +418,16 @@ def read_dispatch(store: TaskStore, task_id: str, number: int) -> JsonDict:
     """The dispatch record of a round, or an error when the engine did not dispatch it."""
     path = run_dir(store, task_id, number) / "dispatch.json"
     try:
-        found = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        body = path.read_text(encoding="utf-8")
+    except OSError:
+        body = ""
+    return _parse_dispatch(body, task_id, number)
+
+
+def _parse_dispatch(body: str, task_id: str, number: int) -> JsonDict:
+    try:
+        found = json.loads(body)
+    except ValueError:
         found = None
     if not isinstance(found, dict) or found.get("task") != task_id or found.get("n") != number:
         raise DispatchError(f"round {number} was not dispatched by the engine")
@@ -435,7 +446,7 @@ def verify_dispatch(store: TaskStore, task_id: str, number: int) -> JsonDict:
         raise DispatchError(
             f"the dispatch record of round {number} changed after dispatch: it cannot be trusted"
         )
-    found = read_dispatch(store, task_id, number)
+    found = _parse_dispatch(body, task_id, number)
     if digest_file(found["spec"]) != found.get("spec_sha"):
         raise DispatchError(f"the spec of round {number} changed after dispatch")
     return found

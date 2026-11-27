@@ -95,7 +95,7 @@ def test_close_blocks_only_on_unsettled_debate_rounds_unless_forced(
     )
     capsys.readouterr()
     assert run("close", "TASK-1") == 1
-    assert "unsettled debate round" in capsys.readouterr().err
+    assert "unsettled round" in capsys.readouterr().err
     assert state.get("TASK-1").status == "active"
     assert run("status", "TASK-1") == 0
     status_out = _out(capsys)

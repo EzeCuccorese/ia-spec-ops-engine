@@ -113,12 +113,10 @@ def _lifecycle_commands(sub: Subparsers) -> None:
     item = add(
         "close",
         cli.cmd_close,
-        "Close a task (blocked only if debate rounds are still in flight unless --force)",
+        "Close a task (blocked only if rounds are still in flight unless --force)",
     )
     item.add_argument("--reason", default="")
-    item.add_argument(
-        "--force", action="store_true", help="Close even when debate rounds are unsettled"
-    )
+    item.add_argument("--force", action="store_true", help="Close even when rounds are unsettled")
     item.add_argument(
         "--abandon", action="store_true", help="Close a task that left the flow unfinished"
     )

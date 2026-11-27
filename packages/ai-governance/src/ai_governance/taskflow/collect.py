@@ -26,7 +26,7 @@ from pathlib import Path
 from . import orca
 from .agents import provider, read_regular_text
 from .config import FlowConfig, load_config, matches_denied_model
-from .control import DispatchError, drift
+from .control import STAMP_ITEM, DispatchError, drift
 from .dispatch import read_dispatch, verify_dispatch
 from .models import JsonDict, Task, now_iso
 from .prompts import parse_changes, parse_position
@@ -57,6 +57,7 @@ class _Settlement:
     text: str
     extra: JsonDict | None = None
     control: JsonDict | None = None
+    exempt: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -212,13 +213,24 @@ def _raw_launch_models(raw_data: object) -> list[str]:
     return list(dict.fromkeys(m for m in candidates if m))
 
 
-def _load_round_config(found: JsonDict) -> FlowConfig:
-    repos = [
-        Path(r["path"])
-        for r in found.get("repos") or []
-        if isinstance(r, dict) and r.get("path") and Path(r["path"]).is_dir()
+def _with_task_config(found: JsonDict, task: Task) -> JsonDict:
+    """A review round's repos are the reviewed code, which must not configure its own collect:
+    its config comes from the task's currently bound repositories (in memory, never sealed)."""
+    if not found.get("source"):
+        return found
+    return {**found, "config_repos": [str(r["path"]) for r in task.repos if r.get("path")]}
+
+
+def _config_paths(found: JsonDict) -> list[str]:
+    if found.get("source"):
+        return [str(p) for p in found.get("config_repos") or []]
+    return [
+        str(r["path"]) for r in found.get("repos") or [] if isinstance(r, dict) and r.get("path")
     ]
-    return load_config(repos)
+
+
+def _load_round_config(found: JsonDict) -> FlowConfig:
+    return load_config([Path(p) for p in _config_paths(found) if Path(p).is_dir()])
 
 
 def _combined_denied_models(found: JsonDict) -> set[str]:
@@ -419,8 +431,14 @@ def _base_record(found: JsonDict) -> JsonDict:
     }
 
 
-def _check_drift(task: Task, control: JsonDict) -> None:
-    if changed := drift(task, control):
+def _drift_exemptions(found: JsonDict) -> tuple[str, ...]:
+    """A review round is bound to its source, not to the task's repositories: a refreshed
+    task stamp does not invalidate it (the source itself is checked by ``_tree_reasons``)."""
+    return (STAMP_ITEM,) if found.get("source") else ()
+
+
+def _check_drift(task: Task, control: JsonDict, exempt: tuple[str, ...] = ()) -> None:
+    if changed := [item for item in drift(task, control) if item not in exempt]:
         raise DispatchError(
             "taskflow control files changed since dispatch (" + ", ".join(changed[:6]) + "): "
             "the round was not settled; inspect the store before going on"
@@ -467,7 +485,7 @@ def _write_settled(store: TaskStore, task_id: str, settlement: _Settlement) -> N
         if session:
             _unused(task, number, session)
         if settlement.control is not None:
-            _check_drift(task, settlement.control)
+            _check_drift(task, settlement.control, settlement.exempt)
         previous = _read_optional_text(round_file)
         atomic_write_text(round_file, text)
         wrote = True
@@ -509,21 +527,24 @@ def collect_round(
     read_dispatch(store, task_id, number)
     if (done := _find(task, number)) is not None:
         return _already(done, dispatch_id)
-    found = verify_dispatch(store, task_id, number)
+    found = _with_task_config(verify_dispatch(store, task_id, number), task)
     _unused(task, number, dispatch_id)
     row = _worker(dispatch_id, number, settling=True)
     verified = _provider_verified(row, found)
     check_receipt(found, dispatch_id, number)
     failed = row.state != orca.SUCCEEDED
     answer, transport = ("", "none") if failed else _read_answer(found, answer_file)
-    _check_drift(task, found["control"])
+    exempt = _drift_exemptions(found)
+    _check_drift(task, found["control"], exempt)
     ev = _CollectEvidence(dispatch_id, verified, transport, launch_verified(found, dispatch_id))
     record = _settled_record(found, row, answer, ev)
     try:
         _write_settled(
             store,
             task_id,
-            _Settlement(record, _render(record, found, answer), control=found["control"]),
+            _Settlement(
+                record, _render(record, found, answer), control=found["control"], exempt=exempt
+            ),
         )
     except _Lost as lost:
         return _already(lost.record, dispatch_id)
@@ -573,7 +594,7 @@ def abort_round(store: TaskStore, ref: RoundRef, reason: str, dispatch_id: str |
             f"round {number:03d} was already {what}; nothing changes"
             + (" (its audit log entry was restored)" if healed else "")
         )
-    found = verify_dispatch(store, task_id, number)
+    found = _with_task_config(verify_dispatch(store, task_id, number), task)
     session, verified = "", False
     if dispatch_id is not None:
         _unused(task, number, dispatch_id)
