@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 GUIDE = """\
-Flow (durable task notebook + human gates + multi-provider design debate):
+Flow (durable task notebook + human gates + multi-provider design debate and PR review):
 
   1. Notebook:  taskflow new <ID> --title "..."   (ID = Jira key or slug)
                 taskflow bind <ID> --repo <worktree> --integration-branch <branch>
@@ -30,6 +30,17 @@ Flow (durable task notebook + human gates + multi-provider design debate):
      taskflow debate <ID> cross              (all-against-all cross-examination)
      taskflow debate <ID> status             (pending/collected/invalid per seat)
      taskflow debate <ID> close [--partial]  (writes synthesis.md; records open points as steps)
+
+  4. Pull request review (reviewer and judge of different providers, Orca workers only):
+     taskflow review <ID> open --pr <url> [--pr <url>] --agent <a> [--model M] [--lens "..."]
+     Captures each PR at its head commit and prints one reviewer line per PR: run them
+     together, END YOUR TURN, collect each round. Then:
+     taskflow review <ID> judge [--agent <b>]   (every finding checked against the code)
+     taskflow review <ID> status
+     taskflow review <ID> close [--partial]     (writes summary.md for the owner; publishes nothing)
+     After the owner's OK on the summary:
+     taskflow review <ID> payload --pr <key> --event comment|request-changes|approve [--include N,M]
+     It writes the GitHub review and prints the line that sends it; record the approval first.
 
 Agents never run from the engine or from a shell. Never launch agent CLIs yourself.
 One worktree per task: tasks sharing a worktree make `here` ambiguous.

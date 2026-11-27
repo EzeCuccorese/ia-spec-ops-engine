@@ -247,7 +247,8 @@ task state, open steps, and debate status.
 | `bind <id> --repo P [--integration-branch B] [--pr N]`, `unbind` | Bind repositories/worktrees |
 | `stamp <id> [--remote]` | Code stamp of the bound repositories (HEAD + every changed path) |
 | `debate <id> open --topic-file F --agents a,b [--model a=m] [--web] [--artifact P]`, `debate <id> cross`, `debate <id> status`, `debate <id> close [--partial]` | Run a multi-provider design debate: open independent thesis rounds, run all-against-all cross-examination rounds, inspect seat state, or write `synthesis.md` (and record open points as steps) |
-| `round <id> collect --round N --dispatch-id D`, `round <id> abort` | Settle or abort a dispatched debate worker round |
+| `review <id> open --pr URL [--pr URL] --agent A [--model M] [--lens "..."]`, `review <id> judge [--agent B]`, `review <id> status`, `review <id> close [--partial]`, `review <id> payload --pr KEY --event comment\|request-changes\|approve [--include N,M]` | Review pull requests: capture each PR at its head commit, run one reviewer per PR and a judge of another provider that checks every finding against the code, write `summary.md` for the owner, and after the owner's approval write the GitHub review and print the line that sends it (the engine sends nothing) |
+| `round <id> collect --round N --dispatch-id D`, `round <id> abort` | Settle or abort a dispatched debate or review worker round |
 | `close [--abandon]`, `block`/`unblock` | Close or pause a task |
 | `approve <id> --action A --target T --user-reply "..." [--consequence "..."]` | Record an approval the user gave in the chat |
 | `deploy <id> ...`, `evidence <id> ...` | Record a deployment the user made and evidence bound to its SHA |

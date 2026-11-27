@@ -8,7 +8,7 @@ import argparse
 from collections.abc import Callable
 from typing import TypeAlias
 
-from . import cli, debate_cli
+from . import cli, debate_cli, review_cli
 from .approvals import ACTIONS
 from .guide import GUIDE
 from .models import ROLES, WORKFLOWS, now_iso
@@ -263,6 +263,58 @@ def _debate_commands(sub: Subparsers) -> None:
     )
 
 
+def _review_agent_args(item: argparse.ArgumentParser, role: str, *, required: bool) -> None:
+    item.add_argument("--agent", required=required, help=f"Agent id that runs the {role} rounds")
+    item.add_argument("--model", default="", help=f"Model of the {role} agent")
+    item.add_argument("--json", action="store_true", help="Print the dispatch result as JSON")
+
+
+def _review_commands(sub: Subparsers) -> None:
+    add = _adder(sub)
+    item = add(
+        "review",
+        review_cli.route,
+        "Review pull requests: one reviewer per PR, a judge of another provider, one summary",
+    )
+    actions = item.add_subparsers(
+        dest="review_action", required=True, metavar="{open,judge,status,close,payload}"
+    )
+    open_cmd = actions.add_parser(
+        "open", help="Capture each pull request and dispatch one reviewer round per PR"
+    )
+    open_cmd.add_argument(
+        "--pr", action="append", required=True, metavar="URL", help="Pull request URL (repeatable)"
+    )
+    open_cmd.add_argument("--lens", default="", help="Extra focus for the reviewers, in a sentence")
+    _review_agent_args(open_cmd, "reviewer", required=True)
+    judge_cmd = actions.add_parser(
+        "judge",
+        help="Dispatch one judge round per reviewed PR (another provider than the reviewer)",
+    )
+    _review_agent_args(judge_cmd, "judge", required=False)
+    status_cmd = actions.add_parser("status", help="Show the rounds of each pull request")
+    status_cmd.add_argument("--json", action="store_true", help="Print the table as JSON")
+    close_cmd = actions.add_parser(
+        "close", help="Write summary.md for the owner from the settled rounds; publishes nothing"
+    )
+    close_cmd.add_argument(
+        "--partial", action="store_true", help="Close even when rounds are still pending"
+    )
+    payload_cmd = actions.add_parser(
+        "payload", help="Write the GitHub review the owner approved and print how to send it"
+    )
+    payload_cmd.add_argument("--pr", required=True, help="Pull request key or URL of this review")
+    payload_cmd.add_argument(
+        "--event", required=True, choices=("comment", "request-changes", "approve")
+    )
+    payload_cmd.add_argument(
+        "--include",
+        default="",
+        metavar="N,M",
+        help="Findings to publish besides the confirmed ones",
+    )
+
+
 def _report_commands(sub: Subparsers) -> None:
     add = _adder(sub)
     item = add("deploy", cli.cmd_deploy, "Record a deployment the user made (never deploys)")
@@ -306,5 +358,6 @@ def build_parser() -> argparse.ArgumentParser:
     _approval_commands(sub)
     _round_commands(sub)
     _debate_commands(sub)
+    _review_commands(sub)
     _report_commands(sub)
     return parser

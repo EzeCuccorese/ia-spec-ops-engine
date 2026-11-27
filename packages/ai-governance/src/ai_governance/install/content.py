@@ -125,7 +125,7 @@ ANTIGRAVITY_RUNNER_SETTINGS = (
 TASKFLOW_SKILL = """\
 ---
 name: taskflow
-description: Track multi-session tasks and run multi-provider design debates with ai-governance taskflow.
+description: Track multi-session tasks, run multi-provider design debates and review pull requests with ai-governance taskflow.
 ---
 # Taskflow
 
@@ -147,10 +147,12 @@ Debate rounds run in separate Orca workers (never launched directly by the engin
 3. `ai-governance taskflow debate <id> cross` — dispatch cross-examination rounds once theses are collected.
 4. `ai-governance taskflow debate <id> status` — check seat progress; `debate <id> close [--partial]` — write `synthesis.md` and turn open points into steps.
 
-## Paired implementation review
-Assign independent reviewers distinct areas. Give the verdict first and verify each finding
-against current code. Ask the implementer to address confirmed blockers and run the relevant
-checks before the follow-up review. Leave commits and publication to explicit authorization.
+## Pull request review
+One reviewer per PR, then a judge of another provider. Publish nothing without the owner's OK:
+1. `taskflow review <id> open --pr <url> [--pr <url>] --agent <a>` prints one reviewer worker per PR: start them together, end your turn, `round collect` each.
+2. `review <id> judge` prints the judges, which check each finding against the code; collect them.
+3. `review <id> close` writes `summary.md`.
+4. After their OK: `review <id> payload --pr <key> --event <e>`, record `approve`, run the line.
 
 Run `ai-governance taskflow --help` for full subcommand flags. Record only what a future session needs.
 """

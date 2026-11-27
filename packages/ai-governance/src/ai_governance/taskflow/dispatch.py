@@ -48,6 +48,8 @@ from .stamp import head_sha, tree_fingerprint
 from .store import RoundSlot, TaskStore, atomic_write_text
 
 DISPATCHABLE = ("debater",)
+# Roles a review round may use: the reviewer reuses the existing ``validator`` role.
+REVIEW_ROLES = ("validator", "judge")
 
 
 @dataclass(frozen=True)
@@ -61,6 +63,9 @@ class DispatchRequest:
     web: bool = False
     artifacts: tuple[str, ...] = ()
     effort: str = ""
+    # Review rounds: a read-only checkout of the code under review. The round is bound to it
+    # (HEAD and tree fingerprint) instead of the task's repositories.
+    source: str = ""
 
 
 @dataclass(frozen=True)
@@ -139,9 +144,13 @@ def _check_model(config: FlowConfig, request: DispatchRequest) -> None:
 
 def check_dispatchable(task: Task, config: FlowConfig, request: DispatchRequest) -> None:
     role, name = request.role, str(request.agent.get("agent", ""))
-    refuse_role(task, role)
-    if task.workflow == "manual" and role != "debater":
-        raise DispatchError("Manual tasks have no agent rounds")
+    if request.source:
+        if role not in REVIEW_ROLES:
+            raise UsageRefusal(f"A review round runs as {' or '.join(REVIEW_ROLES)}, not {role}")
+    else:
+        refuse_role(task, role)
+        if task.workflow == "manual" and role != "debater":
+            raise DispatchError("Manual tasks have no agent rounds")
     if task.blocked:
         raise DispatchError(
             f"'{task.id}' is blocked by {task.blocked.get('owner')}: {task.blocked.get('needs')}"
@@ -154,12 +163,21 @@ def check_dispatchable(task: Task, config: FlowConfig, request: DispatchRequest)
     _check_artifacts(request.artifacts)
 
 
-def _snapshot_repos(task: Task) -> list[JsonDict]:
-    """Path, HEAD and tree fingerprint of every bound repo, taken before a number is reserved."""
+def _bound_paths(task: Task, source: str) -> list[Path]:
+    if source:
+        if not Path(source).is_dir():
+            raise DispatchError(f"review source not found: {source}")
+        return [Path(source)]
     found = partition(task.repos)
     if found.missing:
         raise DispatchError(f"bound repo not found: {found.missing[0]['path']}")
-    paths = [Path(b["path"]) for b in found.live] or [Path.cwd()]
+    return [Path(b["path"]) for b in found.live] or [Path.cwd()]
+
+
+def _snapshot_repos(task: Task, source: str = "") -> list[JsonDict]:
+    """Path, HEAD and tree fingerprint of what the round is bound to, taken before a number
+    is reserved: the review source when there is one, else every bound repo."""
+    paths = _bound_paths(task, source)
     return on_live(
         paths,
         lambda: [
@@ -280,6 +298,7 @@ class _DispatchContext:
     store: TaskStore
     config: FlowConfig
     repos: list[JsonDict]
+    launch_dir: str  # the Orca workspace the worker starts in
 
 
 def _agent_effort(request: DispatchRequest, config: FlowConfig) -> str:
@@ -326,7 +345,7 @@ class _Publisher:
         model = _resolved_model(config, request, effort)
         title = f"{request.role} round {number} of {locked.id}"
         start = orca.WorkerStart(
-            str(files.spec), agent, model, self.ctx.repos[0]["path"], title, effort=effort
+            str(files.spec), agent, model, self.ctx.launch_dir, title, effort=effort
         )
         record: JsonDict = {
             "n": number,
@@ -379,8 +398,11 @@ def plan_dispatch(
     """Validate, reserve the round and write its files. Runs nothing."""
     check_dispatchable(task, config, request)
     orca.require_orca()
-    repos = _snapshot_repos(task)
-    publisher = _Publisher(_DispatchContext(store, config, repos), request)
+    repos = _snapshot_repos(task, request.source)
+    # A review source lives in the taskflow store, which Orca does not know as a workspace:
+    # its worker starts where the coordinator is and reads the source by path.
+    launch_dir = str(Path.cwd()) if request.source else str(repos[0]["path"])
+    publisher = _Publisher(_DispatchContext(store, config, repos, launch_dir), request)
     agent = str(request.agent.get("agent", ""))
     store.reserve_round(task.id, RoundSlot(request.phase, request.role, agent), publisher)
     made = publisher.made
