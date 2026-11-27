@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import orca
-from .agents import HUMAN, PREFERENCE, provider, read_regular_text
+from .agents import DEFAULT_MODELS, HUMAN, PREFERENCE, provider, read_regular_text
 from .config import FlowConfig
 from .control import DispatchError
 
@@ -170,6 +170,13 @@ def _dispatch(
     )
 
 
+def _launch_model(agent: str, model: str) -> str:
+    """The model a round launches with: the one asked for, else the provider's default, so the
+    launch can be verified at collect (empty only for a provider without a default). Dispatch
+    resolves the same default only when an effort or denied models need it, so it is kept here."""
+    return model.strip() or DEFAULT_MODELS.get(provider(agent), "")
+
+
 def _reviewer_request(
     task: Task, snapshot: PullSnapshot, opts: OpenReviewOptions
 ) -> DispatchRequest:
@@ -178,7 +185,7 @@ def _reviewer_request(
         phase=task.phase,
         focus=snapshot.ref.key,
         prompt=reviewer_prompt(snapshot, opts.lens),
-        agent={"agent": opts.agent, "model": opts.model},
+        agent={"agent": opts.agent, "model": _launch_model(opts.agent, opts.model)},
         source=str(snapshot.source),
     )
 
@@ -277,7 +284,7 @@ def _judge_request(task: Task, entry: JsonDict, agent: str, model: str) -> Dispa
         phase=task.phase,
         focus=str(entry["key"]),
         prompt=judge_prompt(snapshot, Path(str(record["file"]))),
-        agent={"agent": agent, "model": model},
+        agent={"agent": agent, "model": _launch_model(agent, model)},
         source=str(snapshot.source),
     )
 
