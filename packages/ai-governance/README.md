@@ -222,6 +222,7 @@ hint to re-enable it.
 | `ai-governance brain <subcommand>` | Cross-agent second brain notes (`add`, `list`, `show`, `edit`, `search`, `archive`, `import`; see below) |
 | `ai-governance ui <start\|stop\|status\|open>` | Local visual dashboard for Taskflow and Second Brain (`127.0.0.1:7474`; see below) |
 | `ai-governance pr-watch <status\|check>` | Read-only GitHub PR watcher (`ready_to_merge`, comments, CI failures, conflicts) |
+| `ai-governance pr-ready <pull request URL>` | Read-only readiness verdict for one PR (`settled`, `ready`, blockers; exit 0 ready, 1 not ready, 2 unreadable). Only checks reported on the head commit are read, a required review does not block `ready` (only changes requested does; `review_decision` is reported), and required-workflow rulesets give `required_checks_unknown` |
 | `ai-governance slack-notify [--channel ...]` / `slack-notify replies ...` | Allowlist-guarded Slack Markdown notifier and thread reader using a local bot or user token (see below) |
 | `ai-governance jira ...` / `confluence ...` | Atlassian as compact Markdown (`jira` / `confluence` without arguments print their usage) |
 | `ai-governance hook <agent> <event>` | Entry point used by the installed hooks |
