@@ -354,10 +354,19 @@ def test_protected_branch_without_required_checks_has_none(run: Callable) -> Non
     assert verdict(out) == (0, True, True, [])
 
 
-def test_branch_endpoint_app_id_of_the_wrong_type_is_not_any_source(run: Callable) -> None:
-    body = branch_body(checks=[{"context": "build", "app_id": "999"}])
+@pytest.mark.parametrize(
+    ("app_id", "blocker"),
+    [
+        pytest.param("999", "required_checks_unknown", id="wrong_type_is_not_any_source"),
+        pytest.param(999, "required_check_missing:build", id="integer_pins_the_check_to_an_app"),
+    ],
+)
+def test_branch_endpoint_app_id_that_is_not_any_source(
+    run: Callable, app_id: object, blocker: str
+) -> None:
+    body = branch_body(checks=[{"context": "build", "app_id": app_id}])
     out = run(Scenario(classic_rule=None, branch=body))
-    assert verdict(out) == (1, False, False, ["required_checks_unknown"])
+    assert verdict(out) == (1, False, False, [blocker])
 
 
 @pytest.mark.parametrize(
@@ -444,12 +453,6 @@ def test_required_review_does_not_block_ready_and_is_reported(run: Callable) -> 
     out = run(Scenario(review_decision="REVIEW_REQUIRED"))
     assert verdict(out) == (0, True, True, [])
     assert out.report["review_decision"] == "REVIEW_REQUIRED"
-
-
-def test_branch_endpoint_pins_required_checks_to_an_app(run: Callable) -> None:
-    body = branch_body(checks=[{"context": "build", "app_id": 999}])
-    out = run(Scenario(classic_rule=None, branch=body))
-    assert verdict(out) == (1, False, False, ["required_check_missing:build"])
 
 
 @pytest.mark.parametrize(
