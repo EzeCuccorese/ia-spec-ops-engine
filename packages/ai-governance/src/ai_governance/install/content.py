@@ -148,36 +148,54 @@ Debate rounds run in separate Orca workers (never launched directly by the engin
 4. `ai-governance taskflow debate <id> status` — check seat progress; `debate <id> close [--partial]` — write `synthesis.md` and turn open points into steps.
 
 ## Pull request review
-One reviewer per PR, then a judge of another provider. Publish nothing without the owner's OK:
-1. `taskflow review <id> open --pr <url> [--pr <url>] --agent <a>` prints one reviewer worker per PR: start them together, end your turn, `round collect` each.
-2. `review <id> judge` prints the judges, which check each finding against the code; collect them.
-3. `review <id> close` writes `summary.md`.
-4. After their OK: `review <id> payload --pr <key> --event <e>`, record `approve`, run the line.
+Reviewer per PR plus a judge of another provider: use the `pr-review` skill.
 
 Run `ai-governance taskflow --help` for full subcommand flags. Record only what a future session needs.
+"""
+
+PR_REVIEW_SKILL = """\
+---
+name: pr-review
+description: Review pull requests with one reviewer agent per PR and a judge of another provider that checks every finding against the code; publish only after the owner's OK. Use when asked to review PRs, the owner's or other people's.
+---
+# PR Review
+
+Outcome: one summary for the owner saying, per PR, what a second provider confirmed against the code. Nothing reaches GitHub without the owner's explicit OK.
+
+`tf` means `ai-governance taskflow`.
+
+1. **Task.** The ticket's task, or `tf new <ID> --title "..."`. Each PR is captured at its head commit: no checkout needed. At most 8 PRs per review.
+2. **Reviewers.** `tf review <ID> open --pr <url> [--pr <url>] --agent <A> [--lens "<focus>"]`, A never the provider that wrote the code. Run the printed Orca lines together, end your turn, then `tf round <ID> collect --round N --dispatch-id D` for each.
+3. **Judges.** `tf review <ID> judge [--agent <B>]`, B of another provider than A (the default picks one), also when a reviewer found nothing. Run, end your turn, collect.
+4. **Summary.** `tf review <ID> close` prints the path of `summary.md`. Tell the owner, per PR: the reading, the confirmed findings, the ones that need their decision and why, how open threads were triaged, and every warning (the PR moved, something was written to it, a round was invalid).
+5. **Second look.** When the owner disputes a verdict, or the judge rejected a blocker or major finding, open a new review of that PR with another reviewer and a `--lens` naming the disputed point. Do not settle it yourself.
+6. **Publish** only what the owner asked for: `tf review <ID> payload --pr <key> --event comment|request-changes|approve [--include N,M]`, show the payload, record `tf approve <ID> --action comment ...`, then run the printed line. The owner's own PRs only take `comment`.
+
+A stuck or invalid round: `tf round <ID> abort`, then `tf review <ID> close --partial`, and say the review is incomplete. Nothing about agents, verdicts or tooling in what is published.
 """
 
 TICKET_TO_PR_SKILL = """\
 ---
 name: ticket-to-pr
-description: Take a ticket to a draft PR that is tested, reviewed by another provider and ready for the owner's decision. Use to resolve a ticket end to end.
+description: Take a ticket to a draft PR that is investigated, tested, proven in a real environment, reviewed by another provider and ready for the owner's decision. Use to resolve a ticket end to end.
 ---
 # Ticket to PR
 
-Outcome: a DRAFT pull request with tests, evidence and justification, reviewed by another provider, stopped for the owner's decision. Without the owner's explicit OK for that action, never undraft, request review, publish a review, answer or resolve threads, or write to the ticket. The PR and every push need the approvals the rules require.
+Outcome: a DRAFT pull request with tests, evidence and justification, reviewed by another provider, stopped for the owner's decision, with every doubt resolved or reported. Without the owner's explicit OK for that action, never undraft, request review, publish a review, answer threads, send messages or write to the ticket. The PR and every push need the approvals the rules require. A company skill for this kind of ticket adds its specifics to these steps.
 
-`tf` means `ai-governance taskflow`.
+`tf` means `ai-governance taskflow`. You coordinate: give each step to an agent.
 
-1. **Notebook.** `tf show <ID>`; if the task does not exist, `tf new <ID> --title "..."`. Work in a worktree made for this ticket: `tf bind <ID> --repo <worktree> --integration-branch <base>`. Record facts, decisions and each push (`tf fact`).
-2. **Triage.** Read the ticket and the code. Only if root cause or design is contested, run a design debate first (`tf --help`).
-3. **Build.** The smallest change, tests that fail without it, evidence. `ws check --changed` must pass before every push.
-4. **Draft PR.** The body follows the repository's structure; nothing about agents or tooling.
-5. **Review.** `tf review <ID> open --pr <url> --agent <A>`, A of another provider than yours. Run each printed Orca line, end your turn, then `tf round <ID> collect --round N --dispatch-id D`. `tf review <ID> judge` (also with no findings), collect, `tf review <ID> close`. A stuck or invalid round: `tf round <ID> abort`, `close --partial`, report the review as incomplete.
-6. **Checks.** `ai-governance pr-ready <url> --head <sha> --json` (exit 0 or 1 prints JSON; 2 is a read error). While the only blockers are `check_pending:*`, read again no faster than checks change, up to 30 minutes per head; otherwise stop and report. Threads the judge marked `nitpick`: pass their `node_id` (the capture's `threads.json`) in `--ignore-threads`.
-7. **Fix.** Only findings the judge confirmed, threads it marked `fix` and checks your change broke, in one push; first confirm the PR is still a draft at the reviewed head. Then repeat 5 and 6. At most 2 fix pushes in total; report other blockers instead of fixing them.
-8. **Stop.** Bring the owner: what was done, the review summary, what was fixed, what remains. Verdict and summary go to the owner, never into the PR.
-
-Not converged after 2 fix pushes: leave the draft and say why.
+1. **Base branch.** Ask the owner which branch to start from and wait.
+2. **Claim.** `tf show <ID>` or `tf new <ID> --title "..."`. Check nobody holds the ticket; claim it where the team tracks it. Work in its own worktree: `tf bind <ID> --repo <worktree> --integration-branch <base>`. Record facts, decisions, pushes.
+3. **Investigate.** Two investigators of different providers who get only the ticket and the code; each then judges the other's report against the code (`tf debate`). One verdict.
+4. **Plan** in plain words for the owner: what the bug does, the fix, and what it changes for users, backward compatibility or any contract.
+5. **Build.** One agent writes the smallest change with tests that fail without it, an agent of another provider reviews it, you close the loop. One PR for the whole ticket. `ws check --changed` passes before every push.
+6. **Draft PR**, body per the repository's structure, nothing about agents or tooling.
+7. **Prove it** in a real environment when there is one: reproduce the bug, show the fix, keep logs. Evidence goes in the PR, secrets redacted, shown to the owner first.
+8. **Review** with the `pr-review` skill.
+9. **Checks.** `ai-governance pr-ready <url> --head <sha> --json`. While only `check_pending:*` blocks, read again no faster than checks change, up to 30 minutes per head; otherwise report.
+10. **Fix** only findings the judge confirmed, threads it marked `fix` and checks your change broke: one push, after confirming the PR is still a draft at the reviewed head. Repeat 8 and 9. At most 2 fix pushes.
+11. **Stop.** Bring the owner what was done, the review summary, what remains and drafts of any message. Verdict and summary never go into the PR.
 """
 
 TEST_AUDIT_SKILL = """\
@@ -285,6 +303,7 @@ SKILLS = {
     "slack-formatting": SLACK_FORMATTING_SKILL,
     "taskflow": TASKFLOW_SKILL,
     "test-audit": TEST_AUDIT_SKILL,
+    "pr-review": PR_REVIEW_SKILL,
     "ticket-to-pr": TICKET_TO_PR_SKILL,
 }
 
