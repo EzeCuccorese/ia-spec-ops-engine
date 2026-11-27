@@ -174,6 +174,27 @@ Outcome: one summary for the owner saying, per PR, what a second provider confir
 A stuck or invalid round: `tf round <ID> abort`, then `tf review <ID> close --partial`, and say the review is incomplete. Nothing about agents, verdicts or tooling in what is published.
 """
 
+SECURITY_TICKET_SKILL = """\
+---
+name: security-ticket
+description: Security specifics for resolving a vulnerability ticket end to end (pentest finding, security board, CVE): attacker view, isolated investigators, exploit evidence before and after, security review lens. Use with ticket-to-pr whenever the ticket is a security issue.
+---
+# Security Ticket
+
+Follow the `ticket-to-pr` skill; this adds what a vulnerability needs. A company skill for its security board adds its own specifics on top. Nothing is left adrift: every doubt is resolved or reported to the owner.
+
+- **Read everything.** The whole ticket, its attachments (pentest reports are often attached files) and linked threads. A second finding inside an attachment is part of the ticket.
+- **Attacker view.** Tell the owner in two plain lines what an attacker can do today and what they need for it. Name the weakness class once.
+- **Investigate isolated.** The two investigators get the ticket and the code only, so neither inherits your hypothesis. Ask each for the exploit path, the root cause and the other places where the same flaw may exist.
+- **Measure first** when the fix sits on a hot path (authentication, sessions, every request): real traffic and latency from production monitoring, read-only, so the plan states the cost and what happens when a dependency is down.
+- **Scope.** Fix the whole root cause the ticket names, in one PR. Other weaknesses you find are reported to the owner, not fixed along the way. State whether each new check fails open or closed.
+- **Tests.** One test performs the attack and fails without the fix; another shows the legitimate path still works.
+- **Proof.** In a real non-production environment: the request that exploited the bug before, the same request refused after, and the trace. Never attack production. Redact tokens, cookies and personal data in every capture and show the owner before uploading.
+- **Review.** `pr-review` with `--lens "security fix: authorization, session and token handling, injection, secrets in logs, fail-open paths"`.
+- **Disclosure.** Until the fix is deployed, the PR describes the fix and its evidence, not a ready-made attack on unpatched systems.
+- **Close.** Do not move the ticket's status. Tell the owner what the security team still validates and which production signal should drop after deploy.
+"""
+
 TICKET_TO_PR_SKILL = """\
 ---
 name: ticket-to-pr
@@ -304,6 +325,7 @@ SKILLS = {
     "taskflow": TASKFLOW_SKILL,
     "test-audit": TEST_AUDIT_SKILL,
     "pr-review": PR_REVIEW_SKILL,
+    "security-ticket": SECURITY_TICKET_SKILL,
     "ticket-to-pr": TICKET_TO_PR_SKILL,
 }
 
