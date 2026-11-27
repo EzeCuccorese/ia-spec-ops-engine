@@ -50,13 +50,15 @@ def _sample_pr(
     }
 
 
-def _comment(item_id: str, author: str, body: str, created_at: str) -> dict:
+def _comment(
+    item_id: str, author: str, body: str, created_at: str, *, author_type: str = "User"
+) -> dict:
     return {
         "id": item_id,
         "url": f"https://github.com/acme/repo/pull/42#{item_id}",
         "createdAt": created_at,
         "body": body,
-        "author": {"login": author},
+        "author": {"__typename": author_type, "login": author},
     }
 
 
@@ -311,3 +313,99 @@ def test_pr_watch_handles_null_graphql_shapes(monkeypatch) -> None:
     ctx = {"__typename": "CheckRun", "name": None, "conclusion": "FAILURE"}
     failed = pr_watch._failing_check_from_context(ctx, "https://x")
     assert failed is not None and failed["name"] == "check"
+
+
+def _ignored_bot_comments() -> list[dict]:
+    return [
+        _comment(
+            "c-sonar",
+            "SonarQubeCloud",
+            "Quality Gate Passed",
+            "2026-11-27T10:00:00Z",
+            author_type="Bot",
+        ),
+        _comment("c-dep", "dependabot[bot]", "Rebased", "2026-11-27T10:01:00Z", author_type="Bot"),
+    ]
+
+
+def _check(tmp_path: Path, *extra: str) -> int:
+    return pr_watch.main(["check", "--state-dir", str(tmp_path), *extra])
+
+
+def test_ignore_authors_filters_noise_and_records_seen_ids(monkeypatch, tmp_path: Path) -> None:
+    prs = [_sample_pr()]
+    monkeypatch.setattr(pr_watch, "_gh_env", lambda _u: {})
+    monkeypatch.setattr(pr_watch, "_resolve_author", lambda _a, _e: "alice")
+    monkeypatch.setattr(pr_watch, "_fetch_open_prs", lambda _a, _o, _e: list(prs))
+
+    assert _check(tmp_path) == 1
+
+    # Only ignored authors post comments/reviews -> exit 1 (no alert), IDs still saved
+    prs[0] = _sample_pr(comments=_ignored_bot_comments())
+    ignore = ["--ignore-authors", "sonarqubecloud[bot],other", "--ignore-authors", "dependabot"]
+    assert _check(tmp_path, *ignore) == 1
+    saved = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
+    assert saved["prs"]["acme/repo#42"]["seen_interaction_ids"] == ["c-dep", "c-sonar"]
+
+    # A non-ignored reviewer comments -> fires alert with only that comment
+    bob = _comment("c-bob", "bob", "Please rename var", "2026-11-27T10:05:00Z")
+    prs[0] = _sample_pr(comments=[*_ignored_bot_comments(), bob])
+    assert _check(tmp_path, "--ignore-authors", "sonarqubecloud,dependabot") == 0
+    pending = json.loads((tmp_path / "pending-events.json").read_text(encoding="utf-8"))
+    assert [it["id"] for it in pending["events"][0]["items"]] == ["c-bob"]
+
+
+def test_ignore_draft_bots_suppresses_draft_bot_noise_without_stale_alerts(
+    monkeypatch, tmp_path: Path
+) -> None:
+    prs = [_sample_pr(is_draft=True)]
+    monkeypatch.setattr(pr_watch, "_gh_env", lambda _u: {})
+    monkeypatch.setattr(pr_watch, "_resolve_author", lambda _a, _e: "alice")
+    monkeypatch.setattr(pr_watch, "_fetch_open_prs", lambda _a, _o, _e: list(prs))
+
+    assert pr_watch.main(["check", "--state-dir", str(tmp_path), "--ignore-draft-bots"]) == 1
+
+    # Draft PR gets bot comment (by __typename and by [bot] fallback) -> suppressed
+    bot_draft_comment = _comment(
+        "c-bot-draft",
+        "reviewerbot",
+        "Draft PR not reviewed",
+        "2026-11-27T10:00:00Z",
+        author_type="Bot",
+    )
+    fallback_bot_comment = {
+        "id": "c-bot-fallback",
+        "url": "https://github.com/acme/repo/pull/42#c-bot-fallback",
+        "createdAt": "2026-11-27T10:01:00Z",
+        "body": "Skipped draft",
+        "author": {"login": "helper[bot]"},
+    }
+    prs[0] = _sample_pr(is_draft=True, comments=[bot_draft_comment, fallback_bot_comment])
+    assert pr_watch.main(["check", "--state-dir", str(tmp_path), "--ignore-draft-bots"]) == 1
+
+    # Human comment on the SAME draft PR still fires an alert
+    human_draft_comment = _comment("c-human-draft", "bob", "Early feedback", "2026-11-27T10:02:00Z")
+    prs[0] = _sample_pr(
+        is_draft=True, comments=[bot_draft_comment, fallback_bot_comment, human_draft_comment]
+    )
+    assert pr_watch.main(["check", "--state-dir", str(tmp_path), "--ignore-draft-bots"]) == 0
+    pending = json.loads((tmp_path / "pending-events.json").read_text(encoding="utf-8"))
+    assert [it["id"] for it in pending["events"][0]["items"]] == ["c-human-draft"]
+
+    # PR leaves draft -> previously suppressed draft bot comments do NOT replay
+    prs[0] = _sample_pr(
+        is_draft=False, comments=[bot_draft_comment, fallback_bot_comment, human_draft_comment]
+    )
+    assert pr_watch.main(["check", "--state-dir", str(tmp_path), "--ignore-draft-bots"]) == 1
+
+    # New bot review on ready PR DOES fire an alert
+    bot_ready_comment = _comment(
+        "c-bot-ready", "reviewerbot", "Found 1 issue", "2026-11-27T10:10:00Z", author_type="Bot"
+    )
+    prs[0] = _sample_pr(
+        is_draft=False,
+        comments=[bot_draft_comment, fallback_bot_comment, human_draft_comment, bot_ready_comment],
+    )
+    assert pr_watch.main(["check", "--state-dir", str(tmp_path), "--ignore-draft-bots"]) == 0
+    pending = json.loads((tmp_path / "pending-events.json").read_text(encoding="utf-8"))
+    assert [it["id"] for it in pending["events"][0]["items"]] == ["c-bot-ready"]

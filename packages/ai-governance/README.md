@@ -297,6 +297,14 @@ If you previously used personal rules, your retained personal source directory i
 Copy any custom rules you want to keep into each agent's supported instructions directory
 (`~/.claude/rules/`, `~/.gemini/config/rules/`, or `$CODEX_HOME/AGENTS.md`).
 
+### PR watcher
+
+`ai-governance pr-watch check` reports new comments, CI failures and conflicts on your open PRs.
+Noise filters for `new_comment` alerts:
+
+- `--ignore-authors login1,login2` (repeatable) skips comments from those logins.
+- `--ignore-draft-bots` skips comments from bot accounts (`[bot]` suffix or GitHub `Bot` type) while the PR is a draft.
+
 ## Configuration and environment
 
 State: `~/.local/state/ai-governance/` (ledger `installed.json`, `taskflow/`, `frugal/`).

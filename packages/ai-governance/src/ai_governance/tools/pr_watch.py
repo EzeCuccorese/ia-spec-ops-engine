@@ -73,7 +73,7 @@ query($q: String!) {
             url
             createdAt
             body
-            author { login }
+            author { __typename login }
           }
         }
         reviews(last: 15) {
@@ -83,7 +83,7 @@ query($q: String!) {
             state
             submittedAt
             body
-            author { login }
+            author { __typename login }
           }
         }
         reviewThreads(last: 25) {
@@ -95,7 +95,7 @@ query($q: String!) {
                 createdAt
                 body
                 path
-                author { login }
+                author { __typename login }
               }
             }
           }
@@ -174,6 +174,7 @@ class _Interaction:
     url: str
     when: str
     path: str = ""
+    is_bot: bool = False
 
 
 def _extract_head_commit(pr: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -217,8 +218,23 @@ def _extract_failing_checks(rollup: dict[str, Any], fallback_url: str) -> list[d
     return failing
 
 
+def _normalize_login(login: str) -> str:
+    cleaned = login.strip().lower()
+    return cleaned[:-5] if cleaned.endswith("[bot]") else cleaned
+
+
+def _parse_ignored_authors(values: list[str] | None) -> frozenset[str]:
+    ignored: set[str] = set()
+    for raw in values or []:
+        for part in raw.split(","):
+            norm = _normalize_login(part)
+            if norm:
+                ignored.add(norm)
+    return frozenset(ignored)
+
+
 def _record_interaction(
-    interactions: dict[str, dict[str, str]],
+    interactions: dict[str, dict[str, Any]],
     author: str,
     fallback_url: str,
     item: _Interaction,
@@ -229,6 +245,7 @@ def _record_interaction(
     interactions[item.item_id] = {
         "id": item.item_id,
         "author": item.who,
+        "is_bot": item.is_bot,
         "kind": item.kind,
         "snippet": snippet,
         "url": item.url or fallback_url,
@@ -238,7 +255,7 @@ def _record_interaction(
 
 
 def _collect_issue_comments(
-    pr: dict[str, Any], interactions: dict[str, dict[str, str]], author: str
+    pr: dict[str, Any], interactions: dict[str, dict[str, Any]], author: str
 ) -> None:
     for comment in (pr.get("comments") or {}).get("nodes") or []:
         if not isinstance(comment, dict):
@@ -249,11 +266,12 @@ def _collect_issue_comments(
             pr["url"],
             _Interaction(
                 item_id=comment.get("id"),
-                who=(comment.get("author") or {}).get("login"),
+                who=_author_login(comment),
                 kind="comment",
                 body=comment.get("body") or "",
                 url=comment.get("url") or pr["url"],
                 when=comment.get("createdAt") or "",
+                is_bot=_is_bot_actor(comment),
             ),
         )
 
@@ -265,6 +283,13 @@ def _dict_nodes(container: dict[str, Any], key: str) -> list[dict[str, Any]]:
 
 def _author_login(node: dict[str, Any]) -> str | None:
     return (node.get("author") or {}).get("login")
+
+
+def _is_bot_actor(node: dict[str, Any]) -> bool:
+    author_obj = node.get("author") or {}
+    typename = str(author_obj.get("__typename") or "")
+    login = str(author_obj.get("login") or "").lower()
+    return typename == "Bot" or login.endswith("[bot]")
 
 
 def _review_to_interaction(review: dict[str, Any], fallback_url: str) -> _Interaction | None:
@@ -281,11 +306,12 @@ def _review_to_interaction(review: dict[str, Any], fallback_url: str) -> _Intera
         body=body or state.replace("_", " ").lower(),
         url=review.get("url") or fallback_url,
         when=review.get("submittedAt") or "",
+        is_bot=_is_bot_actor(review),
     )
 
 
 def _collect_reviews(
-    pr: dict[str, Any], interactions: dict[str, dict[str, str]], author: str
+    pr: dict[str, Any], interactions: dict[str, dict[str, Any]], author: str
 ) -> None:
     for review in _dict_nodes(pr, "reviews"):
         item = _review_to_interaction(review, pr["url"])
@@ -302,11 +328,12 @@ def _inline_to_interaction(rc: dict[str, Any], fallback_url: str) -> _Interactio
         url=rc.get("url") or fallback_url,
         when=rc.get("createdAt") or "",
         path=rc.get("path") or "",
+        is_bot=_is_bot_actor(rc),
     )
 
 
 def _collect_inline_comments(
-    pr: dict[str, Any], interactions: dict[str, dict[str, str]], author: str
+    pr: dict[str, Any], interactions: dict[str, dict[str, Any]], author: str
 ) -> None:
     for thread in _dict_nodes(pr, "reviewThreads"):
         for rc in _dict_nodes(thread, "comments"):
@@ -315,8 +342,8 @@ def _collect_inline_comments(
             )
 
 
-def _collect_interactions(pr: dict[str, Any], author: str) -> dict[str, dict[str, str]]:
-    interactions: dict[str, dict[str, str]] = {}
+def _collect_interactions(pr: dict[str, Any], author: str) -> dict[str, dict[str, Any]]:
+    interactions: dict[str, dict[str, Any]] = {}
     _collect_issue_comments(pr, interactions, author)
     _collect_reviews(pr, interactions, author)
     _collect_inline_comments(pr, interactions, author)
@@ -408,11 +435,34 @@ def _ci_failure_event(
     return event
 
 
+def _is_ignored_interaction(
+    item: dict[str, Any],
+    is_draft: bool,
+    ignore_authors: frozenset[str],
+    ignore_draft_bots: bool,
+) -> bool:
+    author_norm = _normalize_login(str(item.get("author") or ""))
+    if author_norm and author_norm in ignore_authors:
+        return True
+    return bool(ignore_draft_bots and is_draft and item.get("is_bot"))
+
+
 def _new_comment_event(
-    key: str, pr: dict[str, Any], old: dict[str, Any] | None
+    key: str,
+    pr: dict[str, Any],
+    old: dict[str, Any] | None,
+    *,
+    ignore_authors: frozenset[str] = frozenset(),
+    ignore_draft_bots: bool = False,
 ) -> dict[str, Any] | None:
     seen_ids = set((old or {}).get("seen_interaction_ids", []))
-    new_items = [item for iid, item in pr["interactions"].items() if iid not in seen_ids]
+    is_draft = bool(pr.get("is_draft", False))
+    new_items = [
+        item
+        for iid, item in pr["interactions"].items()
+        if iid not in seen_ids
+        and not _is_ignored_interaction(item, is_draft, ignore_authors, ignore_draft_bots)
+    ]
     if not new_items:
         return None
     new_items.sort(key=lambda x: x.get("at", ""))
@@ -422,7 +472,11 @@ def _new_comment_event(
 
 
 def diff_events(
-    current: dict[str, dict[str, Any]], previous: dict[str, Any]
+    current: dict[str, dict[str, Any]],
+    previous: dict[str, Any],
+    *,
+    ignore_authors: frozenset[str] = frozenset(),
+    ignore_draft_bots: bool = False,
 ) -> list[dict[str, Any]]:
     """Return only newly occurred PR transitions compared against ``previous``."""
     prev_prs = previous.get("prs", {})
@@ -434,7 +488,13 @@ def diff_events(
         ci_event = _ci_failure_event(key, pr, old)
         if ci_event is not None:
             events.append(ci_event)
-        comment_event = _new_comment_event(key, pr, old)
+        comment_event = _new_comment_event(
+            key,
+            pr,
+            old,
+            ignore_authors=ignore_authors,
+            ignore_draft_bots=ignore_draft_bots,
+        )
         if comment_event is not None:
             events.append(comment_event)
 
@@ -523,6 +583,17 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--footer", help="Optional italic footer line appended to instant alerts")
     parser.add_argument(
+        "--ignore-authors",
+        action="append",
+        default=[],
+        help="Author logins to ignore for new_comment alerts (repeatable or comma-separated)",
+    )
+    parser.add_argument(
+        "--ignore-draft-bots",
+        action="store_true",
+        help="Ignore new_comment alerts from bot accounts while a PR is in draft",
+    )
+    parser.add_argument(
         "--init", action="store_true", help="Initialize baseline state without alerting"
     )
     return parser
@@ -569,7 +640,12 @@ def _run_check(args: argparse.Namespace, current: dict[str, dict[str, Any]], aut
         print(f"pr-watch error: corrupt state file {state_file}: {exc}", file=sys.stderr)
         return 2
 
-    events = diff_events(current, previous)
+    events = diff_events(
+        current,
+        previous,
+        ignore_authors=_parse_ignored_authors(args.ignore_authors),
+        ignore_draft_bots=bool(args.ignore_draft_bots),
+    )
     if not events:
         _atomic_write_text(state_file, json.dumps(serialize_state(current), indent=2))
         return 1
